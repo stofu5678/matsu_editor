@@ -124,6 +124,22 @@ pub fn has_keyword_form(pattern: &str) -> bool {
     split_pattern(pattern).is_some()
 }
 
+/// Whether the pattern of a keyword, framed as `/.../k`, compiles
+/// (`CheckRegexpSyntax( pattern, ..., bKakomi = true )`). A pattern that is not framed does not.
+pub fn keyword_compiles(pattern: &str) -> bool {
+    split_pattern(pattern).is_some_and(|(inside, ignore_case)| {
+        Onigmo
+            .compile(
+                inside,
+                Options {
+                    ignore_case,
+                    ..Options::default()
+                },
+            )
+            .is_ok()
+    })
+}
+
 impl RegexKeywords {
     /// The keywords of `t`; none when the type does not use them.
     pub(crate) fn from_type(t: &TypeSettings) -> Self {

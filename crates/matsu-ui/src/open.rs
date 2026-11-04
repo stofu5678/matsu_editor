@@ -65,6 +65,7 @@ pub fn open_text_file_with(
         options.ask_before_whole_read = huge.ask_before_whole_read;
     }
     options.detect.default_encoding = defaults.encoding;
+    options.detect.prefer_cesu8 = defaults.prefer_cesu8;
     match open_file_with(path, &options, progress) {
         Err(FileError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
             Ok(new_named(path, encoding, defaults))
@@ -107,6 +108,42 @@ mod tests {
     }
 
     #[test]
+    fn utf8_or_cesu8_when_both_fit_follows_the_setting_of_the_type() {
+        // Japanese text in UTF-8 is as good a CESU-8 text (no pair of surrogates tells them
+        // apart): the detection takes UTF-8, or CESU-8 with 「自動判別時にCESU-8 を優先する」.
+        let dir = temp_dir("cesu8");
+        let path = dir.join("jp.txt");
+        let line = "日本語のテキストです。吾輩は猫である。名前はまだ無い。\r\n";
+        std::fs::write(&path, line.repeat(8)).unwrap();
+        let open = |prefer_cesu8| {
+            let defaults = NewDocumentDefaults {
+                prefer_cesu8,
+                ..defaults()
+            };
+            open_text_file(&path, None, &defaults, &mut no_progress)
+                .unwrap()
+                .encoding
+        };
+        assert_eq!(open(false), Encoding::Utf8);
+        assert_eq!(open(true), Encoding::Cesu8);
+    }
+
+    #[test]
+    fn a_file_nothing_decides_is_read_in_the_default_code_page() {
+        // 「C&P」: the default encoding may be a code page; an ASCII-only file takes it.
+        let dir = temp_dir("code-page");
+        let path = dir.join("ascii.txt");
+        std::fs::write(&path, b"plain ascii\r\n").unwrap();
+        let gbk = Encoding::CodePage(matsu_core::encoding::CodePage::new(936).unwrap());
+        let defaults = NewDocumentDefaults {
+            encoding: gbk,
+            ..defaults()
+        };
+        let file = open_text_file(&path, None, &defaults, &mut no_progress).unwrap();
+        assert_eq!(file.encoding, gbk);
+    }
+
+    #[test]
     fn a_missing_file_gets_the_line_ending_of_the_os() {
         let path = Path::new("/nonexistent/matsu-test-file");
         let file = open_text_file(path, None, &defaults(), &mut no_progress).unwrap();
@@ -122,6 +159,7 @@ mod tests {
             bom: false,
             eol: Eol::Cr,
             mime_decode: false,
+            prefer_cesu8: false,
         };
         let file = open_text_file(path, None, &settings, &mut no_progress).unwrap();
         assert_eq!(file.encoding, Encoding::Utf16Le);

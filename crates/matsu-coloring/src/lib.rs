@@ -35,7 +35,7 @@ mod url;
 pub use charkind::{CharKind, kind_at, next_word_break};
 pub use kind::{ColorKind, ColorRun, KEYWORD_SLOTS};
 pub use number::number_len;
-pub use regex_keyword::has_keyword_form;
+pub use regex_keyword::{has_keyword_form, keyword_compiles};
 pub use rules::ColorRules;
 pub use scan::{ColorState, QuoteKind};
 pub use states::{ColorStates, LOCAL_WINDOW, LineEdit, SKIP_LINE_BYTES, line_end_state};

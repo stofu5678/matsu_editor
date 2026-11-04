@@ -36,7 +36,10 @@
 //! of Sakura's progress dialog.
 //!
 //! Each file is read with [`matsu_core::file::open_file_with`], one file at a time (the bytes of
-//! one file are in memory, the lines are decoded when they are looked at). The matching is the
+//! one file are in memory, the lines are decoded when they are looked at). A file of
+//! [`GrepInfo::huge_file_len`] bytes or more is not read whole: its lines are read in order, a
+//! chunk at a time, without an index (ADR-0020, chapter 5, [`matsu_core::file::LineReader`]).
+//! The line number is counted as the lines are read. The matching is the
 //! matcher of the search panel (`build_matcher` in `crate::search::state`), also for
 //! the regular expression and the words. Sakura does not skip binary files, nor do we.
 //!
@@ -47,7 +50,9 @@
 //! ([`GrepInfo::window`]): `GetHwndTitle` and the `hWndTarget` branch of `DoGrep`, and
 //! `CFileLoadOrWnd`, which reads the lines of the window. The window is a snapshot of its
 //! document taken when the search starts, read by lines like a file, so the unsaved changes and
-//! a document with no file are searched.
+//! a document with no file are searched. A document of a huge file reads each line from its
+//! block index, not the whole text; while its scan is still running the snapshot has only the
+//! scanned start, so the file behind it is read in order instead ([`WindowSource::scanning`]).
 //!
 //! Differences from Sakura: `GetLongFileName` is not applied to the folders; the output to the
 //! standard output (`-GOPT=S`) is not here; a Grep 置換 of the text of a window is refused
@@ -62,9 +67,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use matsu_core::buffer::Document;
+use matsu_core::buffer::{BlockIndex, Document, Line};
 use matsu_core::encoding::{DETECT_SAMPLE_LEN, DetectOptions, Encoding, detect};
-use matsu_core::file::{FileError, OpenOptions, TextFile, open_file_with};
+use matsu_core::file::{
+    DEFAULT_STREAM_CHUNK, FileError, LineReader, LineStream, OpenOptions, TextFile, open_file_with,
+    open_line_stream,
+};
 use matsu_core::model::eol_text;
 use matsu_core::search::ReplaceTarget;
 use matsu_core::search::{Match, Matcher};
@@ -121,6 +129,11 @@ pub struct GrepInfo {
     /// common setting to `CFileLoad::FileOpen` in `CGrepAgent::DoGrep`). Not in the dialog: the
     /// window sets it from the common settings when the search starts.
     pub mime_decode: bool,
+    /// A file of this many bytes or more is read in order, a chunk at a time, instead of whole
+    /// (the size from which the editor opens a file by ranges, `nHugeFileSizeMB`; ADR-0020,
+    /// chapter 5). `None` reads every file whole. Not in the dialog: the window sets it from the
+    /// common settings when the search starts.
+    pub huge_file_len: Option<u64>,
     /// The text of the window to search instead of the files (`:HWND:` in `cmGrepFile`). The
     /// window, which only the UI can find, puts it here when the search starts.
     pub window: Option<WindowSource>,
@@ -143,6 +156,12 @@ pub struct WindowSource {
     pub name: String,
     /// What the heading shows in `Window:[...]`.
     pub title: String,
+    /// Set while the document still shows only the scanned start of its huge file (the scan of
+    /// the line endings is running): the index of the scan. The search reads the file behind it
+    /// in order, through the same open file as the document ([`BlockIndex::source`]), instead of
+    /// the snapshot, which would miss the rest. The text is the document's even if another
+    /// program changes the file meanwhile (that is an error of the read).
+    pub scanning: Option<BlockIndex>,
 }
 
 /// The parts of a Grep 置換 that a Grep does not have (`cmGrepRep`, `bGrepPaste`, `bGrepBackup`).
@@ -245,6 +264,92 @@ pub fn chop_yen(folder: &str) -> String {
 
 /// Stopped by the user.
 struct Stopped;
+
+/// Why the next line could not be had from a file or a document.
+enum ReadStop {
+    /// It could not be read.
+    Failed,
+    /// The user stopped the search while the line was being read.
+    Cancelled,
+}
+
+/// The bytes one read of a file that is read in order asks for.
+fn stream_chunk() -> usize {
+    #[cfg(test)]
+    return stream_probe::chunk();
+    #[cfg(not(test))]
+    DEFAULT_STREAM_CHUNK
+}
+
+/// What the tests see of the files that were read in order, on this thread: the size of a read,
+/// and what the readers held and read.
+#[cfg(test)]
+pub(super) mod stream_probe {
+    use std::cell::Cell;
+
+    use super::DEFAULT_STREAM_CHUNK;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Seen {
+        /// The files read in order.
+        pub files: usize,
+        /// The most bytes one reader held at once.
+        pub peak: usize,
+        /// The bytes read from the files in all.
+        pub bytes: u64,
+    }
+
+    thread_local! {
+        static CHUNK: Cell<usize> = const { Cell::new(DEFAULT_STREAM_CHUNK) };
+        static SEEN: Cell<Seen> = const { Cell::new(Seen { files: 0, peak: 0, bytes: 0 }) };
+    }
+
+    /// The files that were read whole, by every thread (the search of the app runs on another one).
+    static WHOLE: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+
+    pub fn whole_read(path: &str) {
+        let len = std::fs::metadata(path).map_or(0, |m| m.len());
+        WHOLE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((path.to_owned(), len));
+    }
+
+    /// The files of `dir` that were read whole, and their sizes.
+    pub fn whole_reads_in(dir: &std::path::Path) -> Vec<(String, u64)> {
+        let dir = dir.to_string_lossy().into_owned();
+        WHOLE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(p, _)| p.starts_with(&dir))
+            .cloned()
+            .collect()
+    }
+
+    pub fn chunk() -> usize {
+        CHUNK.with(Cell::get)
+    }
+
+    /// Runs `f` with reads of `chunk` bytes, and tells what the streams saw.
+    pub fn with_chunk<R>(chunk: usize, f: impl FnOnce() -> R) -> (R, Seen) {
+        let before = CHUNK.with(|c| c.replace(chunk));
+        SEEN.with(|s| s.set(Seen::default()));
+        let result = f();
+        CHUNK.with(|c| c.set(before));
+        (result, SEEN.with(Cell::get))
+    }
+
+    pub fn record(reader: &matsu_core::file::LineReader) {
+        SEEN.with(|s| {
+            let mut seen = s.get();
+            seen.files += 1;
+            seen.peak = seen.peak.max(reader.peak_buffered());
+            seen.bytes += reader.bytes_read();
+            s.set(seen);
+        });
+    }
+}
 
 struct Runner<'a> {
     info: &'a GrepInfo,
@@ -531,11 +636,28 @@ impl Runner<'_> {
         if self.info.replace.is_some() {
             return self.replace_file(paths, state);
         }
+        // A huge file is read in order, a chunk at a time (ADR-0020, chapter 5). One that cannot
+        // be is not read whole instead (that could use all the memory): it is told as a file
+        // that cannot be read.
+        if let Some(from) = self.info.huge_file_len
+            && std::fs::metadata(paths.full).is_ok_and(|m| m.len() >= from)
+        {
+            let stream = match self.open_stream(paths.full, from) {
+                Ok(stream) => stream,
+                Err(reason) => {
+                    self.buffer.push_str(&format::file_open_error(paths.full));
+                    self.buffer.push_str(&format!("  ({reason}){EOL}"));
+                    return Ok(());
+                }
+            };
+            let code_name = self.code_name(stream.encoding);
+            return self.search_stream(stream.into_reader(), paths, &code_name, state);
+        }
         let Some(file) = self.open(paths.full)? else {
             return Ok(());
         };
         let code_name = self.code_name(file.encoding);
-        self.search_lines(&file.document, paths, &code_name, state)
+        self.search_document(&file.document, paths, &code_name, state)
     }
 
     /// The window of a search of 「この編集中のテキスト」 (the `hWndTarget` branch of `DoGrep`): the
@@ -576,36 +698,96 @@ impl Runner<'_> {
             };
             self.file_name_only(&paths, &mut state, Some(name));
             Ok(())
+        } else if let Some(index) = &window.scanning {
+            // The snapshot has only the scanned start of the file: read the file itself, through
+            // the open file of the document.
+            let reader = LineReader::new(
+                index.source().clone(),
+                index.codec().clone(),
+                index.ext_eol(),
+                stream_chunk(),
+            );
+            self.search_stream(reader, &paths, &code_name, &mut state)
         } else {
-            self.search_lines(&window.document, &paths, &code_name, &mut state)
+            self.search_document(&window.document, &paths, &code_name, &mut state)
         };
         self.flush_when_due();
         result
     }
 
-    /// The lines of a document, one after another (`DoGrepFile`'s loop over `ReadLine`).
-    fn search_lines(
+    /// The lines of a document, one after another (`DoGrepFile`'s loop over `ReadLine`). A
+    /// document of a huge file finds each line in its block index; the text is not read whole.
+    fn search_document(
         &mut self,
         doc: &Document,
         paths: &FilePaths<'_>,
         code_name: &str,
         state: &mut PathInfoState,
     ) -> Result<(), Stopped> {
+        let count = doc.line_count();
+        let mut index = 0;
+        self.search_lines(paths, code_name, state, &mut || {
+            if index >= count {
+                return Ok(None);
+            }
+            index += 1;
+            doc.line(index - 1).map_err(|_| ReadStop::Failed)
+        })
+    }
+
+    /// The lines of a file that is read in order. The stop is looked at before each read, so that
+    /// a line of any length can be stopped inside.
+    fn search_stream(
+        &mut self,
+        mut reader: LineReader,
+        paths: &FilePaths<'_>,
+        code_name: &str,
+        state: &mut PathInfoState,
+    ) -> Result<(), Stopped> {
+        let cancel = self.cancel;
+        let result = self.search_lines(paths, code_name, state, &mut || {
+            reader
+                .next_line_until(&mut || cancel.load(Ordering::Relaxed))
+                .map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::Interrupted {
+                        ReadStop::Cancelled
+                    } else {
+                        ReadStop::Failed
+                    }
+                })
+        });
+        #[cfg(test)]
+        stream_probe::record(&reader);
+        result
+    }
+
+    /// The loop over the lines that `next` gives. The number of a line is counted here, so that
+    /// a file that is read in order needs no index.
+    fn search_lines(
+        &mut self,
+        paths: &FilePaths<'_>,
+        code_name: &str,
+        state: &mut PathInfoState,
+        next: &mut dyn FnMut() -> Result<Option<Line>, ReadStop>,
+    ) -> Result<(), Stopped> {
         let mut file_hits = 0usize;
-        for index in 0..doc.line_count() {
-            if index % CANCEL_CHECK_LINES == 0 {
+        let mut index = 0usize;
+        loop {
+            if index.is_multiple_of(CANCEL_CHECK_LINES) {
                 self.check_cancel()?;
             }
-            let line = match doc.line(index) {
+            let line = match next() {
                 Ok(Some(line)) => line,
                 Ok(None) => break,
-                Err(_) => {
+                Err(ReadStop::Cancelled) => return Err(Stopped),
+                Err(ReadStop::Failed) => {
                     self.buffer.push_str(&format::file_read_error(paths.full));
                     break;
                 }
             };
             let eol = line.eol.map_or("", eol_text);
             file_hits += self.line(paths, code_name, state, index as u64 + 1, &line.text, eol)?;
+            index += 1;
             self.flush_when_due();
             // ファイル毎最初のみ検索: the file is done at its first hit.
             if self.info.file_only && file_hits >= 1 {
@@ -615,9 +797,28 @@ impl Runner<'_> {
         Ok(())
     }
 
+    /// Opens a file of `from` bytes or more to be read in order. The error says why it cannot
+    /// be: it cannot be opened, or its encoding keeps a state between characters (ISO-2022-JP,
+    /// UTF-7).
+    fn open_stream(&self, path: &str, from: u64) -> Result<LineStream, String> {
+        let options = OpenOptions {
+            encoding: self.info.charset,
+            ext_eol: matsu_commands::edit_options::get().ext_eol,
+            huge_file_len: Some(from),
+            ..OpenOptions::default()
+        };
+        match open_line_stream(path, &options, stream_chunk()) {
+            Ok(Some(stream)) => Ok(stream),
+            Ok(None) => Err("このファイルは範囲ごとに読めません".to_owned()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     /// Opens a file for the search, in the encoding of the dialog or the detected one. A file that
     /// cannot be opened is told in the result and gives `None`.
     fn open(&mut self, path: &str) -> Result<Option<TextFile>, Stopped> {
+        #[cfg(test)]
+        stream_probe::whole_read(path);
         let mut options = OpenOptions {
             encoding: self.info.charset,
             mime_decode: self.info.mime_decode,

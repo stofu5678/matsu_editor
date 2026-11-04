@@ -169,8 +169,6 @@ pub(crate) fn keyword_names(types: &DocumentTypes) -> Vec<String> {
 pub(crate) fn sheet(profile: &Profile, index: usize) -> Option<TypeSheet> {
     let types = DocumentTypes::from_profile(profile);
     let original = values::shown_type(&types, profile, index)?;
-    // The number the type has is a choice of the outline list, also when no plugin has it.
-    crate::plugin_outline::set_stored(original.default_outline);
     let pages = pages::pages(index);
     let controls: Vec<Control> = pages
         .iter()
@@ -199,6 +197,7 @@ pub(crate) fn open(
     page: Option<usize>,
     opener: Option<AnyWindowHandle>,
 ) -> Option<Entity<CommonSettingsDialog>> {
+    crate::plugin_complement::forget_choices();
     if let Some(dialog) = current_dialog(cx) {
         let (window, open_id) = {
             let open = cx.global::<OpenSheet>();
@@ -374,7 +373,7 @@ fn write_by_id(
 
 /// Writes what the user changed into type `number` of `profile`, over the type as `profile` has it
 /// now (another window or process may have changed it since the sheet opened), except that the
-/// new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`) the user did not change
+/// new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`, `bPriorCesu8`) the user did not change
 /// and the file does not set stay unset, so that the line ending still follows the OS. A type of
 /// MATSU Editor's own (ADR-0017) is written with all its keys.
 fn write_type(
@@ -409,6 +408,11 @@ fn write_type(
             merged.default_bom == base.default_bom
                 && merged.default_codetype == base.default_codetype,
             raw("bDefaultBom"),
+        ),
+        (
+            "bPriorCesu8",
+            merged.prior_cesu8 == base.prior_cesu8,
+            raw("bPriorCesu8"),
         ),
     ];
     merged.write(profile, number)?;

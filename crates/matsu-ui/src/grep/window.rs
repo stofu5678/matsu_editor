@@ -241,6 +241,11 @@ impl EditorView {
         self.grep.is_running()
     }
 
+    /// A Grep runs in the window, or is about to (a macro of the type change goes first).
+    pub(crate) fn grep_busy(&self) -> bool {
+        self.grep.is_running() || self.grep.starting
+    }
+
     /// The key the window searched for, or none for a window that is not a Grep window.
     pub(crate) fn grep_key(&self) -> Option<String> {
         self.grep.key.clone()
@@ -456,12 +461,15 @@ impl EditorView {
                 )
             }
         };
+        // While the scan of a huge file runs, the document has only the scanned start of it.
+        let scanning = shared.scan_index();
         Some(WindowSource {
             document: shared.doc().clone(),
             encoding: shared.file().encoding,
             folder,
             name,
             title,
+            scanning,
         })
     }
 
@@ -566,7 +574,10 @@ impl EditorView {
     /// Starts the search with the result in this window. The search runs on a background task;
     /// the window gets the pieces of the result as they come.
     pub(crate) fn begin_grep(&mut self, mut info: GrepInfo, cx: &mut Context<Self>) {
-        info.mime_decode = crate::file_ops::prefs::prefs(cx).auto_mime_decode;
+        let prefs = crate::file_ops::prefs::prefs(cx);
+        info.mime_decode = prefs.auto_mime_decode;
+        // A file as big as this is opened by ranges, so Grep reads it in order too (ADR-0020).
+        info.huge_file_len = Some(prefs.huge_file_len());
         // The key is marked in the result (`m_strCurSearchKey`, `m_bCurSrchKeyMark`).
         self.search.set_options(info.options);
         self.search.set_pattern(&info.key);

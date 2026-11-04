@@ -127,6 +127,38 @@
     globalThis.Plugin = Plugin;
   }
 
+  // The `Complement` object of the plugins that complete (Sakura's `CComplementIfObj`): the word
+  // before the caret and the options come with the call; the candidates go to the editor.
+  if (plugin !== null) {
+    const addList = plugin.complement.AddList;
+    globalThis.Complement = {
+      // The word to complete.
+      GetCurrentWord() {
+        const args = Plugin.args;
+        return args !== null && typeof args === 'object' && typeof args.word === 'string'
+          ? args.word
+          : '';
+      },
+      // 0x01: ignore the case of letters; 0x02: the words of the document are a source.
+      GetOption() {
+        const args = Plugin.args;
+        return args !== null && typeof args === 'object' && Number.isInteger(args.option)
+          ? args.option
+          : 0;
+      },
+      // Adds a candidate: the number of candidates now, or -1 if the list has the word already.
+      AddList(word) {
+        const answer = addList(word === undefined ? [] : [String(word)]);
+        if (answer[0]) return answer[1];
+        const error = new EditorError(answer[1], answer[2]);
+        if (typeof Error.captureStackTrace === 'function') {
+          Error.captureStackTrace(error, globalThis.Complement.AddList);
+        }
+        throw error;
+      },
+    };
+  }
+
   const rejected = new Map();
   return {
     begin(jack, args) {

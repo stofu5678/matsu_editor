@@ -669,10 +669,35 @@ impl CommonSettingsDialog {
         });
         match table::apply_in(spec, &mut rows, &mut selected, op, &fields, base.as_deref()) {
             Ok(true) => {
-                self.values.set(id, Value::Rows(rows));
-                self.table_selected.insert(id, selected);
-                self.show_row(id, selected, window, cx);
-                cx.notify();
+                let question = spec
+                    .confirm
+                    .filter(|_| matches!(op, Op::Insert | Op::Add | Op::Update))
+                    .and_then(|confirm| selected.and_then(|at| rows.get(at)).and_then(confirm));
+                match question {
+                    None => self.put_rows(id, rows, selected, window, cx),
+                    Some(question) => {
+                        // GPUI has no default-button setting: its box makes the first button the
+                        // default (Enter), so いいえ comes first (`MB_DEFBUTTON2`). GPUI has no
+                        // question icon either; the information icon is the nearest.
+                        let answer = crate::boxes::prompt(
+                            window,
+                            PromptLevel::Info,
+                            question,
+                            None,
+                            &["いいえ(&N)", "はい(&Y)"],
+                            cx,
+                        );
+                        cx.spawn_in(window, async move |this, cx| {
+                            if let Ok(1) = answer.await {
+                                this.update_in(cx, |this, window, cx| {
+                                    this.put_rows(id, rows, selected, window, cx)
+                                })
+                                .ok();
+                            }
+                        })
+                        .detach();
+                    }
+                }
             }
             Ok(false) => {}
             Err(Refused::Full) => {
@@ -683,6 +708,21 @@ impl CommonSettingsDialog {
                 crate::boxes::tell(window, PromptLevel::Info, &message, None, cx);
             }
         }
+    }
+
+    /// Takes the rows a button of an editable list made, and shows the selected one.
+    fn put_rows(
+        &mut self,
+        id: &'static str,
+        rows: Vec<table::Row>,
+        selected: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.values.set(id, Value::Rows(rows));
+        self.table_selected.insert(id, selected);
+        self.show_row(id, selected, window, cx);
+        cx.notify();
     }
 
     /// Alt with the letter of a button or of an edit box under an editable list.
@@ -880,6 +920,14 @@ impl CommonSettingsDialog {
                 let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
                 let next = options[(at + 1) % options.len()].1;
                 self.set_int(control.id, next, cx);
+            }
+            Kind::Dynamic { options } => {
+                let now = self.values.int(control.id);
+                let options = options(cx, now);
+                let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+                if let Some((_, next)) = options.get((at + 1) % options.len().max(1)) {
+                    self.set_int(control.id, *next, cx);
+                }
             }
             Kind::Number { .. } | Kind::Text => {
                 if let Some(input) = self.inputs.get(control.id).cloned() {
@@ -1093,15 +1141,25 @@ impl CommonSettingsDialog {
                 .children(note)
                 .into_any_element()
             }
-            Kind::Choice { options } => {
+            Kind::Choice { .. } | Kind::Dynamic { .. } => {
                 let current = self.values.int(id);
-                let choices = options.iter().map(|(text, value)| {
-                    let value = *value;
+                let options: Vec<(SharedString, i32)> = match control.kind {
+                    Kind::Dynamic { options } => options(cx, current)
+                        .into_iter()
+                        .map(|(text, value)| (SharedString::from(text), value))
+                        .collect(),
+                    Kind::Choice { options } => options
+                        .iter()
+                        .map(|(text, value)| (SharedString::from(*text), *value))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let choices = options.into_iter().map(|(text, value)| {
                     Button::new(Self::element_id(&Control {
                         kind: Kind::Radio { value },
                         ..*control
                     }))
-                    .label(*text)
+                    .label(text)
                     .selected(current == value)
                     // A choice is a radio button of the group (the chosen one is checked).
                     .role(Role::RadioButton)

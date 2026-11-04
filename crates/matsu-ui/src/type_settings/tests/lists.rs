@@ -150,6 +150,67 @@ fn the_regex_buttons_edit_the_list_and_ok_writes_the_keywords(cx: &mut TestAppCo
     assert_eq!(keywords, (true, 3));
 }
 
+const NOT_COMPILED: &str =
+    "書式が正しくないか、正規表現ライブラリが見つかりません。\n\n登録しますか？";
+
+#[test]
+fn a_regex_keyword_that_does_not_compile_is_found() {
+    use matsu_coloring::keyword_compiles;
+    assert!(keyword_compiles("/a+/k"));
+    assert!(keyword_compiles("m#b/c#ki"));
+    assert!(!keyword_compiles("/(/k"));
+    assert!(!keyword_compiles("/[a/k"));
+    // Not framed: the frame check comes first.
+    assert!(!keyword_compiles("a+"));
+}
+
+#[gpui::test]
+fn a_regex_keyword_that_does_not_compile_is_put_in_only_when_the_user_says_yes(
+    cx: &mut TestAppContext,
+) {
+    let _ini = open_page(cx, REGEX_FILE, 4);
+    fill(cx, REGEX_LIST, &["/(/k", "テキスト"]);
+    press(cx, REGEX_LIST, Op::Add);
+    // The box asks, and nothing is put in yet.
+    assert!(cx.has_pending_prompt());
+    assert_eq!(cx.pending_prompt().unwrap().0, NOT_COMPILED);
+    assert_eq!(rows_of(cx, REGEX_LIST).len(), 2);
+    // いいえ: the list stays.
+    cx.simulate_prompt_answer("いいえ(&N)");
+    cx.run_until_parked();
+    assert_eq!(rows_of(cx, REGEX_LIST).len(), 2);
+    // はい: the keyword is registered.
+    press(cx, REGEX_LIST, Op::Add);
+    cx.simulate_prompt_answer("はい(&Y)");
+    cx.run_until_parked();
+    let rows = rows_of(cx, REGEX_LIST);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[2][0], "/(/k");
+    // 更新 asks too, and a keyword that compiles does not ask.
+    fill(cx, REGEX_LIST, &["/[/k", "テキスト"]);
+    press(cx, REGEX_LIST, Op::Update);
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("いいえ(&N)");
+    cx.run_until_parked();
+    assert_eq!(rows_of(cx, REGEX_LIST)[2][0], "/(/k");
+    fill(cx, REGEX_LIST, &["/ok/k", "テキスト"]);
+    press(cx, REGEX_LIST, Op::Update);
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(rows_of(cx, REGEX_LIST)[2][0], "/ok/k");
+}
+
+#[gpui::test]
+fn a_regex_keyword_without_the_frame_is_refused_before_the_compile_is_tried(
+    cx: &mut TestAppContext,
+) {
+    let _ini = open_page(cx, REGEX_FILE, 4);
+    fill(cx, REGEX_LIST, &["(", "テキスト"]);
+    press(cx, REGEX_LIST, Op::Add);
+    let (message, _) = cx.pending_prompt().unwrap();
+    assert!(message.starts_with("正規表現キーワードを / と /k で囲ってください。"));
+    assert_eq!(rows_of(cx, REGEX_LIST).len(), 2);
+}
+
 #[gpui::test]
 fn a_deleted_keyword_is_gone_from_the_file_and_from_the_windows(cx: &mut TestAppContext) {
     let ini = open_page(cx, REGEX_FILE, 4);

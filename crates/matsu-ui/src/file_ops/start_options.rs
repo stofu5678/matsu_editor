@@ -300,6 +300,7 @@ impl LaunchOptions {
                         bom: encoding.bom_default_on(),
                         eol: Eol::CrLf,
                         mime_decode: defaults.mime_decode,
+                        prefer_cesu8: defaults.prefer_cesu8,
                     }
                 };
                 view.document()
@@ -324,6 +325,31 @@ impl LaunchOptions {
                 }
             },
         );
+    }
+
+    /// The launch searches at once (`-GREPMODE`): the window has its events after the search, as in Sakura.
+    pub(crate) fn greps_at_start(&self) -> bool {
+        self.grep.as_ref().is_some_and(|grep| !grep.dialog)
+    }
+
+    /// `CNormalProcess`: after the Grep come `EditorStart` and `DocumentOpen` (the window was made with its
+    /// `EditorStart` deferred, see [`defer_editor_start`]). A search that cannot start is over at once.
+    pub(crate) fn events_after_grep(
+        &self,
+        handle: AnyWindowHandle,
+        view: &Entity<EditorView>,
+        cx: &mut App,
+    ) {
+        let weak = view.downgrade();
+        handle
+            .update(cx, |_, window, app| {
+                window
+                    .spawn(app, async move |cx| {
+                        crate::plugin_events::start_after_grep(&weak, cx).await;
+                    })
+                    .detach();
+            })
+            .ok();
     }
 
     /// The Grep of `-GREPMODE` in the window `handle` that was opened for it, or the dialog of
@@ -638,6 +664,7 @@ pub(crate) fn grep_info(args: &GrepArgs, cwd: &Path, clipboard: Option<String>) 
         file_only: args.file_only,
         except_file_regex: args.except_file_regex,
         mime_decode: false,
+        huge_file_len: None,
         window: None,
         window_gone: false,
         replace: args.replace.as_ref().map(|text| ReplaceInfo {
@@ -745,6 +772,24 @@ pub(crate) fn set_next_placement(cx: &mut App, placement: Placement) {
     if !placement.is_empty() {
         cx.set_global(NextPlacement(Some(placement)));
     }
+}
+
+/// The next new window gets its `EditorStart` later (the Grep of `-GREPMODE` comes first). Taken by the window
+/// when it is made; [`take_deferred_editor_start`] after the opening that may or may not make a window.
+#[derive(Default)]
+struct DeferredEditorStart(bool);
+
+impl Global for DeferredEditorStart {}
+
+/// The next new window waits with its `EditorStart`.
+pub(crate) fn defer_editor_start(cx: &mut App) {
+    cx.set_global(DeferredEditorStart(true));
+}
+
+/// Whether the deferral was set and not used; it is cleared.
+pub(crate) fn take_deferred_editor_start(cx: &mut App) -> bool {
+    cx.try_global::<DeferredEditorStart>().is_some()
+        && std::mem::take(&mut cx.global_mut::<DeferredEditorStart>().0)
 }
 
 /// The placement that was set and not used.

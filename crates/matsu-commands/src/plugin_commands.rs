@@ -78,6 +78,16 @@ pub fn plug_code(slot: usize, plug: usize) -> Option<u16> {
     u16::try_from(code).ok()
 }
 
+/// The code that the type settings store to name the plugin that completes (`nHokanType`):
+/// `CPlug::GetPluginFunctionCode(id, 0)` (`CJackManager::RegisterPlug`, `PP_COMPLEMENT`). It is
+/// the code of plug 0, whatever number the plug has. `None` for a slot out of range.
+pub fn slot_code(slot: usize) -> Option<u16> {
+    if slot >= MAX_PLUGIN {
+        return None;
+    }
+    u16::try_from(slot % 20 * 100 + slot / 20 * 50 + usize::from(FIRST)).ok()
+}
+
 /// `CPlug::GetPluginId` and `GetPlugId`: the slot and the command number of a function code.
 /// `None` for a code that is not a plugin command. (Sakura stops below `F_PLUGCOMMAND_LAST`, which
 /// leaves the 49th command of the 40th plugin, whose code is `F_PLUGCOMMAND_LAST`, with no plugin:
@@ -235,6 +245,19 @@ mod tests {
         assert_eq!(function_code(0, 0), None);
         assert_eq!(function_code(0, MAX_PLUG_CMD), None);
         assert_eq!(function_code(MAX_PLUGIN, 1), None);
+    }
+
+    #[test]
+    fn the_completion_of_a_plugin_is_named_by_the_code_of_its_plug_0() {
+        // `CJackManager::RegisterPlug`: `GetPluginFunctionCode(id, 0)`.
+        assert_eq!(slot_code(0), Some(20000));
+        assert_eq!(slot_code(1), Some(20100));
+        assert_eq!(slot_code(20), Some(20050));
+        assert_eq!(slot_code(39), Some(21950));
+        assert_eq!(slot_code(MAX_PLUGIN), None);
+        for slot in 0..MAX_PLUGIN {
+            assert_eq!(decode(slot_code(slot).unwrap()), Some((slot, 0)));
+        }
     }
 
     #[test]

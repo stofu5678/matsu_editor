@@ -3,7 +3,7 @@
 
 use matsu_config::settings::type_rules::outline_type;
 
-use super::super::pages::screen::{OUTLINES, outline_options};
+use super::super::pages::screen::{OUTLINES, outline_types};
 use super::super::values::store;
 use super::*;
 use crate::plugin_outline::{self, tests::Place};
@@ -27,17 +27,28 @@ fn choose(
     (control(sheet, OUTLINE).changed)(values, OUTLINE);
 }
 
-#[test]
-fn the_outlines_of_the_plugins_that_run_come_after_the_standard_ones_with_the_code_of_the_plug() {
+/// The choices of the list for the number `now`.
+fn options(cx: &mut gpui::TestAppContext, now: i32) -> Vec<(String, i32)> {
+    cx.update(|app| outline_types(app, now))
+}
+
+#[gpui::test]
+fn the_outlines_of_the_plugins_that_run_come_after_the_standard_ones_with_the_code_of_the_plug(
+    cx: &mut gpui::TestAppContext,
+) {
     let place = Place::new("sheet-on", "");
     let code = Place::code();
     let user = place.user(code, true, true);
     plugin_outline::refresh_for(&user);
-    let options = outline_options();
-    assert_eq!(options.len(), OUTLINES.len() + 1);
-    assert_eq!(&options[..OUTLINES.len()], OUTLINES);
+    let list = options(cx, code);
+    assert_eq!(list.len(), OUTLINES.len() + 1);
+    assert!(
+        list.iter()
+            .zip(OUTLINES)
+            .all(|(a, b)| a.0 == b.0 && a.1 == b.1)
+    );
     // the number is the function code of the plug, the text its label
-    assert_eq!(options.last(), Some(&("Test outline", code)));
+    assert_eq!(list.last(), Some(&("Test outline".to_owned(), code)));
     // the number in the file selects it
     let sheet = sheet_of(&user);
     assert_eq!(sheet.values.int(OUTLINE), code);
@@ -57,18 +68,20 @@ fn the_outlines_of_the_plugins_that_run_come_after_the_standard_ones_with_the_co
     assert_eq!(store(&values, &sheet.target.original).default_outline, code);
 }
 
-#[test]
-fn the_outline_of_a_plugin_that_is_off_is_listed_as_unusable_and_its_number_stays() {
+#[gpui::test]
+fn the_outline_of_a_plugin_that_is_off_is_listed_as_unusable_and_its_number_stays(
+    cx: &mut gpui::TestAppContext,
+) {
     let place = Place::new("sheet-off", "");
     let code = Place::code();
     // the switch of the plugins is off: the list has the standard outlines, and the number the type has
     let user = place.user(code, false, true);
+    plugin_outline::refresh_for(&user);
     let sheet = sheet_of(&user);
-    let options = outline_options();
-    assert_eq!(&options[..OUTLINES.len()], OUTLINES);
-    assert_eq!(options.len(), OUTLINES.len() + 1);
+    let list = options(cx, code);
+    assert_eq!(list.len(), OUTLINES.len() + 1);
     let label = format!("（使えないプラグイン {code}）");
-    assert_eq!(options.last(), Some(&(label.as_str(), code)));
+    assert_eq!(list.last(), Some(&(label, code)));
     // the page shows it, and OK without a choice keeps the number
     assert_eq!(sheet.values.int(OUTLINE), code);
     assert_eq!(sheet.values.int(OUTLINE_MODE), 0);
@@ -91,8 +104,10 @@ fn the_outline_of_a_plugin_that_is_off_is_listed_as_unusable_and_its_number_stay
     );
 }
 
-#[test]
-fn a_number_nobody_knows_is_listed_as_unusable_and_stays_too_and_a_rule_file_can_still_be_left() {
+#[gpui::test]
+fn a_number_nobody_knows_is_listed_as_unusable_and_stays_too_and_a_rule_file_can_still_be_left(
+    cx: &mut gpui::TestAppContext,
+) {
     let place = Place::new("sheet-other", "");
     // 17 is no outline of Sakura (`OUTLINE_CODEMAX`) and of no plugin
     let user = place.user(17, true, true);
@@ -100,8 +115,8 @@ fn a_number_nobody_knows_is_listed_as_unusable_and_stays_too_and_a_rule_file_can
     let sheet = sheet_of(&user);
     assert_eq!(sheet.values.int(OUTLINE), 17);
     assert_eq!(
-        outline_options().last(),
-        Some(&("（使えないプラグイン 17）", 17))
+        options(cx, 17).last(),
+        Some(&("（使えないプラグイン 17）".to_owned(), 17))
     );
     assert_eq!(
         store(&sheet.values, &sheet.target.original).default_outline,

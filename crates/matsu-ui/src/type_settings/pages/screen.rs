@@ -63,21 +63,19 @@ pub(in crate::type_settings) const OUTLINES: &[(&str, i32)] = &[
 
 /// `OUTLINES` and, after them, the outlines of the plugins that may run (`CJackManager::RegisterPlug`
 /// adds them with `CPropTypesScreen::AddOutlineMethod`: the label of the plug, and the function code
-/// of the plug as the number). The plugins are those the sheet was opened with. A number the type has
-/// that no choice has (its plugin is off or gone) is listed last as 「（使えないプラグイン N）」: the page
-/// shows it and OK keeps it (the user decided so on 2026-11-03; Sakura shows the first choice and
-/// writes it).
-pub(in crate::type_settings) fn outline_options() -> &'static [(&'static str, i32)] {
-    let mut extra = crate::plugin_outline::choices();
-    let now = crate::plugin_outline::stored();
-    let known = |value: i32| {
-        OUTLINES.iter().any(|(_, v)| *v == value) || extra.iter().any(|(_, v)| *v == value)
-    };
-    // (a rule file is the other radio button, not a choice of this list)
-    if now != outline_type::FILE && !known(now) {
-        extra.push((format!("（使えないプラグイン {now}）"), now));
+/// of the plug as the number). `now` is the number the type has: if no choice has it (its plugin is off
+/// or gone), it is listed last as 「（使えないプラグイン N）」, so that the page shows it and OK keeps it
+/// (the user decided so on 2026-11-03; Sakura shows the first choice and writes it).
+pub(in crate::type_settings) fn outline_types(_: &gpui::App, now: i32) -> Vec<(String, i32)> {
+    let mut list: Vec<(String, i32)> = OUTLINES
+        .iter()
+        .map(|(label, value)| ((*label).to_owned(), *value))
+        .collect();
+    list.extend(crate::plugin_outline::choices());
+    if !list.iter().any(|(_, value)| *value == now) {
+        list.push((format!("（使えないプラグイン {now}）"), now));
     }
-    crate::plugin_outline::with_extra(OUTLINES, &extra)
+    list
 }
 
 /// The outline is the rule of the list (0) or a rule file (1).
@@ -282,7 +280,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         )
                         .on_change(outline_mode_changed)
                         .into(),
-                        Control::choice(OUTLINE, "", "", OUTLINES[0].1, outline_options())
+                        Control::dynamic_choice(OUTLINE, "", "", OUTLINES[0].1, outline_types)
                             .named("標準ルールの種類")
                             .when(outline_is_standard)
                             .into(),

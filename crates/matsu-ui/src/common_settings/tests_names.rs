@@ -11,7 +11,12 @@ use super::model::{Control, Item, Kind};
 fn is_input(control: &Control) -> bool {
     matches!(
         control.kind,
-        Kind::Number { .. } | Kind::Text | Kind::Choice { .. } | Kind::List { .. } | Kind::Color
+        Kind::Number { .. }
+            | Kind::Text
+            | Kind::Choice { .. }
+            | Kind::Dynamic { .. }
+            | Kind::List { .. }
+            | Kind::Color
     )
 }
 

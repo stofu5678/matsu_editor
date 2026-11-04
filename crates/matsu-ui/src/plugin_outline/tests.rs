@@ -269,18 +269,6 @@ fn a_call_in_progress_is_known_until_its_result_is_dropped() {
 }
 
 #[test]
-fn the_list_of_the_sheet_is_made_once_for_the_same_extra_choices() {
-    static BASE: &[(&str, i32)] = &[("a", 1), ("b", 2)];
-    assert!(std::ptr::eq(with_extra(BASE, &[]), BASE));
-    let extra = vec![("p".to_owned(), 20000)];
-    let list = with_extra(BASE, &extra);
-    assert_eq!(list, [("a", 1), ("b", 2), ("p", 20000)]);
-    assert!(std::ptr::eq(list, with_extra(BASE, &extra)));
-    let other = with_extra(BASE, &[("q".to_owned(), 20001)]);
-    assert_eq!(other.last(), Some(&("q", 20001)));
-}
-
-#[test]
 fn atoi_reads_the_digits_at_the_start() {
     assert_eq!(atoi("12"), 12);
     assert_eq!(atoi("  -3abc"), -3);

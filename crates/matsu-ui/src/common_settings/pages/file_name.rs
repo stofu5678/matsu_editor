@@ -58,6 +58,7 @@ static LIST: TableSpec = TableSpec {
     // `STR_PROPCOMFNM_ERR_REG`
     full_message: "これ以上登録できません。",
     prepare: None,
+    confirm: None,
 };
 
 pub(in crate::common_settings) fn items() -> Vec<Item> {

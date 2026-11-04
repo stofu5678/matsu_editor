@@ -21,9 +21,10 @@ use super::ids::*;
 use super::pages::color::STRING_TYPES;
 use super::pages::keyhelp::{RMENU_TYPES, dict_of, row_of};
 use super::pages::regex::{color_label, color_name};
-use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, WRAP_METHODS, outline_options};
-use super::pages::support::HOKAN_TYPES;
-use super::pages::window::{CODES, EOLS};
+use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, OUTLINES, WRAP_METHODS};
+use super::pages::window::{
+    CODES, EOLS, IME_STATES, IME_SWITCHES, LINE_NUM_WIDTH_RANGE, NUMBER_LINES, NUMBER_ROWS,
+};
 use crate::common_settings::model::{Control, Kind, Value, Values};
 
 /// The size of the buffer of the name of a type, in UTF-16 units with the end mark
@@ -53,7 +54,7 @@ fn eol_code(eol: Eol) -> i32 {
 }
 
 /// Type `index` as the sheet shows it: the values for a new document (the encoding, the BOM and
-/// the line ending) are what a new document of the type gets (`NewDocumentDefaults`), not what a
+/// the line ending, and CESU-8 first) are what a new document of the type gets (`NewDocumentDefaults`), not what a
 /// [`TypeSettings`] has for a key the file does not set: MATSU Editor follows the OS for a line
 /// ending the file does not say.
 pub(super) fn shown_type(
@@ -66,6 +67,7 @@ pub(super) fn shown_type(
     t.default_codetype = defaults.encoding.sakura_code();
     t.default_bom = defaults.bom;
     t.default_eoltype = eol_code(defaults.eol);
+    t.prior_cesu8 = defaults.prefer_cesu8;
     Some(t)
 }
 
@@ -288,10 +290,16 @@ pub(super) fn load(
             OUTLINE_STANDARD
         },
     );
+    // (a rule file is the other radio button: the list shows its first choice then; any other number is
+    // a choice of the list, an unusable plugin's as 「（使えないプラグイン N）」)
     n(
         &mut v,
         OUTLINE,
-        in_list(t.default_outline, outline_options()),
+        if file_rule {
+            OUTLINES[0].1
+        } else {
+            t.default_outline
+        },
     );
     s(&mut v, OUTLINE_RULE_FILE, &t.outline_rule_filename);
     b(&mut v, USE_TYPE_FONT, t.use_type_font);
@@ -359,28 +367,31 @@ pub(super) fn load(
         CODE_PAGE,
         !CODES.iter().any(|(_, c)| *c == t.default_codetype),
     );
+    n(&mut v, CODE_PAGE_NUMBER, t.default_codetype);
     b(&mut v, PRIOR_CESU8, t.prior_cesu8);
-    // `m_nImeState`: the on/off state in the low two bits, the input mode above them.
-    let ime = raw_i32(profile, index, "nImeState", 0x10);
-    n(&mut v, IME_SWITCH, ime & 3);
-    n(&mut v, IME_STATE, ime >> 2);
-    b(
-        &mut v,
-        USE_DOC_ICON,
-        raw_bool(profile, index, "bUseDocumentIcon", false),
-    );
+    // `m_nImeState`: the on/off state in the low two bits, the input mode above them. A value the
+    // list does not have shows as its first item (`SetData`: `nSelPos = 0`).
+    n(&mut v, IME_SWITCH, in_list(t.ime_state & 3, IME_SWITCHES));
+    n(&mut v, IME_STATE, in_list(t.ime_state >> 2, IME_STATES));
+    b(&mut v, USE_DOC_ICON, t.use_document_icon);
     n(
         &mut v,
         LINE_NUM_MODE,
         if t.line_num_is_crlf {
-            super::pages::window::NUMBER_LINES
+            NUMBER_LINES
         } else {
-            super::pages::window::NUMBER_ROWS
+            NUMBER_ROWS
         },
     );
     n(&mut v, LINE_NUM_WIDTH, t.line_num_width);
     n(&mut v, LINE_TERM_TYPE, t.line_term_type);
-    s(&mut v, LINE_TERM_CHAR, &t.line_term_char.to_string());
+    // No character (`'\0'`) shows as an empty box.
+    let term_char = if t.line_term_char == '\0' {
+        String::new()
+    } else {
+        t.line_term_char.to_string()
+    };
+    s(&mut v, LINE_TERM_CHAR, &term_char);
     s(&mut v, BG_PATH, &raw_text(profile, index, "bgImgPath"));
     n(&mut v, BG_POS, raw_i32(profile, index, "bgImgPos", 0));
     n(
@@ -422,7 +433,8 @@ pub(super) fn load(
     // 支援
     s(&mut v, HOKAN_FILE, &t.hokan_file);
     // A plugin the list does not have shows as なし, as `SetData` does (nothing is written back).
-    n(&mut v, HOKAN_TYPE, in_list(t.hokan_type, HOKAN_TYPES));
+    // Kept as it is even when no plugin has it (the choice lists it).
+    n(&mut v, HOKAN_TYPE, t.hokan_type);
     b(&mut v, HOKAN_LO_HI_CASE, t.hokan_lo_hi_case);
     b(&mut v, HOKAN_BY_FILE, t.use_hokan_by_file);
     b(&mut v, HOKAN_BY_KEYWORD, t.use_hokan_by_keyword);
@@ -568,9 +580,32 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     // `SetData`/`CBN_SELCHANGE`: an encoding without a BOM has none.
     t.default_bom = v.bool(DEFAULT_BOM)
         && Encoding::from_sakura_code(t.default_codetype).is_some_and(Encoding::can_have_bom);
+    t.prior_cesu8 = v.bool(PRIOR_CESU8);
+    // `GetData`: the input mode and the on/off state make `m_nImeState`. A value the page shows
+    // as something else (256 for "default") stays as the file has it until the user changes it.
+    let shown = |state: i32| {
+        (
+            in_list(state & 3, IME_SWITCHES),
+            in_list(state >> 2, IME_STATES),
+        )
+    };
+    let ime = (v.int(IME_SWITCH), v.int(IME_STATE));
+    if shown(original.ime_state) != ime {
+        t.ime_state = (ime.1 << 2) | ime.0;
+    }
+    t.use_document_icon = v.bool(USE_DOC_ICON);
+    // 行番号 (`GetData`)
+    t.line_num_is_crlf = v.int(LINE_NUM_MODE) != NUMBER_ROWS;
+    t.line_num_width = v
+        .int(LINE_NUM_WIDTH)
+        .clamp(LINE_NUM_WIDTH_RANGE.0, LINE_NUM_WIDTH_RANGE.1);
+    t.line_term_type = v.int(LINE_TERM_TYPE);
+    // `szLineTermChar[0]`: the first character, or none.
+    t.line_term_char = v.text(LINE_TERM_CHAR).chars().next().unwrap_or('\0');
 
     // 支援 (`CPropTypesSupport::GetData`)
     t.hokan_file = fit(v.text(HOKAN_FILE), PATH_BUFFER);
+    t.hokan_type = v.int(HOKAN_TYPE);
     t.hokan_lo_hi_case = v.bool(HOKAN_LO_HI_CASE);
     t.use_hokan_by_file = v.bool(HOKAN_BY_FILE);
     t.use_hokan_by_keyword = v.bool(HOKAN_BY_KEYWORD);
@@ -667,7 +702,15 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         default_eoltype,
         default_codetype,
         default_bom,
+        prior_cesu8,
+        ime_state,
+        use_document_icon,
+        line_num_is_crlf,
+        line_num_width,
+        line_term_type,
+        line_term_char,
         hokan_file,
+        hokan_type,
         ext_help,
         ext_html_help,
         html_help_is_single,

@@ -1,0 +1,466 @@
+#!/bin/bash
+# Runs the self-hosted runner of MATSU Editor's macOS CI on this Mac, one disposable VM per job (ADR-0027).
+#
+#   tools/mac-runner/mac-runner up           start: run jobs here, and set MAC_RUNNER to self-hosted
+#   tools/mac-runner/mac-runner down         stop: set MAC_RUNNER to github first, let the running job finish, then stop
+#   tools/mac-runner/mac-runner down --now   stop at once (the running job fails; GitHub's runner takes the next)
+#   tools/mac-runner/mac-runner status       the variables, the loop, the VM and the registered runners
+#
+# Each VM is a clone of matsu-ci-golden (build-golden). The host hands the VM a just-in-time runner configuration for
+# one job through the guest agent (not the network), and deletes the VM when it stops: after the job, on a refusal
+# by the hook in the VM, at the time limits, or on `down`. While its runner is online, the loop writes
+# MAC_RUNNER_SEEN every five minutes; CI picks GitHub's runner again when that is older than 15 minutes (a closed or
+# sleeping Mac, a broken runner).
+set -uo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+
+# One lock serializes the controller loop and the cleanup of `down`: an flock, which the kernel releases when its
+# holder dies, so a crash leaves no stale lock to take over. macOS has no flock(1); perl takes the lock and keeps it
+# on fd 9 of the command it runs. Long-lived children close fd 9 (9>&-), so that a VM left by a dead loop does not
+# keep the lock.
+LOCK_FILE="$STATE_DIR/lifecycle.lock"
+PID_FILE="$STATE_DIR/loop.pid"   # the loop's pid, for status messages only (the lock is what counts)
+STOP_FILE="$STATE_DIR/stop"
+NOW_FILE="$STATE_DIR/stop-now"
+CURRENT_VM="$STATE_DIR/current-vm"          # the VM and the runner of the loop, for the cleanup after a crash
+CURRENT_RUNNER="$STATE_DIR/current-runner"
+STALE_RUNNERS="$STATE_DIR/stale-runners"    # registrations that could not be deleted yet
+
+# Runs "$0 <args>" holding the lock, or exits 75 at once when another process holds it.
+locked() {
+  /usr/bin/perl -MFcntl=:flock -MPOSIX=dup2 -e '
+    my $file = shift @ARGV;
+    open(my $fh, ">>", $file) or exit 70;
+    flock($fh, LOCK_EX | LOCK_NB) or exit 75;
+    dup2(fileno($fh), 9) or exit 71;
+    exec @ARGV or exit 127;
+  ' "$LOCK_FILE" "$0" "$@"
+}
+
+loop_pid() {
+  local pid
+  pid=$(cat "$PID_FILE" 2> /dev/null) || return 1
+  case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2> /dev/null || return 1
+  printf '%s\n' "$pid"
+}
+
+# An ssh session cannot open the login keychain, even while the user is logged in to the Mac's screen: security
+# exits 36 ("User interaction is not allowed"). Such a session runs the command again as a launchd job in the
+# logged-in session, which can read the token, and relays the job's output and exit status. The token stays there.
+SESSION_LABEL=io.github.stofu5678.matsu-mac-runner.command
+
+keychain_locked_here() {
+  [ -z "${MATSU_MAC_RUNNER_IN_SESSION:-}" ] || return 1
+  with_limit 20 security find-generic-password -s "$KEYCHAIN_SERVICE" -w > /dev/null 2>&1
+  [ $? -eq 36 ]
+}
+
+# True when a launchd job has run and is not running any more, or is gone. Right after the bootstrap, the state can
+# be neither (xpcproxy, while launchd spawns it). (Here-strings, not `printf | grep -q`: under pipefail, grep's early
+# exit fails the pipeline once the long output of launchctl no longer fits the pipe.)
+session_job_ended() { # service-target
+  local info
+  info=$(launchctl print "$1" 2> /dev/null) || return 0
+  grep -q $'^\tstate = not running$' <<< "$info" && grep -Eq $'^\truns = [1-9]' <<< "$info"
+}
+
+# Runs "$0 <args>" in the logged-in session and waits for it. Interrupting this stops only the waiting: the command
+# goes on there (down, for one, keeps its stop request).
+in_login_session() { # args
+  local domain base label plist out status_file shown=0 size result f
+  domain="gui/$(id -u)"
+  launchctl print "$domain" > /dev/null 2>&1 ||
+    die "this session cannot open the keychain, and nobody is logged in to the Mac's screen (README.md)"
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  # Forget the commands that finished after their waiting was interrupted: those whose caller (the pid in the name)
+  # is gone. A caller that still waits reads its own result and removes it.
+  for f in "$STATE_DIR"/command.*.status; do
+    [ -e "$f" ] || continue
+    base=${f%.status}
+    kill -0 "${base##*.}" 2> /dev/null && continue
+    launchctl bootout "$domain/$SESSION_LABEL.${base##*.}" > /dev/null 2>&1
+    rm -f "$base.plist" "$base.out" "$f"
+  done
+  base="$STATE_DIR/command.$$"
+  label="$SESSION_LABEL.$$"
+  plist="$base.plist"
+  out="$base.out"
+  status_file="$base.status"
+  rm -f "$plist" "$out" "$status_file"
+  # AbandonProcessGroup: the loop that `up` starts outlives the job.
+  plutil -create xml1 "$plist" &&
+    plutil -insert Label -string "$label" "$plist" &&
+    plutil -insert ProgramArguments -json "$(/usr/bin/jq -cn '$ARGS.positional' --args -- /bin/bash -c \
+      'status_file=$1; shift; "$0" "$@"; echo $? > "$status_file"' "$here/mac-runner" "$status_file" "$@")" "$plist" &&
+    plutil -insert EnvironmentVariables -json "$(/usr/bin/jq -cn --arg path "$PATH" \
+      '{PATH: $path, MATSU_MAC_RUNNER_IN_SESSION: "1"}')" "$plist" &&
+    plutil -insert StandardOutPath -string "$out" "$plist" &&
+    plutil -insert StandardErrorPath -string "$out" "$plist" &&
+    plutil -insert RunAtLoad -bool true "$plist" &&
+    plutil -insert AbandonProcessGroup -bool true "$plist" ||
+    die "could not write $plist"
+  launchctl bootstrap "$domain" "$plist" || die "could not start the command in the logged-in session"
+  while :; do
+    size=$(stat -f %z "$out" 2> /dev/null || echo 0)
+    if [ "$size" -gt "$shown" ]; then
+      tail -c "+$((shown + 1))" "$out" | head -c "$((size - shown))"
+      shown=$size
+    fi
+    [ -s "$status_file" ] && break
+    if session_job_ended "$domain/$label"; then
+      [ -s "$status_file" ] && continue
+      echo "the command in the logged-in session ended without an exit status (log: $LOG)" >&2
+      break
+    fi
+    sleep 1
+  done
+  result=$(cat "$status_file" 2> /dev/null)
+  launchctl bootout "$domain/$label" > /dev/null 2>&1
+  rm -f "$plist" "$out" "$status_file"
+  case "$result" in '' | *[!0-9]*) return 1 ;; esac
+  return "$result"
+}
+
+# Deletes a runner registration (GitHub deletes a just-in-time runner itself after its job; this is for a VM that
+# ended before or without one). A registration that cannot be deleted now is kept for the next try.
+unregister() { # runner-id
+  local id=$1 code
+  [ -n "$id" ] || return 0
+  code=$(printf 'Authorization: Bearer %s\nAccept: application/vnd.github+json\n' "$(token)" |
+    curl -sS -m 30 -o /dev/null -w '%{http_code}' -X DELETE -H @- \
+      "https://api.github.com/repos/$REPOSITORY/actions/runners/$id" 2> /dev/null)
+  case "$code" in
+    204 | 404) return 0 ;;
+  esac
+  grep -qx "$id" "$STALE_RUNNERS" 2> /dev/null || echo "$id" >> "$STALE_RUNNERS"
+  log "could not delete runner $id (HTTP ${code:-none}); will try again"
+}
+
+retry_stale_runners() {
+  local id ids
+  [ -s "$STALE_RUNNERS" ] || return 0
+  ids=$(cat "$STALE_RUNNERS")
+  rm -f "$STALE_RUNNERS"
+  for id in $ids; do
+    unregister "$id"
+  done
+}
+
+# The status of a runner on GitHub: online, offline, or nothing when it is gone or GitHub cannot be asked.
+runner_status() { # runner-id
+  api GET "/repos/$REPOSITORY/actions/runners/$1" 2> /dev/null | /usr/bin/jq -r '.status // empty'
+}
+
+remove_vm() { # name
+  "$TART" stop --timeout 20 "$1" > /dev/null 2>&1 || true
+  wait_stopped "$1" 60 || "$TART" stop "$1" > /dev/null 2>&1 || true
+  "$TART" delete "$1" > /dev/null 2>&1 || log "$1: could not delete the VM"
+}
+
+# Removes the VM and the registration that the loop was using, if any (also after a crash of an earlier loop).
+cleanup_current() {
+  local vm runner
+  vm=$(cat "$CURRENT_VM" 2> /dev/null || true)
+  runner=$(cat "$CURRENT_RUNNER" 2> /dev/null || true)
+  if [ -n "$vm" ] && vm_exists "$vm"; then
+    log "$vm: removing"
+    remove_vm "$vm"
+  fi
+  unregister "$runner"
+  rm -f "$CURRENT_VM" "$CURRENT_RUNNER"
+}
+
+# Removes what an earlier loop may have left: job VMs, and offline runners of this Mac's label.
+reconcile() {
+  local vm id
+  cleanup_current
+  for vm in $("$TART" list --format json 2> /dev/null | /usr/bin/jq -r '.[].Name' | grep "^$VM_PREFIX"); do
+    log "$vm: left by an earlier loop; removing"
+    remove_vm "$vm"
+  done
+  for id in $(api GET "/repos/$REPOSITORY/actions/runners?per_page=100" 2> /dev/null |
+    /usr/bin/jq -r '.runners[]? | select(.status == "offline") | select(any(.labels[]; .name == "matsu-vm")) | .id'); do
+    unregister "$id"
+  done
+  retry_stale_runners
+}
+
+# One VM, from the clone to the deletion. Returns 1 when the host is not healthy enough to run jobs.
+run_one() {
+  local free_gb rules name body answer runner_id jit started job_started last_beat reason now status i
+  retry_stale_runners
+  free_gb=$(host_free_gb)
+  if [ "${free_gb:-0}" -lt "$MIN_FREE_GB" ]; then
+    log "only ${free_gb} GB free (need $MIN_FREE_GB); not starting a VM"
+    return 1
+  fi
+  if vpn_active; then
+    log "a VPN is in use; not starting a VM (README.md)"
+    return 1
+  fi
+  rules=$(job_block_rules) || { log "could not find the public address; not starting a VM"; return 1; }
+
+  name="$VM_PREFIX$(date +%Y%m%d-%H%M%S)"
+  body=$(mktemp "$STATE_DIR/jit.XXXXXX")
+  /usr/bin/jq -n --arg n "$name" --argjson l "$LABELS" '{name: $n, runner_group_id: 1, labels: $l, work_folder: "_work"}' > "$body"
+  answer=$(api POST "/repos/$REPOSITORY/actions/runners/generate-jitconfig" "$body")
+  status=$?
+  rm -f "$body"
+  if [ $status -ne 0 ] || [ -z "$answer" ]; then
+    log "could not get a runner configuration from GitHub (the token, or the network)"
+    return 1
+  fi
+  runner_id=$(printf '%s' "$answer" | /usr/bin/jq -r '.runner.id // empty')
+  jit=$(printf '%s' "$answer" | /usr/bin/jq -r '.encoded_jit_config // empty')
+  answer=
+  echo "$runner_id" > "$CURRENT_RUNNER"
+  if [ -z "$jit" ] || [ -z "$runner_id" ]; then
+    log "no configuration in GitHub's answer"
+    cleanup_current
+    return 1
+  fi
+
+  echo "$name" > "$CURRENT_VM"
+  if ! "$TART" clone "$GOLDEN" "$name" > /dev/null 2>&1; then
+    log "could not clone $GOLDEN"
+    cleanup_current
+    return 1
+  fi
+  nohup "$TART" run --no-graphics --no-audio --no-clipboard "--net-softnet-block=$rules" "$name" \
+    > "$STATE_DIR/vm.log" 2>&1 < /dev/null 9>&- &
+  log "$name: started (runner $runner_id)"
+  if ! wait_agent "$name" 240; then
+    log "$name: the guest agent did not answer"
+    cleanup_current
+    return 1
+  fi
+  if vpn_active || ! printf '%s' "$jit" | put_file "$name" /Users/admin/matsu/jit-config; then
+    jit=
+    log "$name: could not hand over the runner configuration"
+    cleanup_current
+    return 1
+  fi
+  jit=
+  # Tell CI to send jobs here only once GitHub sees the runner online.
+  status=
+  for i in $(seq 1 24); do
+    if vpn_active; then
+      status=vpn
+      break
+    fi
+    status=$(runner_status "$runner_id")
+    [ "$status" = online ] && break
+    sleep 5
+  done
+  if [ "$status" != online ]; then
+    log "$name: the runner did not come online"
+    cleanup_current
+    return 1
+  fi
+
+  started=$(date +%s)
+  job_started=
+  last_beat=0
+  reason=
+  while vm_running "$name"; do
+    now=$(date +%s)
+    if [ $((now - last_beat)) -ge "$HEARTBEAT_SECONDS" ] && [ ! -e "$STOP_FILE" ]; then
+      # Only while GitHub sees the runner (online, or busy with a job, which it also reports as online).
+      if [ "$(runner_status "$runner_id")" = online ]; then
+        heartbeat
+        if [ -z "${announced:-}" ] && [ ! -e "$STOP_FILE" ]; then
+          set_variable MAC_RUNNER self-hosted && announced=1 || log "could not set MAC_RUNNER"
+        fi
+      else
+        log "$name: GitHub does not see the runner online; no heartbeat"
+      fi
+      last_beat=$now
+    fi
+    if [ -z "$job_started" ] && guest "$name" 20 /bin/test -e /Users/admin/matsu/job-started > /dev/null 2>&1; then
+      job_started=$now
+      log "$name: a job started"
+    fi
+    free_gb=$(host_free_gb)
+    if [ -e "$NOW_FILE" ]; then
+      reason="stopped by down --now"
+    elif vpn_active; then
+      reason="a VPN is in use; stopping the VM (README.md)"
+    elif [ "${free_gb:-0}" -lt "$HOST_RESERVE_GB" ]; then
+      reason="the Mac has only ${free_gb:-?} GB free (keeps $HOST_RESERVE_GB); stopping the VM"
+    elif [ $((now - started)) -ge "$MAX_VM_SECONDS" ]; then
+      reason="the VM lived for more than $MAX_VM_SECONDS seconds"
+    elif [ -n "$job_started" ] && [ $((now - job_started)) -ge "$JOB_LIMIT_SECONDS" ]; then
+      reason="the job ran for more than $JOB_LIMIT_SECONDS seconds"
+    elif [ -z "$job_started" ] && [ $((now - started)) -ge "$IDLE_LIMIT_SECONDS" ]; then
+      reason="no job in $IDLE_LIMIT_SECONDS seconds; replacing the VM"
+    elif [ -z "$job_started" ] && [ -e "$STOP_FILE" ]; then
+      reason="stopped by down before a job came"
+    fi
+    if [ -n "$reason" ]; then
+      log "$name: $reason"
+      break
+    fi
+    sleep 15
+  done
+  cleanup_current
+  log "$name: deleted"
+  return 0
+}
+
+# Sleeps, but wakes up early for down.
+nap() { # seconds
+  local i
+  for i in $(seq 1 "$1"); do
+    [ -e "$STOP_FILE" ] && return 0
+    sleep 1
+  done
+}
+
+heartbeat() {
+  set_variable MAC_RUNNER_SEEN "$(date +%s)" || log "could not write MAC_RUNNER_SEEN"
+}
+
+loop() {
+  local failures
+  # Holding the lock now: a stop request of an earlier `down` is over. A `down` that waits for the lock asks again
+  # on each try.
+  rm -f "$STOP_FILE" "$NOW_FILE"
+  echo $$ > "$PID_FILE"
+  trap 'cleanup_current; rm -f "$PID_FILE"; log "loop ended"' EXIT
+  trap 'exit 1' INT TERM HUP
+  # Keep the Mac awake while the runner is up (the VM would stop with it).
+  caffeinate -i -s -w $$ 9>&- &
+  log "loop started"
+  reconcile
+  announced=
+  failures=0
+  while [ ! -e "$STOP_FILE" ]; do
+    if run_one; then
+      failures=0
+    else
+      # Not healthy: no heartbeat, so CI goes back to GitHub's runner after 15 minutes. Try again later.
+      failures=$((failures + 1))
+      nap $((failures < 10 ? 60 * failures : 600))
+    fi
+  done
+}
+
+cmd_up() {
+  local pid
+  require_tools
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  vm_exists "$GOLDEN" || die "no $GOLDEN; run build-golden first"
+  [ -n "$(token)" ] || die "no token in the keychain (service $KEYCHAIN_SERVICE); see README.md"
+  vpn_active && die "a VPN is in use; disconnect it first (README.md)"
+  if pid=$(loop_pid); then
+    echo "already up (loop $pid)"
+    return 0
+  fi
+  nohup "$0" __start > /dev/null 2>&1 < /dev/null &
+  sleep 3
+  if pid=$(loop_pid); then
+    echo "up (loop $pid): the first VM starts now; CI sends jobs here once its runner is online (log: $LOG)"
+  else
+    echo "the loop did not start: another loop, or a 'down' that is cleaning up, holds the lock (log: $LOG)" >&2
+    return 1
+  fi
+}
+
+# Sets MAC_RUNNER to github, trying a few times. Fails when GitHub never confirms it.
+route_to_github() {
+  local i
+  for i in 1 2 3 4 5; do
+    set_variable MAC_RUNNER github > /dev/null 2>&1 && return 0
+    sleep 5
+  done
+  return 1
+}
+
+cmd_down() {
+  local pid status
+  require_tools
+  mkdir -p "$STATE_DIR"
+  # First send new jobs back to GitHub's runner, then stop.
+  route_to_github && echo "MAC_RUNNER=github" || echo "could not set MAC_RUNNER yet" >&2
+  touch "$STOP_FILE"
+  [ "${1:-}" = --now ] && touch "$NOW_FILE"
+  if pid=$(loop_pid); then
+    echo "waiting for the loop ($pid) to stop$([ "${1:-}" = --now ] || echo ' after the running job')..."
+  fi
+  # Clean up under the lock: it is free once no loop runs (a dead loop releases it too), and it keeps a new loop
+  # and another `down` out while the cleanup runs. What a loop that died left behind goes here.
+  while :; do
+    # Ask again on each try: a loop that started meanwhile has cleared the request.
+    touch "$STOP_FILE"
+    [ "${1:-}" = --now ] && touch "$NOW_FILE"
+    locked __cleanup
+    status=$?
+    [ $status -eq 75 ] || break
+    sleep 5
+  done
+  if [ $status -ne 0 ]; then
+    echo "the cleanup or the switch back to GitHub's runner did not finish (exit $status); see $LOG" >&2
+    echo "check MAC_RUNNER on GitHub (README.md): CI may wait for this Mac" >&2
+    return 1
+  fi
+  echo "down"
+}
+
+cmd_status() {
+  local vars runner seen pid
+  require_tools
+  vars=$(api GET "/repos/$REPOSITORY/actions/variables" 2> /dev/null)
+  runner=$(printf '%s' "$vars" | /usr/bin/jq -r '.variables[]? | select(.name == "MAC_RUNNER") | .value')
+  seen=$(printf '%s' "$vars" | /usr/bin/jq -r '.variables[]? | select(.name == "MAC_RUNNER_SEEN") | .value')
+  echo "MAC_RUNNER=${runner:-(none)}"
+  case "$seen" in
+    '' | *[!0-9]*) echo "MAC_RUNNER_SEEN=${seen:-(none)}" ;;
+    *) echo "MAC_RUNNER_SEEN=$seen ($(($(date +%s) - seen)) seconds ago)" ;;
+  esac
+  if pid=$(loop_pid); then echo "loop: running ($pid)"; else echo "loop: not running"; fi
+  vpn_active && echo "VPN: in use (no VM starts while it is)"
+  "$TART" list | grep -E "$VM_PREFIX|$GOLDEN" || true
+  api GET "/repos/$REPOSITORY/actions/runners" 2> /dev/null |
+    /usr/bin/jq -r '.runners[]? | "runner \(.id) \(.name) \(.status) busy=\(.busy)"' || true
+  tail -n 5 "$LOG" 2> /dev/null || true
+}
+
+case "${1:-}" in
+  up | down | status)
+    if keychain_locked_here; then
+      in_login_session "$@"
+      exit $?
+    fi
+    ;;
+esac
+
+case "${1:-}" in
+  up) cmd_up ;;
+  down) cmd_down "${2:-}" ;;
+  status) cmd_status ;;
+  __start)
+    # Takes the lock, then runs the loop holding it (fd 9).
+    require_tools
+    locked __loop
+    ;;
+  __loop)
+    require_tools
+    loop
+    ;;
+  __cleanup)
+    # Under the lock: what a loop left, then MAC_RUNNER=github once more, now that no loop can announce itself.
+    require_tools
+    reconcile
+    rm -f "$PID_FILE"
+    route_to_github || exit 1
+    ;;
+  *)
+    sed -n '2,7p' "$0"
+    exit 2
+    ;;
+esac

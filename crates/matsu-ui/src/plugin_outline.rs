@@ -23,7 +23,6 @@
 //! the choices of the type settings, and collects what the `Outline` object is given.
 
 use std::cell::RefCell;
-use std::sync::Mutex;
 
 use gpui::App;
 use matsu_commands::plugin_commands::{self, plug_code};
@@ -120,9 +119,6 @@ thread_local! {
     /// outline plug. The UI thread keeps it up to date ([`refresh_for`]).
     static CHOICES: RefCell<Vec<(String, i32)>> = const { RefCell::new(Vec::new()) };
 
-    /// The `nDefaultOutline` of the type whose sheet is made ([`set_stored`]).
-    static STORED: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
-
     /// The windows (their editors) in which an `Outline` call is going: Sakura does not analyze again
     /// while a plug runs (`bIsProcessing`, "アウトラインプラグイン内でのEditor.Outline呼び出しによる再入を禁止する").
     /// Sakura has a process for each window; here only the window of the call is held back.
@@ -145,50 +141,9 @@ pub(crate) fn refresh(cx: &App) {
     crate::doc_types::with_user(cx, refresh_for);
 }
 
-/// The number of the outline the type being set has (`nDefaultOutline`), for the list of the sheet.
-pub(crate) fn set_stored(value: i32) {
-    STORED.with(|cell| cell.set(value));
-}
-
-pub(crate) fn stored() -> i32 {
-    STORED.with(std::cell::Cell::get)
-}
-
 /// The outlines of the plugins as the type settings list them: the label and the number.
 pub(crate) fn choices() -> Vec<(String, i32)> {
     CHOICES.with(|cell| cell.borrow().clone())
-}
-
-/// `base` followed by `extra` as a list that lives for the whole run, which is what a choice of the
-/// settings sheet takes. The same list is made once (the sheet is opened many times; the lists are few).
-pub(crate) fn with_extra(
-    base: &'static [(&'static str, i32)],
-    extra: &[(String, i32)],
-) -> &'static [(&'static str, i32)] {
-    if extra.is_empty() {
-        return base;
-    }
-    static MADE: Mutex<Vec<&'static [(&'static str, i32)]>> = Mutex::new(Vec::new());
-    let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
-    let wanted = |list: &&'static [(&'static str, i32)]| {
-        list.len() == base.len() + extra.len()
-            && list[..base.len()] == *base
-            && list[base.len()..]
-                .iter()
-                .zip(extra)
-                .all(|(a, b)| a.0 == b.0 && a.1 == b.1)
-    };
-    if let Some(list) = made.iter().copied().find(wanted) {
-        return list;
-    }
-    let mut list: Vec<(&'static str, i32)> = base.to_vec();
-    for (label, code) in extra {
-        let label: &'static str = Box::leak(label.clone().into_boxed_str());
-        list.push((label, *code));
-    }
-    let list: &'static [(&'static str, i32)] = Box::leak(list.into_boxed_slice());
-    made.push(list);
-    list
 }
 
 /// Whether an `Outline` call is going in the window of the editor `view`.
