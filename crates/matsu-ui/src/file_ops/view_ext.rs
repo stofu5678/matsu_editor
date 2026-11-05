@@ -142,7 +142,12 @@ impl EditorView {
             // `CSaveAgent::OnBeforeSave` -> `CDocVisitor::SetAllEol`: a save that names a line
             // ending converts the lines of the document, an undo step of its own.
             let mut converted = true;
-            if let Some(eol) = options.eol {
+            if report.reloaded {
+                // The document is the file that was written, read again: the endings are
+                // converted already, and the cursor was in the document that is gone.
+                let _ = cursor.clamp(shared.doc());
+                shared.changed(cx);
+            } else if let Some(eol) = options.eol {
                 match shared.unify_line_endings(eol, cursor) {
                     Some(true) => {
                         shared.changed(cx);

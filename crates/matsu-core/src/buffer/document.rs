@@ -145,6 +145,14 @@ impl Document {
         Self::open(source, codec, u64::MAX, ext_eol)
     }
 
+    /// The setting of NEL, LS and PS ([`Document::ext_eol`]) when it is the one that every line
+    /// ending of the document was found with, the lines of the file and of the added texts, and
+    /// `None` when they were found with both. Only then does a scan of the text as a file find the
+    /// same lines.
+    pub fn uniform_ext_eol(&self) -> Option<bool> {
+        self.st.uniform_ext_eol()
+    }
+
     /// Whether NEL, LS and PS end a line in text added from now on.
     pub fn ext_eol(&self) -> bool {
         self.st.ext_eol()

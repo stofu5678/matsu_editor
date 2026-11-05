@@ -125,6 +125,10 @@ pub(crate) fn path_of_file_url(url: &str) -> Option<PathBuf> {
 /// closes. Returns at once if the arguments were handed to a MATSU Editor that is running already.
 pub fn launch(args: Vec<OsString>) {
     let (separate, args) = split_options(args);
+    // Saves ask the OS for the free space before they write (ADR-0020, chapter 4).
+    matsu_core::file::set_default_free_space_probe(Some(matsu_core::file::FreeSpaceProbe(
+        matsu_platform::free_space::available,
+    )));
     let request = Request::from_current_process(args);
     let (tx, rx) = async_channel::unbounded();
     let first = OpenRequest::from_launch(&request);

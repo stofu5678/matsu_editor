@@ -499,6 +499,14 @@ impl Storages {
         self.load_ext_eol
     }
 
+    /// The setting every line ending of the document was found with, if it is one: the original's,
+    /// the added texts' and the one now.
+    pub fn uniform_ext_eol(&self) -> Option<bool> {
+        let now = self.ext_eol();
+        (self.load_ext_eol == now && self.add_read().epochs.iter().all(|&(_, on)| on == now))
+            .then_some(now)
+    }
+
     pub fn set_ext_eol(&self, on: bool) {
         self.ext_eol.store(on, Ordering::Relaxed);
     }
