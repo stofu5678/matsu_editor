@@ -357,43 +357,76 @@ impl IntoElement for EditorElement {
     }
 }
 
-/// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece, or, when `width_of` is
-/// given (the columns have spacing), as a piece for each character, `width_of` columns apart. A
-/// font cannot space its glyphs, and Sakura draws each character of a row at its own place
-/// (`CTextDrawer::DispText` with the dx array).
+/// How text is put on the columns: the width of a column in pixels, and whether the columns have
+/// spacing.
+#[derive(Clone, Copy)]
+struct Grid {
+    cell: f32,
+    /// The columns have spacing (a font cannot space its glyphs).
+    spaced: bool,
+}
+
+/// The characters of `label` with the column each starts at and the columns it covers: what
+/// matsu-layout gives them, one character (a code point) at a time.
+fn glyph_cells(col: u32, label: &str, width_of: impl Fn(char) -> u32) -> Vec<(u32, char, u32)> {
+    let mut col = col;
+    label
+        .chars()
+        .map(|c| {
+            let cols = width_of(c);
+            let cell = (col, c, cols);
+            col += cols;
+            cell
+        })
+        .collect()
+}
+
+/// A shaped piece of text goes on the columns as it is when its advance is the width of its
+/// columns (BIZ UDGothic, MS Gothic: the full-width glyphs are twice the half-width ones).
+/// A font with other proportions (a fallback font, Menlo, Meiryo) would drift off the columns
+/// that the caret, the line break mark and the ruler are placed on.
+fn fits_columns(advance: f32, columns: u32, cell: f32) -> bool {
+    (advance - columns as f32 * cell).abs() < 0.5
+}
+
+/// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece when the columns have no
+/// spacing and the font's advances fit them ([`fits_columns`]), else as a piece for each
+/// character, at its own column. Sakura draws each character of a row at its own place
+/// (`CTextDrawer::DispText` with the dx array), whatever the advances of the font are.
 fn place(
     window: &mut Window,
     out: &mut Vec<Placed>,
     (col, label, style): (u32, &str, &TextStyle),
-    width_of: Option<impl Fn(char) -> u32>,
+    width_of: impl Fn(char) -> u32,
+    grid: &Grid,
     shape: &dyn Fn(&mut Window, &str, &TextStyle) -> ShapedLine,
 ) {
-    let Some(width_of) = width_of else {
-        out.push(Placed {
-            col,
-            line: Some(shape(window, label, style)),
-            underline: None,
-        });
-        return;
-    };
+    let glyphs = glyph_cells(col, label, width_of);
+    if !grid.spaced {
+        let whole = shape(window, label, style);
+        let columns = glyphs.iter().map(|g| g.2).sum();
+        if fits_columns(f32::from(whole.width()), columns, grid.cell) {
+            out.push(Placed {
+                col,
+                line: Some(whole),
+                underline: None,
+            });
+            return;
+        }
+    }
     // Each character is shaped alone, so its underline would stop at the glyph: the underline is
     // a line across the columns of the character instead.
     let glyph_style = TextStyle {
         underline: false,
         ..*style
     };
-    let mut col = col;
-    for c in label.chars() {
-        let cols = width_of(c);
+    for (col, c, cols) in glyphs {
         let underline = style.underline.then_some((cols, style.text));
         if c.is_whitespace() {
             // A space has nothing to paint but its underline, which joins the one before it:
             // a tab in a wide field has a long run of them.
             match (underline, out.last_mut()) {
-                (None, _) => {
-                    col += cols;
-                    continue;
-                }
+                (None, _) => continue,
                 (Some(_), Some(last))
                     if last.line.is_none()
                         && last.underline.is_some_and(|(n, color)| {
@@ -401,7 +434,6 @@ fn place(
                         }) =>
                 {
                     last.underline = last.underline.map(|(n, color)| (n + cols, color));
-                    col += cols;
                     continue;
                 }
                 _ => {}
@@ -413,7 +445,6 @@ fn place(
                 .then(|| shape(window, c.encode_utf8(&mut [0; 4]), &glyph_style)),
             underline,
         });
-        col += cols;
     }
 }
 
@@ -537,6 +568,7 @@ impl Element for EditorElement {
         let half = if half > 0.0 { half } else { 8.0 };
         let cell = column_width(half, settings.column_space);
         let spaced = settings.column_space > 0;
+        let grid = &Grid { cell, spaced };
         let widths = layout.config().width;
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
@@ -775,7 +807,8 @@ impl Element for EditorElement {
                         window,
                         &mut selected_text,
                         (label_col, label, selected_style),
-                        spaced.then_some(width_of),
+                        width_of,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -783,7 +816,8 @@ impl Element for EditorElement {
                     window,
                     &mut text,
                     (label_col, label, &item.style),
-                    spaced.then_some(width_of),
+                    width_of,
+                    grid,
                     &shape_styled,
                 );
                 if let Label::Tab(cols) = item.label
@@ -795,7 +829,8 @@ impl Element for EditorElement {
                             window,
                             &mut selected_text,
                             (head.0, head.1, selected_style),
-                            spaced.then_some(|_: char| 1),
+                            |_: char| 1,
+                            grid,
                             &shape_styled,
                         );
                     }
@@ -803,7 +838,8 @@ impl Element for EditorElement {
                         window,
                         &mut text,
                         (head.0, head.1, &item.style),
-                        spaced.then_some(|_: char| 1),
+                        |_: char| 1,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -819,7 +855,8 @@ impl Element for EditorElement {
                         window,
                         &mut marks,
                         (0, EOF_MARK, &eof_style),
-                        spaced.then_some(|_: char| 1),
+                        |_: char| 1,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -841,7 +878,8 @@ impl Element for EditorElement {
                         window,
                         &mut marks,
                         (row.end_column, eol_mark(eol), &mark.style),
-                        spaced.then_some(|_: char| 1),
+                        |_: char| 1,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -855,7 +893,8 @@ impl Element for EditorElement {
                     window,
                     &mut marks,
                     (row.end_column, EOF_MARK, &eof_style),
-                    spaced.then_some(|_: char| 1),
+                    |_: char| 1,
+                    grid,
                     &shape_styled,
                 );
             }
@@ -2215,5 +2254,81 @@ mod tests {
             true,
         );
         assert!(style.bold);
+    }
+
+    /// The x of each character as `place` puts it: the cell of its column, whatever the advance
+    /// of the font is.
+    fn xs(col: u32, label: &str, cell: f32) -> Vec<(char, f32)> {
+        let widths = matsu_layout::WidthRule::default();
+        glyph_cells(col, label, |c| widths.columns(c))
+            .into_iter()
+            .map(|(col, c, _)| (c, col as f32 * cell))
+            .collect()
+    }
+
+    /// The advance of `label` in a font whose half-width glyph is `half` and full-width one is
+    /// `full` wide.
+    fn advance(label: &str, half: f32, full: f32) -> f32 {
+        let widths = matsu_layout::WidthRule::default();
+        label
+            .chars()
+            .map(|c| if widths.columns(c) == 2 { full } else { half })
+            .sum()
+    }
+
+    fn columns_of_label(label: &str) -> u32 {
+        let widths = matsu_layout::WidthRule::default();
+        label.chars().map(|c| widths.columns(c)).sum()
+    }
+
+    #[test]
+    fn a_font_with_twice_the_half_width_in_full_width_is_one_piece() {
+        // BIZ UDGothic, MS Gothic: 7.2 and 14.4
+        let label = "拡張機能abc";
+        let w = advance(label, 7.2, 14.4);
+        assert!(fits_columns(w, columns_of_label(label), 7.2));
+    }
+
+    #[test]
+    fn a_font_with_other_proportions_is_drawn_character_by_character() {
+        // the user's Mac: a digit of 7.2 (the column) and a full-width glyph of 12.9
+        let label = "拡張機能を追加して";
+        let w = advance(label, 7.2, 12.9);
+        assert!(!fits_columns(w, columns_of_label(label), 7.2));
+        // each character starts at its column, however wide the glyphs before it are
+        for (i, (c, x)) in xs(3, label, 7.2).iter().enumerate() {
+            let want = (3 + 2 * i as u32) as f32 * 7.2;
+            assert_eq!(*x, want, "{c:?}");
+        }
+        // a line of 52 characters ends at its column: 104 columns, not 52 glyphs of 12.9
+        let long: String = "あ".repeat(52);
+        assert!(!fits_columns(advance(&long, 7.2, 12.9), 104, 7.2));
+        assert_eq!(xs(0, &long, 7.2).last().map(|g| g.1), Some(51.0 * 14.4));
+    }
+
+    #[test]
+    fn mixed_width_combining_emoji_and_tab_have_the_columns_of_the_layout() {
+        // half, full, a combining mark (a cell of its own), a surrogate pair (full), a space
+        let label = "a拡\u{301}😀 b";
+        let widths = matsu_layout::WidthRule::default();
+        let cols: Vec<(u32, u32)> = glyph_cells(0, label, |c| widths.columns(c))
+            .iter()
+            .map(|g| (g.0, g.2))
+            .collect();
+        assert_eq!(cols, [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1), (7, 1)]);
+        // a tab takes the columns to the next stop
+        let cfg = matsu_layout::LayoutConfig::default();
+        assert_eq!(
+            glyph_cells(1, "\t", |c| cfg.columns_of(c, 1)),
+            [(1, '\t', 3)]
+        );
+    }
+
+    #[test]
+    fn the_end_of_a_piece_is_the_end_of_its_columns() {
+        // what the caret and the line break mark use: the column of the end of the text
+        let label = "拡張機能を追加して";
+        let end = xs(0, label, 7.2).last().map(|g| g.1 + 2.0 * 7.2);
+        assert_eq!(end, Some(columns_of_label(label) as f32 * 7.2));
     }
 }
