@@ -359,11 +359,13 @@ impl IntoElement for EditorElement {
 
 /// How text is put on the columns: the width of a column in pixels, and whether the columns have
 /// spacing.
-#[derive(Clone, Copy)]
 struct Grid {
     cell: f32,
     /// The columns have spacing (a font cannot space its glyphs).
     spaced: bool,
+    /// The columns the window shows, with a margin: characters placed one by one outside them
+    /// are left out (a row can have thousands of columns).
+    visible: std::ops::Range<u32>,
 }
 
 /// The characters of `label` with the column each starts at and the columns it covers: what
@@ -379,6 +381,11 @@ fn glyph_cells(col: u32, label: &str, width_of: impl Fn(char) -> u32) -> Vec<(u3
             cell
         })
         .collect()
+}
+
+/// The `cols` columns from `col` are in the range of columns shown.
+fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
+    col + cols > shown.start && col < shown.end
 }
 
 /// A shaped piece of text goes on the columns as it is when its advance is the width of its
@@ -421,6 +428,9 @@ fn place(
         ..*style
     };
     for (col, c, cols) in glyphs {
+        if !overlaps(col, cols, &grid.visible) {
+            continue;
+        }
         let underline = style.underline.then_some((cols, style.text));
         if c.is_whitespace() {
             // A space has nothing to paint but its underline, which joins the one before it:
@@ -568,7 +578,16 @@ impl Element for EditorElement {
         let half = if half > 0.0 { half } else { 8.0 };
         let cell = column_width(half, settings.column_space);
         let spaced = settings.column_space > 0;
-        let grid = &Grid { cell, spaced };
+        let first_visible = (editor.scroll_x / cell).floor().max(0.0) as u32;
+        let shown_columns = (f32::from(bounds.size.width) / cell).ceil() as u32;
+        let grid = &Grid {
+            cell,
+            spaced,
+            visible: first_visible.saturating_sub(4)
+                ..first_visible
+                    .saturating_add(shown_columns)
+                    .saturating_add(4),
+        };
         let widths = layout.config().width;
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
@@ -2330,5 +2349,16 @@ mod tests {
         let label = "拡張機能を追加して";
         let end = xs(0, label, 7.2).last().map(|g| g.1 + 2.0 * 7.2);
         assert_eq!(end, Some(columns_of_label(label) as f32 * 7.2));
+    }
+
+    #[test]
+    fn characters_far_outside_the_window_are_left_out() {
+        let shown = 100..160;
+        assert!(!overlaps(0, 2, &shown));
+        assert!(!overlaps(98, 2, &shown));
+        assert!(overlaps(99, 2, &shown));
+        assert!(overlaps(120, 2, &shown));
+        assert!(overlaps(159, 2, &shown));
+        assert!(!overlaps(160, 2, &shown));
     }
 }
