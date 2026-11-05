@@ -706,6 +706,9 @@ fn write_body(
 ) -> Result<usize> {
     let codec = options.encoding.codec();
     let mut substituted = 0;
+    // Added text can hold stand-ins for invalid bytes too (pasted from the document): they are
+    // written as the raw bytes, which can join with what is next to them.
+    let mut invalid_added = false;
     let mut pending = String::new();
     let mut scratch = Vec::new();
     let mut flush = |pending: &mut String, out: &mut dyn Write| -> Result<()> {
@@ -715,6 +718,9 @@ fn write_body(
         scratch.clear();
         if let Err(e) = codec.encode(pending, &mut scratch) {
             substituted += e.offsets.len();
+        }
+        if options.encoding == Encoding::Utf8 && std::str::from_utf8(&scratch).is_err() {
+            invalid_added = true;
         }
         out.write_all(&scratch)?;
         pending.clear();
@@ -762,6 +768,7 @@ fn write_body(
             }
         }
         flush(&mut pending, out)?;
+        *invalid_original |= invalid_added;
         return Ok(substituted);
     }
 

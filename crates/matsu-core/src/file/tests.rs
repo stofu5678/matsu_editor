@@ -2112,3 +2112,18 @@ fn a_line_ending_the_setting_does_not_know_is_not_read_again() {
     assert!(!report.rebased && !report.reloaded);
     assert_eq!(file.document.line_count(), 61);
 }
+
+#[test]
+fn pasted_stand_ins_that_would_join_keep_the_document_on_the_old_file() {
+    let dir = TempDir::new();
+    let path = dir.write("s.txt", ranged_text().as_bytes());
+    let mut file = open_ranged_done(&path);
+    let stand_in = |byte: u32| char::from_u32(crate::buffer::INVALID_BYTE_BASE + byte).unwrap();
+    let pasted = format!("{}{}", stand_in(0xC2), stand_in(0xA2));
+    file.document.insert(Pos::new(0, 0), &pasted).unwrap();
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    // The file has `C2 A2` (one character `¢`) where the document has two stand-ins.
+    assert!(!report.rebased && !report.reloaded);
+    assert!(file.take_rebased().is_none());
+}
