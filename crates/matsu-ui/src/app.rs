@@ -182,6 +182,8 @@ pub(crate) fn run(
     app.on_reopen(reopen);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
+        // `MATSU_FONT_DIAGNOSTICS`: how the text font is chosen (nothing without the variable).
+        crate::font_diagnostics::report(cx, &user.view_settings(None));
         crate::view::EditorView::bind_keys(cx);
         crate::preview::bind_keys(cx);
         // the title of the confirmation boxes (Windows), as Sakura's: the name of the application

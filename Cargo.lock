@@ -4113,6 +4113,7 @@ dependencies = [
  "gpui-pre-platform",
  "image",
  "inventory",
+ "log",
  "matsu-coloring",
  "matsu-commands",
  "matsu-config",

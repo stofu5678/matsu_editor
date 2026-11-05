@@ -124,6 +124,9 @@ pub(crate) fn path_of_file_url(url: &str) -> Option<PathBuf> {
 /// Runs MATSU Editor for a command line (the arguments after the program name) until the last window
 /// closes. Returns at once if the arguments were handed to a MATSU Editor that is running already.
 pub fn launch(args: Vec<OsString>) {
+    // Before anything that GPUI logs: `MATSU_FONT_DIAGNOSTICS` installs the logger (and nothing
+    // otherwise).
+    let diagnostics = crate::font_diagnostics::install_from_env();
     let (separate, args) = split_options(args);
     let request = Request::from_current_process(args);
     let (tx, rx) = async_channel::unbounded();
@@ -139,7 +142,15 @@ pub fn launch(args: Vec<OsString>) {
         None
     } else {
         match join(&user, &request, tx.clone()) {
-            Some(Joined::Delivered) => return,
+            Some(Joined::Delivered) => {
+                if diagnostics {
+                    eprintln!(
+                        "matsu: the files were handed to the MATSU Editor that is running; no font \
+                         diagnostics are printed (end it first, or add --separate-process)"
+                    );
+                }
+                return;
+            }
             Some(Joined::Receiver(receiver)) => Some(receiver),
             Some(Joined::Standalone(why)) => {
                 eprintln!("matsu: {why}; running as a process of its own");
