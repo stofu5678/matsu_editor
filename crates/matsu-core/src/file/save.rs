@@ -49,8 +49,8 @@ use super::source::OffsetSource;
 use super::space::{self, FreeSpaceProbe};
 use super::{Progress, READ_CHUNK, RangedFile, TextFile, no_progress};
 use crate::buffer::{
-    Chunk, Document, EncodingCodec, Pos, ScanOptions, Source, StreamScanner, col_to_utf16,
-    utf16_len,
+    Chunk, Document, EncodingCodec, INVALID_BYTE_BASE, Pos, ScanOptions, Source, StreamScanner,
+    col_to_utf16, utf16_len,
 };
 use crate::encoding::{Encoding, Eol};
 use std::sync::Arc;
@@ -715,12 +715,16 @@ fn write_body(
         if pending.is_empty() {
             return Ok(());
         }
+        if options.encoding == Encoding::Utf8
+            && pending
+                .chars()
+                .any(|c| (INVALID_BYTE_BASE..INVALID_BYTE_BASE + 256).contains(&u32::from(c)))
+        {
+            invalid_added = true;
+        }
         scratch.clear();
         if let Err(e) = codec.encode(pending, &mut scratch) {
             substituted += e.offsets.len();
-        }
-        if options.encoding == Encoding::Utf8 && std::str::from_utf8(&scratch).is_err() {
-            invalid_added = true;
         }
         out.write_all(&scratch)?;
         pending.clear();
