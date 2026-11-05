@@ -390,7 +390,8 @@ fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
 
 /// Joins the characters that are drawn as one glyph with the character before them: marks and
 /// other zero-width characters (combining marks, variation selectors, ZWJ), what follows a ZWJ
-/// (emoji sequences), and emoji skin tone modifiers. Each piece has the column of its first
+/// (emoji sequences), the second of a pair of regional indicators (a flag), and emoji skin tone
+/// modifiers. Each piece has the column of its first
 /// character and the columns of all of them. A font draws such a piece as one glyph, which
 /// shaping the characters one by one would break. Joins that cross these pieces (Arabic
 /// letters, ligatures) are not kept.
@@ -398,11 +399,16 @@ fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, String, u32)> {
     use unicode_width::UnicodeWidthChar;
     let mut out: Vec<(u32, String, u32)> = Vec::with_capacity(cells.len());
     let mut after_zwj = false;
+    // the first of a pair of regional indicators (a flag) is waiting for the second
+    let mut flag_open = false;
     for (col, c, cols) in cells {
+        let indicator = ('\u{1F1E6}'..='\u{1F1FF}').contains(&c);
         let joins = after_zwj
+            || (indicator && flag_open)
             || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
             || (c.width() == Some(0) && !c.is_whitespace());
         after_zwj = c == '\u{200D}';
+        flag_open = indicator && !flag_open;
         match out.last_mut() {
             Some(last) if joins => {
                 last.1.push(c);
@@ -2427,6 +2433,18 @@ mod tests {
         );
         // the first column of each is where its first character is
         assert_eq!(got[1].0, 2);
+    }
+
+    #[test]
+    fn a_flag_is_one_cluster_and_the_next_pair_is_another() {
+        // JP and US flags, then a lone indicator
+        let got = cluster_texts("\u{1F1EF}\u{1F1F5}\u{1F1FA}\u{1F1F8}\u{1F1EF}");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["\u{1F1EF}\u{1F1F5}", "\u{1F1FA}\u{1F1F8}", "\u{1F1EF}"]
+        );
+        assert_eq!((got[0].0, got[1].0, got[2].0), (0, 4, 8));
     }
 
     #[test]
