@@ -393,7 +393,12 @@ impl BlockScanner {
 
     /// The bytes `from..to`, which end in the window `bytes` (that starts at `pos`) and may start
     /// before it: read from the source, or from what a streaming scan remembered.
-    fn head(&self, bytes: &[u8], from: u64, to: u64) -> Result<std::borrow::Cow<'_, [u8]>, ScanError> {
+    fn head(
+        &self,
+        bytes: &[u8],
+        from: u64,
+        to: u64,
+    ) -> Result<std::borrow::Cow<'_, [u8]>, ScanError> {
         let too_short = || ScanError::from(io::Error::from(io::ErrorKind::UnexpectedEof));
         let Some(recent) = &self.recent else {
             let head = self.source.read(from, to)?;
@@ -410,11 +415,17 @@ impl BlockScanner {
                 return Err(too_short());
             }
             let upto = to.min(self.pos);
-            head.extend_from_slice(&recent.bytes[(from - recent_start) as usize..(upto - recent_start) as usize]);
+            head.extend_from_slice(
+                &recent.bytes[(from - recent_start) as usize..(upto - recent_start) as usize],
+            );
         }
         if to > self.pos {
             let first = from.max(self.pos) - self.pos;
-            head.extend_from_slice(bytes.get(first as usize..(to - self.pos) as usize).ok_or_else(too_short)?);
+            head.extend_from_slice(
+                bytes
+                    .get(first as usize..(to - self.pos) as usize)
+                    .ok_or_else(too_short)?,
+            );
         }
         Ok(head.into())
     }

@@ -70,6 +70,24 @@ impl DocumentModel {
         self.doc = doc;
     }
 
+    /// Puts `doc` in place of the document after a save of a file read by ranges: `doc` has the
+    /// text of the document, read from the file that was written. The history keeps the old
+    /// document in its steps (and so the old file open); nothing else changes.
+    pub fn replace_saved_document(&mut self, doc: Document) {
+        self.doc = doc;
+    }
+
+    /// Puts `doc` in place of the document and drops the undo history, after a save that wrote
+    /// other text than the document had (another encoding or line endings, ADR-0020 chapter 4:
+    /// "保存の世代"). The bookmarks and marks stay: `doc` has the same lines.
+    pub fn reload_saved_document(&mut self, doc: Document) {
+        self.doc = doc;
+        self.history = History::new();
+        self.bookmarks.truncate(self.doc.line_count());
+        self.diff_marks.truncate(self.doc.line_count());
+        self.funclist_marks.truncate(self.doc.line_count());
+    }
+
     pub fn doc(&self) -> &Document {
         &self.doc
     }
