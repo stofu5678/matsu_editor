@@ -55,10 +55,17 @@
 pub(crate) mod dock;
 #[cfg(test)]
 mod dock_tests;
+pub(crate) mod drop;
+#[cfg(test)]
+mod drop_tests;
 pub(crate) mod file_tree;
 pub(crate) mod file_tree_dialog;
 #[cfg(test)]
 mod file_tree_tests;
+#[cfg(test)]
+mod float_tests;
+#[cfg(test)]
+mod float_ui_tests;
 pub(crate) mod layout;
 #[cfg(test)]
 mod layout_tests;
@@ -79,6 +86,7 @@ use matsu_outline::OutlineKind;
 use crate::app::Workspace;
 use crate::search::state::{not_found_status, wrapped_message};
 use crate::view::EditorView;
+use dock::DockSide;
 use pane::OutlinePane;
 
 /// What was asked for: the outline of the document type (`OUTLINE_DEFAULT`), the bookmarks
@@ -230,9 +238,20 @@ impl Workspace {
 
     /// Closes the pane and gives the focus back to the text.
     pub(crate) fn close_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.remove_outline(true, window, cx);
+    }
+
+    /// Takes the pane away. Only a pane the user closes is forgotten (`forget`: `bOutlineDockDisp`
+    /// goes off); one that `ChangeLayout` closes, or a window that closes, keeps it.
+    fn remove_outline(&mut self, forget: bool, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(pane) = self.outline.take() {
-            // only a pane the user closes is forgotten: a window that closes keeps it
-            pane.update(cx, |pane, cx| pane.set_disp(false, cx));
+            pane.update(cx, |pane, cx| {
+                // `OnDestroy`: a floating pane keeps its place
+                pane.leave(cx);
+                if forget {
+                    pane.set_disp(false, cx);
+                }
+            });
             let active = self.panes().active().clone();
             active.update(cx, |view, cx| window.focus(&view.focus_handle, cx));
             cx.notify();
@@ -262,14 +281,80 @@ impl Workspace {
 
     /// The pane follows the pane of the text the user works in: another tab is analyzed
     /// (`ChangeView`, `Refresh`). Called when the window is drawn.
-    pub(crate) fn sync_outline(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sync_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let active = self.panes().active().clone();
+        let key = (
+            active.entity_id(),
+            active.read(cx).view_settings().type_index,
+        );
+        // another tab, or the type of the file changed: the settings of the type apply
+        let changed = self
+            .outline_seen
+            .replace(key)
+            .is_some_and(|before| before != key);
         let Some(pane) = self.outline.clone() else {
+            if changed {
+                cx.defer_in(window, |this, window, cx| {
+                    this.outline_change_layout(None, window, cx)
+                });
+            }
             return;
         };
-        let active = self.panes().active().clone();
+        // the side it was drawn at, before the tab takes it anywhere else
+        let drawn = pane.read(cx).drawn_side(cx);
         if pane.read(cx).view_id() != active.entity_id() {
             pane.update(cx, |pane, cx| pane.follow(&active, cx));
         }
+        if changed {
+            cx.defer_in(window, move |this, window, cx| {
+                this.outline_change_layout(Some(drawn), window, cx)
+            });
+        }
+    }
+
+    /// `CDlgFuncList::ChangeLayout( OUTLINE_LAYOUT_FILECHANGED )`: the settings of the type of the
+    /// file now in the pane of the text say whether the pane is open and where. `drawn` is the side
+    /// of the pane that is open.
+    ///
+    /// * Open and the type wants it closed: it closes (a floating pane stays when the type wants
+    ///   a floating one, too). Nothing is forgotten: `bOutlineDockDisp` stays as it is.
+    /// * Open and the type wants it open: it takes the place of the type. Docked becomes floating
+    ///   by closing: a floating pane is not opened for another file.
+    /// * Closed and the type wants it open and docked: it opens, with the text keeping the focus.
+    fn outline_change_layout(
+        &mut self,
+        drawn: Option<DockSide>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.content.preview().is_some() {
+            return;
+        }
+        let index = self.panes().active().read(cx).view_settings().type_index;
+        let place = dock::current(cx).place(index);
+        let Some(pane) = self.outline.clone() else {
+            // `restore_outline` opens a docked one only
+            self.restore_outline(window, cx);
+            return;
+        };
+        let old = drawn.unwrap_or(place.side);
+        if !place.disp {
+            if old.is_floating() && place.side.is_floating() {
+                // the floating pane is reused
+                return;
+            }
+            self.remove_outline(false, window, cx);
+            return;
+        }
+        if old.is_docked() && place.side.is_floating() {
+            self.remove_outline(false, window, cx);
+            return;
+        }
+        pane.update(cx, |pane, cx| {
+            // a floating pane that takes a docked place keeps the place it had
+            pane.leave(cx);
+            pane.retake_place(cx);
+        });
     }
 }
 

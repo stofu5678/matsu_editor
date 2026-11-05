@@ -197,6 +197,7 @@ fn the_caret_stays_in_view_while_moving_through_a_long_document(cx: &mut TestApp
             line_height: 20.0,
             view_width: 400.0,
             view_height: 100.0,
+            vbar_gap: 0.0,
         })
     });
     let in_view = |f: &Fixture, cx: &mut VisualTestContext| {
@@ -239,6 +240,7 @@ fn ctrl_h_scrolls_the_caret_row_to_the_middle(cx: &mut TestAppContext) {
             line_height: 20.0,
             view_width: 400.0,
             view_height: 100.0,
+            vbar_gap: 0.0,
         });
         v.run_with(cx, |c| c.move_caret(Pos::new(1000, 0), false))
             .unwrap();

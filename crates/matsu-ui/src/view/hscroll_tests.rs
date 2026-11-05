@@ -15,7 +15,7 @@ fn wide_text() -> String {
 }
 
 /// Paints until the width of the text is known.
-fn settle(cx: &mut VisualTestContext) {
+pub(super) fn settle(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
@@ -36,7 +36,7 @@ fn scroll_x(f: &Fixture, cx: &mut VisualTestContext) -> f32 {
     f.view.read_with(cx, |v, _| v.scroll_x)
 }
 
-fn press(cx: &mut VisualTestContext, x: f32, y: f32) {
+pub(super) fn press(cx: &mut VisualTestContext, x: f32, y: f32) {
     cx.simulate_event(MouseDownEvent {
         button: MouseButton::Left,
         position: point(px(x), px(y)),
@@ -46,7 +46,7 @@ fn press(cx: &mut VisualTestContext, x: f32, y: f32) {
     });
 }
 
-fn release(cx: &mut VisualTestContext, x: f32, y: f32) {
+pub(super) fn release(cx: &mut VisualTestContext, x: f32, y: f32) {
     cx.simulate_event(MouseUpEvent {
         button: MouseButton::Left,
         position: point(px(x), px(y)),

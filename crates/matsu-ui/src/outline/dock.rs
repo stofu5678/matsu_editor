@@ -19,6 +19,16 @@
 //! value is a global of the process, and the file is written when a value changes, under the lock
 //! of the settings file ([`crate::history::write_settings`]), as the other saved states are.
 //!
+//! * `[Common]`, the floating pane: `bRememberOutlineWindowPos` (the position and the size of the
+//!   floating pane are kept) and, only while it is on, `xOutlineWindowPos`, `yOutlineWindowPos`,
+//!   `widthOutlineWindow` and `heightOutlineWindow` ([`FloatRect`]). Sakura's floating pane is a
+//!   window of its own and the position is relative to the edit window; here the pane is drawn
+//!   over the text (type B), so the position is relative to the corner of the area the pane and
+//!   the text share, and the size is the one of the whole floating pane with its bars. They are
+//!   read when a floating pane opens (`CDlgFuncList::OnInitDialog`) and written when the pane has
+//!   been moved or sized, and when a floating pane goes (`OnDestroy`). With the box off the four
+//!   keys are not written or used, and the ones the file has stay as they are.
+//!
 //! The sizes are GPUI's logical pixels, where Sakura's are device pixels.
 //!
 //! Where MATSU differs from Sakura's defaults: a file without `eOutlineDockSide` docks the pane at
@@ -39,6 +49,11 @@ const KEY_RECT: &str = "xyOutlineDock";
 const KEY_SORT_COL: &str = "nOutlineSortCol";
 const KEY_SORT_DESC: &str = "bOutlineSortDesc";
 const KEY_SORT_TYPE: &str = "nOutlineSortType";
+const KEY_REMEMBER: &str = "bRememberOutlineWindowPos";
+const KEY_FLOAT_W: &str = "widthOutlineWindow";
+const KEY_FLOAT_H: &str = "heightOutlineWindow";
+const KEY_FLOAT_X: &str = "xOutlineWindowPos";
+const KEY_FLOAT_Y: &str = "yOutlineWindowPos";
 
 /// `MAX_TYPES`: the number of `Types(N)` sections that can exist.
 const MAX_TYPES: usize = matsu_config::settings::types::MAX_TYPES as usize;
@@ -92,6 +107,11 @@ impl DockSide {
     /// `IsDocking`: the pane is a part of the window (`m_eDockSide > DOCKSIDE_FLOAT`).
     pub(crate) fn is_docked(self) -> bool {
         self.code() > Self::Float.code()
+    }
+
+    /// The pane floats over the text (it is not [`docked`](Self::is_docked)).
+    pub(crate) fn is_floating(self) -> bool {
+        !self.is_docked()
     }
 
     /// The pane is at the left or the right: it takes width and keeps the height of the window.
@@ -202,6 +222,24 @@ fn parse_rect(text: &str) -> Option<(i32, i32, i32, i32)> {
     ))
 }
 
+/// The position and the size of the floating pane (`m_xOutlineWindowPos` and the others of
+/// `CommonSetting_OutLine`). A width or a height of 0 is "not set yet": the pane opens at its
+/// default place.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FloatRect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl FloatRect {
+    /// Whether the size is set (`GetDropRect` asks for a width and a height that are not 0).
+    pub(crate) fn has_size(&self) -> bool {
+        self.w > 0 && self.h > 0
+    }
+}
+
 /// What a type keeps: its own place and its sort.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TypeOutline {
@@ -235,6 +273,10 @@ pub(crate) struct OutlineDock {
     pub sync: bool,
     pub common: DockPlace,
     pub types: BTreeMap<usize, TypeOutline>,
+    /// `bRememberOutlineWindowPos`: the floating pane keeps its position and its size.
+    pub remember: bool,
+    /// The position and the size the file has (read only while `remember` is on).
+    pub float: FloatRect,
 }
 
 impl Default for OutlineDock {
@@ -243,6 +285,9 @@ impl Default for OutlineDock {
             dock_set: 0,
             // CShareData::InitShareData: TRUE
             sync: true,
+            // the shared data starts at 0 (`GetDropRect`: "初期値だと 0 になっている")
+            remember: false,
+            float: FloatRect::default(),
             common: DockPlace::default(),
             types: BTreeMap::new(),
         }
@@ -277,12 +322,33 @@ impl OutlineDock {
                 },
             );
         }
+        // `ShareData_IO_Common`: the four keys are read only while the box is on
+        let remember = profile.get_bool(COMMON, KEY_REMEMBER).unwrap_or(d.remember);
+        let float = if remember {
+            let n = |key| profile.get_i32(COMMON, key).unwrap_or(0);
+            FloatRect {
+                x: n(KEY_FLOAT_X),
+                y: n(KEY_FLOAT_Y),
+                w: n(KEY_FLOAT_W),
+                h: n(KEY_FLOAT_H),
+            }
+        } else {
+            d.float
+        };
         Self {
             dock_set: profile.get_i32(COMMON, KEY_SET).unwrap_or(d.dock_set),
             sync: profile.get_bool(COMMON, KEY_SYNC).unwrap_or(d.sync),
             common: DockPlace::read(profile, COMMON),
             types,
+            remember,
+            float,
         }
+    }
+
+    /// The position and the size a floating pane is given (`OnInitDialog`): the remembered ones,
+    /// while the box is on and a size is set.
+    pub(crate) fn float_if_remembered(&self) -> Option<FloatRect> {
+        (self.remember && self.float.has_size()).then_some(self.float)
     }
 
     /// The settings of a type, which are the defaults for one the file does not have.
@@ -372,6 +438,32 @@ pub(crate) fn write_common(
     Ok(before != snapshot(profile))
 }
 
+/// Writes `bRememberOutlineWindowPos` and, while it is on, the position and the size of the
+/// floating pane (`ShareData_IO_Common`). With it off the four keys are not written, and the ones
+/// the file has stay.
+pub(crate) fn write_float(
+    profile: &mut Profile,
+    dock: &OutlineDock,
+) -> Result<bool, matsu_config::ProfileError> {
+    let keys = [
+        KEY_REMEMBER,
+        KEY_FLOAT_W,
+        KEY_FLOAT_H,
+        KEY_FLOAT_X,
+        KEY_FLOAT_Y,
+    ];
+    let snapshot = |p: &Profile| keys.map(|key| p.get(COMMON, key).map(str::to_owned));
+    let before = snapshot(profile);
+    profile.set_bool(COMMON, KEY_REMEMBER, dock.remember)?;
+    if dock.remember {
+        profile.set_i32(COMMON, KEY_FLOAT_W, dock.float.w)?;
+        profile.set_i32(COMMON, KEY_FLOAT_H, dock.float.h)?;
+        profile.set_i32(COMMON, KEY_FLOAT_X, dock.float.x)?;
+        profile.set_i32(COMMON, KEY_FLOAT_Y, dock.float.y)?;
+    }
+    Ok(before != snapshot(profile))
+}
+
 /// Writes the sort of type `index`.
 pub(crate) fn write_sort(
     profile: &mut Profile,
@@ -397,6 +489,7 @@ pub(crate) fn write_all(
     dock: &OutlineDock,
 ) -> Result<bool, matsu_config::ProfileError> {
     let mut changed = write_common(profile, dock)?;
+    changed |= write_float(profile, dock)?;
     changed |= write_place(profile, Target::Common, &dock.common)?;
     for (&index, t) in &dock.types {
         changed |= write_place(profile, Target::Type(index), &t.place)?;

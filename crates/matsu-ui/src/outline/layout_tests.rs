@@ -18,10 +18,10 @@ use super::tests::{CPP, active_view, pane, run, window, window_with, workspace};
 use crate::settings::UserSettings;
 
 /// The settings file of a test, in a folder that goes at the end of the test.
-struct TempIni(PathBuf);
+pub(super) struct TempIni(pub(super) PathBuf);
 
 impl TempIni {
-    fn new(text: &str) -> Self {
+    pub(super) fn new(text: &str) -> Self {
         static N: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "matsu-outline-dock-{}-{}",
@@ -34,11 +34,11 @@ impl TempIni {
         Self(path)
     }
 
-    fn text(&self) -> String {
+    pub(super) fn text(&self) -> String {
         String::from_utf8(std::fs::read(&self.0).unwrap()).unwrap()
     }
 
-    fn profile(&self) -> Profile {
+    pub(super) fn profile(&self) -> Profile {
         Profile::load(&self.0).unwrap()
     }
 }
@@ -53,7 +53,7 @@ impl Drop for TempIni {
 
 /// Starts the program the way `app::run` does with the file `ini`: the history store and the
 /// states are installed, and the settings are the global.
-fn start(cx: &mut TestAppContext, ini: &TempIni) -> UserSettings {
+pub(super) fn start(cx: &mut TestAppContext, ini: &TempIni) -> UserSettings {
     let user = UserSettings::load_from(std::slice::from_ref(&ini.0));
     cx.update(|cx| {
         crate::history::install(cx, &user);
@@ -63,7 +63,7 @@ fn start(cx: &mut TestAppContext, ini: &TempIni) -> UserSettings {
 }
 
 /// A window with the settings of `ini` text (no file on disk).
-fn open(cx: &mut TestAppContext, ini: &str) -> AnyWindowHandle {
+pub(super) fn open(cx: &mut TestAppContext, ini: &str) -> AnyWindowHandle {
     cx.update(|cx| {
         cx.set_global(OutlineDock::from_profile(&Profile::from_bytes(
             ini.as_bytes(),
@@ -72,20 +72,20 @@ fn open(cx: &mut TestAppContext, ini: &str) -> AnyWindowHandle {
     window(cx, CPP, "a.cpp")
 }
 
-fn visual(cx: &mut TestAppContext, handle: AnyWindowHandle) -> &mut VisualTestContext {
+pub(super) fn visual(cx: &mut TestAppContext, handle: AnyWindowHandle) -> &mut VisualTestContext {
     VisualTestContext::from_window(handle, cx).into_mut()
 }
 
-fn near(a: Pixels, b: Pixels) -> bool {
+pub(super) fn near(a: Pixels, b: Pixels) -> bool {
     f32::from(a - b).abs() < 0.6
 }
 
-struct Rects {
-    pane: Bounds<Pixels>,
-    text: Bounds<Pixels>,
+pub(super) struct Rects {
+    pub(super) pane: Bounds<Pixels>,
+    pub(super) text: Bounds<Pixels>,
 }
 
-fn rects(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Rects {
+pub(super) fn rects(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Rects {
     cx.run_until_parked();
     let vcx = visual(cx, handle);
     Rects {
@@ -96,17 +96,17 @@ fn rects(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Rects {
     }
 }
 
-fn current_place(cx: &mut TestAppContext, handle: AnyWindowHandle) -> dock::DockPlace {
+pub(super) fn current_place(cx: &mut TestAppContext, handle: AnyWindowHandle) -> dock::DockPlace {
     pane(cx, handle)
         .expect("the pane is open")
         .read_with(cx, |p, cx| p.place(cx))
 }
 
-fn dock_now(cx: &mut TestAppContext) -> OutlineDock {
+pub(super) fn dock_now(cx: &mut TestAppContext) -> OutlineDock {
     cx.update(|cx| dock::current(cx))
 }
 
-fn bar_gap() -> Pixels {
+pub(super) fn bar_gap() -> Pixels {
     px(5.)
 }
 
@@ -245,7 +245,7 @@ fn the_pane_of_the_type_is_used_when_the_file_says_so(cx: &mut TestAppContext) {
     assert!(near(r.pane.size.height, px(100.)), "{:?}", r.pane);
 }
 
-fn pane_command(cx: &mut TestAppContext, handle: AnyWindowHandle, command: MenuCommand) {
+pub(super) fn pane_command(cx: &mut TestAppContext, handle: AnyWindowHandle, command: MenuCommand) {
     let pane = pane(cx, handle).expect("the pane is open");
     handle
         .update(cx, |_, window, app| {

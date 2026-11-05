@@ -39,6 +39,7 @@ fn metrics(view_width: f32) -> Metrics {
         line_height: 20.0,
         view_width,
         view_height: 400.0,
+        vbar_gap: 0.0,
     }
 }
 
