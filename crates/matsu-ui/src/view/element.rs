@@ -2503,10 +2503,10 @@ mod tests {
 
     #[test]
     fn an_indic_conjunct_is_one_cluster() {
-        // ksha: ka, virama, ssa; then a letter
-        let got = cluster_texts("\u{0915}\u{094D}\u{0937}\u{0915}");
+        // ksha: ka, virama, ssa; then a space and a letter
+        let got = cluster_texts("\u{0915}\u{094D}\u{0937} \u{0915}");
         let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
-        assert_eq!(texts, ["\u{0915}\u{094D}\u{0937}", "\u{0915}"]);
+        assert_eq!(texts, ["\u{0915}\u{094D}\u{0937}", " ", "\u{0915}"]);
     }
 
     #[test]
