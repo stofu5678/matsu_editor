@@ -437,14 +437,21 @@ fn joins_after_zwj(c: char) -> bool {
         | 0x3030 | 0x303D | 0x3297 | 0x3299 | 0x1F000..=0x1FFFF)
 }
 
-/// A script whose letters change shape with the ones around them (Arabic, the Indic scripts,
-/// Thai, Lao, Tibetan, Myanmar, Khmer): a run of them is one cluster, so that their joins,
-/// conjuncts and reordered vowel signs survive. Without grapheme segmentation tables this is the
-/// safe size of a piece.
+/// A letter of a script whose letters change shape with the ones around them, or run right to
+/// left (Arabic, Hebrew, Syriac, Thaana, NKo, the Indic scripts, Thai, Lao, Tibetan, Myanmar,
+/// Khmer): a run of them is one cluster, so that their joins, conjuncts, reordered vowel signs
+/// and direction survive. Numerals and the punctuation of these scripts are not letters of the
+/// run: with spacing they are placed one by one, as the layout has them. The rule is an
+/// approximation of the grapheme cluster tables (UAX 29).
 fn complex_script(c: char) -> bool {
-    matches!(c as u32,
-        0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0x0900..=0x0DFF | 0x0E00..=0x0EFF
-        | 0x0F00..=0x0FFF | 0x1000..=0x109F | 0x1780..=0x17FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF)
+    let in_script = matches!(c as u32,
+        0x0590..=0x08FF | 0x0900..=0x0DFF | 0x0E00..=0x0EFF | 0x0F00..=0x0FFF | 0x1000..=0x109F
+        | 0x1780..=0x17FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF);
+    let punctuation = matches!(c as u32,
+        0x05BE | 0x05C0 | 0x05C3 | 0x05C6 | 0x05F3 | 0x05F4 | 0x060C | 0x061B | 0x061F
+        | 0x066A..=0x066D | 0x06D4 | 0x0964 | 0x0965 | 0x0970 | 0x0E4F | 0x0E5A | 0x0E5B
+        | 0x0F04..=0x0F12 | 0x104A..=0x104F | 0x17D4..=0x17DA);
+    in_script && !punctuation && !c.is_numeric()
 }
 
 /// A virama (the sign that kills the vowel of an Indic consonant): the consonant after it makes
@@ -2523,6 +2530,18 @@ mod tests {
         let got = cluster_texts("\u{0915}\u{093F} \u{0645}\u{0631}\u{062D}");
         let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
         assert_eq!(texts, ["\u{0915}\u{093F}", " ", "\u{0645}\u{0631}\u{062D}"]);
+    }
+
+    #[test]
+    fn a_hebrew_word_is_one_cluster_and_numerals_and_punctuation_are_not_joined() {
+        let word = cluster_texts("\u{05E9}\u{05DC}\u{05D5}\u{05DD}");
+        assert_eq!(word.len(), 1);
+        // Arabic-Indic and Devanagari numerals
+        let numerals = cluster_texts("\u{0661}\u{0662}\u{0663}\u{0967}\u{0968}");
+        assert_eq!(numerals.len(), 5);
+        // an Arabic comma between two letters
+        let comma = cluster_texts("\u{0645}\u{060C}\u{0645}");
+        assert_eq!(comma.len(), 3);
     }
 
     #[test]
