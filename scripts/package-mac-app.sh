@@ -12,7 +12,7 @@
 #                                               crates/matsu-plugin/src/session.rs)
 #   MATSU Editor.app/Contents/Resources/matsu_editor.icns  (made from assets/icons)
 #   MATSU Editor.app/Contents/Resources/LICENSE-MIT, LICENSE-APACHE, THIRD_PARTY_NOTICES.txt
-# The bundle is signed ad hoc (no Developer ID, no notarization). Needs sips, iconutil, plutil and
+# The bundle is signed ad hoc (no Developer ID, no notarization). Needs iconutil, plutil and
 # codesign, which macOS has. Run it from the root of the repository.
 set -euo pipefail
 
@@ -29,20 +29,23 @@ cp "$programs/matsu" "$programs/matsu-script" "$app/Contents/MacOS/"
 # The licenses travel with the app (it is often moved out of the archive alone).
 cp LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "$app/Contents/Resources/"
 
-# The icon: the hand-drawn 16 and 32 px pictures and the larger ones of assets/icons; the sizes that
-# do not exist (64 and 128) are made from the 256 px one. The 1024 px entry is left out.
+# The icon: the Mac pictures of assets/icons (a rounded square with the 824 px body of Apple's template,
+# see assets/icons/README.md). The hand-made 16, 32 and 64 px ones are used as they are; 1024 px is
+# icon_512x512@2x.
 iconset=$(mktemp -d)/matsu_editor.iconset
 mkdir "$iconset"
 icons=assets/icons
-cp "$icons/matsu_editor_16.png" "$iconset/icon_16x16.png"
-cp "$icons/matsu_editor_32.png" "$iconset/icon_16x16@2x.png"
-cp "$icons/matsu_editor_32.png" "$iconset/icon_32x32.png"
-sips -z 64 64 "$icons/matsu_editor_256.png" --out "$iconset/icon_32x32@2x.png" >/dev/null
-sips -z 128 128 "$icons/matsu_editor_256.png" --out "$iconset/icon_128x128.png" >/dev/null
-cp "$icons/matsu_editor_256.png" "$iconset/icon_128x128@2x.png"
-cp "$icons/matsu_editor_256.png" "$iconset/icon_256x256.png"
-cp "$icons/matsu_editor_512.png" "$iconset/icon_256x256@2x.png"
-cp "$icons/matsu_editor_512.png" "$iconset/icon_512x512.png"
+mac="$icons/matsu_editor_mac_a"
+cp "${mac}_16.png" "$iconset/icon_16x16.png"
+cp "${mac}_32.png" "$iconset/icon_16x16@2x.png"
+cp "${mac}_32.png" "$iconset/icon_32x32.png"
+cp "${mac}_64.png" "$iconset/icon_32x32@2x.png"
+cp "${mac}_128.png" "$iconset/icon_128x128.png"
+cp "${mac}_256.png" "$iconset/icon_128x128@2x.png"
+cp "${mac}_256.png" "$iconset/icon_256x256.png"
+cp "${mac}_512.png" "$iconset/icon_256x256@2x.png"
+cp "${mac}_512.png" "$iconset/icon_512x512.png"
+cp "${mac}_1024.png" "$iconset/icon_512x512@2x.png"
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/matsu_editor.icns"
 rm -rf "$(dirname "$iconset")"
 
