@@ -2088,7 +2088,8 @@ fn invalid_utf8_bytes_that_would_join_keep_the_document_on_the_old_file() {
     }
     let before = all_lines(&file.document);
     // Delete the `x` between the two invalid bytes.
-    let (from, to) = (Pos::new(20, 1), Pos::new(20, 2));
+    // (the stand-in of an invalid byte is 4 bytes of UTF-8 in the line)
+    let (from, to) = (Pos::new(20, 4), Pos::new(20, 5));
     file.document.delete(from, to).unwrap();
     let edited = all_lines(&file.document);
     let keep = SaveOptions::keep(&file);
@@ -2107,10 +2108,11 @@ fn a_line_ending_the_setting_does_not_know_is_not_read_again() {
     let mut file = open_ranged_done(&path);
     let mut options = SaveOptions::keep(&file);
     options.eol = Some(Eol::Nel);
+    let lines = file.document.line_count();
     let report = file.save(&options, &mut no_progress).unwrap();
     // With NEL not ending lines, reading the file again would join the lines.
     assert!(!report.rebased && !report.reloaded);
-    assert_eq!(file.document.line_count(), 61);
+    assert_eq!(file.document.line_count(), lines);
 }
 
 #[test]
@@ -2140,7 +2142,7 @@ fn deleting_everything_and_saving_lets_go_of_the_old_file() {
     let report = file.save(&keep, &mut no_progress).unwrap();
     assert!(report.rebased && !report.reloaded);
     assert_eq!(fs::read(&path).unwrap(), b"");
-    assert_eq!(file.document.line_count(), 1);
+    assert_eq!(file.document.line_count(), Document::empty().line_count());
     assert!(file.document.is_ranged());
     // Nothing but the document of the empty file is left: no handle of the replaced file.
     assert_eq!(open_deleted_files(&dir), 0);
