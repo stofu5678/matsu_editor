@@ -136,6 +136,8 @@ pub(crate) struct Facts {
     /// The family that MATSU asks GPUI for.
     pub asked_family: String,
     pub font_size: f32,
+    pub weight: f32,
+    pub italic: bool,
     pub all_names: Vec<String>,
     pub resolution: Resolution,
     pub advances: Vec<Advance>,
@@ -210,7 +212,10 @@ pub(crate) fn render(facts: &Facts) -> String {
         facts.default_family
     ));
     line(format!("family asked of GPUI: {:?}", facts.asked_family));
-    line(format!("font size: {} px", facts.font_size));
+    line(format!(
+        "font size: {} px, weight {}, italic {}",
+        facts.font_size, facts.weight, facts.italic
+    ));
 
     let names = &facts.all_names;
     line(format!("all_font_names(): {} names", names.len()));
@@ -250,7 +255,7 @@ pub(crate) fn render(facts: &Facts) -> String {
     }
     match (asked_id, facts.resolution.ids.get(1)) {
         (Some(asked), Some((_, missing))) if asked == *missing => line(
-            "  => the asked family did NOT load: GPUI fell back (the same id as a family that does not exist)"
+            "  => the asked family has the same id as a family that does not exist: GPUI fell back to that font (or the asked family is that very font, e.g. Helvetica)"
                 .to_owned(),
         ),
         (Some(_), Some(_)) => line(
@@ -315,7 +320,16 @@ fn collect(cx: &App, settings: &ViewSettings) -> Facts {
 
     let all_names = system.all_font_names();
 
-    let asked_id = system.resolve_font(&gpui::font(asked_family.clone()));
+    // The font the view asks for: its weight and slant too (`EditorView::render`).
+    let with_style = |family: &str| {
+        let mut font = gpui::font(family.to_owned());
+        font.weight = gpui::FontWeight(settings.gpui_font_weight());
+        if settings.font_italic {
+            font.style = gpui::FontStyle::Italic;
+        }
+        font
+    };
+    let asked_id = system.resolve_font(&with_style(&asked_family));
     let reported_family = system
         .get_font_for_id(asked_id)
         .map(|f| f.family.to_string());
@@ -332,7 +346,7 @@ fn collect(cx: &App, settings: &ViewSettings) -> Facts {
         ("Helvetica", "Helvetica"),
         ("Arial", "Arial"),
     ] {
-        let id = system.resolve_font(&gpui::font(family));
+        let id = system.resolve_font(&with_style(family));
         ids.push((label.to_owned(), id.0));
     }
 
@@ -356,6 +370,8 @@ fn collect(cx: &App, settings: &ViewSettings) -> Facts {
         default_family,
         asked_family,
         font_size,
+        weight: settings.gpui_font_weight(),
+        italic: settings.font_italic,
         all_names,
         resolution: Resolution {
             ids,
@@ -540,6 +556,8 @@ mod tests {
             default_family: "BIZ UDGothic".into(),
             asked_family: "BIZ UDGothic".into(),
             font_size: 16.0,
+            weight: 400.0,
+            italic: false,
             all_names: names(&["Arial", "BIZ UDPGothic"]),
             resolution: Resolution {
                 ids: vec![
@@ -562,7 +580,10 @@ mod tests {
     #[test]
     fn the_report_says_the_asked_family_did_not_load() {
         let text = render(&facts(3, 3));
-        assert!(text.contains("did NOT load"), "{text}");
+        assert!(
+            text.contains("same id as a family that does not exist"),
+            "{text}"
+        );
         assert!(
             text.contains("has \"BIZ UDGothic\" exactly: false"),
             "{text}"
