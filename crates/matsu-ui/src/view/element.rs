@@ -400,6 +400,7 @@ fn clusters(label: &str, cells: &[(u32, char, u32)]) -> Vec<(u32, std::ops::Rang
     let mut out: Vec<(u32, std::ops::Range<usize>, u32)> = Vec::with_capacity(cells.len());
     let mut cells = cells.iter();
     let mut after_complex = false;
+    let mut after_virama = false;
     for (start, grapheme) in label.grapheme_indices(true) {
         let end = start + grapheme.len();
         let first = grapheme.chars().next().unwrap_or(' ');
@@ -417,13 +418,14 @@ fn clusters(label: &str, cells: &[(u32, char, u32)]) -> Vec<(u32, std::ops::Rang
         let Some(col) = col else { break };
         let complex = complex_script(first);
         match out.last_mut() {
-            Some(last) if after_complex && complex => {
+            Some(last) if after_virama || (after_complex && complex) => {
                 last.1.end = end;
                 last.2 += cols;
             }
             _ => out.push((col, start..end, cols)),
         }
         after_complex = complex;
+        after_virama = grapheme.chars().next_back().is_some_and(is_virama);
     }
     out
 }
@@ -443,6 +445,30 @@ fn complex_script(c: char) -> bool {
         | 0x066A..=0x066D | 0x06D4 | 0x0964 | 0x0965 | 0x0970 | 0x0E4F | 0x0E5A | 0x0E5B
         | 0x0F04..=0x0F12 | 0x104A..=0x104F | 0x17D4..=0x17DA);
     in_script && !punctuation && !c.is_numeric()
+}
+
+/// A virama (the sign that kills the vowel of an Indic consonant): the consonant after it makes
+/// a conjunct with the one before. The grapheme tables join them only for the scripts that have
+/// an InCB property (Devanagari and a few others), so this table keeps the rest together.
+fn is_virama(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x094D
+            | 0x09CD
+            | 0x0A4D
+            | 0x0ACD
+            | 0x0B4D
+            | 0x0BCD
+            | 0x0C4D
+            | 0x0CCD
+            | 0x0D4D
+            | 0x0DCA
+            | 0x1039
+            | 0x17D2
+            | 0xA806
+            | 0xA8C4
+            | 0xA953
+    )
 }
 
 /// A shaped piece of text goes on the columns as it is when its advance is the width of its
@@ -2532,6 +2558,13 @@ mod tests {
     fn latin_letters_are_pieces_of_their_own() {
         let got = cluster_texts("fi");
         assert_eq!(got.len(), 2);
+    }
+
+    #[test]
+    fn a_conjunct_after_a_virama_outside_the_complex_scripts_is_one_cluster() {
+        // Syloti Nagri: ko, hasanta, kho
+        let got = cluster_texts("\u{A807}\u{A806}\u{A808}");
+        assert_eq!(got.len(), 1);
     }
 
     #[test]
