@@ -390,28 +390,31 @@ fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
 
 /// Joins the characters that are drawn as one glyph with the character before them: marks and
 /// other zero-width characters (combining marks, variation selectors, ZWJ), what follows a ZWJ
-/// (emoji sequences; see [`joins_after_zwj`]), the consonant after a virama (Indic conjuncts), the second of a pair of regional indicators (a flag), and emoji skin tone
+/// (emoji sequences; see [`joins_after_zwj`]), a run of letters of a script that shapes them
+/// together ([`complex_script`]), the consonant after a virama (Indic conjuncts), the second of a pair of regional indicators (a flag), and emoji skin tone
 /// modifiers. Each piece has the column of its first
 /// character, its bytes in the label and the columns of all of them. A font draws such a piece as one glyph, which
-/// shaping the characters one by one would break. Joins that cross these pieces (Arabic
-/// letters, ligatures) are not kept.
+/// shaping the characters one by one would break. Ligatures of other scripts (fi) are not kept.
 fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, std::ops::Range<usize>, u32)> {
     use unicode_width::UnicodeWidthChar;
     let mut out: Vec<(u32, std::ops::Range<usize>, u32)> = Vec::with_capacity(cells.len());
     let mut at = 0;
     let mut after_zwj = false;
     let mut after_virama = false;
+    let mut after_complex = false;
     // the first of a pair of regional indicators (a flag) is waiting for the second
     let mut flag_open = false;
     for (col, c, cols) in cells {
         let indicator = ('\u{1F1E6}'..='\u{1F1FF}').contains(&c);
         let joins = (after_zwj && joins_after_zwj(c))
             || after_virama
+            || (after_complex && complex_script(c))
             || (indicator && flag_open)
             || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
             || (c.width() == Some(0) && !c.is_whitespace());
         after_zwj = c == '\u{200D}';
         after_virama = is_virama(c);
+        after_complex = complex_script(c);
         flag_open = indicator && !flag_open;
         let end = at + c.len_utf8();
         match out.last_mut() {
@@ -432,6 +435,16 @@ fn joins_after_zwj(c: char) -> bool {
     matches!(c as u32,
         0x0900..=0x0DFF | 0x00A9 | 0x00AE | 0x203C | 0x2049 | 0x2122 | 0x2139 | 0x2190..=0x2BFF
         | 0x3030 | 0x303D | 0x3297 | 0x3299 | 0x1F000..=0x1FFFF)
+}
+
+/// A script whose letters change shape with the ones around them (Arabic, the Indic scripts,
+/// Thai, Lao, Tibetan, Myanmar, Khmer): a run of them is one cluster, so that their joins,
+/// conjuncts and reordered vowel signs survive. Without grapheme segmentation tables this is the
+/// safe size of a piece.
+fn complex_script(c: char) -> bool {
+    matches!(c as u32,
+        0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0x0900..=0x0DFF | 0x0E00..=0x0EFF
+        | 0x0F00..=0x0FFF | 0x1000..=0x109F | 0x1780..=0x17FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF)
 }
 
 /// A virama (the sign that kills the vowel of an Indic consonant): the consonant after it makes
@@ -2502,6 +2515,14 @@ mod tests {
         let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
         // the ZWJ itself is zero width and stays with the letter before it
         assert_eq!(texts, ["a\u{200D}", "b"]);
+    }
+
+    #[test]
+    fn a_run_of_arabic_or_devanagari_letters_is_one_cluster() {
+        // a Devanagari consonant with the vowel sign i, then a space and an Arabic word
+        let got = cluster_texts("\u{0915}\u{093F} \u{0645}\u{0631}\u{062D}");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(texts, ["\u{0915}\u{093F}", " ", "\u{0645}\u{0631}\u{062D}"]);
     }
 
     #[test]
