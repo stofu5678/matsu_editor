@@ -5,8 +5,8 @@
 //! context ([`CommandContext::with_input_options`](crate::context::CommandContext::with_input_options)).
 //! The defaults are those of `InitTypeConfigDefault` (`sakura_core/types/CType.cpp`).
 
-/// `m_eSmartIndent`: the kinds Sakura has built in. The values of the plug-ins (`>= 2`) are not
-/// supported yet and count as [`SmartIndent::None`].
+/// `m_eSmartIndent`: the two kinds Sakura has built in, and the plug of a plugin, which Sakura
+/// stores as the function code of the plug (`CPlug::GetSmartIndentType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum SmartIndent {
     /// `SMARTINDENT_NONE`.
@@ -14,16 +14,70 @@ pub enum SmartIndent {
     None,
     /// `SMARTINDENT_CPP`.
     Cpp,
+    /// The plug of the `SmartIndent` jack with this function code
+    /// ([`plugin_commands::plug_code`](crate::plugin_commands::plug_code)).
+    Plugin(u16),
 }
 
 impl SmartIndent {
-    /// From the value of `nSmartIndent` in the settings file.
+    /// From the value of `nSmartIndent` in the settings file. A value that is neither of the
+    /// built-in kinds nor the code of a plug has nothing to run (Sakura finds no plug for it), so
+    /// it is [`SmartIndent::None`].
     pub fn from_setting(value: i32) -> Self {
         match value {
             1 => Self::Cpp,
-            _ => Self::None,
+            _ => u16::try_from(value)
+                .ok()
+                .filter(|&code| crate::plugin_commands::is_plugin_code(code))
+                .map_or(Self::None, Self::Plugin),
         }
     }
+
+    /// The value for `nSmartIndent`.
+    pub fn setting(self) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::Cpp => 1,
+            Self::Plugin(code) => i32::from(code),
+        }
+    }
+}
+
+/// The plug of a plugin that has to be called for a char that was just typed (`Command_WCHAR` in
+/// Sakura calls it right after the insertion). The command only says so; the window decides
+/// whether the plugin is called for this char and runs it, because the plugin runs in another
+/// process and the command cannot wait for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SmartIndentCall {
+    /// The function code of the plug ([`SmartIndent::Plugin`]).
+    pub code: u16,
+    /// The char that was typed (`\r` for a line break, as `Command_WCHAR` has it).
+    pub typed: char,
+    /// The command took the char for a line break (`WCODE::IsLineDelimiter`: CR and LF, and NEL, LS and
+    /// PS while the document counts them as line endings).
+    pub line_break: bool,
+}
+
+/// What the color strategies say a line starts in: the state that the lines before it leave
+/// (`CLayout::GetColorTypePrev`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LineStart {
+    /// Not in a string or a comment, or in one that the C/C++ smart indent does not look at.
+    #[default]
+    Normal,
+    /// In a char literal that goes on from the line before (`COLORIDX_SSTRING`).
+    SingleQuote,
+    /// In a string that goes on from the line before (`COLORIDX_WSTRING`).
+    DoubleQuote,
+    /// In the block comment 1 that goes on from the line before (`COLORIDX_BLOCK1`).
+    BlockComment,
+}
+
+/// Tells the state a line starts in. The window has the color states of the document; a command
+/// has no colors of its own. Without one every line starts in [`LineStart::Normal`].
+pub trait LineStartColors {
+    /// The state at the start of `line` of `doc`.
+    fn at_line_start(&self, doc: &matsu_core::buffer::Document, line: usize) -> LineStart;
 }
 
 /// The options. Each field names the Sakura setting it stands for.
@@ -81,10 +135,28 @@ mod tests {
     }
 
     #[test]
-    fn plug_in_smart_indents_count_as_none() {
+    fn the_codes_of_plugs_are_plugin_smart_indents() {
         assert_eq!(SmartIndent::from_setting(0), SmartIndent::None);
         assert_eq!(SmartIndent::from_setting(1), SmartIndent::Cpp);
+        // nothing is served by a value that is no kind and no plug
         assert_eq!(SmartIndent::from_setting(2), SmartIndent::None);
         assert_eq!(SmartIndent::from_setting(-1), SmartIndent::None);
+        assert_eq!(SmartIndent::from_setting(19_999), SmartIndent::None);
+        assert_eq!(SmartIndent::from_setting(22_000), SmartIndent::None);
+        assert_eq!(
+            SmartIndent::from_setting(20_000),
+            SmartIndent::Plugin(20_000)
+        );
+        assert_eq!(
+            SmartIndent::from_setting(21_949),
+            SmartIndent::Plugin(21_949)
+        );
+        for kind in [
+            SmartIndent::None,
+            SmartIndent::Cpp,
+            SmartIndent::Plugin(20_150),
+        ] {
+            assert_eq!(SmartIndent::from_setting(kind.setting()), kind);
+        }
     }
 }

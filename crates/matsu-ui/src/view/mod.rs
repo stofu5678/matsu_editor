@@ -33,11 +33,14 @@ pub(crate) mod pane;
 mod ruler;
 mod scan;
 mod scan_window;
+pub(crate) mod scroll_repeat;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
+pub(crate) mod split_box;
 mod status_info;
 mod syntax;
+pub(crate) mod vscroll;
 
 use std::ops::Range;
 
@@ -158,6 +161,8 @@ pub(crate) enum Drag {
         start_x: f32,
         start_col: f32,
     },
+    /// An arrow or the track of a scroll bar is held: it repeats (`scroll_repeat.rs`).
+    Repeat,
 }
 
 /// Where the last paint put the text, in window coordinates.
@@ -170,6 +175,14 @@ pub(crate) struct PaintInfo {
     pub scrollbar_left: f32,
     /// The horizontal scroll bar, if the view has one.
     pub hbar: Option<hscroll::BarPaint>,
+    /// Where the vertical scroll bar starts (below its split box, if it has one), and how long it
+    /// is, the arrows included.
+    pub vbar_top: f32,
+    pub vbar_len: f32,
+    /// The split boxes (`CSplitBoxWnd`): the one above the vertical bar and the one left of the
+    /// horizontal bar.
+    pub vbox: Option<split_box::BoxRect>,
+    pub hbox: Option<split_box::BoxRect>,
 }
 
 pub struct EditorView {
@@ -291,6 +304,12 @@ pub struct EditorView {
     pub(crate) custom_menu: crate::custom_menu::CustomMenuState,
     /// The window that holds this view among its panes (`crate::panes`).
     pub(crate) split_host: Option<gpui::WeakEntity<crate::app::Workspace>>,
+    /// Whether the pane has the split boxes at the ends of its scroll bars (`SplitBoxOnOff`), the
+    /// vertical one and the horizontal one; the window says so when it splits.
+    pub(crate) split_boxes: split_box::Boxes,
+    /// The arrow or the track that is held, and the task that repeats it.
+    pub(crate) scroll_repeat: Option<scroll_repeat::ScrollRepeat>,
+    scroll_repeat_task: Option<gpui::Task<()>>,
     font_family: SharedString,
     font_size: f32,
     /// This view's own id, to tell it from the other views of its document.
@@ -375,6 +394,9 @@ impl EditorView {
             doc_type: Default::default(),
             custom_menu: Default::default(),
             split_host: None,
+            split_boxes: split_box::Boxes::ALL,
+            scroll_repeat: None,
+            scroll_repeat_task: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -431,6 +453,11 @@ impl EditorView {
         // `bInsSpace` of the view, which `ChangeInsertSpace` and the type settings change.
         let ins_space = self.prefs.settings.ins_space;
         let input = self.prefs.settings.input.clone();
+        // The states the lines start in, which the C/C++ smart indent looks at.
+        let start_states = colors::StartStates {
+            states: &self.color_states,
+            rules: &self.prefs.settings.coloring,
+        };
         let layout = &mut self.layout;
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
@@ -452,6 +479,7 @@ impl EditorView {
                 .with_overwrite(overwrite)
                 .with_ins_space(ins_space)
                 .with_input_options(input)
+                .with_line_start_colors(&start_states)
                 .with_save_path(save_path.as_deref())
                 .with_view_mode(view_mode);
             if let Some(quote) = quote {
@@ -483,6 +511,8 @@ impl EditorView {
     ) -> bool {
         // Any function but F_AUTOSCROLL ends the auto scroll (`CViewCommander::HandleCommand`).
         self.autoscroll_exit();
+        // What the user does is not part of the undo step of a smart indent that runs.
+        self.cut_indent_undo_step(cx);
         self.interrupt_composition(cx);
         // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
         // incremental search are not edits, so a macro does not replay them as such.
@@ -584,6 +614,8 @@ impl EditorView {
         if reg.sakura != "F_AUTOSCROLL" {
             self.autoscroll_exit();
         }
+        // What the user does is not part of the undo step of a smart indent that runs.
+        self.cut_indent_undo_step(cx);
         self.interrupt_composition(cx);
         // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
         // incremental search are not edits, so a macro does not replay them as such.
@@ -652,6 +684,9 @@ impl EditorView {
             self.pending_message_boxes.push(text);
         }
         self.completion_after_command(changes, cx);
+        if let Some(call) = changes.smart_indent_plugin {
+            self.call_smart_indent_plugin(call, cx);
+        }
         // While a macro runs, a command that moved nothing leaves the view where it is:
         // `SetViewTop` scrolls away from the caret, and the calls after it must not scroll back
         // (Sakura scrolls to the caret when the caret moves). Outside a macro every command
@@ -1185,6 +1220,8 @@ mod ruler_tests;
 mod status_info_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod vscroll_tests;
 
 /// A time stamp as a wall clock time of the computer, for `$D` and `$T`.
 fn local_time_of(stamp: std::time::SystemTime) -> matsu_commands::convert::datetime::LocalTime {

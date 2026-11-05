@@ -30,7 +30,16 @@
 
 mod ids;
 mod pages;
+mod plugin_choices;
 mod values;
+
+pub(crate) use plugin_choices::forget_smart_indent_plugs;
+
+/// The smart indent choices of the page, for the tests of the plugins.
+#[cfg(test)]
+pub(crate) fn smart_indent_types(cx: &gpui::App, now: i32) -> Vec<(String, i32)> {
+    pages::screen::smart_indent_types(cx, now)
+}
 
 #[cfg(test)]
 mod tests;
@@ -198,6 +207,7 @@ pub(crate) fn open(
     opener: Option<AnyWindowHandle>,
 ) -> Option<Entity<CommonSettingsDialog>> {
     crate::plugin_complement::forget_choices();
+    forget_smart_indent_plugs();
     if let Some(dialog) = current_dialog(cx) {
         let (window, open_id) = {
             let open = cx.global::<OpenSheet>();

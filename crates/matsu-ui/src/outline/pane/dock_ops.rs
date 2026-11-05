@@ -18,7 +18,8 @@ use matsu_outline::{
 
 use super::OutlinePane;
 use crate::menu_bar::popup_keys::{self, KeyList, Rebuild};
-use crate::outline::dock::{self, DockPlace, DockSide, OutlineDock};
+use crate::outline::dock::{self, DockPlace, DockSide, FloatRect, OutlineDock};
+use crate::outline::file_tree::model::Load;
 use crate::outline::menu::{self, MenuCommand, MenuEntry, MenuState};
 
 /// The right-click menu that is open.
@@ -80,6 +81,15 @@ impl OutlinePane {
 
     /// 左ドッキング ... ドッキング禁止.
     pub(crate) fn set_side(&mut self, side: DockSide, cx: &mut Context<Self>) {
+        let was = self.place(cx).side;
+        if side.is_docked() {
+            // `OnDestroy`: the floating pane that goes keeps its place
+            self.leave(cx);
+        } else if was.is_docked() {
+            // `ChangeLayout`: it is opened again with `m_xPos = -1`, then `OnInitDialog` gives it
+            // the remembered place, if the box is on
+            self.reset_float(cx);
+        }
         self.change_place(
             |p| {
                 p.side = side;
@@ -96,8 +106,147 @@ impl OutlinePane {
         self.change_place(|p| p.set_size(side, size), false, cx);
     }
 
+    /// The window drew the pane at `side`.
+    pub(crate) fn note_drawn(&self, side: DockSide) {
+        self.drawn_side.set(Some(side));
+    }
+
+    /// The side the pane was drawn at last (`m_eDockSide`); the side of the settings if it has not
+    /// been drawn yet.
+    pub(crate) fn drawn_side(&self, cx: &App) -> DockSide {
+        self.drawn_side.get().unwrap_or_else(|| self.place(cx).side)
+    }
+
+    /// The pane takes the settings again (`ChangeLayout`): while the windows are not in sync it
+    /// would keep the place it had drawn.
+    pub(crate) fn retake_place(&mut self, cx: &mut Context<Self>) {
+        self.shown_place.set(None);
+        self.relayout(cx);
+    }
+
+    // ---- the floating pane ----
+
+    /// The place a floating pane starts at: the remembered one, if the box is on
+    /// (`OnInitDialog`), else the default one.
+    pub(super) fn reset_float(&self, cx: &App) {
+        self.float_rect.set(dock::current(cx).float_if_remembered());
+    }
+
+    /// The position and the size that were set (`None`: the default place).
+    pub(crate) fn float_rect(&self) -> Option<FloatRect> {
+        self.float_rect.get()
+    }
+
+    /// The position and the size the floating pane was drawn with.
+    pub(crate) fn float_shown(&self) -> Option<FloatRect> {
+        self.float_shown.get()
+    }
+
+    pub(crate) fn set_float_shown(&self, rect: FloatRect) {
+        self.float_shown.set(Some(rect));
+    }
+
+    /// The floating pane is moved or sized: the window draws it again.
+    pub(crate) fn set_float(&mut self, rect: FloatRect, cx: &mut Context<Self>) {
+        self.float_rect.set(Some(rect));
+        self.float_shown.set(Some(rect));
+        self.relayout(cx);
+    }
+
+    /// `OnDestroy`: the position and the size are kept when the box is on.
+    fn save_float_rect(&self, rect: FloatRect, cx: &mut Context<Self>) {
+        if dock::current(cx).remember {
+            dock::update(cx, move |d| d.float = rect, dock::write_float);
+        }
+    }
+
+    /// A floating pane that goes (is closed, or docks) keeps its place. `drawn_side` is the side
+    /// it was drawn at: the settings may already say another one (`ChangeLayout`).
+    pub(crate) fn leave(&self, cx: &mut Context<Self>) {
+        if self.drawn_side(cx).is_floating()
+            && let Some(rect) = self.float_shown.get()
+        {
+            self.save_float_rect(rect, cx);
+        }
+    }
+
+    /// The button ■ / □ (`IDC_BUTTON_WINSIZE`): `bRememberOutlineWindowPos` is switched.
+    pub(crate) fn toggle_remember(&mut self, cx: &mut Context<Self>) {
+        let rect = self.float_shown.get();
+        dock::update(
+            cx,
+            move |d| {
+                d.remember = !d.remember;
+                if d.remember
+                    && let Some(rect) = rect
+                {
+                    d.float = rect;
+                }
+            },
+            dock::write_float,
+        );
+        cx.notify();
+    }
+
+    /// The title was let go at `side`, with `rect` (relative to the area of the pane; for a docked
+    /// side its width or height is the size): `CDlgFuncList::Track`, `WM_LBUTTONUP`.
+    pub(crate) fn drop_at(&mut self, side: DockSide, rect: FloatRect, cx: &mut Context<Self>) {
+        let was = self.place(cx).side;
+        if side.is_docked() {
+            self.leave(cx);
+            let size = if side.is_vertical() { rect.w } else { rect.h };
+            self.change_place(
+                |p| {
+                    p.side = side;
+                    p.disp = true;
+                    p.set_size(side, size);
+                },
+                true,
+                cx,
+            );
+            return;
+        }
+        // a pane that cannot dock stays one
+        let side = if was == DockSide::Undockable {
+            DockSide::Undockable
+        } else {
+            DockSide::Float
+        };
+        self.float_rect.set(Some(rect));
+        self.float_shown.set(Some(rect));
+        if was.is_docked() {
+            self.change_place(
+                |p| {
+                    p.side = side;
+                    p.disp = true;
+                },
+                true,
+                cx,
+            );
+        } else {
+            self.relayout(cx);
+        }
+        self.save_float_rect(rect, cx);
+    }
+
+    /// Esc or the right button while the title is dragged: the drag is given up. Returns whether
+    /// one was going.
+    pub(super) fn cancel_track(&mut self, cx: &mut Context<Self>) -> bool {
+        self.host
+            .update(cx, |workspace, cx| workspace.outline_track_cancel(cx))
+            .unwrap_or(false)
+    }
+
     /// The splitter is let go (`OnLButtonUp`): the size goes to the file.
     pub(crate) fn finish_resize(&mut self, cx: &mut Context<Self>) {
+        if self.place(cx).side.is_floating() {
+            // the size of a floating pane is its own, and goes with the position
+            if let Some(rect) = self.float_shown.get() {
+                self.float_rect.set(Some(rect));
+                self.save_float_rect(rect, cx);
+            }
+            return;
+        }
         let dock = dock::current(cx);
         let target = dock.target(self.file_tree_type_index(cx));
         dock::flush(cx, move |profile, d| {
@@ -357,12 +506,19 @@ impl OutlinePane {
     }
 
     /// すべて展開 / すべて縮小 (the timers 3 and 4 of `CDlgFuncList`). A folder of the file tree
-    /// that has not been listed is listed when it opens, and its folders open at the next
-    /// すべて展開.
+    /// that has not been listed is listed when it opens, and the folders found in it open too, down
+    /// to 64 levels (`ApiWrap::TreeView_ExpandAll` opens an item before it asks for its children,
+    /// so a file tree is opened to the bottom).
     pub(crate) fn expand_all(&mut self, open: bool, cx: &mut Context<Self>) {
+        // an expansion that is still going on down the file tree is over
+        self.expanding = None;
+        self.expand_inflight.clear();
         if !open {
             self.expanded.clear();
         } else if self.outline_type == OutlineKind::FileTree {
+            self.expand_counter += 1;
+            let token = self.expand_counter;
+            self.expanding = Some(token);
             let ids: Vec<usize> = self.file_tree.as_ref().map_or_else(Vec::new, |tree| {
                 (0..tree.nodes.len())
                     .filter(|&id| tree.nodes[id].has_children())
@@ -370,7 +526,16 @@ impl OutlinePane {
             });
             for id in ids {
                 self.expanded.insert(id);
-                self.start_load(id, cx);
+                let listing = self
+                    .file_tree
+                    .as_ref()
+                    .is_some_and(|tree| tree.nodes[id].load == Load::Loading);
+                if listing {
+                    // it goes on down when its listing is there
+                    self.expand_inflight.insert(id);
+                } else {
+                    self.start_load(id, Some((0, token)), cx);
+                }
             }
         } else if let Some(shown) = &self.shown {
             fn collect(nodes: &[TreeNode], into: &mut Vec<usize>) {

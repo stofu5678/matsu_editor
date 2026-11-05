@@ -50,7 +50,7 @@ use matsu_core::model::{DocumentModel, eol_text};
 use crate::clipboard::{ClipData, ClipKind, MemoryClipboard};
 use crate::command::{Arg, CommandError};
 use crate::context::{Changes, CommandContext};
-use crate::input_options::InputOptions;
+use crate::input_options::{InputOptions, LineStartColors};
 use crate::layout::PlainLayout;
 use crate::registry::Registry;
 
@@ -165,6 +165,8 @@ pub struct Editor {
     overwrite: bool,
     ins_space: bool,
     input: InputOptions,
+    /// What tells the state a line starts in (the window has the color states).
+    line_colors: Option<Box<dyn LineStartColors>>,
     view_mode: bool,
     /// The quote string that `F_SET_QUOTESTRING` set (the window keeps it between commands).
     quote: Option<String>,
@@ -207,6 +209,7 @@ impl Editor {
             overwrite: false,
             ins_space: false,
             input: InputOptions::default(),
+            line_colors: None,
             view_mode: false,
             quote: None,
         }
@@ -248,6 +251,13 @@ impl Editor {
     #[must_use]
     pub fn with_input_options(mut self, input: InputOptions) -> Self {
         self.input = input;
+        self
+    }
+
+    /// Sets what tells the state a line starts in (a comment that goes on from a line before).
+    #[must_use]
+    pub fn with_line_start_colors(mut self, colors: impl LineStartColors + 'static) -> Self {
+        self.line_colors = Some(Box::new(colors));
         self
     }
 
@@ -303,6 +313,9 @@ impl Editor {
         .with_ins_space(self.ins_space)
         .with_input_options(self.input.clone())
         .with_view_mode(self.view_mode);
+        if let Some(colors) = &self.line_colors {
+            cx = cx.with_line_start_colors(colors.as_ref());
+        }
         if let Some(quote) = &self.quote {
             cx = cx.with_quote_string(quote.as_str());
         }
@@ -329,6 +342,9 @@ impl Editor {
         .with_ins_space(self.ins_space)
         .with_input_options(self.input.clone())
         .with_view_mode(self.view_mode);
+        if let Some(colors) = &self.line_colors {
+            cx = cx.with_line_start_colors(colors.as_ref());
+        }
         let result = f(&mut cx);
         self.changes = cx.finish();
         self.overwrite = self.changes.overwrite;

@@ -45,6 +45,31 @@ fn the_common_section_and_the_kind_are_read() {
 }
 
 #[test]
+fn a_plugin_is_resident_with_use_cache_or_matsu_resident() {
+    assert!(def("[Plugin]\r\n[Wsh]\r\nUseCache=1\r\n").resident);
+    assert!(def("[Plugin]\r\n[Matsu]\r\nResident=1\r\n").resident);
+    assert!(!def("[Plugin]\r\n").resident);
+    assert!(!def("[Plugin]\r\n[Wsh]\r\nUseCache=0\r\n[Matsu]\r\nResident=0\r\n").resident);
+    // `UseCache` itself is still what Sakura reads.
+    let d = def("[Plugin]\r\n[Matsu]\r\nResident=1\r\n");
+    assert!(!d.use_cache);
+}
+
+#[test]
+fn smart_indent_chars_are_the_data_of_the_matsu_section() {
+    assert_eq!(def("[Plugin]\r\n").smart_indent_chars, "");
+    let d = def("[Plugin]\r\n[Matsu]\r\nSmartIndent.Chars=}{;\r\n");
+    assert_eq!(d.smart_indent_chars, "}{;");
+}
+
+#[test]
+fn the_jacks_that_a_key_press_calls_need_a_resident_plugin() {
+    assert!(Jack::SmartIndent.needs_resident());
+    assert!(!Jack::Command.needs_resident());
+    assert!(!Jack::DocumentOpen.needs_resident());
+}
+
+#[test]
 fn the_kind_ignores_case_and_script_is_the_same_as_wsh() {
     assert_eq!(def("[Plugin]\r\nType=WSH\r\n").kind, PluginKind::Wsh);
     assert_eq!(def("[Plugin]\r\nType=Script\r\n").kind, PluginKind::Script);
@@ -578,4 +603,134 @@ fn the_options_are_read_and_written_in_the_plugins_own_file() {
     assert_eq!(opts.value(&flag), "1");
     opts.set_option(&flag, "no").unwrap();
     assert_eq!(opts.value(&flag), "0");
+}
+
+// ---- the hashes that are used again while the files look the same ----
+
+mod remembered {
+    use std::fs::{self, File};
+    use std::time::{Duration, SystemTime};
+
+    use super::super::consent::{Consent, ConsentFile, fingerprint, fingerprint_cached};
+
+    fn set_time(path: &std::path::Path, time: SystemTime) {
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+
+    fn folder() -> (tempfile::TempDir, std::path::PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("p");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.js"), "aaaa").unwrap();
+        // not changed a moment ago: the hashes of a file that is that new are not remembered
+        set_time(
+            &dir.join("a.js"),
+            SystemTime::now() - Duration::from_secs(3600),
+        );
+        (root, dir)
+    }
+
+    #[test]
+    fn the_hashes_of_files_that_look_the_same_are_used_again() {
+        let (_root, dir) = folder();
+        let first = fingerprint_cached(&dir).unwrap();
+        assert_eq!(first, fingerprint(&dir).unwrap());
+        // Same size, same time of change: not read again, so the rewrite is not seen. The user
+        // decided so on 2026-11-03; it takes the right to write the files.
+        let file = dir.join("a.js");
+        let time = fs::metadata(&file).unwrap().modified().unwrap();
+        fs::write(&file, "bbbb").unwrap();
+        set_time(&file, time);
+        assert_eq!(fingerprint_cached(&dir).unwrap(), first);
+        assert_ne!(fingerprint(&dir).unwrap(), first);
+    }
+
+    #[test]
+    fn a_change_of_size_time_or_the_files_makes_the_hashes_again() {
+        let (_root, dir) = folder();
+        let file = dir.join("a.js");
+        let time = fs::metadata(&file).unwrap().modified().unwrap();
+        let first = fingerprint_cached(&dir).unwrap();
+        // size
+        fs::write(&file, "bbbbb").unwrap();
+        set_time(&file, time);
+        let second = fingerprint_cached(&dir).unwrap();
+        assert_ne!(second, first);
+        assert_eq!(second, fingerprint(&dir).unwrap());
+        // time of change, with the same size
+        fs::write(&file, "ccccc").unwrap();
+        set_time(&file, time + Duration::from_secs(10));
+        let third = fingerprint_cached(&dir).unwrap();
+        assert_ne!(third, second);
+        assert_eq!(third, fingerprint(&dir).unwrap());
+        // a file added, then taken away
+        fs::write(dir.join("b.js"), "b").unwrap();
+        set_time(&dir.join("b.js"), time);
+        assert_eq!(fingerprint_cached(&dir).unwrap().len(), 2);
+        fs::remove_file(dir.join("b.js")).unwrap();
+        assert_eq!(fingerprint_cached(&dir).unwrap(), third);
+        // one in a folder inside
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("sub").join("c.js"), "c").unwrap();
+        assert_eq!(fingerprint_cached(&dir).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn hashes_of_a_file_that_changed_a_moment_ago_are_not_kept() {
+        let (_root, dir) = folder();
+        let file = dir.join("a.js");
+        fs::write(&file, "bbbb").unwrap();
+        let first = fingerprint_cached(&dir).unwrap();
+        // the file is changed again in the same tick, with the same size and time of change
+        let time = fs::metadata(&file).unwrap().modified().unwrap();
+        fs::write(&file, "cccc").unwrap();
+        set_time(&file, time);
+        assert_eq!(
+            fingerprint_cached(&dir).unwrap(),
+            fingerprint(&dir).unwrap()
+        );
+        assert_ne!(fingerprint_cached(&dir).unwrap(), first);
+    }
+
+    #[test]
+    fn what_the_user_agreed_to_is_set_against_the_hashes_at_each_call() {
+        let (root, dir) = folder();
+        let mut consent = ConsentFile::default();
+        assert_eq!(
+            consent.consent_for_dir_cached("x", Some(&dir)),
+            Consent::Off
+        );
+        let files = fingerprint(&dir).unwrap();
+        consent.enable("x", "p", &files, "2026-11-03").unwrap();
+        assert_eq!(consent.consent_for_dir_cached("x", Some(&dir)), Consent::On);
+        // the agreement is taken back: the next call sees it, with the hashes still remembered
+        consent.disable("x");
+        assert_eq!(
+            consent.consent_for_dir_cached("x", Some(&dir)),
+            Consent::Off
+        );
+        consent.enable("x", "p", &files, "2026-11-03").unwrap();
+        assert_eq!(consent.consent_for_dir_cached("x", Some(&dir)), Consent::On);
+        // a changed file (another size) stops the plugin
+        fs::write(dir.join("a.js"), "changed!").unwrap();
+        assert!(matches!(
+            consent.consent_for_dir_cached("x", Some(&dir)),
+            Consent::Changed(_)
+        ));
+        // agreeing to the new files turns it on again
+        let now = fingerprint(&dir).unwrap();
+        consent.enable("x", "p", &now, "2026-11-03").unwrap();
+        assert_eq!(consent.consent_for_dir_cached("x", Some(&dir)), Consent::On);
+        // a folder that is gone is a change of every file
+        drop(root);
+        assert!(matches!(
+            consent.consent_for_dir_cached("x", Some(&dir)),
+            Consent::Changed(_)
+        ));
+    }
 }

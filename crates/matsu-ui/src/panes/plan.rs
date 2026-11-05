@@ -7,8 +7,8 @@
 // Copyright (C) 2007, ryoji
 // Copyright (C) 2018-2022, Sakura Editor Organization
 //
-// This file is derived from the file above and was modified: the window handles, the split boxes
-// and the size box are gone, the rules work on a `Grid` and return a `Plan` of what to do, and
+// This file is derived from the file above and was modified: the window handles and the size box
+// are gone, the split boxes are only the rule of which pane has which (`split_boxes`), the rules work on a `Grid` and return a `Plan` of what to do, and
 // the tests are new.
 //
 // zlib License
@@ -64,6 +64,25 @@ impl Grid {
 
     pub(crate) fn is_split(self) -> bool {
         self != Grid::ONE
+    }
+}
+
+/// The split boxes that `pane` has in a window split like `grid` (`CSplitterWnd::DoSplit`,
+/// `CSplitterWnd::OnSize`: `SplitBoxOnOff`). The window that is not split has both on its pane,
+/// the vertical one on top of the vertical bar and the horizontal one left of the horizontal bar;
+/// split into rows only the lower pane keeps the horizontal box (to split it into columns too),
+/// split into columns only the right pane keeps the vertical one, and with four panes none has one.
+pub(crate) fn split_boxes(grid: Grid, pane: usize) -> crate::view::split_box::Boxes {
+    use crate::view::split_box::Boxes;
+    let (vertical, horizontal) = match (grid.rows > 1, grid.cols > 1, pane) {
+        (false, false, 0) => (true, true),
+        (true, false, 2) => (false, true),
+        (false, true, 1) => (true, false),
+        _ => (false, false),
+    };
+    Boxes {
+        vertical,
+        horizontal,
     }
 }
 
@@ -418,5 +437,23 @@ mod tests {
         // from pane 0 the active pane is pane 0, not chosen by the caret
         let p = do_split(grid(2, 1), 0, 0.0, 200.0, W, H);
         assert_eq!(p.active, Active::Pane(0));
+    }
+
+    #[test]
+    fn the_split_boxes_are_on_the_pane_that_can_still_be_split() {
+        let boxes = |g: Grid, pane: usize| {
+            let b = split_boxes(g, pane);
+            (b.vertical, b.horizontal)
+        };
+        assert_eq!(boxes(Grid::ONE, 0), (true, true));
+        // Rows only: the lower pane can still be split into columns, the upper one has none.
+        assert_eq!(boxes(grid(2, 1), 0), (false, false));
+        assert_eq!(boxes(grid(2, 1), 2), (false, true));
+        // Columns only: the right pane can still be split into rows.
+        assert_eq!(boxes(grid(1, 2), 0), (false, false));
+        assert_eq!(boxes(grid(1, 2), 1), (true, false));
+        for pane in 0..4 {
+            assert_eq!(boxes(grid(2, 2), pane), (false, false));
+        }
     }
 }

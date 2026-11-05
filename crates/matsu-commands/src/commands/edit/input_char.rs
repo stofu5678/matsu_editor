@@ -72,13 +72,20 @@
 //!   that the line break leaves are deleted). The smart indent also reacts to `: { } ( )`. With a
 //!   box selected the char goes no further than `Command_INDENT` (no smart indent).
 //!
-//! Not done yet: the extended line endings (`m_bEnableExtEol`) and the smart indent of plug-ins.
+//! * With `m_bEnableExtEol` (the document counts NEL, LS and PS as line endings) those three chars are
+//!   line breaks for `Command_WCHAR` too: they get the line ending of the document, the indentation
+//!   and the removal of the blanks at the end of the line before. The C/C++ smart indent still reacts
+//!   to CR only (`SmartIndent_CPP` compares with `WCODE::CR`).
+//!
+//! * A plugin as the smart indent (`m_eSmartIndent` is the code of a plug): the command asks for it
+//!   in [`Changes::smart_indent_plugin`](crate::context::Changes::smart_indent_plugin) and the window
+//!   runs it after the command, as its own undo step (`matsu-ui`, `plugin_indent`).
 //!
 //! Argument: one char, as `Arg::Char`, or a code point as `Arg::Int`.
 
 use crate::command::{Arg, Command, CommandError, Result};
 use crate::context::CommandContext;
-use crate::input_options::SmartIndent;
+use crate::input_options::{SmartIndent, SmartIndentCall};
 use crate::register_command;
 use matsu_core::buffer::Pos;
 use matsu_core::model::eol_text;
@@ -101,10 +108,17 @@ pub(super) fn type_char(cx: &mut CommandContext<'_>, c: char) -> Result {
     type_char_as(cx, c, true)
 }
 
+/// `WCODE::IsLineDelimiter`.
+fn is_line_delimiter(c: char, ext_eol: bool) -> bool {
+    matches!(c, '\r' | '\n') || (ext_eol && matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}'))
+}
+
 /// `Command_WCHAR( c, bConvertEOL )`: with `convert_eol` off (`F_CTRL_CODE`) a CR or LF is
 /// inserted as it is, not as the line ending of the document.
 pub(super) fn type_char_as(cx: &mut CommandContext<'_>, c: char, convert_eol: bool) -> Result {
-    let is_break = c == '\r' || c == '\n';
+    // `WCODE::IsLineDelimiter( wcChar, m_bEnableExtEol )`: NEL, LS and PS are line breaks too while the
+    // document counts them as line endings.
+    let is_break = is_line_delimiter(c, cx.doc().ext_eol());
     if is_break {
         // `Command_WCHAR` deletes the selection first, a box as a box.
         if cx.cursor().is_box() {
@@ -127,8 +141,17 @@ pub(super) fn type_char_as(cx: &mut CommandContext<'_>, c: char, convert_eol: bo
             return Ok(());
         }
     }
-    if cx.input_options().smart_indent == SmartIndent::Cpp {
-        cx.smart_indent_cpp(c)?;
+    match cx.input_options().smart_indent {
+        SmartIndent::None => {}
+        SmartIndent::Cpp => cx.smart_indent_cpp(c)?,
+        // The plugin runs in another process: the window calls it once this command is over.
+        SmartIndent::Plugin(code) => {
+            cx.request_smart_indent_plugin(SmartIndentCall {
+                code,
+                typed: c,
+                line_break: is_break,
+            });
+        }
     }
     if is_break && cx.input_options().rtrim_prev_line {
         rtrim_prev_line(cx)?;
@@ -453,7 +476,9 @@ mod tests {
 
     // ---- the indent options of the type ----
 
-    use crate::input_options::{InputOptions, SmartIndent};
+    use crate::input_options::{
+        InputOptions, LineStart, LineStartColors, SmartIndent, SmartIndentCall,
+    };
 
     /// Types `c` over `before` with `options`; the line ending is LF.
     fn with(options: &InputOptions, c: char, before: &str, after: &str) {
@@ -786,6 +811,162 @@ mod tests {
         e.run_with(ID, &[Arg::Char('\r')])
             .assert_marked("foo();\n|");
         e.run("undo").assert_marked("foo();|");
+    }
+
+    /// Lines that start in a state, for the tests of a comment that goes on from a line before.
+    struct StartsIn(Vec<(usize, LineStart)>);
+
+    impl LineStartColors for StartsIn {
+        fn at_line_start(&self, _: &matsu_core::buffer::Document, line: usize) -> LineStart {
+            self.0
+                .iter()
+                .find(|(l, _)| *l == line)
+                .map_or(LineStart::Normal, |(_, state)| *state)
+        }
+    }
+
+    #[test]
+    fn smart_indent_cpp_does_nothing_for_a_char_in_a_comment_that_goes_on_from_a_line_before() {
+        // Sakura asks the color of the start of the line (`GetColorTypePrev`): the third line is
+        // in the block comment that the second one opened, so the `}` typed in it is only a char.
+        let before = "void f() {\n\t/* a\n\t\t|";
+        let mut e = Editor::new(before)
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp())
+            .with_line_start_colors(StartsIn(vec![(2, LineStart::BlockComment)]));
+        e.run_with(ID, &[Arg::Char('}')])
+            .assert_marked("void f() {\n\t/* a\n\t\t}|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_without_the_start_of_the_line_scans_from_its_start() {
+        // What a context without color states does: the comment is not known, so the `}` aligns
+        // with the `{`.
+        let before = "void f() {\n\t/* a\n\t\t|";
+        with(&cpp(), '}', before, "void f() {\n\t/* a\n}|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_ignores_the_brackets_of_the_lines_that_start_in_a_comment() {
+        // The `}` of the third line is in the comment that began on the second, so it does not
+        // close the `{` of the function, and the line break after the `{` of the fourth line is
+        // indented from that `{`.
+        let text = "\tvoid f() {\n\t\t/* a\n\t\t}\n\t\tif (x) {|";
+        let mut e = Editor::new(text)
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp())
+            .with_line_start_colors(StartsIn(vec![(2, LineStart::BlockComment)]));
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("\tvoid f() {\n\t\t/* a\n\t\t}\n\t\tif (x) {\n\t\t\t|");
+        // when the comment is not known the `}` closes the `{` of the function
+        let mut e = Editor::new("\tvoid f() {\n\t\t/* a\n\t\t}\n\t\tg(|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp());
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("\tvoid f() {\n\t\t/* a\n\t\t}\n\t\tg(\n\t\t\t|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_follows_a_string_that_goes_on_from_a_line_before() {
+        let before = "{\n\tx = \"a\\\n\t|";
+        let mut e = Editor::new(before)
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp())
+            .with_line_start_colors(StartsIn(vec![(2, LineStart::DoubleQuote)]));
+        // the typed char is in the string: nothing happens
+        e.run_with(ID, &[Arg::Char('}')])
+            .assert_marked("{\n\tx = \"a\\\n\t}|");
+        // the option that ignores strings is off: the state is not looked at
+        let off = InputOptions {
+            cpp_string_ignore: false,
+            ..cpp()
+        };
+        let mut e = Editor::new(before)
+            .with_new_line(Eol::Lf)
+            .with_input_options(off)
+            .with_line_start_colors(StartsIn(vec![(2, LineStart::DoubleQuote)]));
+        e.run_with(ID, &[Arg::Char('}')])
+            .assert_marked("{\n\tx = \"a\\\n}|");
+    }
+
+    // ---- the extended line endings ----
+
+    #[test]
+    fn the_extended_line_endings_are_line_breaks_while_the_document_counts_them() {
+        for c in ['\u{85}', '\u{2028}', '\u{2029}'] {
+            let mut e = Editor::new_with_ext_eol("  ab|cd", true).with_new_line(Eol::Lf);
+            e.run_with(ID, &[Arg::Char(c)]).assert_marked("  ab\n  |cd");
+            // `F_CTRL_CODE` inserts the char as it is, still a line break with the indentation
+            let mut e = Editor::new_with_ext_eol("  ab|cd", true).with_new_line(Eol::Lf);
+            e.run_with("ctrl_code", &[Arg::Int(i64::from(u32::from(c)))])
+                .assert_marked(&format!("  ab{c}  |cd"));
+            // not counted: an ordinary char, no indentation
+            let mut e = Editor::new_with_ext_eol("  ab|cd", false).with_new_line(Eol::Lf);
+            e.run_with(ID, &[Arg::Char(c)]);
+            let doc = e.model().doc();
+            assert_eq!(doc.line_count(), 1, "{c:?}");
+            assert_eq!(doc.line(0).unwrap().unwrap().text, format!("  ab{c}cd"));
+        }
+    }
+
+    // ---- a plugin as the smart indent ----
+
+    #[test]
+    fn a_plugin_smart_indent_is_asked_for_after_every_typed_char() {
+        let plugin = InputOptions {
+            smart_indent: SmartIndent::Plugin(20_100),
+            ..Default::default()
+        };
+        let mut e = Editor::new("ab|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(plugin.clone());
+        e.run_with(ID, &[Arg::Char('x')]).assert_marked("abx|");
+        assert_eq!(
+            e.changes().smart_indent_plugin,
+            Some(SmartIndentCall {
+                code: 20_100,
+                typed: 'x',
+                line_break: false
+            })
+        );
+        // a line break is asked for with the indentation already copied
+        let mut e = Editor::new("  ab|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(plugin);
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("  ab\n  |");
+        assert_eq!(
+            e.changes().smart_indent_plugin,
+            Some(SmartIndentCall {
+                code: 20_100,
+                typed: '\r',
+                line_break: true
+            })
+        );
+        // NEL, LS and PS are line breaks while the document counts them, and chars when it does not
+        for (ext_eol, line_break) in [(true, true), (false, false)] {
+            let mut e = Editor::new_with_ext_eol("ab|", ext_eol)
+                .with_new_line(Eol::Lf)
+                .with_input_options(InputOptions {
+                    smart_indent: SmartIndent::Plugin(20_100),
+                    ..Default::default()
+                });
+            e.run_with(ID, &[Arg::Char('\u{2028}')]);
+            assert_eq!(
+                e.changes().smart_indent_plugin,
+                Some(SmartIndentCall {
+                    code: 20_100,
+                    typed: '\u{2028}',
+                    line_break
+                })
+            );
+        }
+        // the built-in kinds ask for no plugin
+        for options in [InputOptions::default(), cpp()] {
+            let mut e = Editor::new("ab|").with_input_options(options);
+            e.run_with(ID, &[Arg::Char('x')]);
+            assert_eq!(e.changes().smart_indent_plugin, None);
+        }
     }
 
     #[test]

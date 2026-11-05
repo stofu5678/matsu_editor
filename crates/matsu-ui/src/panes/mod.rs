@@ -95,6 +95,12 @@ impl PaneSet {
         }
     }
 
+    /// The window lost the activation: a bar that is dragged is let go where it was, without a
+    /// split.
+    pub(crate) fn cancel_split_drag(&mut self) {
+        self.dragging = None;
+    }
+
     pub(crate) fn active(&self) -> &Entity<EditorView> {
         self.slots[self.active]
             .as_ref()
@@ -502,6 +508,23 @@ impl Workspace {
         cx.stop_propagation();
     }
 
+    /// A split box was pressed (`CSplitBoxWnd::OnLButtonDown`): the bar it makes follows the
+    /// pointer from `position`, and the window splits where it is let go. The box left of the
+    /// horizontal bar makes the bar between left and right panes, the one above the vertical bar
+    /// makes the one between upper and lower panes.
+    pub(crate) fn begin_split_drag(
+        &mut self,
+        kind: SplitKind,
+        position: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.panes_mut().dragging = Some(match kind {
+            SplitKind::Horizontal => Bar::Cols,
+            _ => Bar::Rows,
+        });
+        self.move_bar(position, cx);
+    }
+
     fn drag_to(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
         if self.panes().dragging.is_none() {
             return;
@@ -540,11 +563,15 @@ impl Workspace {
         }
         // The release can be outside the area, where no move reached us.
         self.move_bar(event.position, cx);
+        // A bar that is dragged out of a split box does not exist yet: it is where it was let go.
+        let dragged = self.panes().dragging;
         self.panes_mut().dragging = None;
         let (w, h) = self.panes().area_size();
         let set = &self.panes();
-        let x = if set.grid.cols > 1 { set.h * w } else { 0.0 };
-        let y = if set.grid.rows > 1 { set.v * h } else { 0.0 };
+        let has_cols = set.grid.cols > 1 || matches!(dragged, Some(Bar::Cols | Bar::Both));
+        let has_rows = set.grid.rows > 1 || matches!(dragged, Some(Bar::Rows | Bar::Both));
+        let x = if has_cols { set.h * w } else { 0.0 };
+        let y = if has_rows { set.v * h } else { 0.0 };
         self.do_split(x, y, window, cx);
     }
 
@@ -557,17 +584,44 @@ impl Workspace {
         let measure = canvas(move |bounds, _, _| area.set(bounds), |_, _, _, _| {})
             .absolute()
             .size_full();
-        if !set.grid.is_split() {
-            // The area is measured here too: the first split needs the size of the window.
-            return div()
-                .relative()
-                .size_full()
-                .child(measure)
-                .child(set.active().clone())
-                .into_any_element();
+        // Which split boxes the panes show (`SplitBoxOnOff`).
+        for &i in set.grid.panes() {
+            if let Some(pane) = set.pane(i) {
+                let boxes = plan::split_boxes(set.grid, i);
+                pane.update(cx, |view, _| view.split_boxes = boxes);
+            }
         }
+        let set = &self.panes();
         let (rows, cols) = (set.grid.rows > 1, set.grid.cols > 1);
         let (h, v) = (set.h, set.v);
+        // The bar of a split box that is being dragged, where the split does not exist yet.
+        let new_cols = !cols && matches!(set.dragging, Some(Bar::Cols | Bar::Both));
+        let new_rows = !rows && matches!(set.dragging, Some(Bar::Rows | Bar::Both));
+        if !set.grid.is_split() {
+            // The area is measured here too: the first split needs the size of the window.
+            let mut root = div()
+                .id("panes")
+                .relative()
+                .size_full()
+                .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| this.drag_to(e, cx)))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, e, window, cx| this.end_drag(e, window, cx)),
+                )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(|this, e, window, cx| this.end_drag(e, window, cx)),
+                )
+                .child(measure)
+                .child(set.active().clone());
+            if new_cols {
+                root = root.child(drag_guide(true, h));
+            }
+            if new_rows {
+                root = root.child(drag_guide(false, v));
+            }
+            return root.into_any_element();
+        }
         let mut root = div()
             .id("panes")
             .relative()
@@ -675,6 +729,32 @@ impl Workspace {
                     ),
             );
         }
+        if new_cols {
+            root = root.child(drag_guide(true, h));
+        }
+        if new_rows {
+            root = root.child(drag_guide(false, v));
+        }
         root.into_any_element()
     }
+}
+
+/// The bar that a split box drags: Sakura draws an inverted rectangle 6 pixels wide
+/// (`CSplitBoxWnd::OnMouseMove`) at the pointer. `across` is a bar between left and right panes
+/// (as wide as it is tall otherwise); `at` is where it is, as a share of the area.
+fn drag_guide(across: bool, at: f32) -> AnyElement {
+    let guide = div()
+        .absolute()
+        .bg(gpui::rgba(0x00000080))
+        .cursor(if across {
+            CursorStyle::ResizeLeftRight
+        } else {
+            CursorStyle::ResizeUpDown
+        });
+    if across {
+        guide.top_0().h_full().left(relative(at)).w(px(6.0))
+    } else {
+        guide.left_0().w_full().top(relative(at)).h(px(6.0))
+    }
+    .into_any_element()
 }
