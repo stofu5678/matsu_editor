@@ -323,10 +323,15 @@ impl TextFile {
     ) -> Result<(SaveReport, Option<Document>)> {
         // The line endings of the new file are found with the setting that made the lines of the
         // document; a document that has lines of both settings is not made again.
+        // A line ending that the setting does not know (NEL, LS, PS with the setting off) would
+        // join the lines when the file is read again: the caller converts the document instead.
+        let unknown_eol =
+            |ext_eol: bool| !ext_eol && matches!(options.eol, Some(Eol::Nel | Eol::Ls | Eol::Ps));
         let rebase = self
             .ranged
             .then(|| self.document.uniform_ext_eol())
             .flatten()
+            .filter(|&ext_eol| !unknown_eol(ext_eol))
             .map(|ext_eol| ScanOptions {
                 ext_eol,
                 ..self.scan_options
@@ -697,6 +702,7 @@ fn write_body(
     options: &SaveOptions,
     out: &mut dyn Write,
     progress: Progress<'_>,
+    invalid_original: &mut bool,
 ) -> Result<usize> {
     let codec = options.encoding.codec();
     let mut substituted = 0;
@@ -721,6 +727,14 @@ fn write_body(
         for chunk in doc.chunks() {
             match chunk? {
                 Chunk::Original(bytes) => {
+                    // Invalid bytes shown as stand-ins can join into a character once what was
+                    // between them is gone (UTF-8: `C2 x A2` without the `x`).
+                    if !*invalid_original
+                        && options.encoding == Encoding::Utf8
+                        && std::str::from_utf8(&bytes).is_err()
+                    {
+                        *invalid_original = true;
+                    }
                     // Text added just before is written first (it comes before in the document).
                     flush(&mut pending, out)?;
                     for part in bytes.chunks(READ_CHUNK) {
@@ -845,7 +859,15 @@ fn write_file(
     out.scan = rebase.and_then(|scan_options| {
         StreamScanner::new(Arc::new(EncodingCodec(options.encoding)), scan_options).ok()
     });
-    let substituted = write_body(doc, source, options, &mut out, progress)?;
+    let mut invalid_original = false;
+    let substituted = write_body(
+        doc,
+        source,
+        options,
+        &mut out,
+        progress,
+        &mut invalid_original,
+    )?;
     out.flush()?;
     let written = out.written;
     // The last chance to cancel, before the target is touched. (A short document may have
@@ -853,7 +875,10 @@ fn write_file(
     if progress(written, written).is_break() {
         return Err(FileError::Cancelled);
     }
-    let scan = out.scan.take();
+    // A document whose original has invalid bytes is not put on the new file: the new file may
+    // read as other text than the document has (and the history would be wrong). It goes on
+    // reading the old file, as before generations.
+    let scan = out.scan.take().filter(|_| !invalid_original);
     let file = out
         .inner
         .into_inner()

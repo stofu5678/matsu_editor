@@ -2073,3 +2073,42 @@ fn a_save_in_an_encoding_where_pieces_can_join_reads_the_file_again() {
     let report = file.save(&keep, &mut no_progress).unwrap();
     assert!(report.rebased && report.reloaded);
 }
+
+#[test]
+fn invalid_utf8_bytes_that_would_join_keep_the_document_on_the_old_file() {
+    let dir = TempDir::new();
+    let mut bytes = "alpha\r\n".repeat(20).into_bytes();
+    bytes.extend_from_slice(b"\xC2x\xA2\r\n");
+    let path = dir.write("u.txt", &bytes);
+    let mut options = huge_options(10);
+    options.encoding = Some(Encoding::Utf8);
+    let mut file = open_file(&path, &options).unwrap();
+    if let Some(scan) = file.take_scan() {
+        file.document = scan.finish().unwrap();
+    }
+    let before = all_lines(&file.document);
+    // Delete the `x` between the two invalid bytes.
+    let (from, to) = (Pos::new(20, 1), Pos::new(20, 2));
+    file.document.delete(from, to).unwrap();
+    let edited = all_lines(&file.document);
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    // The file has `C2 A2` now (one character), which the document does not: it is not put on it.
+    assert!(!report.rebased && !report.reloaded);
+    assert!(file.take_rebased().is_none());
+    assert_eq!(all_lines(&file.document), edited);
+    assert_ne!(before, edited);
+}
+
+#[test]
+fn a_line_ending_the_setting_does_not_know_is_not_read_again() {
+    let dir = TempDir::new();
+    let path = dir.write("n.txt", "a\nb\nc\n".repeat(20).as_bytes());
+    let mut file = open_ranged_done(&path);
+    let mut options = SaveOptions::keep(&file);
+    options.eol = Some(Eol::Nel);
+    let report = file.save(&options, &mut no_progress).unwrap();
+    // With NEL not ending lines, reading the file again would join the lines.
+    assert!(!report.rebased && !report.reloaded);
+    assert_eq!(file.document.line_count(), 61);
+}
