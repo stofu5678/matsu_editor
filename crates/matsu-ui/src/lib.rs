@@ -45,6 +45,7 @@ mod file_dialog;
 mod file_names;
 mod file_ops;
 mod file_watch;
+mod font_diagnostics;
 mod font_dialog;
 mod func_name;
 pub mod geometry;

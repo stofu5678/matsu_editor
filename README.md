@@ -26,6 +26,26 @@ MATSU Editor は、使う設定ファイル（`matsu.ini`）1 つにつき、1 �
 
 サクラエディタのコマンドラインオプション（`help/sakura/res/HLP000109.html`）も使えます。名前の大文字小文字は区別せず、値は `=` か `:` に続けて書きます。`-X=` `-Y=` `-VX=` `-VY=` は開いた直後のキャレットと表示の位置、`-CODE=` は文字コード（サクラの番号）、`-TYPE=` は拡張子でタイプ別設定を強制、`-R` はビューモード、`-SX=` `-SY=` `-WX=` `-WY=` は新しいウィンドウの大きさと位置、`-GREPMODE` `-GREPDLG` `-GKEY=` `-GREPR=` `-GFILE=` `-GFOLDER=` `-GOPT=` `-GCODE=` は Grep、`-M=` は読み込み後に実行するマクロのファイル、`-PROF=` は設定のプロファイル（設定ファイルのサブフォルダー）、`-@=` はレスポンスファイルです。`-NOWIN` `-GROUP=` `-DEBUGMODE` `-PROFMGR` は受け付けて何もしません。
 
+### フォントの選び方を調べる
+
+文字が思ったフォントで描かれないときは、環境変数 `MATSU_FONT_DIAGNOSTICS=1` を付けて起動します。付けたときだけ、標準エラーに次を出します（付けないときの動きは変わらず、ファイルには何も書きません）。
+
+- GPUI と MATSU の記録（warn・error のほか、GPUI・MATSU とフォントのライブラリの info・debug）。時刻が付きます
+- 起動したときのフォントの診断: OS と版、MATSU の版、言語、設定のフォントと GPUI に頼む家族名、OS が持つ家族名の件数と、頼む名前が入っているか（大文字小文字を無視した場合も）、`BIZ`・`UD`・`ゴシック`・`Osaka`・`Hiragino`・`ヒラギノ` を含む名前、頼んだフォントが読み込めたか（GPUI が別のフォントに替えたか）、`0`・`M`・`あ`・`漢` の送り幅と全角÷半角の比（2.0 なら 1:2）。macOS では、Spotlight が見つける BIZ UDGothic のファイルの場所も出します
+
+すでに MATSU Editor が動いていると、後から起動したものはファイルを渡して終わるので、診断は出ません。先に動いている MATSU Editor を終えるか、`--separate-process` を付けて起動します。
+
+```sh
+# macOS
+MATSU_FONT_DIAGNOSTICS=1 "/Applications/MATSU Editor.app/Contents/MacOS/matsu" 2>&1 | tee ~/Desktop/matsu-font.txt
+
+# Linux
+MATSU_FONT_DIAGNOSTICS=1 matsu 2>&1 | tee matsu-font.txt
+
+# Windows（PowerShell。リリース版はコンソールを持たないので、標準エラーをファイルへ流す）
+$env:MATSU_FONT_DIAGNOSTICS = "1"; .\matsu.exe 2> matsu-font.txt
+```
+
 ## ドキュメント
 
 - [開発の計画](docs/roadmap.md)
