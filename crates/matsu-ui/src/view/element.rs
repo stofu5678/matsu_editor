@@ -390,7 +390,7 @@ fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
 
 /// Joins the characters that are drawn as one glyph with the character before them: marks and
 /// other zero-width characters (combining marks, variation selectors, ZWJ), what follows a ZWJ
-/// (emoji sequences), the consonant after a virama (Indic conjuncts), the second of a pair of regional indicators (a flag), and emoji skin tone
+/// (emoji sequences; see [`joins_after_zwj`]), the consonant after a virama (Indic conjuncts), the second of a pair of regional indicators (a flag), and emoji skin tone
 /// modifiers. Each piece has the column of its first
 /// character, its bytes in the label and the columns of all of them. A font draws such a piece as one glyph, which
 /// shaping the characters one by one would break. Joins that cross these pieces (Arabic
@@ -405,7 +405,7 @@ fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, std::ops::Range<usize>, u
     let mut flag_open = false;
     for (col, c, cols) in cells {
         let indicator = ('\u{1F1E6}'..='\u{1F1FF}').contains(&c);
-        let joins = after_zwj
+        let joins = (after_zwj && joins_after_zwj(c))
             || after_virama
             || (indicator && flag_open)
             || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
@@ -424,6 +424,14 @@ fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, std::ops::Range<usize>, u
         at = end;
     }
     out
+}
+
+/// What a ZWJ joins to the character before it: a pictograph (emoji sequences) or an Indic
+/// letter. Between other characters (`a`, ZWJ, `b`) it joins nothing.
+fn joins_after_zwj(c: char) -> bool {
+    matches!(c as u32,
+        0x0900..=0x0DFF | 0x00A9 | 0x00AE | 0x203C | 0x2049 | 0x2122 | 0x2139 | 0x2190..=0x2BFF
+        | 0x3030 | 0x303D | 0x3297 | 0x3299 | 0x1F000..=0x1FFFF)
 }
 
 /// A virama (the sign that kills the vowel of an Indic consonant): the consonant after it makes
@@ -2486,6 +2494,14 @@ mod tests {
         let got = cluster_texts("\u{0915}\u{094D}\u{0937}\u{0915}");
         let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
         assert_eq!(texts, ["\u{0915}\u{094D}\u{0937}", "\u{0915}"]);
+    }
+
+    #[test]
+    fn a_zwj_between_plain_letters_joins_nothing_after_it() {
+        let got = cluster_texts("a\u{200D}b");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        // the ZWJ itself is zero width and stays with the letter before it
+        assert_eq!(texts, ["a\u{200D}", "b"]);
     }
 
     #[test]
