@@ -160,7 +160,7 @@
 - 実行機の選び方は、CI の `test (macos-arm64)` と同じ決まり（`MAC_RUNNER`、`MAC_RUNNER_SEEN`、イベント、リポジトリの ID。欠けたら GitHub の `macos-15`）。同じシェルを 2 か所に写さないよう、`.github/actions/mac-runner/action.yml`（composite action）に 1 つだけ置き、`ci.yml` の `changes` の手順と `package.yml` の `mac-runner` のジョブが使う
 - `package.yml` は、`runs-on` が同じジョブの手順の出力を読めないので、選ぶだけの小さなジョブ（Linux、数秒）を先に動かす。macOS の行だけがその出力を使い、ほかの 4 つの行は今のまま
 - `package.yml` に渡す secrets はない（`release.yml` は `with:` だけを渡す）。VM のジョブの `GITHUB_TOKEN` は読み取りだけ（`permissions: contents: read`）。リリースの公開（書き込みの権限を持つ `nightly`・`release` のジョブ）は、今までどおり GitHub の実行機（Linux）で動き、VM には来ない
-- VM の中の「ジョブの前の確かめ」は、上の 3 の 1 の決まりのまま、通すジョブの表を広げる。`ALLOW` の行に、イベントを付けられるようにした（`ALLOW=release.yml:package:push` は push だけ）。再利用のワークフローの中のジョブは、`GITHUB_WORKFLOW_REF` が呼んだ側のワークフロー（`release.yml`、`package-check.yml`）、`GITHUB_JOB` が再利用のワークフローの中の id（`package`）になる、と見て、`release.yml:package:push`、`release.yml:package-release:push`（`GITHUB_JOB` が呼んだ側の id になる場合の備え。このジョブには手順がない）、`package-check.yml:package:pull_request` を通す。ほかの `release.yml` のジョブ（`release-please`・`nightly`・`release`）は通さない
+- VM の中の「ジョブの前の確かめ」は、上の 3 の 1 の決まりのまま、通すジョブの表を広げる。`ALLOW` の行に、イベントを付けられるようにした（`ALLOW=release.yml:package:push` は push だけ）。再利用のワークフローの中のジョブは、`GITHUB_WORKFLOW_REF` が呼んだ側のワークフロー（`release.yml`、`package-check.yml`）、`GITHUB_JOB` が再利用のワークフローの中の id（`package`）になる、と見て、`release.yml:package:push`、`release.yml:package-release:push`（`GITHUB_JOB` が呼んだ側の id になる場合の備え。どちらになるかは、実際に動かして確かめる。断られたときのログに、ファイル・ジョブ・イベントが出る）、`package-check.yml:package:pull_request` を通す。ほかの `release.yml` のジョブ（`release-please`・`nightly`・`release`）は通さない
 - VM のジョブのキャッシュは、GitHub の実行機の `release` と分けて `release-vm` にする（上の 2 の「キャッシュ」）
 
 ### 変わる前提

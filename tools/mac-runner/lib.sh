@@ -9,8 +9,10 @@ LABELS='["self-hosted","macOS","ARM64","matsu-vm"]'
 # - ci.yml test: phase 1. The E2E jobs of phase 2 are already admitted.
 # - The packages: a job of a reusable workflow (package.yml) reports the workflow of its caller in
 #   GITHUB_WORKFLOW_REF and its own id in GITHUB_JOB, so the pairs are the caller's file and package. release.yml
-#   builds on push (to main) only, package-check.yml on pull_request only. release.yml:package-release is the other
-#   reading of GITHUB_JOB (the caller's job id); that job has no steps of its own, so allowing it adds nothing.
+#   builds on push (to main) only, package-check.yml on pull_request only. release.yml:package-release covers the other
+#   reading, in which GITHUB_JOB is the id of the caller's job (the steps of the reusable job would run under it).
+#   Which reading is right is not known until a run shows it (the refusal message names the file, job and event);
+#   the unused entry only allows a job that is allowed anyway under the other name.
 ALLOWED_JOBS='ci.yml:test e2e.yml:smoke e2e.yml:screens release.yml:package:push release.yml:package-release:push package-check.yml:package:pull_request'
 
 # Cirrus Labs' vanilla macOS 26 image, pinned by digest. The golden VM starts from it.
