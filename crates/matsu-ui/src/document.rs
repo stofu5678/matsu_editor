@@ -474,7 +474,18 @@ impl SharedDocument {
         progress: Progress<'_>,
     ) -> matsu_core::file::Result<SaveReport> {
         let before = self.path.clone();
-        let report = self.with_file(|file| file.save_as(path, options, progress))?;
+        let (report, rebased) = self.with_file(|file| {
+            let report = file.save_as(path, options, progress)?;
+            Ok::<_, matsu_core::file::FileError>((report, file.take_rebased()))
+        })?;
+        // A file read by ranges now reads the file that was written (ADR-0020, chapter 4).
+        if let Some(doc) = rebased {
+            if report.reloaded {
+                self.model.reload_saved_document(doc);
+            } else {
+                self.model.replace_saved_document(doc);
+            }
+        }
         self.path = self.file.path.clone();
         self.loaded_format = (self.file.encoding, self.file.bom);
         self.disk_after_save(before.as_deref());
@@ -639,7 +650,7 @@ impl SharedDocument {
             self.file.new_line,
             self.file.eol_on_save,
         );
-        let result = self.with_file(|file| file.save_as(path, options, progress));
+        let result = self.with_file(|file| file.save_copy(path, options, progress));
         self.file.path = self.path.clone();
         self.file.encoding = encoding;
         self.file.bom = bom;

@@ -216,6 +216,18 @@ pub struct BlockScanner {
     pos: u64,
     len: u64,
     breaks: u64,
+    /// Set for a scan that is fed bytes as a file is written ([`StreamScanner`]): the bytes
+    /// before `pos` that a long line may still need, which there is no source to read again.
+    recent: Option<Recent>,
+}
+
+/// The last bytes a streaming scan has passed (see [`BlockScanner::recent`]): `bytes` end at the
+/// scan's `pos`.
+struct Recent {
+    bytes: Vec<u8>,
+    /// The most that is kept: the head of a long line, found when it has gone on for
+    /// `long_line` bytes, plus the longest block.
+    keep: usize,
 }
 
 /// What a block holds, as far as breaks are concerned.
@@ -267,6 +279,7 @@ impl BlockScanner {
             pos: 0,
             len,
             breaks: 0,
+            recent: None,
         })
     }
 
@@ -312,6 +325,13 @@ impl BlockScanner {
             }
             bytes
         };
+        self.process(&bytes, at_eof).map(drop)
+    }
+
+    /// Cuts the blocks of `bytes`, which start at `pos` and are the rest of the file when `at_eof`
+    /// and a window and its lookahead otherwise. Adds them to the index and returns how many bytes
+    /// they cover.
+    fn process(&mut self, bytes: &[u8], at_eof: bool) -> Result<usize, ScanError> {
         let target = self.block_size;
         // The lookahead is a multiple of 4 so that a cut stays aligned for UTF-16 and UTF-32.
         let reach = target.next_multiple_of(4) + LOOKAHEAD;
@@ -336,7 +356,7 @@ impl BlockScanner {
                 walk_eols(
                     &*self.codec,
                     &self.lens,
-                    &bytes,
+                    bytes,
                     bs,
                     usize::MAX,
                     self.ext_eol,
@@ -348,9 +368,9 @@ impl BlockScanner {
                 );
                 found
             } else {
-                self.cut_block(&bytes, bs, reach)
+                self.cut_block(bytes, bs, reach)
             };
-            self.note_long_line(&bytes, bs, &found, &blocks, &mut anchors)?;
+            self.note_long_line(bytes, bs, &found, &blocks, &mut anchors)?;
             let block_len = (found.end - bs) as u64;
             self.since_break = match found.last_end {
                 Some(last_end) => (found.end - last_end) as u64,
@@ -368,7 +388,46 @@ impl BlockScanner {
         self.blocks += blocks.len();
         self.breaks = index.breaks;
         self.pos += bs as u64;
-        Ok(())
+        Ok(bs)
+    }
+
+    /// The bytes `from..to`, which end in the window `bytes` (that starts at `pos`) and may start
+    /// before it: read from the source, or from what a streaming scan remembered.
+    fn head(
+        &self,
+        bytes: &[u8],
+        from: u64,
+        to: u64,
+    ) -> Result<std::borrow::Cow<'_, [u8]>, ScanError> {
+        let too_short = || ScanError::from(io::Error::from(io::ErrorKind::UnexpectedEof));
+        let Some(recent) = &self.recent else {
+            let head = self.source.read(from, to)?;
+            if head.len() as u64 != to - from {
+                return Err(too_short());
+            }
+            return Ok(head);
+        };
+        let recent_start = self.pos - recent.bytes.len() as u64;
+        let mut head = Vec::new();
+        head.try_reserve_exact((to - from) as usize)?;
+        if from < self.pos {
+            if from < recent_start {
+                return Err(too_short());
+            }
+            let upto = to.min(self.pos);
+            head.extend_from_slice(
+                &recent.bytes[(from - recent_start) as usize..(upto - recent_start) as usize],
+            );
+        }
+        if to > self.pos {
+            let first = from.max(self.pos) - self.pos;
+            head.extend_from_slice(
+                bytes
+                    .get(first as usize..(to - self.pos) as usize)
+                    .ok_or_else(too_short)?,
+            );
+        }
+        Ok(head.into())
     }
 
     /// The decoded length of `bytes`.
@@ -400,10 +459,7 @@ impl BlockScanner {
         let at = self.pos + bs as u64;
         if self.long.is_none() && self.long_line > 0 && self.since_break >= self.long_line {
             let line_start = at - self.since_break;
-            let head = self.source.read(line_start, at)?;
-            if head.len() as u64 != at - line_start {
-                return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
-            }
+            let head = self.head(bytes, line_start, at)?;
             // the blocks that start in the line so far: in the index, and in this window
             let mut starts: Vec<(usize, u64)> = {
                 let index = lock(&self.index);
@@ -494,6 +550,118 @@ impl BlockScanner {
             first_start,
             last_end,
         }
+    }
+}
+
+impl BlockScanner {
+    /// A scan of bytes that arrive as they are written, without a source to read (see
+    /// [`StreamScanner`]). The length is not known: `is_done` stays false.
+    fn streaming(codec: Arc<dyn Codec>, options: ScanOptions) -> Result<Self, ScanError> {
+        let placeholder: Arc<dyn Source> = Arc::new(crate::buffer::MemorySource::new(Vec::new()));
+        let mut scanner = Self::new(placeholder, codec, options)?;
+        scanner.len = u64::MAX;
+        let keep = options
+            .long_line
+            .saturating_add(2 * (scanner.block_size.next_multiple_of(4) + LOOKAHEAD))
+            .saturating_add(64);
+        scanner.recent = (options.long_line > 0).then(|| Recent {
+            bytes: Vec::new(),
+            keep,
+        });
+        Ok(scanner)
+    }
+
+    /// Remembers the bytes the last `process` covered (they end at `pos` now).
+    fn remember(&mut self, covered: &[u8]) -> Result<(), ScanError> {
+        let Some(recent) = &mut self.recent else {
+            return Ok(());
+        };
+        recent.bytes.try_reserve(covered.len())?;
+        recent.bytes.extend_from_slice(covered);
+        if recent.bytes.len() > recent.keep {
+            let excess = recent.bytes.len() - recent.keep;
+            recent.bytes.drain(..excess);
+        }
+        Ok(())
+    }
+}
+
+/// A scan that is fed the bytes of a file while it is written, so that the file need not be read
+/// again to index it (ADR-0020, chapter 4). It cuts blocks exactly where [`scan_blocks`] would
+/// cut them in the finished file, and makes the same index.
+///
+/// Feed the bytes in order with [`feed`](Self::feed), and call [`finish`](Self::finish) with the
+/// source that reads the finished file.
+pub struct StreamScanner {
+    scanner: BlockScanner,
+    /// Bytes fed and not yet cut into blocks; they start at the scanner's `pos`.
+    pending: Vec<u8>,
+    /// The size of a window with its lookahead.
+    want: usize,
+}
+
+impl fmt::Debug for StreamScanner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StreamScanner")
+            .field("scanned", &self.scanner.pos)
+            .field("pending", &self.pending.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl StreamScanner {
+    /// Prepares a scan with `options`.
+    ///
+    /// # Errors
+    ///
+    /// [`ScanError::Stateful`] for an encoding that depends on earlier bytes.
+    pub fn new(codec: Arc<dyn Codec>, options: ScanOptions) -> Result<Self, ScanError> {
+        let scanner = BlockScanner::streaming(codec, options)?;
+        let want = usize::try_from(scanner.window)
+            .unwrap_or(usize::MAX - LOOKAHEAD)
+            .saturating_add(LOOKAHEAD);
+        Ok(Self {
+            scanner,
+            pending: Vec::new(),
+            want,
+        })
+    }
+
+    /// The bytes fed so far.
+    pub fn fed(&self) -> u64 {
+        self.scanner.pos + self.pending.len() as u64
+    }
+
+    /// Takes the next bytes of the file.
+    pub fn feed(&mut self, data: &[u8]) -> Result<(), ScanError> {
+        self.pending.try_reserve(data.len())?;
+        self.pending.extend_from_slice(data);
+        // A window is cut only when more bytes follow it, as `step` does when the file goes on
+        // past the window: the last bytes of the file are cut with `at_eof`.
+        while self.pending.len() > self.want {
+            let used = self.scanner.process(&self.pending[..self.want], false)?;
+            self.scanner.remember(&self.pending[..used])?;
+            self.pending.drain(..used);
+        }
+        Ok(())
+    }
+
+    /// Ends the scan. `source` reads the finished file (without what the scan was not fed, such as
+    /// a BOM) and must be as long as the bytes fed. The index is complete.
+    pub fn finish(mut self, source: Arc<dyn Source>) -> Result<BlockIndex, ScanError> {
+        if source.len() != self.fed() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the file is not as long as the bytes the scan was fed",
+            )
+            .into());
+        }
+        if !self.pending.is_empty() {
+            let pending = std::mem::take(&mut self.pending);
+            self.scanner.process(&pending, true)?;
+        }
+        let index = lock(&self.scanner.index).clone();
+        Ok(index.with_source(source))
     }
 }
 

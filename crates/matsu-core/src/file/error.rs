@@ -29,6 +29,9 @@ pub enum FileError {
     NoPath,
     /// The target is read-only. Nothing was written.
     ReadOnly,
+    /// The disk of the target has less free space than the save is estimated to write (see
+    /// `file/space.rs`). Nothing was written.
+    NoSpace { needed: u64, available: u64 },
     /// Reading or writing failed. A temporary file is removed.
     Io(io::Error),
     /// The document could not be built or read.
@@ -54,6 +57,10 @@ impl fmt::Display for FileError {
             ),
             Self::NoPath => f.write_str("the document has no file name yet"),
             Self::ReadOnly => f.write_str("the file is read-only"),
+            Self::NoSpace { needed, available } => write!(
+                f,
+                "not enough free space on the disk (up to {needed} bytes are needed; {available} bytes are free)"
+            ),
             Self::Io(e) => write!(f, "file error: {e}"),
             Self::Buffer(e) => write!(f, "{e}"),
         }

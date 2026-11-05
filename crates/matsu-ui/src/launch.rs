@@ -128,6 +128,10 @@ pub fn launch(args: Vec<OsString>) {
     // otherwise).
     let diagnostics = crate::font_diagnostics::install_from_env();
     let (separate, args) = split_options(args);
+    // Saves ask the OS for the free space before they write (ADR-0020, chapter 4).
+    matsu_core::file::set_default_free_space_probe(Some(matsu_core::file::FreeSpaceProbe(
+        matsu_platform::free_space::available,
+    )));
     let request = Request::from_current_process(args);
     let (tx, rx) = async_channel::unbounded();
     let first = OpenRequest::from_launch(&request);

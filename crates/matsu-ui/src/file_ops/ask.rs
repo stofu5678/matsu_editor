@@ -129,6 +129,11 @@ pub(crate) fn save_error_message(path: &Path, error: &FileError) -> (String, Str
     let message = format!("'{}'\nを保存できませんでした。", path.display());
     let detail = match error {
         FileError::ReadOnly => "書き込みが禁止されている".to_owned(),
+        FileError::NoSpace { needed, available } => format!(
+            "ディスクの空き容量が足りない（最大 {} MiB 必要。空きは {} MiB）\n元のファイルは変わっていない",
+            needed.div_ceil(1024 * 1024),
+            available / (1024 * 1024)
+        ),
         other => format!("{other}\n元のファイルは変わっていない"),
     };
     (message, detail)

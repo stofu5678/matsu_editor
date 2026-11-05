@@ -34,6 +34,8 @@
 mod long;
 mod scan;
 #[cfg(test)]
+mod stream_tests;
+#[cfg(test)]
 mod tests;
 mod window;
 #[cfg(test)]
@@ -47,7 +49,7 @@ use std::sync::{Arc, Mutex};
 use long::{CharsCache, LongAnchor};
 pub use scan::{
     BlockScanner, DEFAULT_LONG_LINE, ScanError, ScanFailure, ScanJob, ScanOptions, ScanProgress,
-    ScanState, scan_blocks,
+    ScanState, StreamScanner, scan_blocks,
 };
 pub use window::{ScanWindow, WINDOW_BYTES};
 
@@ -282,6 +284,13 @@ impl BlockIndex {
             long_line,
             tables: Arc::default(),
         }
+    }
+
+    /// The same index over `source`, which has the same bytes as the one the index was made from
+    /// (the finished file of a [`StreamScanner`]).
+    fn with_source(mut self, source: Arc<dyn Source>) -> Self {
+        self.source = source;
+        self
     }
 
     /// The source the index was made from.

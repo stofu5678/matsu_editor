@@ -357,43 +357,178 @@ impl IntoElement for EditorElement {
     }
 }
 
-/// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece, or, when `width_of` is
-/// given (the columns have spacing), as a piece for each character, `width_of` columns apart. A
-/// font cannot space its glyphs, and Sakura draws each character of a row at its own place
-/// (`CTextDrawer::DispText` with the dx array).
+/// How text is put on the columns: the width of a column in pixels, and whether the columns have
+/// spacing.
+struct Grid {
+    cell: f32,
+    /// The columns have spacing (a font cannot space its glyphs).
+    spaced: bool,
+    /// The columns the window shows, with a margin: characters placed one by one outside them
+    /// are left out (a row can have thousands of columns).
+    visible: std::ops::Range<u32>,
+}
+
+/// The characters of `label` with the column each starts at and the columns it covers: what
+/// matsu-layout gives them, one character (a code point) at a time.
+fn glyph_cells(col: u32, label: &str, width_of: impl Fn(char) -> u32) -> Vec<(u32, char, u32)> {
+    let mut col = col;
+    label
+        .chars()
+        .map(|c| {
+            let cols = width_of(c);
+            let cell = (col, c, cols);
+            col += cols;
+            cell
+        })
+        .collect()
+}
+
+/// The `cols` columns from `col` are in the range of columns shown.
+fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
+    col + cols > shown.start && col < shown.end
+}
+
+/// Joins the characters that are drawn as one glyph with the character before them: marks and
+/// other zero-width characters (combining marks, variation selectors, ZWJ), what follows a ZWJ
+/// (emoji sequences; see [`joins_after_zwj`]), a run of letters of a script that shapes them
+/// together ([`complex_script`]), the consonant after a virama (Indic conjuncts), the second of a pair of regional indicators (a flag), and emoji skin tone
+/// modifiers. Each piece has the column of its first
+/// character, its bytes in the label and the columns of all of them. A font draws such a piece as one glyph, which
+/// shaping the characters one by one would break. Ligatures of other scripts (fi) are not kept.
+fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, std::ops::Range<usize>, u32)> {
+    use unicode_width::UnicodeWidthChar;
+    let mut out: Vec<(u32, std::ops::Range<usize>, u32)> = Vec::with_capacity(cells.len());
+    let mut at = 0;
+    let mut after_zwj = false;
+    let mut after_virama = false;
+    let mut after_complex = false;
+    // the first of a pair of regional indicators (a flag) is waiting for the second
+    let mut flag_open = false;
+    for (col, c, cols) in cells {
+        let indicator = ('\u{1F1E6}'..='\u{1F1FF}').contains(&c);
+        let joins = (after_zwj && joins_after_zwj(c))
+            || after_virama
+            || (after_complex && complex_script(c))
+            || (indicator && flag_open)
+            || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
+            || (c.width() == Some(0) && !c.is_whitespace());
+        after_zwj = c == '\u{200D}';
+        after_virama = is_virama(c);
+        after_complex = complex_script(c);
+        flag_open = indicator && !flag_open;
+        let end = at + c.len_utf8();
+        match out.last_mut() {
+            Some(last) if joins => {
+                last.1.end = end;
+                last.2 += cols;
+            }
+            _ => out.push((col, at..end, cols)),
+        }
+        at = end;
+    }
+    out
+}
+
+/// What a ZWJ joins to the character before it: a pictograph (emoji sequences) or an Indic
+/// letter. Between other characters (`a`, ZWJ, `b`) it joins nothing.
+fn joins_after_zwj(c: char) -> bool {
+    matches!(c as u32,
+        0x0900..=0x0DFF | 0x00A9 | 0x00AE | 0x203C | 0x2049 | 0x2122 | 0x2139 | 0x2190..=0x2BFF
+        | 0x3030 | 0x303D | 0x3297 | 0x3299 | 0x1F000..=0x1FFFF)
+}
+
+/// A letter of a script whose letters change shape with the ones around them, or run right to
+/// left (Arabic, Hebrew, Syriac, Thaana, NKo, the Indic scripts, Thai, Lao, Tibetan, Myanmar,
+/// Khmer): a run of them is one cluster, so that their joins, conjuncts, reordered vowel signs
+/// and direction survive. Numerals and the punctuation of these scripts are not letters of the
+/// run: with spacing they are placed one by one, as the layout has them. The rule is an
+/// approximation of the grapheme cluster tables (UAX 29).
+fn complex_script(c: char) -> bool {
+    let in_script = matches!(c as u32,
+        0x0590..=0x08FF | 0x0900..=0x0DFF | 0x0E00..=0x0EFF | 0x0F00..=0x0FFF | 0x1000..=0x109F
+        | 0x1780..=0x17FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF);
+    let punctuation = matches!(c as u32,
+        0x05BE | 0x05C0 | 0x05C3 | 0x05C6 | 0x05F3 | 0x05F4 | 0x060C | 0x061B | 0x061F
+        | 0x066A..=0x066D | 0x06D4 | 0x0964 | 0x0965 | 0x0970 | 0x0E4F | 0x0E5A | 0x0E5B
+        | 0x0F04..=0x0F12 | 0x104A..=0x104F | 0x17D4..=0x17DA);
+    in_script && !punctuation && !c.is_numeric()
+}
+
+/// A virama (the sign that kills the vowel of an Indic consonant): the consonant after it makes
+/// a conjunct with the one before.
+fn is_virama(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x094D
+            | 0x09CD
+            | 0x0A4D
+            | 0x0ACD
+            | 0x0B4D
+            | 0x0BCD
+            | 0x0C4D
+            | 0x0CCD
+            | 0x0D4D
+            | 0x0DCA
+            | 0x1039
+            | 0x17D2
+            | 0xA806
+            | 0xA8C4
+            | 0xA953
+    )
+}
+
+/// A shaped piece of text goes on the columns as it is when its advance is the width of its
+/// columns (BIZ UDGothic, MS Gothic: the full-width glyphs are twice the half-width ones).
+/// A font with other proportions (a fallback font, Menlo, Meiryo) would drift off the columns
+/// that the caret, the line break mark and the ruler are placed on.
+fn fits_columns(advance: f32, columns: u32, cell: f32) -> bool {
+    (advance - columns as f32 * cell).abs() < 0.5
+}
+
+/// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece when the columns have no
+/// spacing and the font's advances fit them ([`fits_columns`]), else as a piece for each
+/// character (with the marks and the emoji joiners that go with it, see [`clusters`]), at its
+/// own column. Sakura draws each character of a row at its own place
+/// (`CTextDrawer::DispText` with the dx array), whatever the advances of the font are.
 fn place(
     window: &mut Window,
     out: &mut Vec<Placed>,
     (col, label, style): (u32, &str, &TextStyle),
-    width_of: Option<impl Fn(char) -> u32>,
+    width_of: impl Fn(char) -> u32,
+    grid: &Grid,
     shape: &dyn Fn(&mut Window, &str, &TextStyle) -> ShapedLine,
 ) {
-    let Some(width_of) = width_of else {
-        out.push(Placed {
-            col,
-            line: Some(shape(window, label, style)),
-            underline: None,
-        });
-        return;
-    };
-    // Each character is shaped alone, so its underline would stop at the glyph: the underline is
-    // a line across the columns of the character instead.
+    let glyphs = glyph_cells(col, label, width_of);
+    if !grid.spaced {
+        let whole = shape(window, label, style);
+        let columns = glyphs.iter().map(|g| g.2).sum();
+        if fits_columns(f32::from(whole.width()), columns, grid.cell) {
+            out.push(Placed {
+                col,
+                line: Some(whole),
+                underline: None,
+            });
+            return;
+        }
+    }
+    // Each cluster is shaped alone, so its underline would stop at the glyph: the underline is
+    // a line across the columns of the cluster instead.
     let glyph_style = TextStyle {
         underline: false,
         ..*style
     };
-    let mut col = col;
-    for c in label.chars() {
-        let cols = width_of(c);
+    for (col, bytes, cols) in clusters(glyphs) {
+        if !overlaps(col, cols, &grid.visible) {
+            continue;
+        }
+        let text = &label[bytes];
         let underline = style.underline.then_some((cols, style.text));
-        if c.is_whitespace() {
+        let blank = text.chars().all(char::is_whitespace);
+        if blank {
             // A space has nothing to paint but its underline, which joins the one before it:
             // a tab in a wide field has a long run of them.
             match (underline, out.last_mut()) {
-                (None, _) => {
-                    col += cols;
-                    continue;
-                }
+                (None, _) => continue,
                 (Some(_), Some(last))
                     if last.line.is_none()
                         && last.underline.is_some_and(|(n, color)| {
@@ -401,7 +536,6 @@ fn place(
                         }) =>
                 {
                     last.underline = last.underline.map(|(n, color)| (n + cols, color));
-                    col += cols;
                     continue;
                 }
                 _ => {}
@@ -409,11 +543,9 @@ fn place(
         }
         out.push(Placed {
             col,
-            line: (!c.is_whitespace())
-                .then(|| shape(window, c.encode_utf8(&mut [0; 4]), &glyph_style)),
+            line: (!blank).then(|| shape(window, text, &glyph_style)),
             underline,
         });
-        col += cols;
     }
 }
 
@@ -537,6 +669,16 @@ impl Element for EditorElement {
         let half = if half > 0.0 { half } else { 8.0 };
         let cell = column_width(half, settings.column_space);
         let spaced = settings.column_space > 0;
+        let first_visible = (editor.scroll_x / cell).floor().max(0.0) as u32;
+        let shown_columns = (f32::from(bounds.size.width) / cell).ceil() as u32;
+        let grid = &Grid {
+            cell,
+            spaced,
+            visible: first_visible.saturating_sub(4)
+                ..first_visible
+                    .saturating_add(shown_columns)
+                    .saturating_add(4),
+        };
         let widths = layout.config().width;
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
@@ -775,7 +917,8 @@ impl Element for EditorElement {
                         window,
                         &mut selected_text,
                         (label_col, label, selected_style),
-                        spaced.then_some(width_of),
+                        width_of,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -783,7 +926,8 @@ impl Element for EditorElement {
                     window,
                     &mut text,
                     (label_col, label, &item.style),
-                    spaced.then_some(width_of),
+                    width_of,
+                    grid,
                     &shape_styled,
                 );
                 if let Label::Tab(cols) = item.label
@@ -795,7 +939,8 @@ impl Element for EditorElement {
                             window,
                             &mut selected_text,
                             (head.0, head.1, selected_style),
-                            spaced.then_some(|_: char| 1),
+                            |_: char| 1,
+                            grid,
                             &shape_styled,
                         );
                     }
@@ -803,7 +948,8 @@ impl Element for EditorElement {
                         window,
                         &mut text,
                         (head.0, head.1, &item.style),
-                        spaced.then_some(|_: char| 1),
+                        |_: char| 1,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -819,7 +965,8 @@ impl Element for EditorElement {
                         window,
                         &mut marks,
                         (0, EOF_MARK, &eof_style),
-                        spaced.then_some(|_: char| 1),
+                        |_: char| 1,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -841,7 +988,8 @@ impl Element for EditorElement {
                         window,
                         &mut marks,
                         (row.end_column, eol_mark(eol), &mark.style),
-                        spaced.then_some(|_: char| 1),
+                        |_: char| 1,
+                        grid,
                         &shape_styled,
                     );
                 }
@@ -855,7 +1003,8 @@ impl Element for EditorElement {
                     window,
                     &mut marks,
                     (row.end_column, EOF_MARK, &eof_style),
-                    spaced.then_some(|_: char| 1),
+                    |_: char| 1,
+                    grid,
                     &shape_styled,
                 );
             }
@@ -2215,5 +2364,189 @@ mod tests {
             true,
         );
         assert!(style.bold);
+    }
+
+    /// The x of each character as `place` puts it: the cell of its column, whatever the advance
+    /// of the font is.
+    fn xs(col: u32, label: &str, cell: f32) -> Vec<(char, f32)> {
+        let widths = matsu_layout::WidthRule::default();
+        glyph_cells(col, label, |c| widths.columns(c))
+            .into_iter()
+            .map(|(col, c, _)| (c, col as f32 * cell))
+            .collect()
+    }
+
+    /// The advance of `label` in a font whose half-width glyph is `half` and full-width one is
+    /// `full` wide.
+    fn advance(label: &str, half: f32, full: f32) -> f32 {
+        let widths = matsu_layout::WidthRule::default();
+        label
+            .chars()
+            .map(|c| if widths.columns(c) == 2 { full } else { half })
+            .sum()
+    }
+
+    fn columns_of_label(label: &str) -> u32 {
+        let widths = matsu_layout::WidthRule::default();
+        label.chars().map(|c| widths.columns(c)).sum()
+    }
+
+    #[test]
+    fn a_font_with_twice_the_half_width_in_full_width_is_one_piece() {
+        // BIZ UDGothic, MS Gothic: 7.2 and 14.4
+        let label = "拡張機能abc";
+        let w = advance(label, 7.2, 14.4);
+        assert!(fits_columns(w, columns_of_label(label), 7.2));
+    }
+
+    #[test]
+    fn a_font_with_other_proportions_is_drawn_character_by_character() {
+        // the user's Mac: a digit of 7.2 (the column) and a full-width glyph of 12.9
+        let label = "拡張機能を追加して";
+        let w = advance(label, 7.2, 12.9);
+        assert!(!fits_columns(w, columns_of_label(label), 7.2));
+        // each character starts at its column, however wide the glyphs before it are
+        for (i, (c, x)) in xs(3, label, 7.2).iter().enumerate() {
+            let want = (3 + 2 * i as u32) as f32 * 7.2;
+            assert_eq!(*x, want, "{c:?}");
+        }
+        // a line of 52 characters ends at its column: 104 columns, not 52 glyphs of 12.9
+        let long: String = "あ".repeat(52);
+        assert!(!fits_columns(advance(&long, 7.2, 12.9), 104, 7.2));
+        assert_eq!(xs(0, &long, 7.2).last().map(|g| g.1), Some(51.0 * 14.4));
+    }
+
+    #[test]
+    fn mixed_width_combining_emoji_and_tab_have_the_columns_of_the_layout() {
+        // half, full, a combining mark (a cell of its own), a surrogate pair (full), a space
+        let label = "a拡\u{301}😀 b";
+        let widths = matsu_layout::WidthRule::default();
+        let cols: Vec<(u32, u32)> = glyph_cells(0, label, |c| widths.columns(c))
+            .iter()
+            .map(|g| (g.0, g.2))
+            .collect();
+        assert_eq!(cols, [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1), (7, 1)]);
+        // a tab takes the columns to the next stop
+        let cfg = matsu_layout::LayoutConfig::default();
+        assert_eq!(
+            glyph_cells(1, "\t", |c| cfg.columns_of(c, 1)),
+            [(1, '\t', 3)]
+        );
+    }
+
+    #[test]
+    fn the_end_of_a_piece_is_the_end_of_its_columns() {
+        // what the caret and the line break mark use: the column of the end of the text
+        let label = "拡張機能を追加して";
+        let end = xs(0, label, 7.2).last().map(|g| g.1 + 2.0 * 7.2);
+        assert_eq!(end, Some(columns_of_label(label) as f32 * 7.2));
+    }
+
+    #[test]
+    fn characters_far_outside_the_window_are_left_out() {
+        let shown = 100..160;
+        assert!(!overlaps(0, 2, &shown));
+        assert!(!overlaps(98, 2, &shown));
+        assert!(overlaps(99, 2, &shown));
+        assert!(overlaps(120, 2, &shown));
+        assert!(overlaps(159, 2, &shown));
+        assert!(!overlaps(160, 2, &shown));
+    }
+
+    fn cluster_texts(label: &str) -> Vec<(u32, String, u32)> {
+        let widths = matsu_layout::WidthRule::default();
+        clusters(glyph_cells(0, label, |c| widths.columns(c)))
+            .into_iter()
+            .map(|(col, bytes, cols)| (col, label[bytes].to_string(), cols))
+            .collect()
+    }
+
+    #[test]
+    fn a_zwj_emoji_is_one_cluster_at_its_first_column() {
+        // man, ZWJ, woman, ZWJ, girl: 2 + 1 + 2 + 1 + 2 columns, then a letter
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        let got = cluster_texts(&format!("a{family}b"));
+        assert_eq!(
+            got,
+            [
+                (0, "a".to_string(), 1),
+                (1, family.to_string(), 8),
+                (9, "b".to_string(), 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn marks_and_variation_selectors_stay_with_their_character() {
+        // e + acute, a heart with VS16, a kanji with an ideographic variation selector, and a
+        // thumbs up with a skin tone
+        let got = cluster_texts("e\u{301}\u{2764}\u{FE0F}\u{8FBB}\u{E0100}\u{1F44D}\u{1F3FD}x");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "e\u{301}",
+                "\u{2764}\u{FE0F}",
+                "\u{8FBB}\u{E0100}",
+                "\u{1F44D}\u{1F3FD}",
+                "x"
+            ]
+        );
+        // the first column of each is where its first character is
+        assert_eq!(got[1].0, 2);
+    }
+
+    #[test]
+    fn a_flag_is_one_cluster_and_the_next_pair_is_another() {
+        // JP and US flags, then a lone indicator
+        let got = cluster_texts("\u{1F1EF}\u{1F1F5}\u{1F1FA}\u{1F1F8}\u{1F1EF}");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["\u{1F1EF}\u{1F1F5}", "\u{1F1FA}\u{1F1F8}", "\u{1F1EF}"]
+        );
+        assert_eq!((got[0].0, got[1].0, got[2].0), (0, 4, 8));
+    }
+
+    #[test]
+    fn an_indic_conjunct_is_one_cluster() {
+        // ksha: ka, virama, ssa; then a space and a letter
+        let got = cluster_texts("\u{0915}\u{094D}\u{0937} \u{0915}");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(texts, ["\u{0915}\u{094D}\u{0937}", " ", "\u{0915}"]);
+    }
+
+    #[test]
+    fn a_zwj_between_plain_letters_joins_nothing_after_it() {
+        let got = cluster_texts("a\u{200D}b");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        // the ZWJ itself is zero width and stays with the letter before it
+        assert_eq!(texts, ["a\u{200D}", "b"]);
+    }
+
+    #[test]
+    fn a_run_of_arabic_or_devanagari_letters_is_one_cluster() {
+        // a Devanagari consonant with the vowel sign i, then a space and an Arabic word
+        let got = cluster_texts("\u{0915}\u{093F} \u{0645}\u{0631}\u{062D}");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(texts, ["\u{0915}\u{093F}", " ", "\u{0645}\u{0631}\u{062D}"]);
+    }
+
+    #[test]
+    fn a_hebrew_word_is_one_cluster_and_numerals_and_punctuation_are_not_joined() {
+        let word = cluster_texts("\u{05E9}\u{05DC}\u{05D5}\u{05DD}");
+        assert_eq!(word.len(), 1);
+        // Arabic-Indic and Devanagari numerals
+        let numerals = cluster_texts("\u{0661}\u{0662}\u{0663}\u{0967}\u{0968}");
+        assert_eq!(numerals.len(), 5);
+        // an Arabic comma between two letters
+        let comma = cluster_texts("\u{0645}\u{060C}\u{0645}");
+        assert_eq!(comma.len(), 3);
+    }
+
+    #[test]
+    fn spaces_and_tabs_are_clusters_of_their_own() {
+        let got = cluster_texts("a \tb");
+        assert_eq!(got.len(), 4);
     }
 }

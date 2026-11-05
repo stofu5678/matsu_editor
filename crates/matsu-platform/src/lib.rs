@@ -13,7 +13,7 @@
 //! dialog and GDI on Windows, AppKit's print panel and Core Text on macOS, and a PDF handed to
 //! the print portal on Linux. `unsafe` code is in the OS modules `print::windows`, `print::mac`, `caret_width::windows`,
 //! `window::windows`, `window::mac`, `reconvert::windows`, `ime_mode::windows`, `doc_icon::windows`, `clipboard_html::windows`, `clipboard_html::mac`, `shell::windows`, `instance::windows`, `instance::unix`,
-//! `dialog::windows`, `dialog::mac`, `dialog_title::windows`, `font_dialog::windows`, `folders::windows`, `help::windows` and
+//! `dialog::windows`, `dialog::mac`, `dialog_title::windows`, `font_dialog::windows`, `folders::windows`, `free_space::windows`, `free_space::unix`, `help::windows` and
 //! `exec::unix` only.
 //!
 //! [ADR-0011]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0011-printing.md
@@ -30,6 +30,7 @@ pub mod file_id;
 pub mod file_lock;
 pub mod folders;
 pub mod font_dialog;
+pub mod free_space;
 pub mod help;
 pub mod ime_mode;
 pub mod instance;

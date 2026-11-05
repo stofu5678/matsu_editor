@@ -1860,3 +1860,294 @@ fn a_huge_file_that_has_to_be_read_whole_can_be_asked_about_first() {
     options.ask_before_whole_read = true;
     assert!(open_file(&utf8, &options).is_ok());
 }
+
+// ---- the new generation of a file read by ranges, and the free space (ADR-0020, chapter 4) ----
+
+/// A file opened by ranges, with the scan done.
+fn open_ranged_done(path: &Path) -> TextFile {
+    let mut file = open_file(path, &huge_options(10)).unwrap();
+    if let Some(scan) = file.take_scan() {
+        file.document = scan.finish().unwrap();
+    }
+    assert!(file.is_ranged() && !file.document.is_read_only());
+    file
+}
+
+fn ranged_text() -> String {
+    "alpha\r\nbeta あ\r\ngamma\r\n".repeat(20)
+}
+
+fn whole_lines(path: &Path) -> Vec<String> {
+    all_lines(&open_file(path, &OpenOptions::default()).unwrap().document)
+}
+
+#[test]
+fn a_save_makes_the_new_file_the_document_and_undo_goes_back_through_the_generations() {
+    let dir = TempDir::new();
+    let text = ranged_text();
+    let path = dir.write("g.txt", text.as_bytes());
+    let mut file = open_ranged_done(&path);
+    let gen0 = file.document.clone();
+
+    file.document.insert(Pos::new(1, 0), "X").unwrap();
+    let gen0_edited = file.document.clone();
+    let options = SaveOptions::keep(&file);
+    let report = file.save(&options, &mut no_progress).unwrap();
+    assert!(report.rebased && !report.reloaded);
+    let text1 = text.replacen("beta", "Xbeta", 1);
+    assert_eq!(fs::read(&path).unwrap(), text1.as_bytes());
+    assert!(file.take_rebased().is_some());
+    // The index of the new file was counted while it was written, and gives the same lines.
+    let gen1 = file.document.clone();
+    assert!(!gen1.is_read_only() && gen1.is_ranged());
+    assert_eq!(gen1.line_count(), gen0_edited.line_count());
+    assert_eq!(all_lines(&gen1), all_lines(&gen0_edited));
+    assert_eq!(all_lines(&gen1), whole_lines(&path));
+
+    // Edit and save again.
+    file.document.insert(Pos::new(2, 0), "Y").unwrap();
+    let gen1_edited = file.document.clone();
+    let options = SaveOptions::keep(&file);
+    file.save(&options, &mut no_progress).unwrap();
+    let text2 = text1.replacen("gamma", "Ygamma", 1);
+    assert_eq!(fs::read(&path).unwrap(), text2.as_bytes());
+    let gen2 = file.document.clone();
+    assert_eq!(all_lines(&gen2), all_lines(&gen1_edited));
+    assert_eq!(all_lines(&gen2), whole_lines(&path));
+
+    // The versions before the saves still read what they had, from the files that were replaced.
+    let original = dir.write("o.txt", text.as_bytes());
+    assert_eq!(all_lines(&gen0), whole_lines(&original));
+    assert!(all_lines(&gen0_edited)[1].starts_with("Xbeta"));
+    assert!(all_lines(&gen1)[1].starts_with("Xbeta"));
+    assert!(all_lines(&gen1)[2].starts_with("gamma"));
+    assert!(all_lines(&gen1_edited)[2].starts_with("Ygamma"));
+}
+
+#[test]
+fn a_save_in_another_encoding_reads_the_new_file_and_says_to_drop_the_history() {
+    let dir = TempDir::new();
+    let text = ranged_text();
+    let path = dir.write("e.txt", text.as_bytes());
+    let mut file = open_ranged_done(&path);
+    let before = all_lines(&file.document);
+    let options = SaveOptions::for_encoding(Encoding::ShiftJis);
+    let report = file.save(&options, &mut no_progress).unwrap();
+    assert!(report.rebased && report.reloaded);
+    assert_eq!(file.source_encoding(), Encoding::ShiftJis);
+    assert_eq!(all_lines(&file.document), before);
+    // The document reads the Shift_JIS file now: editing and saving again copy its bytes.
+    file.document.insert(Pos::new(0, 0), "あ").unwrap();
+    let again = SaveOptions::keep(&file);
+    file.save(&again, &mut no_progress).unwrap();
+    let mut expected = encode(Encoding::ShiftJis, "あ");
+    expected.extend(encode(Encoding::ShiftJis, &text));
+    assert_eq!(fs::read(&path).unwrap(), expected);
+}
+
+#[test]
+fn a_save_that_converts_the_line_endings_reloads() {
+    let dir = TempDir::new();
+    let path = dir.write("l.txt", ranged_text().as_bytes());
+    let mut file = open_ranged_done(&path);
+    let mut options = SaveOptions::keep(&file);
+    options.eol = Some(Eol::Lf);
+    let report = file.save(&options, &mut no_progress).unwrap();
+    assert!(report.reloaded);
+    assert_eq!(file.eol_on_save, None);
+    let expected = ranged_text().replace("\r\n", "\n");
+    assert_eq!(fs::read(&path).unwrap(), expected.as_bytes());
+    assert_eq!(all_lines(&file.document), whole_lines(&path));
+}
+
+#[test]
+fn a_file_read_whole_keeps_its_document_when_it_is_saved() {
+    let dir = TempDir::new();
+    let path = dir.write("w.txt", b"a\nb\n");
+    let mut file = open_file(&path, &OpenOptions::default()).unwrap();
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    let options = SaveOptions::keep(&file);
+    let report = file.save(&options, &mut no_progress).unwrap();
+    assert!(!report.rebased && !report.reloaded);
+    assert!(file.take_rebased().is_none());
+}
+
+#[test]
+fn a_copy_leaves_the_document_on_the_file_it_read() {
+    let dir = TempDir::new();
+    let path = dir.write("c.txt", ranged_text().as_bytes());
+    let mut file = open_ranged_done(&path);
+    let options = SaveOptions::keep(&file);
+    let copy = dir.path("copy.txt");
+    let report = file.save_copy(&copy, &options, &mut no_progress).unwrap();
+    assert!(!report.rebased);
+    assert_eq!(file.path.as_deref(), Some(path.as_path()));
+    assert!(file.take_rebased().is_none());
+    assert_eq!(fs::read(&copy).unwrap(), ranged_text().as_bytes());
+}
+
+#[cfg(target_os = "linux")]
+fn open_deleted_files(dir: &TempDir) -> usize {
+    let name = dir.0.file_name().unwrap().to_string_lossy().into_owned();
+    fs::read_dir("/proc/self/fd")
+        .unwrap()
+        .filter_map(|e| fs::read_link(e.unwrap().path()).ok())
+        .filter(|target| {
+            let t = target.to_string_lossy();
+            t.contains(&name) && t.ends_with("(deleted)")
+        })
+        .count()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_old_file_is_closed_when_the_history_lets_go_of_it() {
+    let dir = TempDir::new();
+    let path = dir.write("h.txt", ranged_text().as_bytes());
+    let mut file = open_ranged_done(&path);
+    let history = file.document.clone();
+    file.document.insert(Pos::new(0, 0), "X").unwrap();
+    let options = SaveOptions::keep(&file);
+    file.save(&options, &mut no_progress).unwrap();
+    // The history still reads the file that was replaced.
+    assert_eq!(open_deleted_files(&dir), 1);
+    assert!(history.line(0).unwrap().is_some());
+    drop(history);
+    assert_eq!(open_deleted_files(&dir), 0);
+}
+
+#[test]
+fn a_save_is_refused_before_it_writes_when_the_disk_is_too_full() {
+    fn nearly_full(_: &Path) -> std::io::Result<u64> {
+        Ok(10)
+    }
+    fn plenty(_: &Path) -> std::io::Result<u64> {
+        Ok(u64::MAX)
+    }
+    fn unknown(_: &Path) -> std::io::Result<u64> {
+        Err(std::io::Error::other("no answer"))
+    }
+    for converting in [false, true] {
+        let dir = TempDir::new();
+        let path = dir.write("f.txt", ranged_text().as_bytes());
+        let mut file = open_ranged_done(&path);
+        file.document.insert(Pos::new(0, 0), "X").unwrap();
+        let mut options = SaveOptions::keep(&file);
+        if converting {
+            options.eol = Some(Eol::Lf);
+        }
+        options.free_space = Some(FreeSpaceProbe(nearly_full));
+        let error = file.save(&options, &mut no_progress).unwrap_err();
+        assert!(
+            matches!(error, FileError::NoSpace { available: 10, needed } if needed > 10),
+            "{error}"
+        );
+        // Nothing was created, and the file is as it was.
+        assert_eq!(dir.names(), ["f.txt"]);
+        assert_eq!(fs::read(&path).unwrap(), ranged_text().as_bytes());
+        assert!(file.take_rebased().is_none());
+        // A probe that has room, or that cannot tell, lets the save go on.
+        for probe in [plenty, unknown] {
+            options.free_space = Some(FreeSpaceProbe(probe));
+            file.save(&options, &mut no_progress).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_save_in_an_encoding_where_pieces_can_join_reads_the_file_again() {
+    let dir = TempDir::new();
+    // Shift_JIS text whose last byte is a lead byte: the added text after it joins into a character.
+    let mut bytes = encode(Encoding::ShiftJis, &"alpha\r\nbeta あ\r\n".repeat(20));
+    bytes.push(0x81);
+    let path = dir.write("j.txt", &bytes);
+    let mut options = huge_options(10);
+    options.encoding = Some(Encoding::ShiftJis);
+    let mut file = open_file(&path, &options).unwrap();
+    if let Some(scan) = file.take_scan() {
+        file.document = scan.finish().unwrap();
+    }
+    let end = file.document.end_pos().unwrap();
+    file.document.insert(end, "@").unwrap();
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    assert!(report.rebased && report.reloaded);
+}
+
+#[test]
+fn invalid_utf8_bytes_that_would_join_keep_the_document_on_the_old_file() {
+    let dir = TempDir::new();
+    let mut bytes = "alpha\r\n".repeat(20).into_bytes();
+    bytes.extend_from_slice(b"\xC2x\xA2\r\n");
+    let path = dir.write("u.txt", &bytes);
+    let mut options = huge_options(10);
+    options.encoding = Some(Encoding::Utf8);
+    let mut file = open_file(&path, &options).unwrap();
+    if let Some(scan) = file.take_scan() {
+        file.document = scan.finish().unwrap();
+    }
+    let before = all_lines(&file.document);
+    // Delete the `x` between the two invalid bytes.
+    // (the stand-in of an invalid byte is 4 bytes of UTF-8 in the line)
+    let (from, to) = (Pos::new(20, 4), Pos::new(20, 5));
+    file.document.delete(from, to).unwrap();
+    let edited = all_lines(&file.document);
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    // The file has `C2 A2` now (one character), which the document does not: it is not put on it.
+    assert!(!report.rebased && !report.reloaded);
+    assert!(file.take_rebased().is_none());
+    assert_eq!(all_lines(&file.document), edited);
+    assert_ne!(before, edited);
+}
+
+#[test]
+fn a_line_ending_the_setting_does_not_know_is_not_read_again() {
+    let dir = TempDir::new();
+    let path = dir.write("n.txt", "a\nb\nc\n".repeat(20).as_bytes());
+    let mut file = open_ranged_done(&path);
+    let mut options = SaveOptions::keep(&file);
+    options.eol = Some(Eol::Nel);
+    let lines = file.document.line_count();
+    let report = file.save(&options, &mut no_progress).unwrap();
+    // With NEL not ending lines, reading the file again would join the lines.
+    assert!(!report.rebased && !report.reloaded);
+    assert_eq!(file.document.line_count(), lines);
+}
+
+#[test]
+fn pasted_stand_ins_that_would_join_keep_the_document_on_the_old_file() {
+    let dir = TempDir::new();
+    let path = dir.write("s.txt", ranged_text().as_bytes());
+    let mut file = open_ranged_done(&path);
+    let stand_in = |byte: u32| char::from_u32(crate::buffer::INVALID_BYTE_BASE + byte).unwrap();
+    let pasted = format!("{}{}", stand_in(0xC2), stand_in(0xA2));
+    file.document.insert(Pos::new(0, 0), &pasted).unwrap();
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    // The file has `C2 A2` (one character `¢`) where the document has two stand-ins.
+    assert!(!report.rebased && !report.reloaded);
+    assert!(file.take_rebased().is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn deleting_everything_and_saving_lets_go_of_the_old_file() {
+    let dir = TempDir::new();
+    let path = dir.write("z.txt", ranged_text().as_bytes());
+    let mut file = open_ranged_done(&path);
+    let end = file.document.end_pos().unwrap();
+    file.document.delete(Pos::new(0, 0), end).unwrap();
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    assert!(report.rebased && !report.reloaded);
+    assert_eq!(fs::read(&path).unwrap(), b"");
+    assert_eq!(file.document.line_count(), Document::empty().line_count());
+    assert!(file.document.is_ranged());
+    // Nothing but the document of the empty file is left: no handle of the replaced file.
+    assert_eq!(open_deleted_files(&dir), 0);
+    file.document.insert(Pos::new(0, 0), "new").unwrap();
+    let again = SaveOptions::keep(&file);
+    file.save(&again, &mut no_progress).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"new");
+}
