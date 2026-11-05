@@ -45,9 +45,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::error::{FileError, Result};
-use super::{Progress, READ_CHUNK, TextFile, no_progress};
-use crate::buffer::{Chunk, Document, Pos, col_to_utf16, utf16_len};
+use super::source::OffsetSource;
+use super::space::{self, FreeSpaceProbe};
+use super::{Progress, READ_CHUNK, RangedFile, TextFile, no_progress};
+use crate::buffer::{
+    Chunk, Document, EncodingCodec, Pos, ScanOptions, Source, StreamScanner, col_to_utf16,
+    utf16_len,
+};
 use crate::encoding::{Encoding, Eol};
+use std::sync::Arc;
 
 /// How many unmappable characters a report lists (the total is always counted).
 pub const MAX_REPORTED: usize = 100;
@@ -126,6 +132,11 @@ pub struct SaveOptions {
     pub allow_unmappable: bool,
     /// What to keep of the file that is replaced, besides its permissions.
     pub preserve: Preserve,
+    /// Tells the free space of the folder of the target, for the check before anything is written
+    /// ([`FileError::NoSpace`]). `None` takes the probe of the process
+    /// ([`set_default_free_space_probe`](super::set_default_free_space_probe)), and no check
+    /// when there is none.
+    pub free_space: Option<FreeSpaceProbe>,
 }
 
 impl SaveOptions {
@@ -138,6 +149,7 @@ impl SaveOptions {
             eol: file.eol_on_save,
             allow_unmappable: false,
             preserve: Preserve::default(),
+            free_space: None,
         }
     }
 
@@ -150,6 +162,7 @@ impl SaveOptions {
             eol: None,
             allow_unmappable: false,
             preserve: Preserve::default(),
+            free_space: None,
         }
     }
 }
@@ -189,6 +202,15 @@ impl UnmappableReport {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SaveReport {
     pub bytes_written: u64,
+    /// The document of a file read by ranges now reads the file that was written, which is a new
+    /// file: [`TextFile::take_rebased`] gives it. The old file is read by what refers to the old
+    /// document (the undo history) and is closed when they are gone.
+    pub rebased: bool,
+    /// The new file has other text than the document had (another encoding or line endings, or
+    /// characters written as `?`), so the document is the new file read again and the undo
+    /// history of the old one must be dropped: its positions mean something else now.
+    /// Only with `rebased`.
+    pub reloaded: bool,
     /// How many characters were written as `?` because the encoding cannot write them (only with
     /// `allow_unmappable`; Sakura's `SAVED_LOSESOME`).
     pub substituted: usize,
@@ -232,13 +254,17 @@ impl TextFile {
     ) -> Result<SaveReport> {
         let path = path.into();
         self.ensure_complete()?;
-        let report = write_file(
-            &self.document,
-            self.source_encoding(),
-            &path,
-            options,
-            progress,
-        )?;
+        let (mut report, generation) = self.write(&path, options, progress)?;
+        if let Some(document) = generation {
+            // The document reads the file that was written from now on (ADR-0020, chapter 4,
+            // plan A). The old document stays valid for whoever holds it (the undo history).
+            report.reloaded =
+                !copies_original(self.source_encoding(), options) || report.substituted > 0;
+            report.rebased = true;
+            self.document = document;
+            self.source_encoding = options.encoding;
+            self.rebased = true;
+        }
         self.path = Some(path);
         self.encoding = options.encoding;
         self.bom = options.bom;
@@ -247,9 +273,67 @@ impl TextFile {
             // converted endings. We only convert while writing, so remember to do it again.
             self.new_line = eol;
         }
-        // The next plain save writes the endings as this one did.
-        self.eol_on_save = options.eol;
+        // The next plain save writes the endings as this one did, unless the document is the file
+        // that has them now.
+        self.eol_on_save = if report.reloaded { None } else { options.eol };
         Ok(report)
+    }
+
+    /// Writes a copy of the document to `path` and changes nothing of the document: not its path,
+    /// encoding or line ending, and it goes on reading the file it read ([`TextFile::save_as`]
+    /// does all that; this is for `F_PUTFILE`).
+    pub fn save_copy(
+        &mut self,
+        path: impl Into<PathBuf>,
+        options: &SaveOptions,
+        progress: Progress<'_>,
+    ) -> Result<SaveReport> {
+        let path = path.into();
+        self.ensure_complete()?;
+        let (report, _) = write_file(
+            &self.document,
+            self.source_encoding(),
+            &path,
+            options,
+            progress,
+            None,
+        )?;
+        Ok(report)
+    }
+
+    /// The document that [`TextFile::save_as`] put in place of the old one when it reported
+    /// [`SaveReport::rebased`], once. For a caller that keeps the document elsewhere and only
+    /// lends it to the file (`self.document` already is it).
+    pub fn take_rebased(&mut self) -> Option<Document> {
+        std::mem::take(&mut self.rebased).then(|| self.document.clone())
+    }
+
+    /// Writes the file, and makes the document over it for a file read by ranges when that can be
+    /// done as the bytes are written.
+    fn write(
+        &self,
+        path: &Path,
+        options: &SaveOptions,
+        progress: Progress<'_>,
+    ) -> Result<(SaveReport, Option<Document>)> {
+        // The line endings of the new file are found with the setting that made the lines of the
+        // document; a document that has lines of both settings is not made again.
+        let rebase = self
+            .ranged
+            .then(|| self.document.uniform_ext_eol())
+            .flatten()
+            .map(|ext_eol| ScanOptions {
+                ext_eol,
+                ..self.scan_options
+            });
+        write_file(
+            &self.document,
+            self.source_encoding(),
+            path,
+            options,
+            progress,
+            rebase,
+        )
     }
 }
 
@@ -534,12 +618,20 @@ fn slices(text: &str) -> impl Iterator<Item = &str> {
 struct Counting<W> {
     inner: W,
     written: u64,
+    /// Finds the line endings of what is written (not of what was written before it was set), so
+    /// that the new file need not be read again. A failure only drops it: the save goes on.
+    scan: Option<StreamScanner>,
 }
 
 impl<W: Write> Write for Counting<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let n = self.inner.write(buf)?;
         self.written += n as u64;
+        if let Some(scan) = &mut self.scan
+            && scan.feed(&buf[..n]).is_err()
+        {
+            self.scan = None;
+        }
         Ok(n)
     }
 
@@ -694,7 +786,8 @@ fn write_file(
     target: &Path,
     options: &SaveOptions,
     progress: Progress<'_>,
-) -> Result<SaveReport> {
+    rebase: Option<ScanOptions>,
+) -> Result<(SaveReport, Option<Document>)> {
     let real = resolve_target(target)?;
     let existing = fs::metadata(&real).ok();
     if let Some(meta) = &existing {
@@ -721,15 +814,32 @@ fn write_file(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
+    // Before anything is created: a disk that cannot hold the new file is refused at once, not
+    // after the time it takes to write most of it.
+    space::ensure(
+        dir,
+        space::estimate(doc, copies_original(source, options), options),
+        options,
+    )?;
     let permissions = existing.as_ref().map(fs::Metadata::permissions);
     let (file, mut temp) = create_temp(dir, permissions.as_ref())?;
     let mut out = Counting {
         inner: BufWriter::with_capacity(READ_CHUNK, file),
         written: 0,
+        scan: None,
+    };
+    let bom_len = if options.bom {
+        options.encoding.bom().len()
+    } else {
+        0
     };
     if options.bom {
         out.write_all(options.encoding.bom())?;
     }
+    // From here the bytes are the text of the file.
+    out.scan = rebase.and_then(|scan_options| {
+        StreamScanner::new(Arc::new(EncodingCodec(options.encoding)), scan_options).ok()
+    });
     let substituted = write_body(doc, source, options, &mut out, progress)?;
     out.flush()?;
     let written = out.written;
@@ -738,6 +848,7 @@ fn write_file(
     if progress(written, written).is_break() {
         return Err(FileError::Cancelled);
     }
+    let scan = out.scan.take();
     let file = out
         .inner
         .into_inner()
@@ -751,13 +862,33 @@ fn write_file(
         }
         fs::set_permissions(&temp.path, meta.permissions())?;
     }
+    // Open the new file for reading before it takes the name: the open file goes with it, and
+    // nothing can take the name in between.
+    let generation = scan.and_then(|scan| new_generation(scan, &temp.path, bom_len as u64));
     fs::rename(&temp.path, &real)?;
     temp.keep = true;
     sync_dir(dir);
-    Ok(SaveReport {
-        bytes_written: written,
-        substituted,
-    })
+    Ok((
+        SaveReport {
+            bytes_written: written,
+            rebased: false,
+            reloaded: false,
+            substituted,
+        },
+        generation,
+    ))
+}
+
+/// The document over the file `path` that a save wrote, with the index the scan made as it was
+/// written. `None` when the file is not what the scan saw (the save then goes on as it did before
+/// there were generations: the document keeps reading the old file).
+fn new_generation(scan: StreamScanner, path: &Path, bom_len: u64) -> Option<Document> {
+    let source = Arc::new(OffsetSource::new(RangedFile::open(path).ok()?, bom_len));
+    if source.is_empty() {
+        return None;
+    }
+    let index = scan.finish(source).ok()?;
+    Document::from_block_index(index).ok()
 }
 
 /// Writes `bytes` to `path` the way a save does (ADR-0005): to a new file next to the target,

@@ -29,7 +29,8 @@ mod tests;
 
 pub use block::{
     BlockIndex, BlockScanner, DEFAULT_INDEX_BLOCK_SIZE, DEFAULT_LONG_LINE, ScanError, ScanFailure,
-    ScanJob, ScanOptions, ScanProgress, ScanState, ScanWindow, WINDOW_BYTES, scan_blocks,
+    ScanJob, ScanOptions, ScanProgress, ScanState, ScanWindow, StreamScanner, WINDOW_BYTES,
+    scan_blocks,
 };
 pub(crate) use codec::find_eol;
 pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};

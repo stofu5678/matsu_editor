@@ -41,6 +41,7 @@ mod lines;
 mod ranged;
 mod save;
 mod source;
+mod space;
 mod sync;
 #[cfg(test)]
 mod tests;
@@ -60,6 +61,7 @@ pub use ranged::{
 pub use save::{
     MAX_REPORTED, Preserve, SaveOptions, SaveReport, UnmappableChar, UnmappableReport, write_bytes,
 };
+pub use space::{FreeSpaceProbe, set_default_free_space_probe};
 pub use sync::sync_file;
 
 use crate::buffer::{Document, EncodingCodec, Eol, ScanError, ScanJob, ScanOptions, Source};
@@ -155,6 +157,12 @@ pub struct TextFile {
     scan: Option<ScanJob>,
     /// The document reads its file by ranges (ADR-0020), whether or not the scan still runs.
     ranged: bool,
+    /// The sizes of the scan that made the index of the file, used again for the index of the
+    /// file a save writes.
+    scan_options: ScanOptions,
+    /// A save put a new document in place of the old one and nobody took it yet
+    /// ([`TextFile::take_rebased`]).
+    rebased: bool,
 }
 
 impl TextFile {
@@ -171,6 +179,8 @@ impl TextFile {
             detection: None,
             scan: None,
             ranged: false,
+            scan_options: ScanOptions::default(),
+            rebased: false,
         }
     }
 
@@ -194,6 +204,8 @@ impl TextFile {
             detection: None,
             scan: None,
             ranged: false,
+            scan_options: ScanOptions::default(),
+            rebased: false,
         }
     }
 
@@ -307,6 +319,8 @@ pub fn open_file_with(
         detection,
         scan: None,
         ranged: false,
+        scan_options: ScanOptions::default(),
+        rebased: false,
     })
 }
 
@@ -402,6 +416,8 @@ fn open_ranged(
         detection,
         scan,
         ranged: true,
+        scan_options,
+        rebased: false,
     }))
 }
 
