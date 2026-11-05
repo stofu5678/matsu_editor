@@ -388,6 +388,32 @@ fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
     col + cols > shown.start && col < shown.end
 }
 
+/// Joins the characters that are drawn as one glyph with the character before them: marks and
+/// other zero-width characters (combining marks, variation selectors, ZWJ), what follows a ZWJ
+/// (emoji sequences), and emoji skin tone modifiers. Each piece has the column of its first
+/// character and the columns of all of them. A font draws such a piece as one glyph, which
+/// shaping the characters one by one would break. Joins that cross these pieces (Arabic
+/// letters, ligatures) are not kept.
+fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, String, u32)> {
+    use unicode_width::UnicodeWidthChar;
+    let mut out: Vec<(u32, String, u32)> = Vec::with_capacity(cells.len());
+    let mut after_zwj = false;
+    for (col, c, cols) in cells {
+        let joins = after_zwj
+            || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
+            || (c.width() == Some(0) && !c.is_whitespace());
+        after_zwj = c == '\u{200D}';
+        match out.last_mut() {
+            Some(last) if joins => {
+                last.1.push(c);
+                last.2 += cols;
+            }
+            _ => out.push((col, c.to_string(), cols)),
+        }
+    }
+    out
+}
+
 /// A shaped piece of text goes on the columns as it is when its advance is the width of its
 /// columns (BIZ UDGothic, MS Gothic: the full-width glyphs are twice the half-width ones).
 /// A font with other proportions (a fallback font, Menlo, Meiryo) would drift off the columns
@@ -398,7 +424,8 @@ fn fits_columns(advance: f32, columns: u32, cell: f32) -> bool {
 
 /// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece when the columns have no
 /// spacing and the font's advances fit them ([`fits_columns`]), else as a piece for each
-/// character, at its own column. Sakura draws each character of a row at its own place
+/// character (with the marks and the emoji joiners that go with it, see [`clusters`]), at its
+/// own column. Sakura draws each character of a row at its own place
 /// (`CTextDrawer::DispText` with the dx array), whatever the advances of the font are.
 fn place(
     window: &mut Window,
@@ -421,18 +448,19 @@ fn place(
             return;
         }
     }
-    // Each character is shaped alone, so its underline would stop at the glyph: the underline is
-    // a line across the columns of the character instead.
+    // Each cluster is shaped alone, so its underline would stop at the glyph: the underline is
+    // a line across the columns of the cluster instead.
     let glyph_style = TextStyle {
         underline: false,
         ..*style
     };
-    for (col, c, cols) in glyphs {
+    for (col, text, cols) in clusters(glyphs) {
         if !overlaps(col, cols, &grid.visible) {
             continue;
         }
         let underline = style.underline.then_some((cols, style.text));
-        if c.is_whitespace() {
+        let blank = text.chars().all(char::is_whitespace);
+        if blank {
             // A space has nothing to paint but its underline, which joins the one before it:
             // a tab in a wide field has a long run of them.
             match (underline, out.last_mut()) {
@@ -451,8 +479,7 @@ fn place(
         }
         out.push(Placed {
             col,
-            line: (!c.is_whitespace())
-                .then(|| shape(window, c.encode_utf8(&mut [0; 4]), &glyph_style)),
+            line: (!blank).then(|| shape(window, &text, &glyph_style)),
             underline,
         });
     }
@@ -2360,5 +2387,51 @@ mod tests {
         assert!(overlaps(120, 2, &shown));
         assert!(overlaps(159, 2, &shown));
         assert!(!overlaps(160, 2, &shown));
+    }
+
+    fn cluster_texts(label: &str) -> Vec<(u32, String, u32)> {
+        let widths = matsu_layout::WidthRule::default();
+        clusters(glyph_cells(0, label, |c| widths.columns(c)))
+    }
+
+    #[test]
+    fn a_zwj_emoji_is_one_cluster_at_its_first_column() {
+        // man, ZWJ, woman, ZWJ, girl: 2 + 1 + 2 + 1 + 2 columns, then a letter
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        let got = cluster_texts(&format!("a{family}b"));
+        assert_eq!(
+            got,
+            [
+                (0, "a".to_string(), 1),
+                (1, family.to_string(), 8),
+                (9, "b".to_string(), 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn marks_and_variation_selectors_stay_with_their_character() {
+        // e + acute, a heart with VS16, a kanji with an ideographic variation selector, and a
+        // thumbs up with a skin tone
+        let got = cluster_texts("e\u{301}\u{2764}\u{FE0F}\u{8FBB}\u{E0100}\u{1F44D}\u{1F3FD}x");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "e\u{301}",
+                "\u{2764}\u{FE0F}",
+                "\u{8FBB}\u{E0100}",
+                "\u{1F44D}\u{1F3FD}",
+                "x"
+            ]
+        );
+        // the first column of each is where its first character is
+        assert_eq!(got[1].0, 2);
+    }
+
+    #[test]
+    fn spaces_and_tabs_are_clusters_of_their_own() {
+        let got = cluster_texts("a \tb");
+        assert_eq!(got.len(), 4);
     }
 }
