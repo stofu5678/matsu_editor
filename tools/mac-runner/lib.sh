@@ -4,9 +4,14 @@ REPOSITORY=stofu5678/matsu_editor
 REPOSITORY_ID=1412713500
 # The runner's labels. The workflow picks this runner with runs-on: ["self-hosted","matsu-vm"] (ci.yml).
 LABELS='["self-hosted","macOS","ARM64","matsu-vm"]'
-# The jobs that the VM lets run (guest/admit.sh). Phase 1 runs only test (macos-arm64) here, but the E2E jobs of
-# phase 2 are already admitted: which jobs come here is the workflows' choice; this list only bounds it.
-ALLOWED_JOBS='ci.yml:test e2e.yml:smoke e2e.yml:screens'
+# The jobs that the VM lets run (guest/admit.sh): <workflow file>:<job>, or <workflow file>:<job>:<event> for one event
+# only. Which jobs come here is the workflows' choice; this list only bounds it.
+# - ci.yml test: phase 1. The E2E jobs of phase 2 are already admitted.
+# - The packages: a job of a reusable workflow (package.yml) reports the workflow of its caller in
+#   GITHUB_WORKFLOW_REF and its own id in GITHUB_JOB, so the pairs are the caller's file and package. release.yml
+#   builds on push (to main) only, package-check.yml on pull_request only. release.yml:package-release is the other
+#   reading of GITHUB_JOB (the caller's job id); that job has no steps of its own, so allowing it adds nothing.
+ALLOWED_JOBS='ci.yml:test e2e.yml:smoke e2e.yml:screens release.yml:package:push release.yml:package-release:push package-check.yml:package:pull_request'
 
 # Cirrus Labs' vanilla macOS 26 image, pinned by digest. The golden VM starts from it.
 VANILLA_IMAGE=ghcr.io/cirruslabs/macos-tahoe-vanilla@sha256:eeec54bfe1f076e27786c5d92b89187a05b1d109b5071eb2dcdf02d596e34640

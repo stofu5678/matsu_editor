@@ -24,8 +24,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Picks the runner of package (macos-arm64) (ADR-0027): the self-hosted runner in the VM on the maintainer's Mac,
+  # or GitHub's macos-15. The rules are in .github/actions/mac-runner/action.yml, the same as for ci.yml. The VM
+  # runs only a push to main (release.yml) and a pull request from this repository (package-check.yml); the
+  # job-started hook inside the VM refuses everything else. Unlike ci.yml this is a job of its own, a few seconds on
+  # a Linux runner, because a job's `runs-on` cannot read a step of the same job. It has no secrets.
+  mac-runner:
+    runs-on: ubuntu-24.04
+    outputs:
+      mac: ${{ steps.mac.outputs.mac }}
+      mac_kind: ${{ steps.mac.outputs.mac_kind }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      - id: mac
+        uses: ./.github/actions/mac-runner
+        with:
+          mac-runner: ${{ vars.MAC_RUNNER }}
+          mac-runner-seen: ${{ vars.MAC_RUNNER_SEEN }}
+          event: ${{ github.event_name }}
+          head-repo-id: ${{ github.event.pull_request.head.repo.id }}
+          repo-id: ${{ github.repository_id }}
+
   package:
     name: package (${{ matrix.name }})
+    needs: mac-runner
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +60,8 @@ jobs:
           - { name: macos-arm64, os: macos-15 }
           - { name: linux-x64, os: ubuntu-24.04 }
           - { name: linux-arm64, os: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.os }}
+    # Only the macOS job takes its runner from the mac-runner job; the other four keep matrix.os.
+    runs-on: ${{ matrix.name == 'macos-arm64' && fromJSON(needs.mac-runner.outputs.mac) || matrix.os }}
     defaults:
       run:
         shell: bash
@@ -52,9 +78,11 @@ jobs:
           sudo apt-get install --no-install-recommends -y build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
+      # The VM has its own SDK and tools, and what it builds is not trusted as much as what GitHub's runner builds, so
+      # its cache must not mix with the one of GitHub's runners (ADR-0027).
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release
+          shared-key: ${{ matrix.name == 'macos-arm64' && needs.mac-runner.outputs.mac_kind == 'self-hosted' && 'release-vm' || 'release' }}
       # `matsu-script` runs the macros of the bundled engines (Lua, QuickJS, mruby, MicroPython);
       # the editor looks for it next to its own executable (crates/matsu-plugin/src/session.rs).
       - run: cargo build --release --locked -p matsu -p matsu-script
