@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use gpui::App;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
-use crate::settings::ViewSettings;
+use crate::settings::{UserSettings, ViewSettings};
 
 /// The name of the environment variable that turns the diagnostics on.
 pub(crate) const ENV_NAME: &str = "MATSU_FONT_DIAGNOSTICS";
@@ -136,6 +136,10 @@ pub(crate) struct Facts {
     /// The family that MATSU asks GPUI for.
     pub asked_family: String,
     pub font_size: f32,
+    /// The document types that have a font of their own (`bUseTypeFont`): the type's index and
+    /// the family asked of GPUI for it. A window draws with the font of its document's type, which
+    /// can differ from the basic type's (the one the rest of the report is about).
+    pub type_fonts: Vec<(usize, String)>,
     pub weight: f32,
     pub italic: bool,
     pub all_names: Vec<String>,
@@ -218,6 +222,14 @@ pub(crate) fn render(facts: &Facts) -> String {
     ));
 
     let names = &facts.all_names;
+    if facts.type_fonts.is_empty() {
+        line("types with a font of their own: none".to_owned());
+    } else {
+        line("types with a font of their own (a window uses its document's type):".to_owned());
+        for (index, family) in &facts.type_fonts {
+            line(format!("  type {index}: {family:?}"));
+        }
+    }
     line(format!("all_font_names(): {} names", names.len()));
     line(format!(
         "  has {:?} exactly: {}",
@@ -299,17 +311,35 @@ pub(crate) fn render(facts: &Facts) -> String {
 
 /// Prints the report to the standard error if the diagnostics are on. Called when the text system
 /// and the settings are ready (the start of the application).
-pub(crate) fn report(cx: &App, settings: &ViewSettings) {
+pub(crate) fn report(cx: &App, user: &UserSettings) {
     if !enabled() {
         return;
     }
-    let text = render(&collect(cx, settings));
+    // The basic type (type 0), which a new document has; the types with a font of their own
+    // are listed beside it.
+    let text = render(&collect(cx, &user.view_settings(None), type_fonts(user)));
     // One write, so that the lines of a record from another thread do not split the report.
     write!(std::io::stderr().lock(), "{text}").ok();
 }
 
+/// The types of the user's settings that use a font of their own, with the family asked of GPUI
+/// for each.
+fn type_fonts(user: &UserSettings) -> Vec<(usize, String)> {
+    (0..user.document_types().len())
+        .filter_map(|index| {
+            let settings = user.view_settings_of_type(index);
+            settings.use_type_font.then(|| {
+                let family = settings
+                    .font_family
+                    .unwrap_or_else(|| crate::view::FONT_FAMILY.to_owned());
+                (index, family)
+            })
+        })
+        .collect()
+}
+
 /// Collects the facts from the text system, the settings and the OS.
-fn collect(cx: &App, settings: &ViewSettings) -> Facts {
+fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) -> Facts {
     let system = cx.text_system();
     let default_family = crate::view::FONT_FAMILY.to_owned();
     let asked_family = settings
@@ -370,6 +400,7 @@ fn collect(cx: &App, settings: &ViewSettings) -> Facts {
         default_family,
         asked_family,
         font_size,
+        type_fonts,
         weight: settings.gpui_font_weight(),
         italic: settings.font_italic,
         all_names,
@@ -556,6 +587,7 @@ mod tests {
             default_family: "BIZ UDGothic".into(),
             asked_family: "BIZ UDGothic".into(),
             font_size: 16.0,
+            type_fonts: Vec::new(),
             weight: 400.0,
             italic: false,
             all_names: names(&["Arial", "BIZ UDPGothic"]),
@@ -602,6 +634,16 @@ mod tests {
         assert!(text.contains("none: the settings name no font"));
         assert!(text.ends_with("== end ==\n"));
         assert!(text.contains("extra line"));
+    }
+
+    #[test]
+    fn the_report_lists_the_types_with_a_font_of_their_own() {
+        let mut f = facts(1, 3);
+        assert!(render(&f).contains("types with a font of their own: none"));
+        f.type_fonts = vec![(2, "Consolas".into()), (5, "BIZ UDGothic".into())];
+        let text = render(&f);
+        assert!(text.contains("  type 2: \"Consolas\""), "{text}");
+        assert!(text.contains("  type 5: \"BIZ UDGothic\""), "{text}");
     }
 
     #[test]
