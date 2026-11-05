@@ -10,6 +10,7 @@ on:
       - .github/scripts/pe_imports.py
       - scripts/package-mac-app.sh
       - assets/icons/**
+      - .github/actions/mac-runner/**
       - .github/workflows/package.yml
       - .github/workflows/package-check.yml
       - .github/workflows/release.yml

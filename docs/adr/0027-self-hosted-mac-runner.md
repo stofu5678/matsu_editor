@@ -91,7 +91,8 @@
 |---|---|
 | `test (macos-arm64)`（CI） | 第 1 段で移す（画面収録などの許可が要らない） |
 | `smoke (macos-arm64)`、`screens (macos-arm64)`（E2E） | 第 2 段で移す。VM の型で、実行機に画面収録とアクセシビリティの許可を与えてから |
-| `package.yml`（リリースの成果物）、`release.yml`、`mac-check.yml`（手で動かすビルド） | 移さない。リリースの成果物は GitHub の実行機で作る |
+| `package.yml`（リリースの成果物）、`release.yml` | 移さない（2026-11-06 の追記で移すことにした。下を見る） |
+| `mac-check.yml`（手で動かすビルド） | 移さない |
 
 ### 7. ホストが守る上限
 
@@ -139,3 +140,34 @@
 - 「ジョブの前の確かめ」が、フォークからの PR、ほかのワークフロー、ほかのジョブを拒否し、`if: always()` の手順も動かないうちに VM が止まること
 - 時間切れと取り消しで、ホストが VM を消すこと
 - 1 つのジョブにかかる時間（GitHub の実行機と比べる）、Mac のメモリとディスクの余り
+
+## 追記（2026-11-06）: パッケージ作りも自前の実行機で動かす
+
+「移すジョブ」の表（上の 6）は、`package.yml` を移さないとしていた。次の理由で、これを変える。ユーザーが 2026-11-06 に「パッケージづくりのジョブもMacの実行機に移しましょう」と決めた。上の E2E の「第 2 段」とは別の話で、ここではパッケージ作りの追加と呼ぶ。
+
+### 理由
+
+- GitHub の macOS の実行機が足りない日が続き、パッケージ作りの macOS のジョブが 30 分待って取り消された（手順は 1 つも動かない）。v0.7.0 の Release では `package-release / package (macos-arm64)` が取り消され、`release` のジョブが飛んで、v0.7.0 にパッケージが 1 つも載らなかった（11/5 に流し直して直した）。nightly、Package check、mac-check も何度も取り消された
+
+### 決めること
+
+| ジョブ | 自前の実行機 | イベント |
+|---|---|---|
+| `release.yml` の `package`（nightly）と `package-release`（バージョン）の `package (macos-arm64)` | 移す | main への `push` だけ |
+| `package-check.yml` の `package (macos-arm64)` | 移す | 同じリポジトリからの `pull_request` だけ |
+| `mac-check.yml` | 移さない | － |
+
+- 実行機の選び方は、CI の `test (macos-arm64)` と同じ決まり（`MAC_RUNNER`、`MAC_RUNNER_SEEN`、イベント、リポジトリの ID。欠けたら GitHub の `macos-15`）。同じシェルを 2 か所に写さないよう、`.github/actions/mac-runner/action.yml`（composite action）に 1 つだけ置き、`ci.yml` の `changes` の手順と `package.yml` の `mac-runner` のジョブが使う
+- `package.yml` は、`runs-on` が同じジョブの手順の出力を読めないので、選ぶだけの小さなジョブ（Linux、数秒）を先に動かす。macOS の行だけがその出力を使い、ほかの 4 つの行は今のまま
+- `package.yml` に渡す secrets はない（`release.yml` は `with:` だけを渡す）。VM のジョブの `GITHUB_TOKEN` は読み取りだけ（`permissions: contents: read`）。リリースの公開（書き込みの権限を持つ `nightly`・`release` のジョブ）は、今までどおり GitHub の実行機（Linux）で動き、VM には来ない
+- VM の中の「ジョブの前の確かめ」は、上の 3 の 1 の決まりのまま、通すジョブの表を広げる。`ALLOW` の行に、イベントを付けられるようにした（`ALLOW=release.yml:package:push` は push だけ）。再利用のワークフローの中のジョブは、`GITHUB_WORKFLOW_REF` が呼んだ側のワークフロー（`release.yml`、`package-check.yml`）、`GITHUB_JOB` が再利用のワークフローの中の id（`package`）になる、と見て、`release.yml:package:push`、`release.yml:package-release:push`（`GITHUB_JOB` が呼んだ側の id になる場合の備え。どちらになるかは、実際に動かして確かめる。断られたときのログに、ファイル・ジョブ・イベントが出る）、`package-check.yml:package:pull_request` を通す。ほかの `release.yml` のジョブ（`release-please`・`nightly`・`release`）は通さない
+- VM のジョブのキャッシュは、GitHub の実行機の `release` と分けて `release-vm` にする（上の 2 の「キャッシュ」）
+
+### 変わる前提
+
+- 上の 2 の「ジョブのログと成果物」は、「VM で作った成果物は信用しない（リリースの作成などで使わない）」としていた。この追記で、リリースに載るパッケージ（macOS の `.tar.gz`）を VM で作る。守りは、VM が使い捨てで、secrets がなく、トークンが読み取りだけで、動かすのが main への push と同じリポジトリの PR だけ（上の 3）、という点にある。VM の中のジョブが書き換えた成果物は、公開のリポジトリの Release に載る
+- 1 度に動かす VM は 1 つなので、`test` とパッケージ作りは順番を待つ
+
+### 移さないもの
+
+- `mac-check.yml`: `workflow_dispatch` で、任意のスクリプトの道を受け取る。動かせるのは書き込みの権限のある人だけだが、「ジョブの前の確かめ」の決まり（main への push か、同じリポジトリの PR）に合わない `workflow_dispatch` を通す必要があり、ブランチの任意のコードを VM で動かす口になる。移す価値（手で動かすので待ちが苦にならない）より危うさが大きいので、移さない

@@ -17,8 +17,9 @@ refuse() {
 
 settings=${1:-}
 [ -n "$settings" ] && [ -f "$settings" ] || refuse "no settings file"
-# The settings are fixed in the image: REPOSITORY=owner/name, REPOSITORY_ID=<digits>, and one ALLOW=<workflow
-# file>:<job> line per job that may run here.
+# The settings are fixed in the image: REPOSITORY=owner/name, REPOSITORY_ID=<digits>, and one ALLOW line per job that
+# may run here: ALLOW=<workflow file>:<job> lets the job run for a push to main and for a pull request from this
+# repository; ALLOW=<workflow file>:<job>:<event> (push or pull_request) lets it run for that event only.
 repository=$(sed -n 's/^REPOSITORY=\([A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]*\)$/\1/p' "$settings" | head -n 1)
 repository_id=$(sed -n 's/^REPOSITORY_ID=\([0-9][0-9]*\)$/\1/p' "$settings" | head -n 1)
 [ -n "$repository" ] || refuse "no REPOSITORY in the settings"
@@ -78,7 +79,9 @@ job=${GITHUB_JOB:-}
 case "$job" in
   '' | *[!A-Za-z0-9_-]*) refuse "malformed job name" ;;
 esac
-grep -Fqx "ALLOW=$workflow_file:$job" "$settings" || refuse "job $workflow_file:$job is not allowed here"
+event=${GITHUB_EVENT_NAME:-}
+grep -Fqx -e "ALLOW=$workflow_file:$job" -e "ALLOW=$workflow_file:$job:$event" "$settings" \
+  || refuse "job $workflow_file:$job is not allowed here for the event $event"
 
 printf 'allow\n'
 exit 0
