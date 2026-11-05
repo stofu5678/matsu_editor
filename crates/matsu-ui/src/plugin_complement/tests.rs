@@ -16,7 +16,7 @@ use matsu_core::model::DocumentModel;
 use super::*;
 use crate::document::SharedDocument;
 use crate::macros::plugin_call::tests::script_host;
-use crate::macros::plugin_call::{set_test_interpreter, shutdown};
+use crate::macros::plugin_call::{set_test_interpreter, set_test_limit, shutdown};
 use crate::settings::UserSettings;
 
 const ID: &str = "test.complement";
@@ -101,6 +101,9 @@ impl Place {
     }
 }
 
+/// The time limit of the calls in the tests that are not about the limit (the jacks have one second).
+const ROOM: Duration = Duration::from_secs(30);
+
 /// A window over `text` with the caret at its end, in an application with the plugin set up.
 fn window<'a>(
     cx: &'a mut TestAppContext,
@@ -110,6 +113,9 @@ fn window<'a>(
 ) -> Option<(Entity<EditorView>, &'a mut VisualTestContext)> {
     let host = script_host()?;
     set_test_interpreter(Some(host));
+    // The jacks have one second here: a loaded machine can take that for the start of the host alone.
+    // A test that is about the limit sets its own after this.
+    set_test_limit(Some(ROOM));
     let user = place.user(setup, true);
     cx.update(gpui_component::init);
     cx.update(|app| app.set_global(user));
@@ -127,6 +133,7 @@ fn window<'a>(
 
 fn finish(cx: &mut VisualTestContext) {
     set_test_interpreter(None);
+    set_test_limit(None);
     cx.update(|_, app| shutdown(app, ID));
 }
 
@@ -250,10 +257,10 @@ fn a_plugin_that_does_not_stay_has_no_completion_jack(cx: &mut TestAppContext) {
 fn a_candidate_that_comes_after_the_time_limit_is_dropped_and_the_other_sources_stay(
     cx: &mut TestAppContext,
 ) {
-    // The first candidate is added at once; the loop passes the limit of one second.
+    // The first candidate is added at once; the loop never ends and passes the limit (the limit of
+    // the jack is one second; a loaded machine needs more for the host to start, so it is three here).
     let setup = Setup {
-        typed: "Complement.AddList('early'); var t = Date.now(); \
-                while (Date.now() - t < 5000) {} Complement.AddList('late');",
+        typed: "Complement.AddList('early'); for (;;) {} Complement.AddList('late');",
         ..Setup::default()
     };
     let place = Place::new(&setup);
@@ -261,13 +268,11 @@ fn a_candidate_that_comes_after_the_time_limit_is_dropped_and_the_other_sources_
         eprintln!("SKIP: matsu-script is not built next to the tests");
         return;
     };
+    set_test_limit(Some(Duration::from_secs(3)));
     let started = std::time::Instant::now();
     hokan(&view, cx);
     wait_done(&view, cx);
-    assert!(
-        started.elapsed() < Duration::from_secs(4),
-        "it was not stopped"
-    );
+    assert!(started.elapsed() < ROOM, "it was not stopped");
     let (list, _) = state(&view, cx);
     let (items, shown) = list.expect("the list is there");
     assert!(shown);

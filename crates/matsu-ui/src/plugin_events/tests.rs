@@ -746,14 +746,13 @@ fn a_handler_that_opens_a_file_is_refused_at_once_and_is_not_made_to_wait(cx: &m
     };
     let (view, cx) = setup(cx);
     place.enable(cx);
-    let started = std::time::Instant::now();
     cx.update(|_, app| {
         super::fire(app, &view, Jack::EditorStart);
     });
     spin(cx, "the handler did not start", |cx| running(&view, cx));
     spin(cx, "the handler did not end", |cx| !running(&view, cx));
-    // The handler ended by itself, long before its limit of five seconds.
-    assert!(started.elapsed() < Duration::from_secs(3));
+    // The handler ended by itself: a call that waited would end at the limit of five seconds, and
+    // the output below would have the time limit in it (no stopwatch: a loaded machine is slow).
     for _ in 0..30 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();

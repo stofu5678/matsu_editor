@@ -15,7 +15,7 @@ use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginRec, PluginSettings, PluginS
 
 use crate::document::SharedDocument;
 use crate::macros::plugin_call::tests::script_host;
-use crate::macros::plugin_call::{set_test_interpreter, shutdown};
+use crate::macros::plugin_call::{set_test_interpreter, set_test_limit, shutdown};
 use crate::settings::UserSettings;
 use crate::view::EditorView;
 
@@ -101,6 +101,9 @@ fn window<'a>(
 ) -> Option<(Entity<EditorView>, &'a mut VisualTestContext)> {
     let host = script_host()?;
     set_test_interpreter(Some(host));
+    // The jack has 0.5 seconds: a loaded machine can take that for the start of the host alone. A
+    // test that is about the limit sets its own after this.
+    set_test_limit(Some(Duration::from_secs(30)));
     let (view, cx) = setup(cx);
     place.enable(cx, enabled);
     view.update(cx, |view, _| {
@@ -111,6 +114,7 @@ fn window<'a>(
 
 fn finish(cx: &mut VisualTestContext) {
     set_test_interpreter(None);
+    set_test_limit(None);
     cx.update(|_, app| shutdown(app, ID));
 }
 
@@ -260,12 +264,14 @@ fn the_result_of_the_plugin_is_an_undo_step_of_its_own(cx: &mut TestAppContext) 
 
 #[gpui::test]
 fn a_plugin_that_is_too_slow_inserts_nothing_and_the_input_is_not_lost(cx: &mut TestAppContext) {
-    // The handler never ends: the limit of the jack (0.5 seconds) stops it.
+    // The handler never ends: the time limit stops it (the limit of the jack is 0.5 seconds; a loaded
+    // machine needs more for the host to start, so it is three here).
     let place = Place::new(true, "console.log('[start]'); while (true) {}");
     let Some((view, cx)) = window(cx, &place, true) else {
         eprintln!("SKIP: matsu-script is not built next to the tests");
         return;
     };
+    set_test_limit(Some(Duration::from_secs(3)));
     cx.simulate_input("x{");
     type_char(&view, cx, '\r');
     wait_until(&view, cx, "the handler to start", |v, cx| {

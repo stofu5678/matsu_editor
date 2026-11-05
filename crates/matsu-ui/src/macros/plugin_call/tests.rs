@@ -565,7 +565,8 @@ fn a_second_plugin_call_waits_until_the_first_is_over(cx: &mut TestAppContext) {
     let started = std::time::Instant::now();
     cx.update(|_, app| shutdown(app, &id));
     assert!(
-        started.elapsed() < Duration::from_millis(1000),
+        // the polite end would take the grace of the host (1.5 seconds); the margin is for a loaded machine
+        started.elapsed() < Duration::from_millis(1400),
         "{:?}",
         started.elapsed()
     );
