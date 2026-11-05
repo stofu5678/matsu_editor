@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.8.0](https://github.com/stofu5678/matsu_editor/compare/v0.7.0...v0.8.0) (2026-11-04)
+
+
+### Features
+
+* **grep:** read huge files by ranges in grep, diff and macros (ADR-0020) ([#334](https://github.com/stofu5678/matsu_editor/issues/334)) ([d56a851](https://github.com/stofu5678/matsu_editor/commit/d56a851a70af48c7dc69c70b8293e5d7a0bc9c5e))
+* **outline:** remember the floating outline, dock it by dragging the title, and expand all ([#351](https://github.com/stofu5678/matsu_editor/issues/351)) ([377d01b](https://github.com/stofu5678/matsu_editor/commit/377d01b000e839eb28a8b3379efa585b24707408))
+* **plugins:** run the complement jacks of plugins (ADR-0026) ([#333](https://github.com/stofu5678/matsu_editor/issues/333)) ([ceb2f4c](https://github.com/stofu5678/matsu_editor/commit/ceb2f4c6d045b2824b397721206278682f34a4fb))
+* **plugins:** run the outline jack of plugins (ADR-0026) ([#335](https://github.com/stofu5678/matsu_editor/issues/335)) ([5267cac](https://github.com/stofu5678/matsu_editor/commit/5267cacbfb2711eb76cdeadbdacaa7ae500a288c))
+* **plugins:** run the smart indent jack of plugins (ADR-0026) ([#338](https://github.com/stofu5678/matsu_editor/issues/338)) ([406b0a2](https://github.com/stofu5678/matsu_editor/commit/406b0a29aae1122bbd869179c84f0284668faa01))
+* **print:** fill the page numbers in the preview, underline tabs in color, and print in TSV mode ([#340](https://github.com/stofu5678/matsu_editor/issues/340)) ([cc6674a](https://github.com/stofu5678/matsu_editor/commit/cc6674af387480a205b282c71a984e9cdc054a9c))
+* **settings:** keep the Grep, DIFF, tag and dialog position choices ([#344](https://github.com/stofu5678/matsu_editor/issues/344)) ([3b0b3bc](https://github.com/stofu5678/matsu_editor/commit/3b0b3bc504e465a2cabf959226850b6b5014136b))
+* **types:** check that the regex keywords compile and cap the imported list area ([#341](https://github.com/stofu5678/matsu_editor/issues/341)) ([c278853](https://github.com/stofu5678/matsu_editor/commit/c2788535492c3d2997ede4fe840a3a0d5a59aad7))
+* **types:** use the line number, code page, IME and icon options of the window page ([#336](https://github.com/stofu5678/matsu_editor/issues/336)) ([595e29a](https://github.com/stofu5678/matsu_editor/commit/595e29a5955b7a56411781c1dafcbb63a99cb8f5))
+* **view:** draw the background image of the type settings ([#346](https://github.com/stofu5678/matsu_editor/issues/346)) ([7450f47](https://github.com/stofu5678/matsu_editor/commit/7450f473a24e6fcd68599e190d8bdb401dc2dd1b))
+* **view:** move to the parts of a huge file that the scan has not reached (ADR-0020) ([#339](https://github.com/stofu5678/matsu_editor/issues/339)) ([c713c64](https://github.com/stofu5678/matsu_editor/commit/c713c6461d1d018492ae3048cb71b3a9e23582fb))
+* **view:** repeat the scroll bar arrows and track while pressed and add the vertical arrows and the split box ([#350](https://github.com/stofu5678/matsu_editor/issues/350)) ([f893ee7](https://github.com/stofu5678/matsu_editor/commit/f893ee750b73fbf9421d4ec3a7c4c7fbe7c92541))
+
+
+### Bug Fixes
+
+* **deps:** replace the yanked async-executor 1.14.0 with 1.14.1 ([#345](https://github.com/stofu5678/matsu_editor/issues/345)) ([97a3dc2](https://github.com/stofu5678/matsu_editor/commit/97a3dc22316a82a0ba202a01d58dc397d2ce1662))
+* **plugins:** send the close events from every way of closing (ADR-0026) ([#337](https://github.com/stofu5678/matsu_editor/issues/337)) ([f273926](https://github.com/stofu5678/matsu_editor/commit/f27392624c2789ec230a4f088f660c30110e4a77))
+* **ui:** give the dialogs opened from the menus the keyboard focus ([#347](https://github.com/stofu5678/matsu_editor/issues/347)) ([72fe3c9](https://github.com/stofu5678/matsu_editor/commit/72fe3c9ae63fa9de88e1005e7764c572c409fd7e))
+* **view:** show the NW11 and NW12 errors, draw the lines below the end, and keep the detected indent in the document ([#342](https://github.com/stofu5678/matsu_editor/issues/342)) ([ac12c8a](https://github.com/stofu5678/matsu_editor/commit/ac12c8a87b655a13a3da1c94c7776a87c697f0ef))
+
 ## [0.7.0](https://github.com/stofu5678/matsu_editor/compare/v0.6.0...v0.7.0) (2026-11-02)
 
 
