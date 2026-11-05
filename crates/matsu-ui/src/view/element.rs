@@ -390,34 +390,63 @@ fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
 
 /// Joins the characters that are drawn as one glyph with the character before them: marks and
 /// other zero-width characters (combining marks, variation selectors, ZWJ), what follows a ZWJ
-/// (emoji sequences), the second of a pair of regional indicators (a flag), and emoji skin tone
+/// (emoji sequences), the consonant after a virama (Indic conjuncts), the second of a pair of regional indicators (a flag), and emoji skin tone
 /// modifiers. Each piece has the column of its first
-/// character and the columns of all of them. A font draws such a piece as one glyph, which
+/// character, its bytes in the label and the columns of all of them. A font draws such a piece as one glyph, which
 /// shaping the characters one by one would break. Joins that cross these pieces (Arabic
 /// letters, ligatures) are not kept.
-fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, String, u32)> {
+fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, std::ops::Range<usize>, u32)> {
     use unicode_width::UnicodeWidthChar;
-    let mut out: Vec<(u32, String, u32)> = Vec::with_capacity(cells.len());
+    let mut out: Vec<(u32, std::ops::Range<usize>, u32)> = Vec::with_capacity(cells.len());
+    let mut at = 0;
     let mut after_zwj = false;
+    let mut after_virama = false;
     // the first of a pair of regional indicators (a flag) is waiting for the second
     let mut flag_open = false;
     for (col, c, cols) in cells {
         let indicator = ('\u{1F1E6}'..='\u{1F1FF}').contains(&c);
         let joins = after_zwj
+            || after_virama
             || (indicator && flag_open)
             || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
             || (c.width() == Some(0) && !c.is_whitespace());
         after_zwj = c == '\u{200D}';
+        after_virama = is_virama(c);
         flag_open = indicator && !flag_open;
+        let end = at + c.len_utf8();
         match out.last_mut() {
             Some(last) if joins => {
-                last.1.push(c);
+                last.1.end = end;
                 last.2 += cols;
             }
-            _ => out.push((col, c.to_string(), cols)),
+            _ => out.push((col, at..end, cols)),
         }
+        at = end;
     }
     out
+}
+
+/// A virama (the sign that kills the vowel of an Indic consonant): the consonant after it makes
+/// a conjunct with the one before.
+fn is_virama(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x094D
+            | 0x09CD
+            | 0x0A4D
+            | 0x0ACD
+            | 0x0B4D
+            | 0x0BCD
+            | 0x0C4D
+            | 0x0CCD
+            | 0x0D4D
+            | 0x0DCA
+            | 0x1039
+            | 0x17D2
+            | 0xA806
+            | 0xA8C4
+            | 0xA953
+    )
 }
 
 /// A shaped piece of text goes on the columns as it is when its advance is the width of its
@@ -460,10 +489,11 @@ fn place(
         underline: false,
         ..*style
     };
-    for (col, text, cols) in clusters(glyphs) {
+    for (col, bytes, cols) in clusters(glyphs) {
         if !overlaps(col, cols, &grid.visible) {
             continue;
         }
+        let text = &label[bytes];
         let underline = style.underline.then_some((cols, style.text));
         let blank = text.chars().all(char::is_whitespace);
         if blank {
@@ -485,7 +515,7 @@ fn place(
         }
         out.push(Placed {
             col,
-            line: (!blank).then(|| shape(window, &text, &glyph_style)),
+            line: (!blank).then(|| shape(window, text, &glyph_style)),
             underline,
         });
     }
@@ -2398,6 +2428,9 @@ mod tests {
     fn cluster_texts(label: &str) -> Vec<(u32, String, u32)> {
         let widths = matsu_layout::WidthRule::default();
         clusters(glyph_cells(0, label, |c| widths.columns(c)))
+            .into_iter()
+            .map(|(col, bytes, cols)| (col, label[bytes].to_string(), cols))
+            .collect()
     }
 
     #[test]
@@ -2445,6 +2478,14 @@ mod tests {
             ["\u{1F1EF}\u{1F1F5}", "\u{1F1FA}\u{1F1F8}", "\u{1F1EF}"]
         );
         assert_eq!((got[0].0, got[1].0, got[2].0), (0, 4, 8));
+    }
+
+    #[test]
+    fn an_indic_conjunct_is_one_cluster() {
+        // ksha: ka, virama, ssa; then a letter
+        let got = cluster_texts("\u{0915}\u{094D}\u{0937}\u{0915}");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(texts, ["\u{0915}\u{094D}\u{0937}", "\u{0915}"]);
     }
 
     #[test]
