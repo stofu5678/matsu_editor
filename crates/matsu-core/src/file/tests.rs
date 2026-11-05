@@ -2127,3 +2127,25 @@ fn pasted_stand_ins_that_would_join_keep_the_document_on_the_old_file() {
     assert!(!report.rebased && !report.reloaded);
     assert!(file.take_rebased().is_none());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn deleting_everything_and_saving_lets_go_of_the_old_file() {
+    let dir = TempDir::new();
+    let path = dir.write("z.txt", ranged_text().as_bytes());
+    let mut file = open_ranged_done(&path);
+    let end = file.document.end_pos().unwrap();
+    file.document.delete(Pos::new(0, 0), end).unwrap();
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    assert!(report.rebased && !report.reloaded);
+    assert_eq!(fs::read(&path).unwrap(), b"");
+    assert_eq!(file.document.line_count(), 1);
+    assert!(file.document.is_ranged());
+    // Nothing but the document of the empty file is left: no handle of the replaced file.
+    assert_eq!(open_deleted_files(&dir), 0);
+    file.document.insert(Pos::new(0, 0), "new").unwrap();
+    let again = SaveOptions::keep(&file);
+    file.save(&again, &mut no_progress).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"new");
+}

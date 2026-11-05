@@ -49,7 +49,7 @@ use super::source::OffsetSource;
 use super::space::{self, FreeSpaceProbe};
 use super::{Progress, READ_CHUNK, RangedFile, TextFile, no_progress};
 use crate::buffer::{
-    Chunk, Document, EncodingCodec, INVALID_BYTE_BASE, Pos, ScanOptions, Source, StreamScanner,
+    Chunk, Document, EncodingCodec, INVALID_BYTE_BASE, Pos, ScanOptions, StreamScanner,
     col_to_utf16, utf16_len,
 };
 use crate::encoding::{Encoding, Eol};
@@ -924,9 +924,7 @@ fn write_file(
 /// there were generations: the document keeps reading the old file).
 fn new_generation(scan: StreamScanner, path: &Path, bom_len: u64) -> Option<Document> {
     let source = Arc::new(OffsetSource::new(RangedFile::open(path).ok()?, bom_len));
-    if source.is_empty() {
-        return None;
-    }
+    // An empty file is a generation too: the document must let go of the old file.
     let index = scan.finish(source).ok()?;
     Document::from_block_index(index).ok()
 }
