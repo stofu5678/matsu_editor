@@ -22,11 +22,9 @@ MATSU Editor のアイコンです。ノート（リングノート）と松の�
 | `matsu_editor_48.png` | 48 x 48 | 今は使っていない |
 | `matsu_editor_256.png` | 256 x 256 | Linux（X11）のウィンドウのアイコン |
 | `matsu_editor_512.png` | 512 x 512 | 大きい表示用（今は使っていない） |
-| `matsu_editor_mac_a.svg` | ベクター（1024 x 1024） | macOS 用（案 A、採用中）。四角そのものがノートの紙。元の絵の松の枝を 4 倍にして組み直した |
-| `matsu_editor_mac_a_32.svg` | ベクター（32 px 向け） | 案 A の 16・32・64 px 用に簡単にした絵 |
-| `matsu_editor_mac_a_{16,32,64,128,256,512,1024}.png` | 左の大きさ | 案 A の PNG。`scripts/package-mac-app.sh` が `.icns` にする（16・32・64 px は `_32.svg` から、128 px 以上は `matsu_editor_mac_a.svg` から作った） |
-| `alt/matsu_editor_mac_b*` | 案 A と同じ | 案 B（色の付いた四角の上にノートと松を置く）。使っていない。見比べるための置き場 |
-| `alt/mac-icon-compare.png` | 見本の画像 | 今のアイコン（macOS 26 が灰色の枠に入れた形）、A、B を明るい背景に並べ、16・32 px も添えたもの |
+| `matsu_editor_mac.svg` | ベクター（1024 x 1024） | macOS 用。四角そのものがノートの紙。元の絵の松の枝を 4 倍にして組み直した |
+| `matsu_editor_mac_32.svg` | ベクター（32 px 向け） | 16・32・64 px 用に簡単にした絵 |
+| `matsu_editor_mac_{16,32,64,128,256,512,1024}.png` | 左の大きさ | macOS 用の PNG。`scripts/package-mac-app.sh` が `.icns` にする（16・32・64 px は `_32.svg` から、128 px 以上は `matsu_editor_mac.svg` から作った） |
 | `matsu_editor.ico` | 16, 32, 48, 64, 128, 256（PNG 形式） | Windows の `matsu.exe` にアイコンのリソース ID 1 として埋め込む |
 
 16 px と 32 px は、小さくても見分けがつくように、細部を省いた別の絵にしてあります。
@@ -40,7 +38,7 @@ MATSU Editor のアイコンです。ノート（リングノート）と松の�
 - バージョン情報ダイアログ: `matsu_editor_32.png` を左上に出します（サクラの `IDC_STATIC_MYICON`）
 - リリースのアーカイブ: `assets/icons` の SVG と PNG を同梱します（`.github/workflows/package.yml`）
 
-- macOS: `scripts/package-mac-app.sh` が `matsu_editor_mac_a_*.png` から `matsu_editor.icns` を作り、`.app` バンドルに入れます（1024 px は `icon_512x512@2x.png`）。元の絵（`matsu_editor*.png`）は Windows と Linux 用で、Mac には使いません
+- macOS: `scripts/package-mac-app.sh` が `matsu_editor_mac_*.png` から `matsu_editor.icns` を作り、`.app` バンドルに入れます（1024 px は `icon_512x512@2x.png`）。元の絵（`matsu_editor*.png`）は Windows と Linux 用で、Mac には使いません
 
 Linux の `.desktop` ファイルは、まだありません。
 
@@ -54,13 +52,13 @@ Apple の型（macOS 11 以降）に従います。出典は Apple Developer For
 - 角の半径は 185.4 px（円弧。Apple の本体は連続曲線なので、わずかに違う）
 - 影: Apple は数字を公開していない。見た目で、下に 12 px ずらし、ぼかし 12（標準偏差）、黒 30% とした（推測）
 
-案 A は、本体の四角いっぱいに紙（白）を敷き、上 190 px を緑の帯にして、リングと罫線を置きます。案 B は、緑のグラデーションの四角の上に、元のノートを 3.3 倍にして置きます。どちらも松の枝は元の SVG の部品をそのまま使っています。
+本体の四角いっぱいに紙（白）を敷き、上 190 px を緑の帯にして、リングと罫線を置きます。松の枝は元の SVG の部品をそのまま使っています。2026-11-05 に、ユーザーが 2 つの案（もう 1 つは、緑の四角の上にノートと松を置く案）から、この紙の案を選びました。
 
 ### 作り方
 
 道具は新しく入れていません。Windows の Edge で SVG を PNG にし、WSL の Pillow で縮めました。
 
-1. `matsu_editor_mac_a.svg`（と B）を、元の `matsu_editor.svg` の松の枝・松かさ・リングの部品を取り出して組み直して書く（Python で文字列を組み立てた）
+1. `matsu_editor_mac.svg`を、元の `matsu_editor.svg` の松の枝・松かさ・リングの部品を取り出して組み直して書く（Python で文字列を組み立てた）
 2. Edge で 1024 px に描く:
    `msedge.exe --headless --disable-gpu --hide-scrollbars --screenshot=出力.png --window-size=1024,1024 --default-background-color=00000000 file:///SVG`
    （透明な背景のまま出る。SVG の `width` と `height` を 1024 にしてあるので、画面の大きさと合わせる）

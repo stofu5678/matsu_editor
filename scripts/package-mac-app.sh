@@ -35,7 +35,7 @@ cp LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "$app/Contents/Resources/"
 iconset=$(mktemp -d)/matsu_editor.iconset
 mkdir "$iconset"
 icons=assets/icons
-mac="$icons/matsu_editor_mac_a"
+mac="$icons/matsu_editor_mac"
 cp "${mac}_16.png" "$iconset/icon_16x16.png"
 cp "${mac}_32.png" "$iconset/icon_16x16@2x.png"
 cp "${mac}_32.png" "$iconset/icon_32x32.png"
