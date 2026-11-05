@@ -715,10 +715,9 @@ fn write_body(
         if pending.is_empty() {
             return Ok(());
         }
-        if options.encoding == Encoding::Utf8
-            && pending
-                .chars()
-                .any(|c| (INVALID_BYTE_BASE..INVALID_BYTE_BASE + 256).contains(&u32::from(c)))
+        if pending
+            .chars()
+            .any(|c| (INVALID_BYTE_BASE..INVALID_BYTE_BASE + 256).contains(&u32::from(c)))
         {
             invalid_added = true;
         }
