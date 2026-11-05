@@ -32,6 +32,9 @@ matsu-plugin = { path = "../matsu-plugin" }
 async-channel = "2"
 # The width of a path in columns (the short form of a long path).
 unicode-width = "0.2"
+# The pieces that a font draws as one glyph when the text is placed one character at a time
+# (extended grapheme clusters, UAX 29). Already in Cargo.lock through GPUI.
+unicode-segmentation = "1.13.3"
 # The UI commands register themselves like the core commands (ADR-0013 section 1).
 inventory = "0.3.25"
 # The times in the file property dialog, in the local time zone (as matsu-commands does).

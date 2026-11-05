@@ -4126,6 +4126,7 @@ dependencies = [
  "matsu-regex",
  "raw-window-handle",
  "tempfile",
+ "unicode-segmentation",
  "unicode-width",
 ]
 
