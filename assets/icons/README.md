@@ -29,7 +29,7 @@ MATSU Editor のアイコンです。ノート（リングノート）と松の�
 
 16 px と 32 px は、小さくても見分けがつくように、細部を省いた別の絵にしてあります。
 
-ファイルは、`matsu_editor_mac_*` 以外はもらったものをそのまま置いています（描き直していません）。`matsu_editor_mac_*` は、ユーザーの絵（元の SVG）から Claude が組み直したもので、ライセンスは同じ MIT OR Apache-2.0 です。
+ファイルは、`matsu_editor_mac*` 以外はもらったものをそのまま置いています（描き直していません）。`matsu_editor_mac*` は、ユーザーの絵（元の SVG）から Claude が組み直したもので、ライセンスは同じ MIT OR Apache-2.0 です。
 
 ## 使っている場所
 
@@ -38,7 +38,7 @@ MATSU Editor のアイコンです。ノート（リングノート）と松の�
 - バージョン情報ダイアログ: `matsu_editor_32.png` を左上に出します（サクラの `IDC_STATIC_MYICON`）
 - リリースのアーカイブ: `assets/icons` の SVG と PNG を同梱します（`.github/workflows/package.yml`）
 
-- macOS: `scripts/package-mac-app.sh` が `matsu_editor_mac_*.png` から `matsu_editor.icns` を作り、`.app` バンドルに入れます（1024 px は `icon_512x512@2x.png`）。元の絵（`matsu_editor*.png`）は Windows と Linux 用で、Mac には使いません
+- macOS: `scripts/package-mac-app.sh` が `matsu_editor_mac_*.png` から `matsu_editor.icns` を作り、`.app` バンドルに入れます（1024 px は `icon_512x512@2x.png`）。元の絵（`matsu_editor_16.png` など、`mac` の付かないもの）は Windows と Linux 用で、Mac には使いません
 
 Linux の `.desktop` ファイルは、まだありません。
 
