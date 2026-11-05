@@ -2053,3 +2053,23 @@ fn a_save_is_refused_before_it_writes_when_the_disk_is_too_full() {
         }
     }
 }
+
+#[test]
+fn a_save_in_an_encoding_where_pieces_can_join_reads_the_file_again() {
+    let dir = TempDir::new();
+    // Shift_JIS text whose last byte is a lead byte: the added text after it joins into a character.
+    let mut bytes = encode(Encoding::ShiftJis, &"alpha\r\nbeta あ\r\n".repeat(20));
+    bytes.push(0x81);
+    let path = dir.write("j.txt", &bytes);
+    let mut options = huge_options(10);
+    options.encoding = Some(Encoding::ShiftJis);
+    let mut file = open_file(&path, &options).unwrap();
+    if let Some(scan) = file.take_scan() {
+        file.document = scan.finish().unwrap();
+    }
+    let end = file.document.end_pos().unwrap();
+    file.document.insert(end, "@").unwrap();
+    let keep = SaveOptions::keep(&file);
+    let report = file.save(&keep, &mut no_progress).unwrap();
+    assert!(report.rebased && report.reloaded);
+}

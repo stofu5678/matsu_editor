@@ -258,8 +258,13 @@ impl TextFile {
         if let Some(document) = generation {
             // The document reads the file that was written from now on (ADR-0020, chapter 4,
             // plan A). The old document stays valid for whoever holds it (the undo history).
-            report.reloaded =
-                !copies_original(self.source_encoding(), options) || report.substituted > 0;
+            // The history is kept only when the new file certainly has the text of the document.
+            // In an encoding where bytes of the original and of added text can join into one
+            // character (a Shift_JIS lead byte at the end of a piece, UTF-16 surrogates), it may
+            // not: the file is read again then.
+            report.reloaded = !copies_original(self.source_encoding(), options)
+                || report.substituted > 0
+                || !pieces_never_join(options.encoding);
             report.rebased = true;
             self.document = document;
             self.source_encoding = options.encoding;
@@ -962,4 +967,11 @@ pub(super) fn create_temp_for_test(dir: &Path, mode: Option<&fs::Permissions>) -
     let (file, mut temp) = create_temp(dir, mode).unwrap();
     temp.keep = true;
     (file, temp.path.clone())
+}
+
+/// Whether bytes of two pieces can never decode as one character: UTF-8 (a character starts with a
+/// byte no earlier piece can complete) and the single-byte Latin1. Added text is whole characters,
+/// and the original may end in a cut character, which joins with the next bytes in the others.
+fn pieces_never_join(encoding: Encoding) -> bool {
+    matches!(encoding, Encoding::Utf8 | Encoding::Latin1)
 }
