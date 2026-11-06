@@ -12,8 +12,6 @@ use std::rc::Rc;
 use matsu_core::sql_error::{ErrorStyle, is_safe_jump_path, parse};
 use matsu_core::tag_jump::TagTarget;
 
-use crate::view::FONT_FAMILY;
-
 /// The most lines that the panel keeps (older ones go).
 const MAX_LINES: usize = 5000;
 /// The most lines that the panel draws (the last ones).
@@ -236,7 +234,11 @@ pub struct PanelActions {
 
 impl Output {
     /// The panel, while it is open.
-    pub fn panel(&self, actions: PanelActions) -> Option<AnyElement> {
+    pub fn panel(
+        &self,
+        actions: PanelActions,
+        font: &crate::view::text_font::TextFont,
+    ) -> Option<AnyElement> {
         if !self.open {
             return None;
         }
@@ -310,15 +312,13 @@ impl Output {
                         .child(buttons),
                 )
                 .child(
-                    div()
-                        .id("macro-output")
+                    font.apply(div().id("macro-output"))
                         .role(gpui::Role::Log)
                         .aria_label("出力")
                         .flex_1()
                         .overflow_y_scroll()
                         .track_scroll(&self.scroll)
                         .px_2()
-                        .font_family(FONT_FAMILY)
                         .children(lines),
                 )
                 .into_any_element(),

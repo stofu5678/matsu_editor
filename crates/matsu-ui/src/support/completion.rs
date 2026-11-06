@@ -412,7 +412,8 @@ impl EditorView {
         let at = self.point_of(start, cx)?;
         // `ShowHokanMgr`: below the line, "4" pixels apart (`nY = poWin.y + height + 4`)
         let below = point(at.x, at.y + px(self.metrics.line_height + 4.0));
-        let (family, size) = self.font();
+        let (_, size) = self.font();
+        let text_font = self.text_font(cx);
 
         let rows = list
             .items
@@ -451,9 +452,9 @@ impl EditorView {
             .text_color(rgb(0x222222))
             .border_1()
             .border_color(rgb(0x888888))
-            .font_family(family)
             .text_size(px(size))
             .children(rows);
+        let list_box = text_font.apply(list_box);
         // The meaning of the chosen candidate beside the list, level with its row
         // (`CHokanMgr::ShowTip`: `point.y = m_poWin.y + 4 + (nItem - nTopItem) * nItemHeight`).
         let help = list

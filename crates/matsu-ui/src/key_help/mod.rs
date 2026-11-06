@@ -524,6 +524,7 @@ impl EditorView {
     /// The window of a tip with `text`, in the font of the keyword help.
     pub(crate) fn key_help_window(&self, text: &str, cx: &App) -> gpui::Stateful<gpui::Div> {
         let (family, size) = self.key_help_font(cx);
+        let text_font = crate::view::text_font::for_family(Some(&family), cx);
         let rows = text.split('\n').map(|row| {
             // An empty row is as high as a row of text (`szDummy`).
             div().child(if row.is_empty() {
@@ -532,8 +533,8 @@ impl EditorView {
                 SharedString::from(row.to_owned())
             })
         });
-        div()
-            .id("key-help-tip")
+        text_font
+            .apply(div().id("key-help-tip"))
             .max_w(px(640.))
             .px_1()
             .py_1()
@@ -541,7 +542,6 @@ impl EditorView {
             .text_color(rgb(TIP_TEXT))
             .border_1()
             .border_color(rgb(TIP_BORDER))
-            .font_family(family)
             .text_size(px(size))
             .children(rows)
     }
