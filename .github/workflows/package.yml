@@ -23,11 +23,12 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
-# Both jobs have a time limit (timeout-minutes) instead of GitHub's default of 6 hours. On 2026-11-06 `apt-get update`
-# in package (linux-x64) printed nothing for those 6 hours (.github/scripts/apt-install.sh now cuts it off and tries
-# again); the nightly was not published, and the next run of release.yml waited behind it in the `release` group. The
-# limit of package is more than three times its longest successful run in the weeks before 2026-11-07 (17 minutes),
-# because a release whose package runs out of time is not published.
+# Both jobs have a time limit (timeout-minutes) instead of GitHub's default of 6 hours; the jobs of release.yml and
+# package-check.yml that call this workflow cannot set one, so a new job here needs its own. On 2026-11-06
+# `apt-get update` in package (linux-x64) printed nothing for those 6 hours (.github/scripts/apt-install.sh now cuts
+# it off and tries again); the nightly was not published, and the next run of release.yml waited behind it in the
+# `release` group. The limit of package is more than three times its longest successful run in the weeks before
+# 2026-11-07 (17 minutes), because a release whose package runs out of time is not published.
 jobs:
   # Picks the runner of package (macos-arm64) (ADR-0027): the self-hosted runner in the VM on the maintainer's Mac,
   # or GitHub's macos-15. The rules are in .github/actions/mac-runner/action.yml, the same as for ci.yml. The VM

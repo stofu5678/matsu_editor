@@ -17,7 +17,9 @@ if [ "$#" -eq 0 ]; then
 fi
 
 # Runs a command as root with a time limit, up to three times. A try that is cut off leaves its partial downloads
-# in apt's folders, and the next try goes on from them.
+# in apt's folders, and the next try goes on from them. The tries are for a connection that stops; a mirror that
+# stays slow for longer than they last fails the step, and the timeout-minutes of the job bounds the whole step in
+# any case.
 retry() { # limit command...
   local limit=$1 try
   shift
@@ -28,7 +30,9 @@ retry() { # limit command...
       return 0
     fi
     echo "::warning::'$*' failed or ran longer than $limit (try $try of 3)"
-    sleep 10
+    if [ "$try" -lt 3 ]; then
+      sleep 10
+    fi
   done
   return 1
 }
