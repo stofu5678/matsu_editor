@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/stofu5678/matsu_editor/compare/v0.9.0...v0.9.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **view:** draw with Menlo and Hiragino Sans on macOS when the text font is not installed ([#362](https://github.com/stofu5678/matsu_editor/issues/362)) ([e0216c7](https://github.com/stofu5678/matsu_editor/commit/e0216c7fb4bc35b4cc718f6967145eb7100c281f))
+
 ## [0.9.0](https://github.com/stofu5678/matsu_editor/compare/v0.8.0...v0.9.0) (2026-11-05)
 
 
