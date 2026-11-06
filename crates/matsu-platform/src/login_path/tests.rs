@@ -1,8 +1,11 @@
+#[cfg(unix)]
 use std::ffi::{OsStr, OsString};
+#[cfg(unix)]
 use std::path::PathBuf;
 
 use super::*;
 
+#[cfg(unix)]
 fn os(text: &str) -> OsString {
     OsString::from(text)
 }
@@ -17,6 +20,7 @@ fn reads_on_macos_without_a_terminal_only() {
     assert!(!should_read(false, true));
 }
 
+#[cfg(unix)]
 #[test]
 fn shell_is_shell_variable_if_absolute() {
     assert_eq!(
@@ -108,18 +112,21 @@ fn more_than_the_limit_before_the_marks_is_not_a_path() {
     assert!(parse_output(&out, MARK).is_err());
 }
 
-// ---- mixing ----
+// ---- mixing (the paths are written the way macOS and Linux do) ----
 
+#[cfg(unix)]
 #[test]
 fn shell_folders_keep_their_order_and_first_repeat() {
     assert_eq!(mix(&os("/b:/a:/b:/c"), None), Some(os("/b:/a:/c")));
 }
 
+#[cfg(unix)]
 #[test]
 fn empty_and_relative_folders_are_dropped() {
     assert_eq!(mix(&os("/a::.:bin:../x:/b:"), None), Some(os("/a:/b")));
 }
 
+#[cfg(unix)]
 #[test]
 fn startup_folders_follow_if_new() {
     assert_eq!(
@@ -131,12 +138,14 @@ fn startup_folders_follow_if_new() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn shell_without_an_absolute_folder_is_a_failure() {
     assert_eq!(mix(&os(".:bin::"), Some(OsStr::new("/usr/bin"))), None);
     assert_eq!(mix(&os(""), None), None);
 }
 
+#[cfg(unix)]
 #[test]
 fn missing_startup_path_is_fine() {
     assert_eq!(mix(&os("/a"), None), Some(os("/a")));

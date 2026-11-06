@@ -75,9 +75,13 @@ pub(super) fn read(
             }
         }
     }
-    // A shell that is still there is ended with its group. One that has been waited for is left
-    // alone: its id may be used again.
-    if matches!(child.try_wait(), Ok(None)) {
+    // Nothing has waited for the shell yet, so its id is still its own (a process that has ended
+    // keeps it until it is waited for) and the group can be ended. When the PATH was not read,
+    // the group is ended even if the shell has gone: a process it left behind can hold the
+    // pipe. When the PATH was read, a shell that is still running is ended and one that has
+    // finished is left alone, with what its configuration started on purpose.
+    let read_it = between_marks(&output, &mark).is_some();
+    if !read_it || matches!(child.try_wait(), Ok(None)) {
         crate::exec::kill_tree(child.id());
     }
     let _ = child.wait();
