@@ -8,7 +8,9 @@
 //! its fallback (the Japanese font of the system; naming it keeps CoreText from choosing a Chinese
 //! face for the kanji). Windows and Linux keep the family they were asked for.
 
+#[cfg(not(test))]
 use std::collections::HashMap;
+#[cfg(not(test))]
 use std::sync::{Mutex, OnceLock};
 
 use gpui::{App, Font, FontFallbacks, SharedString, Styled};
@@ -108,9 +110,20 @@ pub(crate) fn for_family(asked: Option<&str>, cx: &App) -> TextFont {
     choose(Os::current(), asked, |family| installed(family, cx))
 }
 
+/// In tests every family counts as installed, so that the font is the family asked for on every
+/// OS. GPUI's test platform has a text system that gives every family the same id, which makes
+/// `is_loadable` depend on which family was looked up first, and the answers are kept in a
+/// process-wide cache that parallel tests share.
+#[cfg(test)]
+fn installed(_family: &str, _cx: &App) -> bool {
+    true
+}
+
 /// A family that cannot exist: GPUI gives the font it falls back to for it.
+#[cfg(not(test))]
 pub(crate) const IMPOSSIBLE_FAMILY: &str = "matsu-no-such-font-for-diagnostics";
 
+#[cfg(not(test))]
 fn installed(family: &str, cx: &App) -> bool {
     static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
@@ -129,6 +142,7 @@ fn installed(family: &str, cx: &App) -> bool {
 /// the same, it is a fallback, unless the family is that font (`get_font_for_id` reports the
 /// family that the id was made for). The names of the OS are not compared, so a localized name or
 /// a different case does not make an installed font look missing.
+#[cfg(not(test))]
 pub(crate) fn is_loadable(system: &gpui::TextSystem, family: &str) -> bool {
     let id = system.resolve_font(&gpui::font(family.to_owned()));
     let fallback = system.resolve_font(&gpui::font(IMPOSSIBLE_FAMILY));
