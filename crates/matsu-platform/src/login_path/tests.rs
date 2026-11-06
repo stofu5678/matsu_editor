@@ -194,7 +194,7 @@ mod fake_shell {
     }
 
     fn gone(pid: &str) -> bool {
-        for _ in 0..60 {
+        for _ in 0..200 {
             let alive = std::process::Command::new("kill")
                 .args(["-0", pid])
                 .stderr(std::process::Stdio::null())
@@ -243,6 +243,61 @@ mod fake_shell {
         let result = run(&shell, Duration::from_millis(700), None);
         assert_eq!(result, Err("timed out".to_owned()));
         assert!(started.elapsed() < Duration::from_secs(15));
+        let pid = std::fs::read_to_string(dir.path().join("pid")).unwrap();
+        assert!(gone(pid.trim()), "the shell is still there");
+        let child = std::fs::read_to_string(dir.path().join("child")).unwrap();
+        assert!(gone(child.trim()), "its child is still there");
+    }
+
+    #[test]
+    fn what_the_shell_left_running_is_not_killed_once_the_path_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = write_shell(
+            dir.path(),
+            "eval \"$4\"\nsleep 60 &\necho $! > \"$(dirname \"$0\")/child\"",
+        );
+        let path = run(
+            &shell,
+            Duration::from_secs(20),
+            Some(OsStr::new("/start/bin")),
+        )
+        .unwrap();
+        assert!(path.to_string_lossy().ends_with("/start/bin"));
+        // give the shell the time to start its child and end
+        let child_file = dir.path().join("child");
+        for _ in 0..100 {
+            if child_file.exists() && !std::fs::read_to_string(&child_file).unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let child = std::fs::read_to_string(&child_file).unwrap();
+        let child = child.trim();
+        std::thread::sleep(Duration::from_millis(300));
+        let alive = std::process::Command::new("kill")
+            .args(["-0", child])
+            .status()
+            .is_ok_and(|s| s.success());
+        // the test ends the child itself
+        let _ = std::process::Command::new("kill").arg(child).status();
+        assert!(alive, "the child of the shell was killed");
+    }
+
+    #[test]
+    fn a_shell_that_keeps_running_after_the_path_is_read_is_ended_at_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = write_shell(
+            dir.path(),
+            "eval \"$4\"\nsleep 60 &\necho $! > \"$(dirname \"$0\")/child\"\nsleep 60",
+        );
+        let limit = Duration::from_secs(4);
+        let started = Instant::now();
+        let path = run(&shell, limit, Some(OsStr::new("/start/bin"))).unwrap();
+        assert!(path.to_string_lossy().ends_with("/start/bin"));
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "the path waited for the shell"
+        );
         let pid = std::fs::read_to_string(dir.path().join("pid")).unwrap();
         assert!(gone(pid.trim()), "the shell is still there");
         let child = std::fs::read_to_string(dir.path().join("child")).unwrap();

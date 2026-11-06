@@ -2013,7 +2013,7 @@ mod config_path_tests {
                 if source.kind() == std::io::ErrorKind::NotFound
         ));
         // a folder with a `python3` (here `true`): it is started
-        std::os::unix::fs::symlink("/bin/true", bin.path().join("python3")).unwrap();
+        std::os::unix::fs::symlink("/usr/bin/true", bin.path().join("python3")).unwrap();
         let config = python_config(&dir, Some(bin.path().into()));
         assert!(session::start(config, sink).is_ok());
     }

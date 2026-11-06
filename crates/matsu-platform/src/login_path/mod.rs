@@ -3,7 +3,7 @@
 //! A program started from Finder, the Dock or Launchpad (launchd) does not pass through a shell:
 //! its `PATH` is the short one of the system (`/usr/bin:/bin:/usr/sbin:/sbin`), and `~/.zshrc`
 //! is never read. Homebrew (`/opt/homebrew/bin`) and the places a user added to the `PATH`
-//! himself are not searched, so the program of a database client, a macro language or ctags is
+//! are not searched, so the program of a database client, a macro language or ctags is
 //! "not found" although it is installed. This module asks the login shell for its `PATH` once,
 //! at the start, in the background (the way VS Code resolves the shell environment).
 //!
@@ -221,8 +221,8 @@ fn parse_output(output: &[u8], mark: &str) -> Result<Vec<u8>, &'static str> {
 }
 
 /// The `PATH` for the programs: the absolute folders of the `PATH` of the shell in its order
-/// (the first of a repeated one), then the ones of the `PATH` this program started with that are
-/// not in it yet, in their order.
+/// (the first of a repeated one), then the absolute folders of the `PATH` this program started
+/// with that are not in it yet, in their order.
 ///
 /// * An empty or relative folder (`.`) is dropped: the programs run in the folder of a document,
 ///   and a program of that folder must not be run by its name.
