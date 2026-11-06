@@ -7,7 +7,7 @@
 # network have a time limit and up to three tries. On 2026-11-06 `apt-get update` (package.yml, linux-x64) printed
 # nothing after the InRelease files of azure.archive.ubuntu.com for six hours, until GitHub cancelled the job at its
 # default limit. apt's own timeouts (Acquire::http::Timeout, which GitHub's image sets to 15 seconds) did not end
-# it. On other days the same mirror sent packages at about 40 kB/s, and an install took up to 20 minutes but
+# it. On other days the same mirror sent packages at about 44 kB/s, and an install took up to 20 minutes but
 # finished.
 set -euo pipefail
 
@@ -34,7 +34,8 @@ retry() { # limit command...
 }
 
 retry 5m apt-get update
-# Download first: the install below then has nothing to wait for on the network, and is never cut off in the
-# middle of dpkg (which would leave dpkg's database half done for the next try).
-retry 10m apt-get install --no-install-recommends -y --download-only "$@"
-sudo apt-get install --no-install-recommends -y "$@"
+# Download first, then install from the downloaded files only (--no-download): the install has nothing to wait for
+# on the network, and is never cut off in the middle of dpkg (which would leave dpkg's database half done for the
+# next try). Three tries of 15 minutes fetch about 120 MB at the slowest speed seen (44 kB/s).
+retry 15m apt-get install --no-install-recommends -y --download-only "$@"
+sudo apt-get install --no-install-recommends -y --no-download "$@"

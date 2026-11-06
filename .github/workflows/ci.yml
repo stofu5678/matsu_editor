@@ -20,10 +20,10 @@ env:
   RUSTFLAGS: -D warnings
 
 # Every job has a time limit (timeout-minutes) instead of GitHub's default of 6 hours, so that a job that hangs gives
-# its runner back. A limit is at least 10 minutes and one and a half times the longest successful run of the job in
-# the weeks before 2026-11-07 (test: 39 minutes, linux-x64, while the apt mirror was slow). The time a job waits for a
-# runner does not count. The runner of test (macos-arm64) can be the one VM on the maintainer's Mac (ADR-0027), which
-# runs nothing else while a job holds it.
+# its runner back. A limit is at least 10 minutes, and at least one and a half times the longest successful run of the
+# job in the weeks before 2026-11-07 (test: 39 minutes, linux-x64, while the apt mirror was slow); a job that gets more
+# says why. The time a job waits for a runner does not count. The runner of test (macos-arm64) can be the one VM on the
+# maintainer's Mac (ADR-0027), which runs nothing else while a job holds it.
 jobs:
   # Tells whether a pull request changes more than documentation (Markdown files and docs/). The
   # test jobs below use it to stay off the macOS and Windows runners for a docs-only change: the
@@ -87,8 +87,8 @@ jobs:
   lint:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
-    # More than the rule above gives (18 minutes): its apt step installs the same packages as test (linux-x64), which
-    # took up to 9 minutes while the mirror was slow, and .github/scripts/apt-install.sh may try again.
+    # More than the rule above gives (18 minutes): installing the packages that GPUI needs took up to 9 minutes in
+    # test (linux-x64) while the apt mirror was slow, and .github/scripts/apt-install.sh may try again.
     timeout-minutes: 45
     env:
       RUSTDOCFLAGS: -D warnings
@@ -187,18 +187,17 @@ jobs:
           components: clippy
       # GPUI (matsu-ui) links the system libraries of the Linux desktop. The same list serves x64
       # and ARM64 (poc/gpui-textview/README.md).
-      - name: Install the packages that GPUI needs
+      # The runner images have no Emacs, which the Emacs Lisp macro tests need (Ubuntu 24.04 has
+      # Emacs 29.3, built with JSON support). Without it they skip. The other OSes skip them: an
+      # install through brew or choco costs minutes on runners that are scarce or slow already.
+      # One call of the script for both, so that apt reads the package lists once.
+      - name: Install the packages that GPUI needs, and Emacs for the Emacs Lisp macro tests
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: |
           .github/scripts/apt-install.sh build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
-            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
-      # The runner images have no Emacs, which the Emacs Lisp macro tests need (Ubuntu 24.04 has
-      # Emacs 29.3, built with JSON support). Without it they skip. The other OSes skip them: an
-      # install through brew or choco costs minutes on runners that are scarce or slow already.
-      - name: Install Emacs for the Emacs Lisp macro tests
-        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
-        run: .github/scripts/apt-install.sh emacs-nox
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
+            emacs-nox
       # The VM has its own SDK and tools, so its cache must not mix with GitHub's macOS runner (ADR-0027). An empty
       # key adds nothing to the cache name (rust-cache config.ts: `if (inputKey)`), so every other job keeps its name.
       - if: needs.changes.outputs.code == 'true'
