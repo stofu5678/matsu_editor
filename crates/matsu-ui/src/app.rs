@@ -701,7 +701,7 @@ impl Render for Workspace {
         let macro_panel = if preview.is_some() {
             None
         } else {
-            editor.macro_panel(active.clone())
+            editor.macro_panel(active.clone(), cx)
         };
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         // A kind of tab with no status bar has no status (`TabPanel::status`).

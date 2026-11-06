@@ -1132,24 +1132,29 @@ impl EditorView {
     // ---- the panel ----
 
     /// The output panel for the window to show under the text, while it is open.
-    pub fn macro_panel(&self, view: Entity<EditorView>) -> Option<AnyElement> {
+    pub fn macro_panel(&self, view: Entity<EditorView>, cx: &App) -> Option<AnyElement> {
         let cancel = view.clone();
         let jump = view.clone();
-        self.macros.output.panel(PanelActions {
-            running: self.macros.running.is_some() || self.macros.waiting.is_some(),
-            on_cancel: Box::new(move |_, _, cx| {
-                cancel.update(cx, |view, cx| view.cancel_macro(cx));
-            }),
-            on_close: Box::new(move |_, _, cx| {
-                view.update(cx, |view, cx| {
-                    view.macros.output.close();
-                    cx.notify();
-                });
-            }),
-            on_jump: std::rc::Rc::new(move |place, window, cx| {
-                jump.update(cx, |view, cx| view.jump_to_place(place, window, cx));
-            }),
-        })
+        // The output is drawn with the default font of the program, not the font of the text.
+        let font = crate::view::text_font::for_family(None, cx);
+        self.macros.output.panel(
+            PanelActions {
+                running: self.macros.running.is_some() || self.macros.waiting.is_some(),
+                on_cancel: Box::new(move |_, _, cx| {
+                    cancel.update(cx, |view, cx| view.cancel_macro(cx));
+                }),
+                on_close: Box::new(move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        view.macros.output.close();
+                        cx.notify();
+                    });
+                }),
+                on_jump: std::rc::Rc::new(move |place, window, cx| {
+                    jump.update(cx, |view, cx| view.jump_to_place(place, window, cx));
+                }),
+            },
+            &font,
+        )
     }
 
     /// Where a file dialog starts: the folder of the document, else what 「ファイルダイアログの初期位置」

@@ -40,6 +40,7 @@ mod settings_tests;
 pub(crate) mod split_box;
 mod status_info;
 mod syntax;
+pub(crate) mod text_font;
 pub(crate) mod vscroll;
 
 use std::ops::Range;
@@ -431,6 +432,12 @@ impl EditorView {
     /// The font family and size of the text, for what is drawn over it.
     pub(crate) fn font(&self) -> (SharedString, f32) {
         (self.font_family.clone(), self.font_size)
+    }
+
+    /// The font of the text: the family of the view, or what stands in for it when the OS does not
+    /// have it ([`text_font`]).
+    pub(crate) fn text_font(&self, cx: &App) -> text_font::TextFont {
+        text_font::for_family(Some(&self.font_family), cx)
     }
 
     /// The document of a view (the text only).
@@ -1113,14 +1120,18 @@ impl Render for EditorView {
                 .into_any_element();
         }
         let a11y_text = self.a11y_text.clone();
-        let mut editor = crate::a11y::focusable_editor(div().id("editor"), &self.focus_handle)
+        let text_font = self.text_font(cx);
+        let mut editor = text_font
+            .apply(crate::a11y::focusable_editor(
+                div().id("editor"),
+                &self.focus_handle,
+            ))
             // The text runs, the caret and the selection, written when a screen reader is connected.
             .a11y_synthetic_children(move |builder| a11y_text::write(&a11y_text, builder))
             .size_full()
             .overflow_hidden()
             .key_context("Editor")
             .cursor(CursorStyle::IBeam)
-            .font_family(self.font_family.clone())
             // `lfWeight` and `lfItalic` of the font (`ViewSettings`)
             .font_weight(gpui::FontWeight(self.prefs.settings.gpui_font_weight()))
             .text_size(px(self.font_size))

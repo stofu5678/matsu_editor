@@ -135,6 +135,9 @@ pub(crate) struct Facts {
     pub default_family: String,
     /// The family that MATSU asks GPUI for.
     pub asked_family: String,
+    /// The font the text is drawn with, and why (`view::text_font`): on macOS, what stands in for
+    /// a family that is not installed.
+    pub used_font: String,
     pub font_size: f32,
     /// The document types that have a font of their own (`bUseTypeFont`): the type's index and
     /// the family asked of GPUI for it. A window draws with the font of its document's type, which
@@ -216,6 +219,7 @@ pub(crate) fn render(facts: &Facts) -> String {
         facts.default_family
     ));
     line(format!("family asked of GPUI: {:?}", facts.asked_family));
+    line(format!("font the text is drawn with: {}", facts.used_font));
     line(format!(
         "font size: {} px, weight {}, italic {}",
         facts.font_size, facts.weight, facts.italic
@@ -283,7 +287,7 @@ pub(crate) fn render(facts: &Facts) -> String {
     }
 
     line(format!(
-        "advance widths at {} px (of the font that resolve_font gave):",
+        "advance widths at {} px (of the font the text is drawn with):",
         facts.font_size
     ));
     for (ch, width) in &facts.advances {
@@ -380,12 +384,23 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
         ids.push((label.to_owned(), id.0));
     }
 
+    // What the text is drawn with: the asked family, or on macOS what stands in for it.
+    let used = crate::view::text_font::for_family(settings.font_family.as_deref(), cx);
+    let used_id = system.resolve_font(&gpui::Font {
+        weight: gpui::FontWeight(settings.gpui_font_weight()),
+        style: if settings.font_italic {
+            gpui::FontStyle::Italic
+        } else {
+            gpui::FontStyle::Normal
+        },
+        ..used.font()
+    });
     let size = gpui::px(font_size);
     let advances = PROBE_CHARS
         .iter()
         .map(|&ch| {
             let width = system
-                .advance(asked_id, size, ch)
+                .advance(used_id, size, ch)
                 .map(|s| f32::from(s.width))
                 .map_err(|e| e.to_string());
             (ch, width)
@@ -399,6 +414,7 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
         settings_family: settings.font_family.clone(),
         default_family,
         asked_family,
+        used_font: used.describe(),
         font_size,
         type_fonts,
         weight: settings.gpui_font_weight(),
@@ -586,6 +602,7 @@ mod tests {
             settings_family: None,
             default_family: "BIZ UDGothic".into(),
             asked_family: "BIZ UDGothic".into(),
+            used_font: "\"Menlo\" with fallbacks [\"Hiragino Sans\"] (\"BIZ UDGothic\" is not installed: Menlo with Hiragino Sans)".into(),
             font_size: 16.0,
             type_fonts: Vec::new(),
             weight: 400.0,
@@ -627,6 +644,10 @@ mod tests {
         );
         assert!(
             text.contains("'漢' (U+6F22): error: glyph not found"),
+            "{text}"
+        );
+        assert!(
+            text.contains("font the text is drawn with: \"Menlo\" with fallbacks"),
             "{text}"
         );
         assert!(text.contains("1.799"), "{text}");
