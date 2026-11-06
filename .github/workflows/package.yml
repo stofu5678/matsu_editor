@@ -23,6 +23,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# Both jobs have a time limit (timeout-minutes) instead of GitHub's default of 6 hours. On 2026-11-06 `apt-get update`
+# in package (linux-x64) printed nothing for those 6 hours (.github/scripts/apt-install.sh now cuts it off and tries
+# again); the nightly was not published, and the next run of release.yml waited behind it in the `release` group. The
+# limit of package is more than three times its longest successful run in the weeks before 2026-11-07 (17 minutes),
+# because a release whose package runs out of time is not published.
 jobs:
   # Picks the runner of package (macos-arm64) (ADR-0027): the self-hosted runner in the VM on the maintainer's Mac,
   # or GitHub's macos-15. The rules are in .github/actions/mac-runner/action.yml, the same as for ci.yml. The VM
@@ -31,6 +36,7 @@ jobs:
   # a Linux runner, because a job's `runs-on` cannot read a step of the same job. It has no secrets.
   mac-runner:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       mac: ${{ steps.mac.outputs.mac }}
       mac_kind: ${{ steps.mac.outputs.mac_kind }}
@@ -62,6 +68,7 @@ jobs:
           - { name: linux-arm64, os: ubuntu-24.04-arm }
     # Only the macOS job takes its runner from the mac-runner job; the other four keep matrix.os.
     runs-on: ${{ matrix.name == 'macos-arm64' && fromJSON(needs.mac-runner.outputs.mac) || matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -74,8 +81,7 @@ jobs:
       - name: Install the packages that GPUI needs
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+          .github/scripts/apt-install.sh build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
       # The VM has its own SDK and tools, and what it builds is not trusted as much as what GitHub's runner builds, so
