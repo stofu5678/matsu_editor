@@ -958,6 +958,9 @@ impl EditorView {
             .map(|p| p.display().to_string());
         #[allow(unused_mut)]
         let mut config = MacroConfig::for_script(path, document_path).map_err(|e| e.to_string())?;
+        // Not waited for: this starts the interpreter on the thread of the window. A macro that
+        // runs before the shell has answered gets the `PATH` this program started with.
+        config.path = matsu_platform::login_path::get();
         #[cfg(test)]
         if let Some(timeout) = self.macros.script_timeout {
             config.timeout = timeout;

@@ -6,9 +6,11 @@ use std::process::{Command, Stdio};
 
 use super::{Shell, ShellError, Spawn, find_in_path, linux_terminals, mac_launch, pwsh_arguments};
 
-/// `pwsh` on the `PATH`.
+/// `pwsh` on the `PATH`: the one of the login shell when it has been read (macOS started from
+/// Finder or the Dock), else the one of this program.
 fn pwsh() -> Option<std::path::PathBuf> {
-    find_in_path("pwsh", &std::env::var_os("PATH")?)
+    let path = crate::login_path::get().or_else(|| std::env::var_os("PATH"))?;
+    find_in_path("pwsh", &path)
 }
 
 pub(super) fn open(shell: Shell, admin: bool, folder: &Path) -> Result<(), ShellError> {

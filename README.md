@@ -26,6 +26,21 @@ MATSU Editor は、使う設定ファイル（`matsu.ini`）1 つにつき、1 �
 
 サクラエディタのコマンドラインオプション（`help/sakura/res/HLP000109.html`）も使えます。名前の大文字小文字は区別せず、値は `=` か `:` に続けて書きます。`-X=` `-Y=` `-VX=` `-VY=` は開いた直後のキャレットと表示の位置、`-CODE=` は文字コード（サクラの番号）、`-TYPE=` は拡張子でタイプ別設定を強制、`-R` はビューモード、`-SX=` `-SY=` `-WX=` `-WY=` は新しいウィンドウの大きさと位置、`-GREPMODE` `-GREPDLG` `-GKEY=` `-GREPR=` `-GFILE=` `-GFOLDER=` `-GOPT=` `-GCODE=` は Grep、`-M=` は読み込み後に実行するマクロのファイル、`-PROF=` は設定のプロファイル（設定ファイルのサブフォルダー）、`-@=` はレスポンスファイルです。`-NOWIN` `-GROUP=` `-DEBUGMODE` `-PROFMGR` は受け付けて何もしません。
 
+### macOS で Finder や Dock から起動したときの PATH
+
+Finder・Dock・Launchpad から起動したアプリはシェルを通らないので、`PATH` が最小のもの（`/usr/bin:/bin:/usr/sbin:/sbin`）になり、`~/.zshrc` も読まれません。そのままだと、Homebrew（`/opt/homebrew/bin`）や、自分で `PATH` に足した場所にあるプログラムが見つかりません。そこで MATSU Editor は、起動したときにログインシェル（環境変数 `SHELL`、無ければ `/bin/zsh`）を裏で 1 回動かして（`~/.zshrc` も読まれます）`PATH` を読み取り、外部コマンド実行・データベースのクライアント・マクロの言語（node・python3・ruby・php・pwsh・perl・emacs）・ctags・PowerShell を開く操作を、その `PATH` で探して動かします。
+
+- 読み取りは起動を待たせません。プログラムを動かすときに、まだ読み終わっていなければ、読み終わるまで待ちます。
+- 10 秒で読めなかったときは、MATSU Editor が起動したときの `PATH` のままで動かします（標準エラーに 1 行出します）。起動した直後に動くマクロ（`-M=` など）が、読み終わる前に動いたときも、起動したときの `PATH` で動きます。
+- 渡すのは `PATH` だけです。ほかの環境変数は渡しません。`PATH` の相対パスの項目（`.` など）は使いません。起動したときの `PATH` にある場所は、後ろに足します。
+- 重い設定を飛ばしたいときは、ログインシェルには環境変数 `MATSU_RESOLVING_ENVIRONMENT=1` が付いているので、`~/.zshrc` で見分けられます。
+
+  ```sh
+  [ -n "$MATSU_RESOLVING_ENVIRONMENT" ] && return
+  ```
+
+- 端末から `matsu` を起動したときは、端末の `PATH` をそのまま使います（シェルは動かしません）。`>` で出力をファイルに向けたり、`&` や `nohup` を付けたりしても同じです（制御端末があるかで見分けます）。Windows と Linux では何もしません。
+
 ### フォント
 
 本文の既定のフォントは、Windows と macOS では BIZ UDGothic、Linux では Noto Sans Mono CJK JP です。macOS には BIZ UDGothic が最初から入っていないので、フォントブックでダウンロードすると、既定のフォントで描きます。入っていない（設定で選んだフォントも入っていない）ときは、Menlo とヒラギノ角ゴシックで描きます（設定のファイルは書き換えません）。

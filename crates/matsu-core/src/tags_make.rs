@@ -156,7 +156,23 @@ pub fn run_ctags(
     options: &TagsMakeOptions,
     cancel: &AtomicBool,
 ) -> Outcome {
-    let mut child = match Command::new(ctags)
+    run_ctags_on_path(ctags, folder, options, cancel, None)
+}
+
+/// [`run_ctags`] with the `PATH` that ctags runs with (`None`: the one of this program). A shim
+/// or a wrapper script (asdf) looks for its own interpreter there.
+pub fn run_ctags_on_path(
+    ctags: &Path,
+    folder: &Path,
+    options: &TagsMakeOptions,
+    cancel: &AtomicBool,
+    path: Option<&std::ffi::OsStr>,
+) -> Outcome {
+    let mut command = Command::new(ctags);
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+    let mut child = match command
         .args(ctags_arguments(options, folder))
         .current_dir(folder)
         .stdin(Stdio::null())

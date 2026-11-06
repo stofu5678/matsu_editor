@@ -42,7 +42,7 @@ pub(super) fn exit_code(status: ExitStatus) -> Option<i32> {
 }
 
 /// Ends the process group of `pid` (the process leads it, see [`prepare`]).
-pub(super) fn kill_tree(pid: u32) {
+pub(crate) fn kill_tree(pid: u32) {
     let Ok(pid) = i32::try_from(pid) else { return };
     if pid <= 1 {
         return;

@@ -272,6 +272,28 @@ mod unix_only {
     }
 
     #[test]
+    fn the_path_of_the_spec_reaches_the_shell() {
+        let mut spec = Spec::new("echo \"$PATH\"");
+        spec.path = Some("/spec/one:/spec/two".into());
+        assert_eq!(finish(start(spec).unwrap()).text(), "/spec/one:/spec/two\n");
+    }
+
+    #[test]
+    fn a_program_is_found_on_the_path_of_the_spec() {
+        let dir = tempfile::tempdir().unwrap();
+        // a link to `echo` (a script that was just written can be "busy" while others fork)
+        std::os::unix::fs::symlink("/bin/echo", dir.path().join("matsu-only-here")).unwrap();
+        // plain words: the program itself is started, by its name, on the PATH of the spec
+        let mut spec = Spec::new("matsu-only-here found");
+        spec.path = Some(format!("{}:/usr/bin:/bin", dir.path().display()).into());
+        let done = finish(start(spec).unwrap());
+        assert_eq!(done.text(), "found\n");
+        assert_eq!(done.exit.code, Some(0));
+        // without it the name is not found
+        assert_ne!(run("matsu-only-here found").exit.code, Some(0));
+    }
+
+    #[test]
     fn plain_words_run_as_a_program_and_the_rest_in_the_shell() {
         // quotes keep a space in an argument: only the shell does that
         let done = run("printf '%s|' 'a b' c");

@@ -166,6 +166,8 @@ pub fn launch(args: Vec<OsString>) {
             }
         }
     };
+    // The `PATH` of the login shell is read while the window is made (macOS, not from a terminal).
+    matsu_platform::login_path::start();
     crate::app::run(user, tx, rx);
 }
 
