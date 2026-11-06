@@ -74,9 +74,13 @@ fn choose_shell(shell: Option<&OsStr>) -> PathBuf {
 /// Starts reading the `PATH` of the login shell in the background and returns at once. Call it
 /// once at the start; the later calls do nothing.
 pub fn start() {
+    // A program started from a terminal keeps the terminal of its session even when all three
+    // streams go to files (`matsu f </dev/null >log 2>&1 &`); one started by launchd (Finder,
+    // the Dock, `open -a`) has none.
     let from_terminal = std::io::stdin().is_terminal()
         || std::io::stdout().is_terminal()
-        || std::io::stderr().is_terminal();
+        || std::io::stderr().is_terminal()
+        || has_controlling_terminal();
     if !should_read(cfg!(target_os = "macos"), from_terminal) {
         return;
     }
@@ -116,6 +120,19 @@ fn start_with(shell: PathBuf, timeout: Duration, startup: Option<OsString>) {
         });
     if spawned.is_err() {
         publish(None);
+    }
+}
+
+/// Whether this process has a controlling terminal: `/dev/tty` can be opened (it is only
+/// opened, not read or written). Always `false` off Unix.
+fn has_controlling_terminal() -> bool {
+    #[cfg(unix)]
+    {
+        unix::has_controlling_terminal()
+    }
+    #[cfg(not(unix))]
+    {
+        false
     }
 }
 

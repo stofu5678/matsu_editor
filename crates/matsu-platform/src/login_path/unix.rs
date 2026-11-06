@@ -117,3 +117,9 @@ fn reap(mut child: Child, deadline: Instant) {
         }
     });
 }
+
+/// `/dev/tty` opens only for a process with a controlling terminal (a process of launchd has
+/// none: ENXIO). The handle is closed at once.
+pub(super) fn has_controlling_terminal() -> bool {
+    std::fs::File::open("/dev/tty").is_ok()
+}

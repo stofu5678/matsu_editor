@@ -39,7 +39,7 @@ Finder・Dock・Launchpad から起動したアプリはシェルを通らない
   [ -n "$MATSU_RESOLVING_ENVIRONMENT" ] && return
   ```
 
-- 端末から `matsu` を起動したときは、端末の `PATH` をそのまま使います（シェルは動かしません）。Windows と Linux では何もしません。
+- 端末から `matsu` を起動したときは、端末の `PATH` をそのまま使います（シェルは動かしません）。`>` で出力をファイルに向けたり、`&` や `nohup` を付けたりしても同じです（制御端末があるかで見分けます）。Windows と Linux では何もしません。
 
 ### フォント
 
