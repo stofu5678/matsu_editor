@@ -87,7 +87,9 @@ jobs:
   lint:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # More than the rule above gives (18 minutes): its apt step installs the same packages as test (linux-x64), which
+    # took up to 9 minutes while the mirror was slow, and .github/scripts/apt-install.sh may try again.
+    timeout-minutes: 45
     env:
       RUSTDOCFLAGS: -D warnings
       # Keep these two the same as in release.yml (it regenerates the notices in the release PR).
