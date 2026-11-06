@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.0](https://github.com/stofu5678/matsu_editor/compare/v0.8.0...v0.9.0) (2026-11-05)
+
+
+### Features
+
+* **diagnostics:** print how the text font is chosen when MATSU_FONT_DIAGNOSTICS is set ([#358](https://github.com/stofu5678/matsu_editor/issues/358)) ([2627717](https://github.com/stofu5678/matsu_editor/commit/2627717e5f53b9940e785e16ca73b494800370dd))
+* **file:** keep the undo history across saves of huge files and check the free space (ADR-0020) ([#353](https://github.com/stofu5678/matsu_editor/issues/353)) ([b0a8de0](https://github.com/stofu5678/matsu_editor/commit/b0a8de005be69886522f21e5253d202217b87bbc))
+
+
+### Bug Fixes
+
+* **packaging:** give the macOS app a full rounded-square icon ([#352](https://github.com/stofu5678/matsu_editor/issues/352)) ([9fbb026](https://github.com/stofu5678/matsu_editor/commit/9fbb026e16a27c295721caeb92fc1c9845dc6f89))
+* **view:** draw each character in its own column when the font's widths do not match ([#354](https://github.com/stofu5678/matsu_editor/issues/354)) ([76a2c0d](https://github.com/stofu5678/matsu_editor/commit/76a2c0dc51553d738f9bf13964b90b2075aae9d2))
+* **view:** split the pieces placed one by one at grapheme boundaries with unicode-segmentation ([#361](https://github.com/stofu5678/matsu_editor/issues/361)) ([b179b62](https://github.com/stofu5678/matsu_editor/commit/b179b629579db35a3765ba37be81370ffa73b4fc))
+
 ## [0.8.0](https://github.com/stofu5678/matsu_editor/compare/v0.7.0...v0.8.0) (2026-11-04)
 
 
