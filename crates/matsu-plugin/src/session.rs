@@ -299,6 +299,9 @@ pub struct MacroConfig {
     /// Set for a plugin host (ADR-0026): the process waits for `plugin/invoke` calls instead of
     /// running a script, and `script` is only its place in the error messages.
     pub plugin: Option<crate::protocol::PluginIdentity>,
+    /// The `PATH` for the interpreter (and what it starts), `None` for the one of this process.
+    /// The editor gives the `PATH` of the login shell here on macOS (`matsu_platform::login_path`).
+    pub path: Option<OsString>,
 }
 
 /// A plugin host lives as long as the plugin is used; the time limits are the invokes' (see
@@ -321,6 +324,7 @@ impl MacroConfig {
             temp_dir: None,
             document_path,
             plugin: Some(plugin),
+            path: None,
         }
     }
 
@@ -337,6 +341,7 @@ impl MacroConfig {
             temp_dir: None,
             document_path,
             plugin: None,
+            path: None,
         })
     }
 }
@@ -656,6 +661,9 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                 .arg(boot_files(boot::PHP_BOOT))
                 .arg(&config.script);
         }
+    }
+    if let Some(path) = &config.path {
+        command.env("PATH", path);
     }
     command
         // Python writes to a pipe in the ANSI code page of Windows by default.

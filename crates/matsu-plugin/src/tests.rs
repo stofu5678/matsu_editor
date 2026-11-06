@@ -1981,3 +1981,40 @@ mod retry_tests {
         assert!(!should_retry_powershell(PS, &late, true));
     }
 }
+
+/// `MacroConfig::path` is the `PATH` the interpreter is looked for on (macOS started from
+/// Finder: the one of the login shell).
+#[cfg(unix)]
+mod config_path_tests {
+    use super::*;
+
+    fn python_config(dir: &tempfile::TempDir, path: Option<std::ffi::OsString>) -> MacroConfig {
+        let script = dir.path().join("macro.py");
+        std::fs::write(&script, "pass\n").unwrap();
+        let mut config = MacroConfig::for_script(&script, None).unwrap();
+        config.temp_dir = Some(dir.path().to_path_buf());
+        config.path = path;
+        config
+    }
+
+    #[test]
+    fn the_interpreter_is_found_on_the_path_of_the_config_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let sink: session::Sink = Arc::new(|_| {});
+        // a folder with nothing in it: the name is not found
+        let config = python_config(&dir, Some(dir.path().join("empty").into_os_string()));
+        let error = session::start(config, Arc::clone(&sink))
+            .err()
+            .expect("no python3 there");
+        assert!(matches!(
+            error,
+            session::StartError::Spawn { ref source, .. }
+                if source.kind() == std::io::ErrorKind::NotFound
+        ));
+        // a folder with a `python3` (here `true`): it is started
+        std::os::unix::fs::symlink("/bin/true", bin.path().join("python3")).unwrap();
+        let config = python_config(&dir, Some(bin.path().into()));
+        assert!(session::start(config, sink).is_ok());
+    }
+}

@@ -182,6 +182,16 @@ pub(crate) async fn run_command(
     cx: &mut AsyncWindowContext,
     request: Request,
 ) {
+    // The `PATH` of the login shell (macOS started from Finder or the Dock): waited for here, off
+    // the thread of the window, before anything is looked at. Nothing else awaits between the
+    // check of `exec_running` and the box below.
+    let login_path = if matsu_platform::login_path::is_pending() {
+        cx.background_executor()
+            .spawn(async { matsu_platform::login_path::wait() })
+            .await
+    } else {
+        matsu_platform::login_path::get()
+    };
     let Some(prepared) = prepare(view, cx, &request.command) else {
         return;
     };
@@ -202,6 +212,7 @@ pub(crate) async fn run_command(
     let mut spec = Spec::new(prepared.command.clone());
     spec.folder = folder;
     spec.capture = capture;
+    spec.path = login_path;
     spec.unicode_shell = flags.output_encoding() == matsu_core::encoding::Encoding::Utf16Le;
     let sender = if flags.send_stdin() {
         let (tx, rx) = stdin_channel();

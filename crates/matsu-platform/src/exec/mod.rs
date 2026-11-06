@@ -39,6 +39,8 @@ mod windows;
 
 #[cfg(unix)]
 use unix as sys;
+#[cfg(unix)]
+pub(crate) use unix::kill_tree;
 #[cfg(windows)]
 use windows as sys;
 
@@ -75,6 +77,10 @@ pub struct Spec {
     pub unicode_shell: bool,
     /// The standard input.
     pub stdin: Option<StdinReceiver>,
+    /// The `PATH` for the program (and for the shell that runs it), `None` for the one of this
+    /// program. macOS started from Finder or the Dock: the `PATH` of the login shell
+    /// ([`crate::login_path`]).
+    pub path: Option<std::ffi::OsString>,
 }
 
 impl Spec {
@@ -85,6 +91,7 @@ impl Spec {
             capture: true,
             unicode_shell: false,
             stdin: None,
+            path: None,
         }
     }
 }
@@ -369,6 +376,9 @@ fn launch(
 ) -> io::Result<Child> {
     if let Some(folder) = &spec.folder {
         command.current_dir(folder);
+    }
+    if let Some(path) = &spec.path {
+        command.env("PATH", path);
     }
     command.stdin(match (&spec.stdin, spec.capture) {
         (Some(_), _) => Stdio::piped(),
