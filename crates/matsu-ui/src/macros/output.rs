@@ -292,7 +292,7 @@ impl Output {
                 .on_click(actions.on_close),
         );
         Some(
-            font.apply(crate::a11y::group(div().id("macro-panel"), "マクロの出力"))
+            crate::a11y::group(div().id("macro-panel"), "マクロの出力")
                 .flex()
                 .flex_col()
                 .h(px(170.))
@@ -312,8 +312,7 @@ impl Output {
                         .child(buttons),
                 )
                 .child(
-                    div()
-                        .id("macro-output")
+                    font.apply(div().id("macro-output"))
                         .role(gpui::Role::Log)
                         .aria_label("出力")
                         .flex_1()
