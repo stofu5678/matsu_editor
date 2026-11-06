@@ -147,9 +147,9 @@ fn publish(path: Option<OsString>) {
     }
 }
 
-/// The `PATH` of the login shell, mixed with the one this program started with (see [`mix`]),
-/// when it has been read; `None` while it is read, when it could not be, and when [`start`] did
-/// nothing. Never waits.
+/// The `PATH` of the login shell, mixed with the one this program started with (the absolute
+/// folders of the shell first, then the new ones of the start), when it has been read; `None`
+/// while it is read, when it could not be, and when [`start`] did nothing. Never waits.
 pub fn get() -> Option<OsString> {
     let slot = SLOT.get()?;
     slot.result
@@ -247,7 +247,7 @@ fn parse_output(output: &[u8], mark: &str) -> Result<Vec<u8>, &'static str> {
 ///   or a launcher added stays).
 ///
 /// `None` when the shell has no absolute folder: it could not be read.
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 fn mix(shell: &OsStr, startup: Option<&OsStr>) -> Option<OsString> {
     fn absolute_new(path: &OsStr, folders: &mut Vec<PathBuf>) {
         for folder in std::env::split_paths(path) {
