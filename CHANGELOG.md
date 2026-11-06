@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/stofu5678/matsu_editor/compare/v0.9.1...v0.9.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **platform:** start programs with the login shell's PATH on macOS when launched from Finder or the Dock ([#364](https://github.com/stofu5678/matsu_editor/issues/364)) ([d352b1f](https://github.com/stofu5678/matsu_editor/commit/d352b1fc31630d1b0aafb78d610f6841b93437b1))
+
 ## [0.9.1](https://github.com/stofu5678/matsu_editor/compare/v0.9.0...v0.9.1) (2026-11-06)
 
 
