@@ -7,7 +7,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# The clock of the tests: `date +%s` says $FAKE_NOW, anything else goes to the real date.
+# The clock of the tests: `date +%s`, the way pick.sh reads the time, says $FAKE_NOW; anything else (`date -d ...`)
+# goes to the real date. A pick.sh that reads the clock another way fails most checks here.
 real_date=$(command -v date)
 mkdir "$work/bin"
 cat > "$work/bin/date" <<EOF

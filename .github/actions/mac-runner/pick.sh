@@ -31,15 +31,17 @@ if [ -z "${reason}" ]; then
       # for the one before it, in the `release` group) sees the heartbeat of that moment. Then the heartbeat counts
       # against the time of the pushed commit, a few seconds before the run was created, if that is at most 2 hours
       # ago: a longer wait is not normal (every job has a time limit of an hour at most), and the Mac may be closed
-      # by now.
+      # by now. main takes only squash merges made by GitHub (the repository allows no other kind, and its
+      # protection covers the admins too), so the time of the pushed commit is the time of the merge.
       created=
-      if [[ "${HEAD_COMMIT_TIME}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$ ]]; then
+      iso='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$'
+      if [[ "${HEAD_COMMIT_TIME}" =~ ${iso} ]]; then
         created=$(date -d "${HEAD_COMMIT_TIME}" +%s 2> /dev/null) || created=
       fi
-      # (The commit cannot be later than now here: it is at most 15 minutes after the heartbeat, which is older.)
-      if [[ "${created}" =~ ^[0-9]{1,12}$ ]] && [ $((now - created)) -le 7200 ] &&
+      if [[ "${created}" =~ ^[0-9]{1,12}$ ]] && [ "${created}" -le "${now}" ] && [ $((now - created)) -le 7200 ] &&
         [ "${seen}" -ge $((created - 900)) ]; then
-        how="seen $((created > seen ? created - seen : 0)) seconds before this run was created, $((now - created)) seconds ago"
+        how="seen $((created > seen ? created - seen : 0)) seconds before this run was created"
+        how="${how}, $((now - created)) seconds ago"
       else
         reason="MAC_RUNNER_SEEN is older than 15 minutes ($((now - seen)) seconds)"
       fi
