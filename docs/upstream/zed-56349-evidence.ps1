@@ -7,7 +7,7 @@ https://github.com/zed-industries/zed/issues/56349#issuecomment-6078561427
 .DESCRIPTION
 Run it on the Windows machine to check, from a clone of https://github.com/stofu5678/matsu_editor
 that has this script (branch docs/zed-56349-repro). It needs Git, Rust (rustup) and the Visual
-Studio C++ build tools, about 8 GB of disk and about 20 minutes. Windows open and close one at a
+Studio C++ build tools, about 8 GB of disk and 15 to 25 minutes. Windows open and close one at a
 time while it runs; leave the machine alone until it ends. docs/upstream/zed-56349.md (Japanese)
 has the same steps by hand.
 
@@ -24,11 +24,15 @@ company). It does this:
      diag  with poc/gpui-textview/patches/gpui-pre-windows-atlas-diag.diff (at HEAD), which logs
            the private bytes right before and after each atlas texture creation and upload.
    The patches go on gpui-pre-windows 0.3.8 from the .crate file in Cargo's cache, after its
-   SHA-256 is checked against the prototype's Cargo.lock.
+   SHA-256 is checked against the prototype's Cargo.lock. After the fix and diag builds,
+   Cargo.lock must differ from the prototype's only in the source and checksum lines of
+   gpui-pre-windows, so every other crate is the same version as in the gpui build.
 3. Starts each window, reads its working set and private bytes 6 seconds later (Get-Process;
    Task Manager shows them as "Working set (memory)" and "Commit size") and closes it. Some runs
    also write a memory breakdown (memstat-<pid>.txt) or the atlas log (atlas-<pid>.txt). The
    first run of each window in the gpui and fix builds is captured as a picture (PrintWindow).
+   A window that ends by itself before a reading is recorded under "Runs" in summary.md, has no
+   numbers from that reading on, and the next window starts.
 4. Writes summary.md (the comment's numbers next to the measured ones), measurements.csv, the
    logs and the pictures to <WorkDir>\evidence-<time>, replaces the user folder, user name and
    computer name in the text files, and zips the folder.
@@ -72,6 +76,7 @@ $RunTotal = 0
 $Plan = New-Object System.Collections.Generic.List[object]
 $Samples = New-Object System.Collections.Generic.List[object]
 $Runs = New-Object System.Collections.Generic.List[object]
+$Missing = @()
 
 # Window pictures and their comparison. PrintWindow with PW_RENDERFULLCONTENT also gets what
 # DirectX draws; the thread is made per-monitor DPI aware so that the sizes are real pixels.
@@ -432,9 +437,18 @@ function Invoke-Build([string]$Name, [string]$CrateDir) {
     }
     if ($CrateDir) {
         # A [patch] that was not used leaves the registry source in Cargo.lock.
-        $lock = [IO.File]::ReadAllText($LockPath)
-        if ($lock -match '(?m)^name = "gpui-pre-windows"\r?\nversion = "0\.3\.8"\r?\nsource = ') {
+        $lock = [IO.File]::ReadAllText($LockPath).Replace("`r`n", "`n").TrimStart([char]0xFEFF)
+        if ($lock -match '(?m)^name = "gpui-pre-windows"\nversion = "0\.3\.8"\nsource = ') {
             throw "the $Name build did not use $CrateDir"
+        }
+        # The patched crate loses its source and checksum lines. Any other change would mean that
+        # other crates are not the versions of the gpui build.
+        $expected = [regex]::Replace([Text.Encoding]::UTF8.GetString($LockPristine).Replace("`r`n", "`n").TrimStart([char]0xFEFF),
+            '(?m)^(name = "gpui-pre-windows"\nversion = "0\.3\.8"\n)source = [^\n]*\nchecksum = [^\n]*\n', '$1')
+        # -cne: -ne ignores the case of letters.
+        if ($lock -cne $expected) {
+            [IO.File]::WriteAllText((Join-Path $Out "Cargo.lock-$Name"), $lock, $Utf8)
+            throw "Cargo.lock of the $Name build differs from the prototype's in more than the source and checksum of gpui-pre-windows (saved as Cargo.lock-$Name)"
         }
         [IO.File]::WriteAllBytes($LockPath, $LockPristine)
     }
@@ -474,7 +488,16 @@ function Invoke-Run($Item) {
             $wait = [int]($seconds * 1000 - $clock.ElapsedMilliseconds)
             if ($wait -gt 0) { Start-Sleep -Milliseconds $wait }
             $process.Refresh()
-            if ($process.HasExited) { throw (Fmt '{0} ended (exit code {1}) before {2} s' $name $process.ExitCode $seconds) }
+            if ($process.HasExited) {
+                # Recorded in runs.csv and the summary; the other windows still run. A program that
+                # ends at once can be gone before its exit code is read.
+                $code = $null
+                try { $code = $process.ExitCode } catch { $code = $null }
+                if ($null -eq $code) { $code = 'unknown' }
+                $ended = Fmt 'ended by itself (exit code {0}) before the {1} s reading' $code $seconds
+                Write-Log (Fmt '[{0,2}/{1}] {2,-28} {3}' $script:RunCount $RunTotal $name $ended)
+                break
+            }
             $sample = [pscustomobject]@{
                 run = $name; build = $Item.Build; config = $Item.Config; rep = $Item.Rep; process_id = $process.Id
                 seconds = $seconds; elapsed_ms = $clock.ElapsedMilliseconds
@@ -483,7 +506,7 @@ function Invoke-Run($Item) {
             $Samples.Add($sample)
             Write-Log (Fmt '[{0,2}/{1}] {2,-28} {3,2} s  working set {4,6:F1} MiB  private {5,6:F1} MiB' $script:RunCount $RunTotal $name $seconds ($sample.working_set_bytes / 1MB) ($sample.private_bytes / 1MB))
         }
-        if ($Item.Capture) {
+        if ($Item.Capture -and $ended -eq 'closed') {
             $process.Refresh()
             try {
                 $result = [Zed56349.Native]::Capture($process.MainWindowHandle, (Join-Path $CapturesDir "$name.png"))
@@ -517,16 +540,28 @@ function Get-Stat([string]$Build, [string]$Config, [int]$Seconds = 6, [string]$F
     Fmt '{0:F1} ({1:F1}-{2:F1})' $median $values[0] $values[$n - 1]
 }
 
+# The file that the run's own process wrote (<prefix>-<process ID>.txt), or $null.
 function Find-RunFile([string]$Run, [string]$Prefix) {
-    $files = @(Get-ChildItem -LiteralPath (Join-Path $RunsDir $Run) -Filter "$Prefix-*.txt" -File -ErrorAction SilentlyContinue)
-    if ($files.Count -eq 1) { return $files[0].FullName }
+    $entry = @($Runs | Where-Object { $_.run -eq $Run })
+    if ($entry.Count -ne 1) { return $null }
+    $path = Join-Path (Join-Path $RunsDir $Run) (Fmt '{0}-{1}.txt' $Prefix $entry[0].process_id)
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
     $null
+}
+
+# Runs that should have written a memstat or an atlas file but did not. A window that ended by
+# itself is already listed as such.
+function Get-MissingFile {
+    foreach ($run in @($Runs | Where-Object { $_.ended -notlike 'ended by itself*' })) {
+        if ($run.config -like '*memstat*' -and -not (Find-RunFile $run.run 'memstat')) { Fmt '{0}: no memstat-{1}.txt' $run.run $run.process_id }
+        if ($run.build -eq 'diag' -and $run.config -like '*-log' -and -not (Find-RunFile $run.run 'atlas')) { Fmt '{0}: no atlas-{1}.txt' $run.run $run.process_id }
+    }
 }
 
 # The lines of memstat-<pid>.txt (the prototype's src/memstat.rs) that the comment talks about.
 function Read-Memstat([string]$Path) {
+    if (-not $Path) { return [pscustomobject]@{ RustHeap = 'no memstat file'; Win32Heaps = 'no memstat file'; Size4 = 'no memstat file'; Size5 = 'no memstat file' } }
     $result = [ordered]@{ RustHeap = '-'; Win32Heaps = '-'; Size4 = 'not listed'; Size5 = 'not listed' }
-    if (-not $Path) { return [pscustomobject]$result }
     $text = [IO.File]::ReadAllText($Path)
     if ($text -match 'rust heap live\s+([\d.]+) MB') { $result.RustHeap = $Matches[1] }
     if ($text -match 'win32 heaps\s+([\d.]+) MB\s+committed') { $result.Win32Heaps = $Matches[1] }
@@ -575,6 +610,7 @@ function Read-AtlasLog([string]$Path) {
     $textures = New-Object System.Collections.Generic.List[string]
     $uploads = New-Object System.Collections.Generic.List[object]
     $noContext1 = $false
+    $lastUpload = $null
     foreach ($line in [IO.File]::ReadAllLines($Path)) {
         if ($line -match 'texture (\w+)\[(\d+)\] created: (\d+)x(\d+) (\S+), (\d+) KiB; private \S+ -> \S+ MB \(([+-]?\d+|\?) KiB\)') {
             $key = $Matches[1] + '[' + $Matches[2] + ']'
@@ -586,6 +622,11 @@ function Read-AtlasLog([string]$Path) {
             $delta = $null
             if ($Matches[5] -ne '?') { $delta = [int]$Matches[5] }
             $uploads.Add([pscustomobject]@{ Index = [int]$Matches[1]; Texture = ($Matches[2] + '[' + $Matches[3] + ']'); Api = $Matches[4]; Delta = $delta })
+            # Each line starts with the seconds since the log's first line.
+            if ($line -match '^\s*(\d+\.\d+) s ') {
+                $time = [double]::Parse($Matches[1], $Inv)
+                if ($null -eq $lastUpload -or $time -gt $lastUpload) { $lastUpload = $time }
+            }
         }
     }
     $near = New-Object System.Collections.Generic.List[object]
@@ -619,6 +660,7 @@ function Read-AtlasLog([string]$Path) {
         Zero = $zero
         ShrankUnknown = Fmt '{0} / {1}' $shrank $unknown
         Sum = Fmt '{0:F1} MiB' ($sum / 1024)
+        LastUpload = $lastUpload
     }
 }
 
@@ -632,6 +674,11 @@ function Write-Summary {
     if ($Repeat -gt 1) { $runsNote = Fmt 'Most windows were run {0} times; a cell with several runs shows the median and the range (min-max).' $Repeat }
     $md.Add((Fmt 'Collected {0} by `docs/upstream/zed-56349-evidence.ps1` from stofu5678/matsu_editor@{1}{2}. The script was written with Claude Code (an AI) and reviewed with Codex (an AI); the numbers come from running it on the machine below. Memory is in MiB (1024 x 1024 bytes). {3} Raw data: `measurements.csv`, `runs/`, `captures/`, `log.txt`; the script and the patches: `inputs/`.' $Started.ToString('yyyy-MM-dd HH:mm zzz', $Inv) $HeadCommit.Substring(0, 12) $scriptNote $runsNote))
     $md.Add('')
+    $selfEnded = @($Runs | Where-Object { $_.ended -like 'ended by itself*' })
+    if ($selfEnded.Count -gt 0) {
+        $md.Add((Fmt '**{0} of the {1} windows ended by themselves before a reading, so some numbers below are missing; see "Runs" at the end.**' $selfEnded.Count $Runs.Count))
+        $md.Add('')
+    }
     $md.Add('## Machine')
     $md.Add('')
     foreach ($key in $Machine.Keys) { $md.Add((Fmt '- {0}: {1}' $key $Machine[$key])) }
@@ -644,6 +691,7 @@ function Write-Summary {
     $md.Add((Fmt '- gpui: as published, `cargo build --release --locked` (gpui-pre {0}, built from zed {1}).' $GpuiPre $ZedRev))
     $md.Add((Fmt '- fix: gpui-pre-windows 0.3.8 from the `.crate` in Cargo''s cache (SHA-256 {0}, the checksum in Cargo.lock) with `gpui-pre-windows-atlas-upload.diff` at {1} (SHA-256 {2}), the patch the comment links to.' $CrateSha $PocCommit.Substring(0, 7) $FixSha))
     $md.Add((Fmt '- diag: the same crate with `gpui-pre-windows-atlas-diag.diff` (SHA-256 {0}), which logs the private bytes right before and after each atlas texture creation and upload (see section 3).' $DiagSha))
+    $md.Add('- fix and diag: after each build, Cargo.lock differed from the prototype''s only in the `source` and `checksum` lines of gpui-pre-windows 0.3.8 (the script stops otherwise), so every other crate is the same version as in gpui.')
     $md.Add((Fmt '- All six programs are {0} (PE header); Rust {1}, host {2}.' (($Machines | Sort-Object -Unique) -join ', ') $RustRelease $RustHost))
     $md.Add('')
 
@@ -666,6 +714,15 @@ function Write-Summary {
     $md.Add('')
     $md.Add((Fmt 'Prototype (gpui), one more run read at 6 s and 40 s: working set {0} -> {1}, private {2} -> {3}. Comment: "it is never released (still there after 40 s)".' (Get-Stat gpui poc-40s 6) (Get-Stat gpui poc-40s 40) (Get-Stat gpui poc-40s 6 private_bytes) (Get-Stat gpui poc-40s 40 private_bytes)))
     $md.Add('')
+    $firstFrames = @(foreach ($run in $Runs) {
+            $err = Join-Path (Join-Path $RunsDir $run.run) 'stderr.txt'
+            if ((Test-Path -LiteralPath $err) -and ([IO.File]::ReadAllText($err) -match 'first frame: (\d+(?:\.\d+)?) ms')) { [double]::Parse($Matches[1], $Inv) }
+        })
+    if ($firstFrames.Count -gt 0) {
+        $sorted = @($firstFrames | Sort-Object)
+        $md.Add((Fmt 'The prototype printed its first frame {0:F0}-{1:F0} ms after the start of its main(), over all {2} of its runs that printed it (every build and setting; `stderr.txt`).' $sorted[0] $sorted[$sorted.Count - 1] $sorted.Count))
+        $md.Add('')
+    }
 
     $md.Add('## 2. Memory breakdown 6 s after start (memstat)')
     $md.Add('')
@@ -688,6 +745,7 @@ function Write-Summary {
     $md.Add('')
     $md.Add('| Run | Call | Textures created | Uploads | Grew by about the texture size | Grew by other amounts | Did not grow | Shrank / unknown | Sum |')
     $md.Add('|---|---|---|---|---|---|---|---|---|')
+    $lastUploads = New-Object System.Collections.Generic.List[double]
     foreach ($run in @($Runs | Where-Object { $_.build -eq 'diag' -and $_.config -like '*-log' })) {
         $file = Find-RunFile $run.run 'atlas'
         if (-not $file) {
@@ -695,9 +753,14 @@ function Write-Summary {
             continue
         }
         $atlas = Read-AtlasLog $file
+        if ($null -ne $atlas.LastUpload) { $lastUploads.Add($atlas.LastUpload) }
         $md.Add((Fmt '| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} |' $run.run $atlas.Calls $atlas.Textures $atlas.Uploads $atlas.Near $atlas.Other $atlas.Zero $atlas.ShrankUnknown $atlas.Sum))
     }
     $md.Add('')
+    if ($lastUploads.Count -gt 0) {
+        $md.Add((Fmt 'In these logs, the last upload is at most {0:F3} s after the log''s first line (each line starts with the seconds since the first line).' ($lastUploads | Measure-Object -Maximum).Maximum))
+        $md.Add('')
+    }
     $md.Add('Comment: "Only one atlas texture is created (Subpixel, 1024x1024 RGBA = 4 MB). Logging `PrivateUsage` around each call showed that every `UpdateSubresource` into that texture adds exactly +4.0 MB"; "With `TextRenderingMode::Grayscale` the atlas is R8 (1 MB per page) and the growth is smaller but still present"; "CJK text makes it much worse: more distinct glyphs, so more uploads".')
     $md.Add('')
 
@@ -733,7 +796,7 @@ function Write-Summary {
         $md.Add((Fmt '- {0}: {1} (`captures/gpui-{2}-1.png`, `captures/fix-{2}-1.png`)' $row.Label $result $row.Config))
     }
     $md.Add('')
-    $md.Add('The prototype''s status bar shows the time to its first frame in milliseconds, which differs from run to run. The window title of the prototype at 97908ca still has the project''s old name.')
+    $md.Add('The prototype''s status bar shows the time to its first frame in milliseconds, which differs from run to run. The window title of the prototype at 97908ca still has the project''s old name. The title bar looks different when the window is not the active one, so a difference only in the title bar can come from which window had the focus when the picture was taken.')
     $md.Add('')
     $md.Add('Comment: "rendering looks the same".')
     $md.Add('')
@@ -745,18 +808,44 @@ function Write-Summary {
 
     $md.Add('## Runs')
     $md.Add('')
-    $killed = @($Runs | Where-Object { $_.ended -ne 'closed' })
-    if ($killed.Count -eq 0) {
-        $md.Add((Fmt '{0} windows were started one at a time, and each ended within 5 s of being closed. Total time: {1:F0} minutes.' $Runs.Count ((Get-Date) - $Started).TotalMinutes))
+    $odd = @($Runs | Where-Object { $_.ended -ne 'closed' })
+    $minutes = ((Get-Date) - $Started).TotalMinutes
+    if ($odd.Count -eq 0) {
+        $md.Add((Fmt '{0} windows were started one at a time, and each ended within 5 s of being closed. Total time: {1:F0} minutes.' $Runs.Count $minutes))
     } else {
-        $md.Add((Fmt '{0} windows were started one at a time; {1} did not end within 5 s of being closed and were killed ({2}). Total time: {3:F0} minutes.' $Runs.Count $killed.Count (($killed | ForEach-Object { $_.run }) -join ', ') ((Get-Date) - $Started).TotalMinutes))
+        $md.Add((Fmt '{0} windows were started one at a time. Total time: {1:F0} minutes. These did not end as planned; a window that ended by itself has no numbers from that reading on:' $Runs.Count $minutes))
+        $md.Add('')
+        foreach ($run in $odd) { $md.Add((Fmt '- {0}: {1}' $run.run $run.ended)) }
     }
     $md.Add('')
+    if ($Missing.Count -gt 0) {
+        $md.Add('Files that a run should have written but did not:')
+        $md.Add('')
+        foreach ($line in $Missing) { $md.Add('- ' + $line) }
+        $md.Add('')
+    }
     $md.Add('## Not shown by this')
     $md.Add('')
     $md.Add('- What the driver or the D3D11 runtime does inside a call: the logs show only the process''s private bytes around each call.')
     $md.Add('- Other GPUs.')
     [IO.File]::WriteAllLines((Join-Path $Out 'summary.md'), $md.ToArray(), $Utf8)
+}
+
+# Compress-Archive of Windows PowerShell 5.1 writes "\" between folder names, which unzip tools on
+# other systems take as part of the file name; the zip format uses "/".
+function New-Zip([string]$Folder, [string]$Zip) {
+    $Folder = $Folder.TrimEnd('\')
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::Open($Zip, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in @(Get-ChildItem -LiteralPath $Folder -Recurse -File)) {
+            if (-not $file.FullName.StartsWith($Folder + '\', [StringComparison]::OrdinalIgnoreCase)) { throw "$($file.FullName) is not in $Folder" }
+            $entry = $file.FullName.Substring($Folder.Length + 1).Replace('\', '/')
+            $null = [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal)
+        }
+    } finally {
+        $archive.Dispose()
+    }
 }
 
 # Replaces the user folder, the user name in paths and the computer name in the text files.
@@ -829,7 +918,7 @@ try {
     New-Item -ItemType Directory -Force -Path $Out, $RunsDir, $CapturesDir, $InputsDir | Out-Null
     $LogPath = Join-Path $Out 'log.txt'
     Write-Log ('zed-56349-evidence, ' + $Started.ToString('yyyy-MM-dd HH:mm:ss zzz', $Inv))
-    Write-Log 'This takes 20 to 25 minutes. Windows open and close one at a time; leave the machine alone until it ends.'
+    Write-Log 'This takes 15 to 25 minutes. Windows open and close one at a time; leave the machine alone until it ends.'
     Write-Log ('Work folder: ' + $WorkDir)
     Write-Log ''
 
@@ -982,12 +1071,17 @@ try {
 
     $Samples | Export-Csv -LiteralPath (Join-Path $Out 'measurements.csv') -NoTypeInformation -Encoding UTF8
     $Runs | Export-Csv -LiteralPath (Join-Path $Out 'runs.csv') -NoTypeInformation -Encoding UTF8
+    $Missing = @(Get-MissingFile)
     Write-Summary
+    $odd = @($Runs | Where-Object { $_.ended -ne 'closed' })
+    if ($odd.Count -gt 0 -or $Missing.Count -gt 0) {
+        Write-Log (Fmt 'Note: {0} windows did not end as planned and {1} files are missing; see "Runs" in summary.md.' $odd.Count $Missing.Count)
+    }
     Write-Log ('Done in ' + (Fmt '{0:F0}' ((Get-Date) - $Started).TotalMinutes) + ' minutes.')
     $left = Invoke-Redaction
     $Zip = $Out + '.zip'
     if (Test-Path -LiteralPath $Zip) { Remove-Item -LiteralPath $Zip -Force }
-    Compress-Archive -LiteralPath @(Get-ChildItem -LiteralPath $Out | ForEach-Object { $_.FullName }) -DestinationPath $Zip
+    New-Zip $Out $Zip
     # From here on, the console only: the files are cleaned and zipped.
     Write-Host ('Summary: ' + (Join-Path $Out 'summary.md'))
     Write-Host ('Everything, zipped: ' + $Zip)
