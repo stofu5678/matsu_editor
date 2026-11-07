@@ -29,19 +29,23 @@ if [ -z "${reason}" ]; then
     elif [ "${seen}" -lt $((now - 900)) ]; then
       # A run reads the variables as they were when it was created, so a run that waited (a run of release.yml waits
       # for the one before it, in the `release` group) sees the heartbeat of that moment. Then the heartbeat counts
-      # against the time of the pushed commit, a few seconds before the run was created, if that is at most 2 hours
-      # ago: a longer wait is not normal (every job has a time limit of an hour at most), and the Mac may be closed
-      # by now. main takes only squash merges made by GitHub (the repository allows no other kind, and its
-      # protection covers the admins too), so the time of the pushed commit is the time of the merge.
+      # against the time of the pushed commit, a few seconds before the run was created: main takes only squash
+      # merges made by GitHub (the repository allows no other kind, and its protection covers the admins too), so
+      # that is the time of the merge.
+      # - The heartbeat must be from before the run was created (a minute of slack). A newer one was read later, by a
+      #   re-run for example, or the commit is older than the run; then the rule above stands.
+      # - The commit must be at most 2 hours old: a longer wait is not normal (every job has a time limit of an hour
+      #   at most), and the Mac may be closed by now.
       created=
       iso='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$'
       if [[ "${HEAD_COMMIT_TIME}" =~ ${iso} ]]; then
         created=$(date -d "${HEAD_COMMIT_TIME}" +%s 2> /dev/null) || created=
       fi
-      if [[ "${created}" =~ ^[0-9]{1,12}$ ]] && [ "${created}" -le "${now}" ] && [ $((now - created)) -le 7200 ] &&
-        [ "${seen}" -ge $((created - 900)) ]; then
-        how="seen $((created > seen ? created - seen : 0)) seconds before this run was created"
-        how="${how}, $((now - created)) seconds ago"
+      if [[ "${created}" =~ ^[0-9]{1,12}$ ]] && [ "${seen}" -ge $((created - 900)) ] &&
+        [ "${seen}" -le $((created + 60)) ] && [ "${created}" -le "${now}" ] && [ $((now - created)) -le 7200 ]; then
+        before=$((created > seen ? created - seen : 0))
+        waited=$((now - created))
+        how="seen ${before} seconds before this run was created, which was ${waited} seconds ago"
       else
         reason="MAC_RUNNER_SEEN is older than 15 minutes ($((now - seen)) seconds)"
       fi

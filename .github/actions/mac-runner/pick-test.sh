@@ -7,13 +7,18 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# The clock of the tests: `date +%s`, the way pick.sh reads the time, says $FAKE_NOW; anything else (`date -d ...`)
-# goes to the real date. A pick.sh that reads the clock another way fails most checks here.
+# The clock of the tests: `date +%s`, the way pick.sh reads the time, says $FAKE_NOW (and leaves a mark that the end
+# checks); anything else (`date -d ...`) goes to the real date. A pick.sh that reads the clock another way fails here.
 real_date=$(command -v date)
 mkdir "$work/bin"
 cat > "$work/bin/date" <<EOF
 #!/bin/bash
-if [ "\$#" -eq 1 ] && [ "\$1" = +%s ]; then echo "\$FAKE_NOW"; else exec "$real_date" "\$@"; fi
+if [ "\$#" -eq 1 ] && [ "\$1" = +%s ]; then
+  touch "$work/clock-read"
+  echo "\$FAKE_NOW"
+else
+  exec "$real_date" "\$@"
+fi
 EOF
 chmod +x "$work/bin/date"
 
@@ -81,6 +86,14 @@ check github 'waited 30 minutes; seen 901 seconds before the commit' \
   MAC_RUNNER_SEEN=$((now - 2701)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
 check self-hosted 'waited 2 hours' MAC_RUNNER_SEEN=$((now - 7300)) HEAD_COMMIT_TIME="$(iso $((now - 7200)))"
 check github 'waited 2 hours and a second' MAC_RUNNER_SEEN=$((now - 7301)) HEAD_COMMIT_TIME="$(iso $((now - 7201)))"
+check self-hosted 'waited 30 minutes; seen 60 seconds after the commit' \
+  MAC_RUNNER_SEEN=$((now - 1740)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
+check github 'seen 61 seconds after the commit: read after the run was created' \
+  MAC_RUNNER_SEEN=$((now - 1739)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
+check github 'a re-run an hour after the merge; the Mac seen 30 minutes after it and closed since' \
+  MAC_RUNNER_SEEN=$((now - 1800)) HEAD_COMMIT_TIME="$(iso $((now - 3600)))"
+check github 'a commit 40 minutes older than its push; the Mac closed 30 minutes ago' \
+  MAC_RUNNER_SEEN=$((now - 1800)) HEAD_COMMIT_TIME="$(iso $((now - 2400)))"
 check self-hosted 'a commit time with the offset +00:00' MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="$("$real_date" -u -d "@$((now - 1800))" +%Y-%m-%dT%H:%M:%S+00:00)"
 check self-hosted 'a commit time in Japan time (+09:00)' MAC_RUNNER_SEEN=$((now - 1900)) \
@@ -103,5 +116,9 @@ check github 'a fresh commit time does not help a pull request from a fork' MAC_
 check github 'a fresh commit time does not help MAC_RUNNER=github' MAC_RUNNER=github MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
 
+if [ ! -e "$work/clock-read" ]; then
+  failures=$((failures + 1))
+  echo 'FAIL: pick.sh never read the clock of the tests (date +%s)'
+fi
 echo "$count checks, $failures failed"
 [ "$failures" -eq 0 ]
