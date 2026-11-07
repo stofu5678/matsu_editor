@@ -11,7 +11,9 @@ description: >-
 #   GitHub's runner by itself; the repository ID check says so again, in case that ever changes.
 # - mac-runner-seen is the time (UNIX seconds) at which the Mac last said that the runner is alive. When it is older
 #   than 15 minutes (the Mac is closed or off), CI falls back to GitHub's runner without anybody switching
-#   MAC_RUNNER.
+#   MAC_RUNNER. A run reads the variables as they were when it was created, so for a run that waited before this
+#   job (release.yml waits for the run before it) the heartbeat counts against head-commit-time, the time of the
+#   pushed commit, if that is at most 2 hours ago (2026-11-08, ADR-0027).
 # - This is for convenience. The protection is the job-started hook inside the VM (tools/mac-runner/guest/admit.sh),
 #   which refuses any other repository, event, workflow and job, and which a workflow cannot change.
 
@@ -34,6 +36,12 @@ inputs:
   repo-id:
     description: github.repository_id
     required: true
+  head-commit-time:
+    description: >-
+      github.event.head_commit.timestamp: for a push, the time of the pushed commit (ISO 8601), a few seconds before
+      the run was created; empty for a pull request
+    required: false
+    default: ''
 
 outputs:
   mac:
@@ -54,35 +62,6 @@ runs:
         EVENT: ${{ inputs.event }}
         HEAD_REPO_ID: ${{ inputs.head-repo-id }}
         REPO_ID: ${{ inputs.repo-id }}
-      run: |
-        reason=
-        if [ "${MAC_RUNNER}" != self-hosted ]; then
-          reason="MAC_RUNNER is '${MAC_RUNNER}', not 'self-hosted'"
-        elif ! [[ "${REPO_ID}" =~ ^[0-9]{1,20}$ ]]; then
-          reason="the repository ID is missing or malformed ('${REPO_ID}')"
-        elif [ "${EVENT}" = push ]; then
-          :
-        elif [ "${EVENT}" != pull_request ]; then
-          reason="the event is '${EVENT}', not push or pull_request"
-        elif [ "${HEAD_REPO_ID}" != "${REPO_ID}" ]; then
-          reason="the pull request comes from another repository ('${HEAD_REPO_ID}')"
-        fi
-        if [ -z "${reason}" ]; then
-          now=$(date +%s)
-          if ! [[ "${MAC_RUNNER_SEEN}" =~ ^[0-9]{1,12}$ ]]; then
-            reason="MAC_RUNNER_SEEN is missing or not a number ('${MAC_RUNNER_SEEN}')"
-          elif [ $((10#${MAC_RUNNER_SEEN})) -lt $((now - 900)) ]; then
-            reason="MAC_RUNNER_SEEN is older than 15 minutes ($((now - 10#${MAC_RUNNER_SEEN})) seconds)"
-          elif [ $((10#${MAC_RUNNER_SEEN})) -gt $((now + 60)) ]; then
-            reason="MAC_RUNNER_SEEN is in the future ($((10#${MAC_RUNNER_SEEN} - now)) seconds ahead)"
-          fi
-        fi
-        if [ -z "${reason}" ]; then
-          echo 'macOS runner: self-hosted (MAC_RUNNER=self-hosted, seen recently)'
-          echo 'mac=["self-hosted","matsu-vm"]' >> "$GITHUB_OUTPUT"
-          echo 'mac_kind=self-hosted' >> "$GITHUB_OUTPUT"
-        else
-          echo "macOS runner: GitHub's macos-15, because ${reason}"
-          echo 'mac="macos-15"' >> "$GITHUB_OUTPUT"
-          echo 'mac_kind=github' >> "$GITHUB_OUTPUT"
-        fi
+        HEAD_COMMIT_TIME: ${{ inputs.head-commit-time }}
+      # The rules are in pick.sh, which pick-test.sh tests (the lint job of ci.yml runs it).
+      run: bash "${GITHUB_ACTION_PATH}/pick.sh"

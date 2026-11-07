@@ -54,6 +54,7 @@ jobs:
           event: ${{ github.event_name }}
           head-repo-id: ${{ github.event.pull_request.head.repo.id }}
           repo-id: ${{ github.repository_id }}
+          head-commit-time: ${{ github.event.head_commit.timestamp }}
 
   package:
     name: package (${{ matrix.name }})
