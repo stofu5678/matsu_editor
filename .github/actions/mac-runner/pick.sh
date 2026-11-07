@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Picks the runner of the macOS jobs (ADR-0027) for action.yml next to it: the self-hosted runner in the VM on the
 # maintainer's Mac, or GitHub's macos-15. Reads the inputs from the environment (MAC_RUNNER, MAC_RUNNER_SEEN, EVENT,
-# HEAD_REPO_ID, REPO_ID, HEAD_COMMIT_TIME) and writes `mac` and `mac_kind` to $GITHUB_OUTPUT. Fails closed: anything
-# missing or malformed means GitHub's runner. Runs on GitHub's Ubuntu runner (GNU date). Tests: pick-test.sh.
+# HEAD_REPO_ID, REPO_ID, HEAD_COMMIT_TIME, HEAD_COMMIT_COMMITTER) and writes `mac` and `mac_kind` to $GITHUB_OUTPUT.
+# Fails closed: anything missing or malformed means GitHub's runner. Runs on GitHub's Ubuntu runner (GNU date).
+# Tests: pick-test.sh.
 
 reason=
 how='seen recently'
@@ -29,9 +30,10 @@ if [ -z "${reason}" ]; then
     elif [ "${seen}" -lt $((now - 900)) ]; then
       # A run reads the variables as they were when it was created, so a run that waited (a run of release.yml waits
       # for the one before it, in the `release` group) sees the heartbeat of that moment. Then the heartbeat counts
-      # against the time of the pushed commit, a few seconds before the run was created: main takes only squash
-      # merges made by GitHub (the repository allows no other kind, and its protection covers the admins too), so
-      # that is the time of the merge.
+      # against the time of the pushed commit, a few seconds before the run was created, when GitHub made that commit
+      # (committer noreply@github.com: a merge on GitHub, whose time is the time of the merge). main takes nothing
+      # else (the repository allows only squash merges, and its protection covers the admins too); any other commit
+      # may carry an older date, so it does not count.
       # - The heartbeat must be from before the run was created (a minute of slack). A newer one was read later, by a
       #   re-run for example, or the commit is older than the run; then the rule above stands.
       # - The commit must be at most 2 hours old: a longer wait is not normal (every job has a time limit of an hour
@@ -42,6 +44,8 @@ if [ -z "${reason}" ]; then
       iso='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$'
       if [ -z "${HEAD_COMMIT_TIME}" ]; then
         :
+      elif [ "${HEAD_COMMIT_COMMITTER}" != noreply@github.com ]; then
+        why="GitHub did not make the pushed commit (committer '${HEAD_COMMIT_COMMITTER}')"
       elif ! [[ "${HEAD_COMMIT_TIME}" =~ ${iso} ]] || ! created=$(date -d "${HEAD_COMMIT_TIME}" +%s 2> /dev/null) ||
         ! [[ "${created}" =~ ^[0-9]{1,12}$ ]]; then
         created=

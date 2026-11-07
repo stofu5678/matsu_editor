@@ -81,6 +81,7 @@ jobs:
           head-repo-id: ${{ github.event.pull_request.head.repo.id }}
           repo-id: ${{ github.repository_id }}
           head-commit-time: ${{ github.event.head_commit.timestamp }}
+          head-commit-committer: ${{ github.event.head_commit.committer.email }}
 
   # The quick checks share one job and one runner. As six jobs they each ran for 2 minutes or less but waited 5
   # minutes or more for a runner of their own when several pull requests were open. Every step after the first runs

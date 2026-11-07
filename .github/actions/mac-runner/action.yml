@@ -13,7 +13,7 @@ description: >-
 #   than 15 minutes (the Mac is closed or off), CI falls back to GitHub's runner without anybody switching
 #   MAC_RUNNER. A run reads the variables as they were when it was created, so for a run that waited before this
 #   job (release.yml waits for the run before it) the heartbeat counts against head-commit-time, the time of the
-#   pushed commit, if that is at most 2 hours ago (2026-11-08, ADR-0027).
+#   pushed commit, if GitHub made that commit and it is at most 2 hours old (2026-11-08, ADR-0027).
 # - This is for convenience. The protection is the job-started hook inside the VM (tools/mac-runner/guest/admit.sh),
 #   which refuses any other repository, event, workflow and job, and which a workflow cannot change.
 
@@ -42,6 +42,11 @@ inputs:
       the run was created; empty for a pull request
     required: false
     default: ''
+  head-commit-committer:
+    description: >-
+      github.event.head_commit.committer.email: noreply@github.com when GitHub made the pushed commit (a merge)
+    required: false
+    default: ''
 
 outputs:
   mac:
@@ -63,5 +68,6 @@ runs:
         HEAD_REPO_ID: ${{ inputs.head-repo-id }}
         REPO_ID: ${{ inputs.repo-id }}
         HEAD_COMMIT_TIME: ${{ inputs.head-commit-time }}
+        HEAD_COMMIT_COMMITTER: ${{ inputs.head-commit-committer }}
       # The rules are in pick.sh, which pick-test.sh tests (the lint job of ci.yml runs it).
       run: bash "${GITHUB_ACTION_PATH}/pick.sh"

@@ -27,8 +27,8 @@ iso() { "$real_date" -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
 
 failures=0
 count=0
-# check <self-hosted|github> <what> [NAME=value...]: runs pick.sh on a push of this repository by a Mac seen a minute
-# ago, with the NAME=value changes, and compares the runner it picks.
+# check <self-hosted|github> <what> [NAME=value...]: runs pick.sh on a push of this repository (a commit that GitHub
+# made) by a Mac seen a minute ago, with the NAME=value changes, and compares the runner it picks.
 check() {
   local want=$1 what=$2 kind mac
   shift 2
@@ -37,7 +37,7 @@ check() {
   # TZ=UTC as on GitHub's runner: a time without a zone must not pass for one by luck of the local zone.
   env -i PATH="$work/bin:$PATH" TZ=UTC FAKE_NOW="$now" GITHUB_OUTPUT="$work/out" \
     MAC_RUNNER=self-hosted MAC_RUNNER_SEEN=$((now - 60)) EVENT=push HEAD_REPO_ID= REPO_ID=1412713500 \
-    HEAD_COMMIT_TIME= "$@" bash "$here/pick.sh" > "$work/log" 2>&1
+    HEAD_COMMIT_TIME= HEAD_COMMIT_COMMITTER=noreply@github.com "$@" bash "$here/pick.sh" > "$work/log" 2>&1
   kind=$(sed -n 's/^mac_kind=//p' "$work/out")
   mac=$(sed -n 's/^mac=//p' "$work/out")
   case "$kind:$mac" in
@@ -131,6 +131,11 @@ if [ -e "$work/ran" ]; then
   failures=$((failures + 1))
   echo 'FAIL: a command in the commit time ran'
 fi
+check github 'waited 30 minutes, but a commit that GitHub did not make' MAC_RUNNER_SEEN=$((now - 1900)) \
+  HEAD_COMMIT_TIME="$(iso $((now - 1800)))" HEAD_COMMIT_COMMITTER=someone@example.com
+log_has "GitHub did not make the pushed commit \\(committer 'someone@example.com'\\)"
+check github 'waited 30 minutes, but no committer' MAC_RUNNER_SEEN=$((now - 1900)) \
+  HEAD_COMMIT_TIME="$(iso $((now - 1800)))" HEAD_COMMIT_COMMITTER=
 check github 'a fresh commit time does not help a pull request from a fork' MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="$(iso $((now - 1800)))" EVENT=pull_request HEAD_REPO_ID=99
 check github 'a fresh commit time does not help MAC_RUNNER=github' MAC_RUNNER=github MAC_RUNNER_SEEN=$((now - 1900)) \
