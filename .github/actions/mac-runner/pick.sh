@@ -50,12 +50,14 @@ if [ -z "${reason}" ]; then
         ! [[ "${created}" =~ ^[0-9]{1,12}$ ]]; then
         created=
         why="the time of the pushed commit is not a date with a zone ('${HEAD_COMMIT_TIME}')"
-      elif [ "${created}" -gt "${now}" ] || [ $((now - created)) -gt 7200 ]; then
-        why="the pushed commit is not from the last 2 hours ($((now - created)) seconds ago)"
       elif [ "${seen}" -lt $((created - 900)) ]; then
         why="the heartbeat was $((created - seen)) seconds older than the pushed commit"
       elif [ "${seen}" -gt $((created + 60)) ]; then
         why="the heartbeat is $((seen - created)) seconds newer than the pushed commit (read after the run was created)"
+      elif [ "${created}" -gt "${now}" ] || [ $((now - created)) -gt 7200 ]; then
+        # (After the two checks above the commit is earlier than now, as the heartbeat is older than 15 minutes; so
+        # this is about the 2 hours.)
+        why="the pushed commit is not from the last 2 hours ($((now - created)) seconds ago)"
       fi
       if [ -n "${created}" ] && [ -z "${why}" ]; then
         before=$((created > seen ? created - seen : 0))

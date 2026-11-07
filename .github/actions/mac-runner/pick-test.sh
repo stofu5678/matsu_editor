@@ -10,6 +10,10 @@ trap 'rm -rf "$work"' EXIT
 # The clock of the tests: `date +%s`, the way pick.sh reads the time, says $FAKE_NOW (and leaves a mark that the end
 # checks); anything else (`date -d ...`) goes to the real date. A pick.sh that reads the clock another way fails here.
 real_date=$(command -v date)
+if ! "$real_date" -d @0 +%s > /dev/null 2>&1; then
+  echo 'pick-test.sh needs GNU date (date -d), as on the Ubuntu runner of the lint job; BSD date (macOS) has no -d'
+  exit 2
+fi
 mkdir "$work/bin"
 cat > "$work/bin/date" <<EOF
 #!/bin/bash
@@ -120,6 +124,9 @@ check self-hosted 'a commit time in Japan time (+09:00)' MAC_RUNNER_SEEN=$((now 
 check github 'a commit time in Japan time, written as UTC (9 hours ahead)' MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="$(TZ=Asia/Tokyo "$real_date" -d "@$((now - 1800))" +%Y-%m-%dT%H:%M:%SZ)"
 check github 'a commit time an hour ahead' MAC_RUNNER_SEEN=$((now - 1000)) HEAD_COMMIT_TIME="$(iso $((now + 3600)))"
+check github 'the Mac stopped 20 minutes ago; a commit 5 seconds ahead of the runner' MAC_RUNNER_SEEN=$((now - 1200)) \
+  HEAD_COMMIT_TIME="$(iso $((now + 5)))"
+log_has 'heartbeat was 1205 seconds older than the pushed commit'
 check github 'a commit time without a zone' MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="$("$real_date" -u -d "@$((now - 1800))" +%Y-%m-%dT%H:%M:%S)"
 check github 'a commit time that is a word' MAC_RUNNER_SEEN=$((now - 1900)) HEAD_COMMIT_TIME=yesterday
