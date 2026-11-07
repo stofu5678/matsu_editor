@@ -36,18 +36,29 @@ if [ -z "${reason}" ]; then
       #   re-run for example, or the commit is older than the run; then the rule above stands.
       # - The commit must be at most 2 hours old: a longer wait is not normal (every job has a time limit of an hour
       #   at most), and the Mac may be closed by now.
+      # `why` says, in the log, why the commit did not help (nothing for a pull request, which has no commit time).
       created=
+      why=
       iso='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$'
-      if [[ "${HEAD_COMMIT_TIME}" =~ ${iso} ]]; then
-        created=$(date -d "${HEAD_COMMIT_TIME}" +%s 2> /dev/null) || created=
+      if [ -z "${HEAD_COMMIT_TIME}" ]; then
+        :
+      elif ! [[ "${HEAD_COMMIT_TIME}" =~ ${iso} ]] || ! created=$(date -d "${HEAD_COMMIT_TIME}" +%s 2> /dev/null) ||
+        ! [[ "${created}" =~ ^[0-9]{1,12}$ ]]; then
+        created=
+        why="the time of the pushed commit is not a date with a zone ('${HEAD_COMMIT_TIME}')"
+      elif [ "${created}" -gt "${now}" ] || [ $((now - created)) -gt 7200 ]; then
+        why="the pushed commit is not from the last 2 hours ($((now - created)) seconds ago)"
+      elif [ "${seen}" -lt $((created - 900)) ]; then
+        why="the heartbeat was $((created - seen)) seconds older than the pushed commit"
+      elif [ "${seen}" -gt $((created + 60)) ]; then
+        why="the heartbeat is $((seen - created)) seconds newer than the pushed commit (read after the run was created)"
       fi
-      if [[ "${created}" =~ ^[0-9]{1,12}$ ]] && [ "${seen}" -ge $((created - 900)) ] &&
-        [ "${seen}" -le $((created + 60)) ] && [ "${created}" -le "${now}" ] && [ $((now - created)) -le 7200 ]; then
+      if [ -n "${created}" ] && [ -z "${why}" ]; then
         before=$((created > seen ? created - seen : 0))
         waited=$((now - created))
         how="seen ${before} seconds before this run was created, which was ${waited} seconds ago"
       else
-        reason="MAC_RUNNER_SEEN is older than 15 minutes ($((now - seen)) seconds)"
+        reason="MAC_RUNNER_SEEN is older than 15 minutes ($((now - seen)) seconds)${why:+; ${why}}"
       fi
     fi
   fi

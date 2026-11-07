@@ -51,7 +51,21 @@ check() {
   fi
 }
 
+# log_has <regex>: the log of the check before says this (why it picked that runner).
+log_has() {
+  count=$((count + 1))
+  if ! grep -Eq -- "$1" "$work/log"; then
+    failures=$((failures + 1))
+    echo "FAIL: the log of the check before does not match /$1/"
+    sed 's/^/  /' "$work/log"
+  fi
+}
+
 check self-hosted 'a push, the Mac seen a minute ago'
+if [ ! -e "$work/clock-read" ]; then
+  echo 'FAIL: pick.sh did not read the clock of the tests (date +%s); the checks would use the real time'
+  exit 1
+fi
 check github 'MAC_RUNNER is github' MAC_RUNNER=github
 check github 'MAC_RUNNER is empty' MAC_RUNNER=
 check github 'the repository ID is not a number' REPO_ID=abc
@@ -74,22 +88,27 @@ check self-hosted 'a heartbeat of 899 seconds ago' MAC_RUNNER_SEEN=$((now - 899)
 check github 'a heartbeat of 901 seconds ago, no commit time' MAC_RUNNER_SEEN=$((now - 901))
 check github 'a heartbeat of 901 seconds ago, a pull request' MAC_RUNNER_SEEN=$((now - 901)) EVENT=pull_request \
   HEAD_REPO_ID=1412713500
+log_has 'older than 15 minutes \(901 seconds\)$'
 
 # A run that waited: the variables are those of the moment it was created (the commit time, give or take seconds).
 check self-hosted 'waited 30 minutes; seen 100 seconds before the commit' \
   MAC_RUNNER_SEEN=$((now - 1900)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
+log_has 'seen 100 seconds before this run was created, which was 1800 seconds ago'
 check self-hosted 'waited 30 minutes; seen 10 seconds after the commit' \
   MAC_RUNNER_SEEN=$((now - 1790)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
 check self-hosted 'waited 30 minutes; seen 899 seconds before the commit' \
   MAC_RUNNER_SEEN=$((now - 2699)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
 check github 'waited 30 minutes; seen 901 seconds before the commit' \
   MAC_RUNNER_SEEN=$((now - 2701)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
+log_has 'heartbeat was 901 seconds older than the pushed commit'
 check self-hosted 'waited 2 hours' MAC_RUNNER_SEEN=$((now - 7300)) HEAD_COMMIT_TIME="$(iso $((now - 7200)))"
 check github 'waited 2 hours and a second' MAC_RUNNER_SEEN=$((now - 7301)) HEAD_COMMIT_TIME="$(iso $((now - 7201)))"
+log_has 'not from the last 2 hours \(7201 seconds ago\)'
 check self-hosted 'waited 30 minutes; seen 60 seconds after the commit' \
   MAC_RUNNER_SEEN=$((now - 1740)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
 check github 'seen 61 seconds after the commit: read after the run was created' \
   MAC_RUNNER_SEEN=$((now - 1739)) HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
+log_has 'heartbeat is 61 seconds newer than the pushed commit'
 check github 'a re-run an hour after the merge; the Mac seen 30 minutes after it and closed since' \
   MAC_RUNNER_SEEN=$((now - 1800)) HEAD_COMMIT_TIME="$(iso $((now - 3600)))"
 check github 'a commit 40 minutes older than its push; the Mac closed 30 minutes ago' \
@@ -104,6 +123,7 @@ check github 'a commit time an hour ahead' MAC_RUNNER_SEEN=$((now - 1000)) HEAD_
 check github 'a commit time without a zone' MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="$("$real_date" -u -d "@$((now - 1800))" +%Y-%m-%dT%H:%M:%S)"
 check github 'a commit time that is a word' MAC_RUNNER_SEEN=$((now - 1900)) HEAD_COMMIT_TIME=yesterday
+log_has "not a date with a zone \\('yesterday'\\)"
 check github 'a commit time that is not a date' MAC_RUNNER_SEEN=$((now - 1900)) HEAD_COMMIT_TIME=2027-13-45T99:99:99Z
 check github 'a commit time with a command in it' MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="\$(touch $work/ran)"
@@ -116,9 +136,5 @@ check github 'a fresh commit time does not help a pull request from a fork' MAC_
 check github 'a fresh commit time does not help MAC_RUNNER=github' MAC_RUNNER=github MAC_RUNNER_SEEN=$((now - 1900)) \
   HEAD_COMMIT_TIME="$(iso $((now - 1800)))"
 
-if [ ! -e "$work/clock-read" ]; then
-  failures=$((failures + 1))
-  echo 'FAIL: pick.sh never read the clock of the tests (date +%s)'
-fi
 echo "$count checks, $failures failed"
 [ "$failures" -eq 0 ]
