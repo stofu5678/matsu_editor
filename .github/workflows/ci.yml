@@ -105,7 +105,7 @@ jobs:
         run: cargo fmt --all --check
       - name: typos
         if: success() || failure()
-        uses: crate-ci/typos@v1.51.1
+        uses: crate-ci/typos@v1.52.0
       - name: actionlint
         if: success() || failure()
         uses: docker://rhysd/actionlint:1.7.12
