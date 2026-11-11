@@ -110,7 +110,7 @@ fn pane(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<OutlinePane>
 
 fn pane_labels(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<String> {
     pane(cx, handle).read_with(cx, |p, _| {
-        p.rows().iter().map(|r| r.label.clone()).collect()
+        p.rows().iter().map(|r| r.label.to_string()).collect()
     })
 }
 

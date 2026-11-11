@@ -468,7 +468,7 @@ pub fn make_func_list_c(
                                 // 2021.3.27: "class Klass final: public base{": the ':' does not
                                 // overwrite the name
                                 if !word.is_empty() && !is_final_context(&word, &item_name) {
-                                    item_name = word.clone();
+                                    item_name.clone_from(&word);
                                 }
                                 mode2 = M2_NAMESPACE_END;
                             } else if mode2 == M2_TEMPLATE_SAVE {
@@ -486,8 +486,8 @@ pub fn make_func_list_c(
                             // "struct name final": the final is not part of the name (but
                             // "struct final" is the name)
                         } else {
-                            template_name = word.clone();
-                            item_name = word.clone();
+                            template_name.clone_from(&word);
+                            item_name.clone_from(&word);
                         }
                     } else if mode2 == M2_TEMPLATE_SAVE || mode2 == M2_TEMPLATE_WORD {
                         // "struct name<X> final": the final is not part of the name
@@ -530,7 +530,8 @@ pub fn make_func_list_c(
                         if item_func_id != 0 && item_func_id != func_obj::FUNCTION {
                             mode2 = M2_NAMESPACE_SAVE;
                             item_line = n as isize + 1;
-                            item_name = to_chars(NO_NAME);
+                            item_name.clear();
+                            item_name.extend(NO_NAME.chars());
                         }
                     }
                     if mode2 == M2_FUNC_NAME_END {
@@ -542,7 +543,7 @@ pub fn make_func_list_c(
                     }
                     // 2004/03/12 zenryaku: PARAMS and _ are not keywords (GNU code)
                     if !(eqs(&word, "PARAMS") || eqs(&word, "_")) {
-                        word_prev = word.clone();
+                        std::mem::swap(&mut word_prev, &mut word);
                     }
                     word_idx = 0;
                     word.clear();
@@ -560,7 +561,7 @@ pub fn make_func_list_c(
                     || matches!(c, '{' | '}' | '(' | ')' | ';' | '\'' | '"')
                     || (c == '/' && (at(&line, i + 1) == '*' || at(&line, i + 1) == '/'))
                 {
-                    word_prev = word.clone();
+                    std::mem::swap(&mut word_prev, &mut word);
                     word_idx = 0;
                     word.clear();
                     mode = MODE_NORMAL;
@@ -600,7 +601,7 @@ pub fn make_func_list_c(
                     if c == '<' {
                         nest_template += 1;
                     } else if c == '>' {
-                        item_name = template_name.clone();
+                        item_name.clone_from(&template_name);
                         nest_template -= 1;
                         if nest_template == 0 {
                             if mode2 == M2_TEMPLATE {
@@ -608,7 +609,7 @@ pub fn make_func_list_c(
                             } else if mode2 == M2_TEMPLATE_WORD {
                                 mode2 = mode2_old;
                                 if mode2 == M2_OPERATOR_WORD {
-                                    word = template_name.clone();
+                                    word.clone_from(&template_name);
                                     word_idx = word.len() as isize - 1;
                                     template_name.clear();
                                 }
@@ -693,12 +694,13 @@ pub fn make_func_list_c(
                     let prefix_len = ns_len[nest_global];
                     ns.truncate(prefix_len);
                     ns.extend(item_name.iter());
-                    let base = qualified(&ns, prefix_len, &item_name);
+                    let mut name = qualified(&ns, prefix_len, &item_name);
                     // Jan. 30, 2005 genta: M2_KR_FUNC
                     // after a function with const, throw or an initializer comes M2_KR_FUNC,
                     // and the "{" is met in that state if there is no ";"
-                    let mut name = base.clone();
-                    let mut new_prefix: Option<String> = None;
+                    // `ns` now holds the qualified name, so the prefix of the nested names is it
+                    // plus "::"
+                    let mut extend_prefix = false;
                     if add_function {
                         nest_func += 1;
                     } else {
@@ -710,14 +712,14 @@ pub fn make_func_list_c(
                         if !visible_member_funcs && nest_point_class == 0 {
                             nest_point_class = nest_global;
                         }
-                        new_prefix = Some(format!("{base}::"));
+                        extend_prefix = true;
                     }
                     item_name.clear();
                     out.push(item_line as usize, name, item_func_id, 0);
                     defined_typedef = false;
                     item_line = -1;
-                    if let Some(prefix) = new_prefix {
-                        ns = to_chars(&prefix);
+                    if extend_prefix {
+                        ns.extend([':', ':']);
                         ns_len[nest_global] += 2;
                     }
                 } else if add_function {
@@ -807,11 +809,11 @@ pub fn make_func_list_c(
                             add = false;
                         }
                         if add {
-                            item_name = if template_name.is_empty() {
-                                word_prev.clone()
+                            item_name.clone_from(if template_name.is_empty() {
+                                &word_prev
                             } else {
-                                template_name.clone()
-                            };
+                                &template_name
+                            });
                             item_line = n as isize + 1;
                         }
                     }
@@ -938,7 +940,7 @@ pub fn make_func_list_c(
                             if !template_name.is_empty() {
                                 word = std::mem::take(&mut template_name);
                             } else {
-                                word = word_prev.clone();
+                                word.clone_from(&word_prev);
                             }
                         }
                         word_idx = word.len() as isize;
@@ -948,7 +950,7 @@ pub fn make_func_list_c(
                             // a space, then the word follows the one before
                             word_prev.push(' ');
                         }
-                        word = word_prev.clone();
+                        word.clone_from(&word_prev);
                         word_idx = word.len() as isize;
                         mode2 = M2_OPERATOR_WORD;
                     } else if mode2 == M2_OPERATOR_WORD {
@@ -956,7 +958,7 @@ pub fn make_func_list_c(
                         if pos > -1 && is_word_char(word_prev[pos as usize + 1]) {
                             word_prev.push(' ');
                         }
-                        word = word_prev.clone();
+                        word.clone_from(&word_prev);
                         word_idx = word.len() as isize;
                     } else {
                         word_idx = 0;
@@ -964,7 +966,7 @@ pub fn make_func_list_c(
                     if c == ':' && at(&line, i + 1) != ':' {
                         if mode2 == M2_NAMESPACE_SAVE {
                             if !word.is_empty() {
-                                item_name = word.clone();
+                                item_name.clone_from(&word);
                             }
                             mode2 = M2_NAMESPACE_END;
                         } else if mode2 == M2_TEMPLATE_SAVE {
@@ -1013,15 +1015,15 @@ pub fn make_func_list_c(
                         mode2 = M2_AFTER_EQUAL;
                     } else if mode2 == M2_NORMAL && is_operator(&word_prev) {
                         // an operator: operator +
-                        word = word_prev.clone();
+                        word.clone_from(&word_prev);
                         word_idx = nlen - 1;
                         mode2 = M2_OPERATOR_WORD;
                     } else if mode2 == M2_OPERATOR_WORD {
                         // operator goes on
-                        word = word_prev.clone();
+                        word.clone_from(&word_prev);
                         word_idx = nlen - 1;
                     } else {
-                        word_prev = word.clone();
+                        word_prev.clone_from(&word);
                         word_idx = -1;
                     }
                     if mode2 == M2_NAMESPACE_SAVE && c == '<' {

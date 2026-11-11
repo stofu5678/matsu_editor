@@ -371,7 +371,7 @@ impl Workspace {
             });
             strip.overflow_x_scroll().track_scroll(&handle)
         };
-        for (i, entry) in entries.iter().cloned().enumerate() {
+        for (i, entry) in entries.into_iter().enumerate() {
             strip = strip.child(self.render_tab(i, entry, own, options, keep_close_visible, cx));
         }
         // `OnLButtonDown`: the list of the captions opens on the press, as a menu does.
