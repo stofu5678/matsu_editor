@@ -197,6 +197,13 @@ impl Shared {
         let _ = self.events.send(event);
     }
 
+    /// Reports a redraw unless one is already waiting for the UI.
+    fn request_redraw(&self) {
+        if !self.redraw_pending.swap(true, Ordering::AcqRel) {
+            self.emit(TerminalEvent::Redraw);
+        }
+    }
+
     fn write(&self, bytes: Vec<u8>) {
         if bytes.is_empty() {
             return;
@@ -223,11 +230,7 @@ impl EventListener for Listener {
     fn send_event(&self, event: Event) {
         let shared = &self.shared;
         match event {
-            Event::Wakeup => {
-                if !shared.redraw_pending.swap(true, Ordering::AcqRel) {
-                    shared.emit(TerminalEvent::Redraw);
-                }
-            }
+            Event::Wakeup => shared.request_redraw(),
             Event::Title(title) => shared.emit(TerminalEvent::Title(clean_title(&title))),
             Event::ResetTitle => shared.emit(TerminalEvent::ResetTitle),
             Event::Bell => shared.emit(TerminalEvent::Bell),
@@ -389,7 +392,9 @@ impl Terminal {
         let pty_options = tty::Options {
             shell: shell.map(|s| tty::Shell::new(shell::program_for_launch(&s.program), s.args)),
             working_directory: options.working_directory,
-            // Read what the child wrote before it ended, so a short command's output is not lost.
+            // Read what the child wrote before it ended, so a short command's output is not lost. (One read of
+            // at most about 64 KiB: `alacritty_terminal` 0.26.0 stops draining there, so the tail of a huge
+            // burst right at the exit can still be lost.)
             drain_on_exit: true,
             env: shell::extra_env(),
             // Escape arguments by the C runtime's rules: an argument with spaces stays one argument.
@@ -460,6 +465,7 @@ impl Terminal {
         let size = size.clamped();
         *self.shared.size.lock().expect("size") = size;
         self.term.lock().resize(size);
+        self.shared.request_redraw();
         if !self.is_running() {
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         }
@@ -527,14 +533,17 @@ impl Terminal {
         }
     }
 
-    /// Scrolls the view back (positive) or forward (negative) by lines.
+    /// Scrolls the view back (positive) or forward (negative) by lines. A redraw is reported, as for
+    /// [`Terminal::scroll_to_bottom`] and [`Terminal::resize`].
     pub fn scroll_display(&self, lines: i32) {
         self.term.lock().scroll_display(Scroll::Delta(lines));
+        self.shared.request_redraw();
     }
 
     /// Scrolls the view to the live screen.
     pub fn scroll_to_bottom(&self) {
         self.term.lock().scroll_display(Scroll::Bottom);
+        self.shared.request_redraw();
     }
 
     /// Stops the reader thread and closes the PTY, which ends the shell if it is still running. The work
