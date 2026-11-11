@@ -295,6 +295,31 @@ fn the_functions_on_a_selection_need_one() {
 }
 
 #[test]
+fn matsus_own_conversions_need_a_selection_and_are_gray_in_view_mode() {
+    let selected = FuncStates {
+        text_selected: true,
+        ..base()
+    };
+    let viewing = FuncStates {
+        text_selected: true,
+        view_mode: true,
+        ..base()
+    };
+    for name in [
+        "F_URL_ENCODE",
+        "F_URL_DECODE",
+        "F_HTML_ESCAPE",
+        "F_HTML_UNESCAPE",
+        "F_BASE64_ENCODE",
+        "F_BASE64_DECODE_TEXT",
+    ] {
+        assert!(!base().is_enabled(code(name)), "{name} without a selection");
+        assert!(selected.is_enabled(code(name)), "{name} with a selection");
+        assert!(!viewing.is_enabled(code(name)), "{name} in view mode");
+    }
+}
+
+#[test]
 fn a_function_with_no_rule_is_enabled() {
     assert!(base().is_enabled(code("F_FILEOPEN")));
     assert!(base().is_enabled(code("F_VIEWMODE")));
