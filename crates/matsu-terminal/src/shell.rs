@@ -25,6 +25,10 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 
 /// A shell to start instead of the default: the program and its arguments.
+///
+/// On Windows the arguments are quoted by the C runtime's rules, so that each one reaches the program whole.
+/// cmd.exe reads its command line by its own rules instead, so an argument with a `"` in it reaches cmd.exe
+/// changed. How the setting hands cmd.exe its command line is decided with the setting (ADR-0028, the fifth PR).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellCommand {
     pub program: String,

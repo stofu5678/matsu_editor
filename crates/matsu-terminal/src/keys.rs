@@ -139,18 +139,20 @@ pub fn encode_key(key: Key, mods: Modifiers, modes: &Modes) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// The control code of Ctrl with a character, as xterm sends it (`Ctrl+A` is 0x01, `Ctrl+[` is ESC).
+/// The control code of Ctrl with a character, as xterm sends it (`Ctrl+A` is 0x01, `Ctrl+[` is ESC). The digits
+/// and `/` are the aliases Xlib gives xterm (`_XTranslateKeySym`): `Ctrl+2` is NUL, `Ctrl+3` to `Ctrl+7` are ESC
+/// to US (`Ctrl+6` is RS, which Vim uses for the alternate file), `Ctrl+8` is DEL and `Ctrl+/` is US.
 fn control_code(c: char) -> Option<u8> {
     match c {
         'a'..='z' => Some(c as u8 - b'a' + 1),
         'A'..='Z' => Some(c as u8 - b'A' + 1),
-        '@' | ' ' => Some(0x00),
-        '[' => Some(0x1b),
-        '\\' => Some(0x1c),
-        ']' => Some(0x1d),
-        '^' => Some(0x1e),
-        '_' => Some(0x1f),
-        '?' => Some(0x7f),
+        '@' | ' ' | '2' => Some(0x00),
+        '[' | '3' => Some(0x1b),
+        '\\' | '4' => Some(0x1c),
+        ']' | '5' => Some(0x1d),
+        '^' | '6' => Some(0x1e),
+        '_' | '/' | '7' => Some(0x1f),
+        '?' | '8' => Some(0x7f),
         _ => None,
     }
 }
@@ -247,8 +249,23 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_with_digits_and_slash_is_xterms_alias() {
+        assert_eq!(enc(Key::Char('2'), CTRL), [0x00]);
+        assert_eq!(enc(Key::Char('3'), CTRL), [0x1b]);
+        assert_eq!(enc(Key::Char('4'), CTRL), [0x1c]);
+        assert_eq!(enc(Key::Char('5'), CTRL), [0x1d]);
+        assert_eq!(enc(Key::Char('6'), CTRL), [0x1e]);
+        assert_eq!(enc(Key::Char('7'), CTRL), [0x1f]);
+        assert_eq!(enc(Key::Char('8'), CTRL), [0x7f]);
+        assert_eq!(enc(Key::Char('/'), CTRL), [0x1f]);
+        assert_eq!(enc(Key::Char('6'), CTRL_ALT), [0x1b, 0x1e]);
+    }
+
+    #[test]
     fn ctrl_with_a_character_without_a_code_sends_the_character() {
         assert_eq!(enc(Key::Char('1'), CTRL), b"1");
+        assert_eq!(enc(Key::Char('9'), CTRL), b"9");
+        assert_eq!(enc(Key::Char('0'), CTRL), b"0");
         assert_eq!(enc(Key::Char('あ'), CTRL), "あ".as_bytes());
     }
 

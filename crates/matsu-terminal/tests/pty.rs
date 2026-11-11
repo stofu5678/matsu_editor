@@ -223,6 +223,25 @@ fn the_working_directory_is_used() {
 }
 
 #[test]
+fn a_working_directory_that_is_gone_or_a_file_is_an_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("a file");
+    std::fs::write(&file, "").expect("write the file");
+    for (path, kind) in [
+        (dir.path().join("gone"), std::io::ErrorKind::NotFound),
+        (file, std::io::ErrorKind::NotADirectory),
+    ] {
+        let result = Terminal::spawn(Options {
+            shell: Some(command("pwd", &["/c", "cd"])),
+            working_directory: Some(path.clone()),
+            ..Options::default()
+        });
+        let error = result.err().expect("an error");
+        assert_eq!(error.kind(), kind, "{}: {error}", path.display());
+    }
+}
+
+#[test]
 fn resize_changes_the_screen_and_the_child_sees_it() {
     let (terminal, events) = start(if cfg!(windows) {
         long_running()

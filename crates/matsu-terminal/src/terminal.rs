@@ -95,7 +95,9 @@ impl Dimensions for TerminalSize {
 #[derive(Clone, Debug)]
 pub struct Options {
     pub size: TerminalSize,
-    /// The directory the shell starts in; the parent's directory when `None` (or when the path is invalid).
+    /// The directory the shell starts in; the parent's directory when `None`. A path that is not a directory
+    /// is an error, on every OS (Windows would refuse it, and Unix would start the shell elsewhere without a
+    /// word): the caller chooses where to go instead (ADR-0028: the document's folder, else the home folder).
     pub working_directory: Option<PathBuf>,
     /// The shell; `None` is the default shell (see [`shell`]).
     pub shell: Option<ShellCommand>,
@@ -364,7 +366,20 @@ pub struct Terminal {
 
 impl Terminal {
     /// Starts the shell in a new PTY.
+    ///
+    /// # Errors
+    ///
+    /// When the working directory is not a directory (the error of reading it, or `NotADirectory`), and when
+    /// the PTY or the shell cannot be started.
     pub fn spawn(options: Options) -> io::Result<(Self, EventReceiver)> {
+        if let Some(dir) = &options.working_directory
+            && !std::fs::metadata(dir)?.is_dir()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                format!("not a directory: {}", dir.display()),
+            ));
+        }
         let size = options.size.clamped();
         let (events, receiver) = mpsc::channel();
         let shared = Arc::new(Shared {
