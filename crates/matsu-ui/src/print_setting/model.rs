@@ -192,7 +192,7 @@ mod tests {
         (
             Number::ALL.map(|n| n.of(&s).to_string()),
             s.header_form.clone(),
-            s.footer_form.clone(),
+            s.footer_form,
         )
     }
 

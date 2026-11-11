@@ -54,6 +54,7 @@ struct TagProcessor {
     serials: [usize; TAG_HIERARCHY.len()],
 }
 
+#[derive(Clone, Copy)]
 /// Where a tag and its title are in a line (`pTag`, `pTagEnd`, `pTitle`, `pTitleEnd`).
 struct TagSpan {
     tag: usize,

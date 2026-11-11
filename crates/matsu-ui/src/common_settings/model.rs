@@ -912,7 +912,7 @@ mod tests {
         v.set("year", Value::Bool(true));
         v.set("gens", Value::Int(42));
         v.set("short", Value::Bool(true));
-        let mut p = file.clone();
+        let mut p = file;
         assert!(v.store(&list, &mut p).unwrap());
         assert_eq!(p.get("Common", "bOpt1"), Some("97"));
         // 'b' << 16 is kept: only the low 16 bits are the generations.

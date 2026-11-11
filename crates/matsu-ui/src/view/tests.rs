@@ -451,7 +451,7 @@ fn the_status_bar_shows_the_mode(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_mode_belongs_to_the_document(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "ab");
-    let second = f.document.clone();
+    let second = f.document;
     let view2 = cx.update(|_, cx| cx.new(|cx| EditorView::new(second, cx)));
     cx.simulate_keystrokes("insert");
     view2.read_with(cx, |v, cx| assert!(v.status(cx).overwrite));
@@ -497,7 +497,7 @@ fn a_composition_over_a_selection_overwrites_nothing_more(cx: &mut TestAppContex
 #[gpui::test]
 fn another_view_of_the_document_repaints_when_the_mode_changes(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "ab");
-    let second = f.document.clone();
+    let second = f.document;
     let view2 = cx.update(|_, cx| cx.new(|cx| EditorView::new(second, cx)));
     let notified = std::rc::Rc::new(std::cell::Cell::new(0));
     let counter = notified.clone();

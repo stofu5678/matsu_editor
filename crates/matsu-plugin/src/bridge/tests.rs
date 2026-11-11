@@ -58,6 +58,10 @@ impl Fixture {
         )
     }
 
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "test helper called with json!() temporaries at about 110 sites; taking &Value would add a & to each"
+    )]
     fn call(&mut self, method: &str, params: Value) -> Result<Value, RpcError> {
         let params = params.as_array().expect("params are an array").clone();
         call(Registry::global(), &mut self.cx(), method, &params)
@@ -669,7 +673,7 @@ fn run_macro(language: Language, code: &str, f: &mut Fixture) -> Option<crate::s
     config.temp_dir = Some(dir.path().to_path_buf());
     let registry = Registry::global();
     let mut cx = f.cx();
-    Some(session::run_blocking(config, |m| handle_message(registry, &mut cx, m)).unwrap())
+    Some(session::run_blocking(&config, |m| handle_message(registry, &mut cx, m)).unwrap())
 }
 
 #[test]
@@ -812,7 +816,7 @@ fn the_sample_macros_run_on_the_commands() {
         let registry = Registry::global();
         let report = {
             let mut cx = f.cx();
-            session::run_blocking(config, |m| handle_message(registry, &mut cx, m)).unwrap()
+            session::run_blocking(&config, |m| handle_message(registry, &mut cx, m)).unwrap()
         };
         let stderr = report.lines(Stream::Stderr).join("\n");
         assert_eq!(report.finished.exit_code, Some(0), "{name}: {stderr}");
@@ -906,7 +910,9 @@ fn run_macro_with_env(
     config.temp_dir = Some(dir.path().to_path_buf());
     let registry = Registry::global();
     let mut cx = f.cx();
-    Some(session::run_blocking(config, |m| handle_message_with(registry, &mut cx, env, m)).unwrap())
+    Some(
+        session::run_blocking(&config, |m| handle_message_with(registry, &mut cx, env, m)).unwrap(),
+    )
 }
 
 #[test]

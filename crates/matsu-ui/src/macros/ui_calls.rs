@@ -109,7 +109,7 @@ impl EditorView {
             return true;
         };
         match wait {
-            None => running.session.send(response_ok(&id, Value::Null)),
+            None => running.session.send(response_ok(&id, &Value::Null)),
             Some(wait) => {
                 // The script is answered when the dialog is closed or the work is done; its
                 // clock stops meanwhile. A script that has ended or been stopped is not answered
@@ -120,7 +120,7 @@ impl EditorView {
                     if this.macros.serial == serial
                         && let Some(running) = &this.macros.running
                     {
-                        running.session.send(response_ok(&id, Value::Null));
+                        running.session.send(response_ok(&id, &Value::Null));
                         running.session.release();
                     }
                 });

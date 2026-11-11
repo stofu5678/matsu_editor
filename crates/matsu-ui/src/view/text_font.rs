@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(font.family.as_ref(), "Menlo");
         let bold = Font {
             weight: gpui::FontWeight::BOLD,
-            ..font.clone()
+            ..font
         };
         assert_eq!(
             bold.fallbacks.as_ref().map(|f| f.fallback_list().to_vec()),

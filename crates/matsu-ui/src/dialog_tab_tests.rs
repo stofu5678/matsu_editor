@@ -31,55 +31,63 @@ fn window(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EditorView>) {
     (handle, view)
 }
 
-fn focus_of<T: Focusable>(entity: &Option<Entity<T>>, cx: &gpui::App) -> Option<FocusHandle> {
-    entity.as_ref().map(|e| e.read(cx).focus_handle(cx))
+fn focus_of<T: Focusable>(entity: Option<&Entity<T>>, cx: &gpui::App) -> Option<FocusHandle> {
+    entity.map(|e| e.read(cx).focus_handle(cx))
 }
 
 #[gpui::test]
 fn tab_stays_in_the_about_dialog(cx: &mut TestAppContext) {
-    run(cx, "F_ABOUT", |v, app| focus_of(&v.support.about, app));
+    run(cx, "F_ABOUT", |v, app| {
+        focus_of(v.support.about.as_ref(), app)
+    });
 }
 
 #[gpui::test]
 fn tab_stays_in_the_control_code_dialog(cx: &mut TestAppContext) {
     run(cx, "F_CTRL_CODE_DIALOG", |v, app| {
-        focus_of(&v.support.ctrl_code, app)
+        focus_of(v.support.ctrl_code.as_ref(), app)
     });
 }
 
 #[gpui::test]
 fn tab_stays_in_the_command_list(cx: &mut TestAppContext) {
     run(cx, "F_MENU_ALLFUNC", |v, app| {
-        focus_of(&v.support.command_list, app)
+        focus_of(v.support.command_list.as_ref(), app)
     });
 }
 
 #[gpui::test]
 fn tab_stays_in_the_tags_file_dialog(cx: &mut TestAppContext) {
     run(cx, "F_TAGS_MAKE", |v, app| {
-        focus_of(&v.support.tags_make, app)
+        focus_of(v.support.tags_make.as_ref(), app)
     });
 }
 
 #[gpui::test]
 fn tab_stays_in_the_type_list(cx: &mut TestAppContext) {
-    run(cx, "F_TYPE_LIST", |v, app| focus_of(&v.doc_type.list, app));
+    run(cx, "F_TYPE_LIST", |v, app| {
+        focus_of(v.doc_type.list.as_ref(), app)
+    });
 }
 
 #[gpui::test]
 fn tab_stays_in_the_window_list(cx: &mut TestAppContext) {
-    run(cx, "F_WINLIST", |v, app| focus_of(&v.window_list, app));
+    run(cx, "F_WINLIST", |v, app| {
+        focus_of(v.window_list.as_ref(), app)
+    });
 }
 
 #[gpui::test]
 fn tab_stays_in_the_compare_dialog(cx: &mut TestAppContext) {
-    run(cx, "F_COMPARE", |v, app| focus_of(&v.diff.compare, app));
+    run(cx, "F_COMPARE", |v, app| {
+        focus_of(v.diff.compare.as_ref(), app)
+    });
 }
 
 #[gpui::test]
 fn tab_stays_in_the_print_setting_dialog(cx: &mut TestAppContext) {
     run(cx, "F_PRINT_PAGESETUP", |v, app| {
-        focus_of(&v.print.setup_dialog, app)
+        focus_of(v.print.setup_dialog.as_ref(), app)
     });
 }
 

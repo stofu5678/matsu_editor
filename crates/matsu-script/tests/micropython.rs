@@ -28,7 +28,7 @@ fn run_in(file: &str, code: &str, text: &str, timeout: Duration) -> (Report, Tex
     let dir = tempfile::tempdir().unwrap();
     let config = config(&dir, file, code, timeout);
     let mut doc = TextModel::new(text, Some(DOCUMENT_PATH.into()));
-    let report = session::run_blocking(config, |message| api::handle_message(&mut doc, message))
+    let report = session::run_blocking(&config, |message| api::handle_message(&mut doc, message))
         .expect("the host starts");
     (report, doc)
 }
@@ -118,7 +118,7 @@ fn a_script_in_a_path_with_japanese_runs_and_names_it_in_errors() {
     config.interpreter = env!("CARGO_BIN_EXE_matsu-script").into();
     let mut doc = TextModel::new("", None);
     let report =
-        session::run_blocking(config, |m| api::handle_message(&mut doc, m)).expect("starts");
+        session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).expect("starts");
     assert_eq!(stdout(&report), ["ok"]);
     assert_eq!(report.finished.exit_code, Some(1));
     let err = stderr(&report);
@@ -401,7 +401,7 @@ fn the_macro_can_be_cancelled() {
     );
     let (tx, rx) = mpsc::channel();
     let session = session::start(
-        config,
+        &config,
         Arc::new(move |event| {
             let _ = tx.send(event);
         }),

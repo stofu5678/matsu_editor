@@ -203,7 +203,7 @@ impl EditorView {
                 SearchOutcome::Found
             }
             Ok(None) => {
-                self.drop_selection_after_miss(direction, &selection, locked.is_some(), cx);
+                self.drop_selection_after_miss(direction, selection.as_ref(), locked.is_some(), cx);
                 self.not_found(
                     direction,
                     &not_found_message(direction, self.search.pattern()),
@@ -213,7 +213,7 @@ impl EditorView {
                 SearchOutcome::NotFound
             }
             Err(e) => {
-                self.drop_selection_after_miss(direction, &selection, locked.is_some(), cx);
+                self.drop_selection_after_miss(direction, selection.as_ref(), locked.is_some(), cx);
                 self.notice = Some(format!("検索できなかった: {e}"));
                 cx.notify();
                 SearchOutcome::NotFound
@@ -230,7 +230,7 @@ impl EditorView {
     fn drop_selection_after_miss(
         &mut self,
         direction: Direction,
-        selection: &Option<Range<Pos>>,
+        selection: Option<&Range<Pos>>,
         locked: bool,
         cx: &mut Context<Self>,
     ) {

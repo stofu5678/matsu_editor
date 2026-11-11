@@ -441,7 +441,7 @@ impl OutlinePane {
                     this.analyze(this.requested, cx);
                     return;
                 }
-                this.finish(analysis, path_for_clip, cx);
+                this.finish(analysis, &path_for_clip, cx);
             })
             .ok();
         })
@@ -449,7 +449,7 @@ impl OutlinePane {
     }
 
     /// `Redraw` and `SetData`: the result is shown.
-    fn finish(&mut self, mut analysis: Analysis, file_path: String, cx: &mut Context<Self>) {
+    fn finish(&mut self, mut analysis: Analysis, file_path: &str, cx: &mut Context<Self>) {
         self.analyzing = false;
         self.stale = false;
         let kind = analysis.kind;
@@ -514,16 +514,16 @@ impl OutlinePane {
             prepare_append_texts(&mut analysis.items);
             // COBOL is the same tree without the class texts (`SetTreeJava(..., FALSE)`)
             tree = build_java_tree(&analysis.items, kind != OutlineKind::Cobol);
-            clip_text = clip_text_java(&analysis.items, &file_path);
+            clip_text = clip_text_java(&analysis.items, file_path);
         } else if view_type == ViewType::Tree {
             tree = build_tree(&analysis.items);
             // Python writes lines the tag jump can follow (SetTree with tagjump)
             let tag_jump = matches!(kind, OutlineKind::Python | OutlineKind::TreeTagJump);
-            clip_text = clip_text_tree(&analysis.items, &file_path, tag_jump);
+            clip_text = clip_text_tree(&analysis.items, file_path, tag_jump);
         } else if kind == OutlineKind::VisualBasic {
-            clip_text = clip_text_vb(&analysis.items, &file_path);
+            clip_text = clip_text_vb(&analysis.items, file_path);
         } else {
-            clip_text = clip_text_list(&analysis.items, &file_path);
+            clip_text = clip_text_list(&analysis.items, file_path);
         }
         sort_tree(&mut tree, self.sort_type);
         // the nodes at the top of the tree of C++ and Java are open (TreeView_Expand)
@@ -1102,7 +1102,7 @@ impl OutlinePane {
                 .await;
             cx.update(|window, cx| {
                 view.update(cx, |view, cx| {
-                    view.open_file_tree_dialog(setting, inputs, pane, window, cx);
+                    view.open_file_tree_dialog(&setting, inputs, pane, window, cx);
                 });
             })
             .ok();

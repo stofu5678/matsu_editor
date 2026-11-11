@@ -145,7 +145,7 @@ pub struct FilePaths<'a> {
 
 impl FilePaths<'_> {
     /// The name written in front of each line (`pszDispFilePath`).
-    fn shown(&self, layout: &Layout) -> &str {
+    fn shown(&self, layout: Layout) -> &str {
         if layout.separate_folder || layout.base_folder {
             self.relative
         } else {
@@ -197,7 +197,7 @@ pub fn push_path_info(
         } else {
             out.push_str("■\"");
         }
-        out.push_str(paths.shown(layout));
+        out.push_str(paths.shown(*layout));
         out.push('"');
         out.push_str(code_name);
         out.push_str(EOL);

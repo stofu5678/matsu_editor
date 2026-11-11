@@ -192,12 +192,12 @@ impl Workspace {
     fn do_split(&mut self, h: f32, v: f32, window: &mut Window, cx: &mut Context<Self>) {
         let (w, height) = self.panes().area_size();
         let plan = do_split(self.panes().grid, self.panes().active, h, v, w, height);
-        self.apply(plan, w, height, window, cx);
+        self.apply(&plan, w, height, window, cx);
     }
 
     fn apply(
         &mut self,
-        plan: Plan,
+        plan: &Plan,
         w: f32,
         height: f32,
         window: &mut Window,

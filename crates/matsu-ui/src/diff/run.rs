@@ -97,9 +97,10 @@ pub(crate) fn document_lines(doc: &Document) -> Result<Vec<EndedLine>, BufferErr
 /// The lines of a file, decoded the way opening it would (`MakeDiffTmpFile2`).
 fn file_lines(
     path: &Path,
-    defaults: &crate::settings::NewDocumentDefaults,
+    defaults: crate::settings::NewDocumentDefaults,
 ) -> Result<Vec<EndedLine>, String> {
-    let file = open_text_file(path, None, defaults, &mut no_progress).map_err(|e| e.to_string())?;
+    let file =
+        open_text_file(path, None, &defaults, &mut no_progress).map_err(|e| e.to_string())?;
     document_lines(&file.document).map_err(|e| e.to_string())
 }
 
@@ -210,7 +211,7 @@ impl EditorView {
                         .unwrap_or_default();
                     let read = cx
                         .background_executor()
-                        .spawn(async move { file_lines(&path, &defaults) })
+                        .spawn(async move { file_lines(&path, defaults) })
                         .await;
                     this.update_in(cx, |this, window, cx| match read {
                         // the guard goes on to the comparison, so that the wait has no gap

@@ -380,7 +380,7 @@ impl EditorView {
                     if call.host_busy() {
                         return false;
                     }
-                    plugin_call::run(entity, call, app)
+                    plugin_call::run(&entity, call, app)
                 });
                 if !started {
                     continue;

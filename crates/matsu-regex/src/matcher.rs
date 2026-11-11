@@ -138,11 +138,11 @@ impl RegexMatcher {
             .regex
             .captures_from(line, start, gpos)
             .map_err(|e| MatcherError::new(e.to_string()))?;
-        Ok(found.map(to_match))
+        Ok(found.as_ref().map(to_match))
     }
 }
 
-fn to_match(caps: crate::Captures) -> Match {
+fn to_match(caps: &crate::Captures) -> Match {
     let whole = caps.whole();
     Match {
         start: whole.start,
@@ -164,6 +164,6 @@ impl Matcher for RegexMatcher {
             .regex
             .captures_at(line, start)
             .map_err(|e| MatcherError::new(e.to_string()))?;
-        Ok(found.map(to_match))
+        Ok(found.as_ref().map(to_match))
     }
 }

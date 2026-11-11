@@ -91,7 +91,7 @@ impl Place {
             ..PluginSettings::default()
         };
         settings.table[0] = PluginRec {
-            id: def.id.clone(),
+            id: def.id,
             name: "Events".into(),
             cmd_num: 0,
             state: PluginState::Stopped,
@@ -788,7 +788,7 @@ fn a_window_that_begins_with_a_file_reads_it_before_editor_start(cx: &mut TestAp
     cx.update(|app| app.set_global(user));
     let path = files.write("in.txt", b"hello");
     let request = crate::file_ops::windows::LoadRequest {
-        path: path.clone(),
+        path,
         encoding: None,
     };
     let handle = cx

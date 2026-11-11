@@ -191,7 +191,7 @@ pub(crate) fn is_topmost(window: &mut Window, cx: &mut App) -> bool {
 }
 
 /// The error of a command for a window the OS cannot place.
-pub(crate) fn unavailable(error: Error) -> CommandError {
+pub(crate) fn unavailable(error: &Error) -> CommandError {
     match error {
         Error::Unsupported(what) | Error::Failed(what) => CommandError::Unavailable(what),
     }

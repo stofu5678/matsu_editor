@@ -42,7 +42,7 @@ impl Global for KeepPrefs {}
 
 impl KeepPrefs {
     /// The size limit in bytes, `None` when there is none.
-    pub fn max_bytes(&self) -> Option<u64> {
+    pub fn max_bytes(self) -> Option<u64> {
         (self.max_mb != 0).then(|| u64::from(self.max_mb) * 1024 * 1024)
     }
 

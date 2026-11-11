@@ -18,7 +18,7 @@ use std::process::{Command, ExitCode};
 use std::{env, fs};
 
 fn main() -> ExitCode {
-    match run(env::args().skip(1).collect()) {
+    match run(&env::args().skip(1).collect::<Vec<_>>()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("error: {message}");
@@ -27,7 +27,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Vec<String>) -> Result<(), String> {
+fn run(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("sakura-tables") => {
             let sakura = match args[1..] {

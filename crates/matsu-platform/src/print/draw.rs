@@ -390,7 +390,7 @@ mod tests {
             })
             .collect();
         assert_eq!(red, ['r']);
-        let underlines: Vec<_> = ops
+        let underlines = ops
             .iter()
             .filter(|op| {
                 matches!(
@@ -401,8 +401,8 @@ mod tests {
                     }
                 )
             })
-            .collect();
-        assert_eq!(underlines.len(), 1);
+            .count();
+        assert_eq!(underlines, 1);
         // Without color_print the same styler adds nothing.
         let plain = PrintSetting::default();
         let layout = layout_of(&lines, &plain);

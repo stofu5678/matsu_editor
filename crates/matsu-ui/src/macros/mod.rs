@@ -973,7 +973,7 @@ impl EditorView {
             // Fails only when the window is gone.
             let _ = tx.send_blocking(event);
         });
-        let session = session::start(config, sink).map_err(|e| e.to_string())?;
+        let session = session::start(&config, sink).map_err(|e| e.to_string())?;
         self.macros.output.begin();
         self.macros
             .output

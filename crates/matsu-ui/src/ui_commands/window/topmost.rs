@@ -40,7 +40,7 @@ impl UiCommand for Topmost {
         with_screen(window, cx, |screen, _, current| {
             topmost(screen, current, how)
         })
-        .map_err(unavailable)
+        .map_err(|e| unavailable(&e))
     }
 }
 

@@ -123,7 +123,7 @@ fn saving_needs_a_modified_document_outside_view_mode() {
     flips("F_FILESAVE", &base(), &recoded);
     let view = FuncStates {
         view_mode: true,
-        ..modified.clone()
+        ..modified
     };
     assert!(!enabled(&view, "F_FILESAVE"));
     // a named file that is not on disk is created by a save, unmodified or not

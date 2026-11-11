@@ -589,7 +589,7 @@ pub(super) fn run_test(
     };
     match crate::macros::plugin_call::prepare_command(cx, &dirs, &folder, 1) {
         Ok(prepared) => {
-            crate::macros::plugin_call::run(editor, prepared, cx);
+            crate::macros::plugin_call::run(&editor, prepared, cx);
         }
         Err(message) => notice(window, cx, &message),
     }

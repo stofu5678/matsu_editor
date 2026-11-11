@@ -51,7 +51,7 @@ _G.EditorError = EditorError
 impl Engine for Lua {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
         let lua = mlua::Lua::new();
-        install(&lua, init, editor).map_err(|e| format!("cannot set up Lua: {e}"))?;
+        install(&lua, init, &editor).map_err(|e| format!("cannot set up Lua: {e}"))?;
         let main = lua
             .load(prepare_source(&init.script.source))
             .set_name(format!("@{}", init.script.name))
@@ -73,7 +73,7 @@ fn prepare_source(source: &str) -> String {
 fn install(
     lua: &mlua::Lua,
     init: &Initialize,
-    editor: Rc<RefCell<dyn Editor>>,
+    editor: &Rc<RefCell<dyn Editor>>,
 ) -> mlua::Result<()> {
     // The script's `io.write` goes to the C stdout, which must not hold text back: the
     // requests are written to the same pipe by Rust and have to stay in order with it.

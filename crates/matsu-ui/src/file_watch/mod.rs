@@ -45,7 +45,7 @@ pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
             let alive = this.update_in(cx, |workspace, window, cx| {
                 // The check goes first: it marks its document, and the save then leaves it alone.
                 if ticks == 0 && window.is_window_active() {
-                    spawn_check(workspace.panes().active().clone(), window, cx);
+                    spawn_check(workspace.panes().active(), window, cx);
                 }
                 let prefs = prefs(cx);
                 if save_timer.check(Instant::now(), prefs.auto_save, prefs.auto_save_interval) {
@@ -72,11 +72,11 @@ pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
 /// window that became the active one: look at the file at once, not at the next sixth tick
 /// (`WM_SETFOCUS` sets `m_nTimerCount` to 9).
 pub(crate) fn spawn_check(
-    active: Entity<EditorView>,
+    active: &Entity<EditorView>,
     window: &mut Window,
     cx: &mut Context<Workspace>,
 ) {
-    let Some((path, stamp)) = check::begin_in(&active, cx) else {
+    let Some((path, stamp)) = check::begin_in(active, cx) else {
         return;
     };
     let active = active.downgrade();

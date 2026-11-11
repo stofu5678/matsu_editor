@@ -108,7 +108,7 @@ fn first_line(window: &ScanWindow) -> String {
 #[test]
 fn a_window_far_down_a_file_of_10_gb_reads_only_its_stretch() {
     let (source, read) = fake(17, lf);
-    let job = slow_job(source.clone(), Encoding::Utf8);
+    let job = slow_job(source, Encoding::Utf8);
     let scanned = job.progress().scanned;
     assert!(scanned < 8 * 1024 * 1024);
     let before = read.load(Ordering::Relaxed);

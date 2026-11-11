@@ -148,7 +148,7 @@ fn run_with(
         let dir = tempfile::tempdir().unwrap();
         let config = config_for(&dir, language, code, timeout);
         let mut doc = TextModel::new(text, Some("/work/テスト.txt".into()));
-        let report = session::run_blocking(config, |message| handler(&mut doc, message)).unwrap();
+        let report = session::run_blocking(&config, |message| handler(&mut doc, message)).unwrap();
         // Every run in these tests must leave no boot folder, whatever the macro did.
         assert_eq!(boot_folders(dir.path()), Vec::<String>::new());
         if retries < MAX_POWERSHELL_RETRIES
@@ -622,7 +622,7 @@ fn a_node_module_file_runs_with_top_level_await() {
     assert_eq!(config.language, JS);
     config.temp_dir = Some(dir.path().to_path_buf());
     let mut doc = TextModel::new("a\nb\n", None);
-    let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+    let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
     assert_eq!(stdout(&report), ["function 2"]);
     assert_ne!(report.finished.exit_code, Some(0));
     let stderr = report.lines(Stream::Stderr).join("\n");
@@ -740,7 +740,7 @@ fn cancel_kills_the_macro() {
     let sink: session::Sink = Arc::new(move |event| {
         let _ = tx.send(event);
     });
-    let session = session::start(config, sink).unwrap();
+    let session = session::start(&config, sink).unwrap();
     let started = Instant::now();
     let mut cancelled = false;
     loop {
@@ -766,7 +766,7 @@ fn a_missing_interpreter_is_a_clear_error() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = config_for(&dir, JS, "", Duration::from_secs(5));
     config.interpreter = "matsu-no-such-interpreter".into();
-    let err = session::run_blocking(config, |_| None)
+    let err = session::run_blocking(&config, |_| None)
         .unwrap_err()
         .to_string();
     assert!(
@@ -816,7 +816,7 @@ fn the_sample_macros_run() {
         let temp = tempfile::tempdir().unwrap();
         config.temp_dir = Some(temp.path().to_path_buf());
         let mut doc = TextModel::new("りんご\nみかん😀\nぶどう\n", None);
-        let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+        let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
         assert_clean_exit(&report);
         let text = doc.text();
         assert!(text.starts_with("# サンプルマクロ"), "{name}: {text}");
@@ -847,7 +847,7 @@ fn the_database_sample_macros_run() {
         let temp = tempfile::tempdir().unwrap();
         config.temp_dir = Some(temp.path().to_path_buf());
         let mut doc = TextModel::new(sql, None);
-        let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+        let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
         let stderr = report.lines(Stream::Stderr).join("\n");
         if report.finished.exit_code != Some(0)
             && (stderr.contains("sqlite") || stderr.contains("driver"))
@@ -922,7 +922,7 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
                     let _ = tx.send(boot_folders(&parent));
                 }
             });
-            let _session = session::start(config, sink).unwrap();
+            let _session = session::start(&config, sink).unwrap();
             let left = rx.recv_timeout(PATIENT).unwrap();
             assert_eq!(left, Vec::<String>::new(), "{language:?}");
         }
@@ -1045,7 +1045,7 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
     let sink: session::Sink = Arc::new(move |event| {
         let _ = tx.send(event);
     });
-    let session = Arc::new(session::start(config, sink).unwrap());
+    let session = Arc::new(session::start(&config, sink).unwrap());
     let mut printed = Vec::new();
     for event in rx {
         match event {
@@ -1057,7 +1057,7 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
                 let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(5));
-                    session.send(crate::protocol::response_ok(&id, Value::from("")));
+                    session.send(crate::protocol::response_ok(&id, &Value::from("")));
                     session.release();
                 });
             }
@@ -1088,7 +1088,7 @@ fn without_a_hold_the_same_wait_times_out() {
     let sink: session::Sink = Arc::new(move |event| {
         let _ = tx.send(event);
     });
-    let session = Arc::new(session::start(config, sink).unwrap());
+    let session = Arc::new(session::start(&config, sink).unwrap());
     for event in rx {
         match event {
             HostEvent::Output { .. } => {}
@@ -1097,7 +1097,7 @@ fn without_a_hold_the_same_wait_times_out() {
                 let session = session.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(5));
-                    session.send(crate::protocol::response_ok(&id, Value::from("")));
+                    session.send(crate::protocol::response_ok(&id, &Value::from("")));
                 });
             }
             HostEvent::Finished(finished) => {
@@ -1566,7 +1566,7 @@ fn a_perl_script_in_a_folder_with_a_japanese_name_shows_the_name_right() {
     let mut config = MacroConfig::for_script(&script, None).unwrap();
     config.temp_dir = Some(dir.path().to_path_buf());
     let mut doc = TextModel::new("a", None);
-    let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+    let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
     let name = script.display().to_string();
     let out = stdout(&report).join("\n");
     assert!(
@@ -1789,7 +1789,7 @@ fn applescript_macros_do_not_start_on_other_systems_and_say_why() {
     let script = dir.path().join("a.applescript");
     std::fs::write(&script, "return 1\n").unwrap();
     let config = MacroConfig::for_script(&script, None).unwrap();
-    let err = session::run_blocking(config, |_| None).err().unwrap();
+    let err = session::run_blocking(&config, |_| None).err().unwrap();
     assert!(
         matches!(err, crate::session::StartError::NotSupportedHere { .. }),
         "{err}"
@@ -2004,7 +2004,7 @@ mod config_path_tests {
         let sink: session::Sink = Arc::new(|_| {});
         // a folder with nothing in it: the name is not found
         let config = python_config(&dir, Some(dir.path().join("empty").into_os_string()));
-        let error = session::start(config, Arc::clone(&sink))
+        let error = session::start(&config, Arc::clone(&sink))
             .err()
             .expect("no python3 there");
         assert!(matches!(
@@ -2015,6 +2015,6 @@ mod config_path_tests {
         // a folder with a `python3` (here `true`): it is started
         std::os::unix::fs::symlink("/usr/bin/true", bin.path().join("python3")).unwrap();
         let config = python_config(&dir, Some(bin.path().into()));
-        assert!(session::start(config, sink).is_ok());
+        assert!(session::start(&config, sink).is_ok());
     }
 }

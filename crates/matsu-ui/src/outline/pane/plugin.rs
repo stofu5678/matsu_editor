@@ -116,7 +116,7 @@ impl OutlinePane {
                 if this.generation != generation {
                     return;
                 }
-                this.finish(analysis, file_path, cx);
+                this.finish(analysis, &file_path, cx);
                 // The text changed while the plug ran: the result is of the text it saw. Sakura waits for
                 // the plug, so it never meets this; the pane keeps the result and says it is old, rather
                 // than calling the plug again (it is called when the outline is analyzed, not per edit).
@@ -153,7 +153,7 @@ async fn run_plug(
             return None;
         }
         let entity: Entity<EditorView> = view.upgrade()?;
-        match cx.update(|app| begin(app, entity, code, &collected)) {
+        match cx.update(|app| begin(app, &entity, code, &collected)) {
             Begin::Started => break,
             Begin::Refused(reason) => {
                 collected.borrow_mut().ending = Some(Ending::Refused(reason));
@@ -186,7 +186,7 @@ enum Begin {
 /// Starts the call if the window and the host of the plugin are free.
 fn begin(
     cx: &mut gpui::App,
-    view: Entity<EditorView>,
+    view: &Entity<EditorView>,
     code: i32,
     collected: &Rc<RefCell<Collected>>,
 ) -> Begin {

@@ -254,9 +254,9 @@ fn adler32(bytes: &[u8]) -> u32 {
     (b << 16) | a
 }
 
-fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+fn chunk(out: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) {
     out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    out.extend_from_slice(kind);
+    out.extend_from_slice(&kind);
     out.extend_from_slice(data);
     let crc = crc32(kind.iter().chain(data).copied());
     out.extend_from_slice(&crc.to_be_bytes());
@@ -285,9 +285,9 @@ fn encode_png(width: usize, height: usize, rgba: &[u8]) -> Vec<u8> {
     header.extend_from_slice(&(height as u32).to_be_bytes());
     header.extend_from_slice(&[8, 6, 0, 0, 0]); // 8 bits, RGBA, no interlace
     let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
-    chunk(&mut png, b"IHDR", &header);
-    chunk(&mut png, b"IDAT", &z);
-    chunk(&mut png, b"IEND", &[]);
+    chunk(&mut png, *b"IHDR", &header);
+    chunk(&mut png, *b"IDAT", &z);
+    chunk(&mut png, *b"IEND", &[]);
     png
 }
 

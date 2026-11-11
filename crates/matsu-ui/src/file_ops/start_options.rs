@@ -415,7 +415,7 @@ impl LaunchOptions {
             });
             return;
         }
-        let info = grep_info(&grep.args, &self.cwd, clipboard);
+        let info = grep_info(&grep.args, &self.cwd, clipboard.as_deref());
         handle
             .update(cx, |_, window, cx| {
                 view.update(cx, |view, cx| {
@@ -655,7 +655,7 @@ impl EditorView {
 
 /// The conditions of `-GREPMODE` as a Grep (`GrepInfo` of `CCommandLine`). Relative folders are in
 /// the folder of the launch. `clipboard` is the text for `-GOPT=C`.
-pub(crate) fn grep_info(args: &GrepArgs, cwd: &Path, clipboard: Option<String>) -> GrepInfo {
+pub(crate) fn grep_info(args: &GrepArgs, cwd: &Path, clipboard: Option<&str>) -> GrepInfo {
     GrepInfo {
         key: args.key.clone(),
         file: args.file.clone(),
@@ -682,7 +682,7 @@ pub(crate) fn grep_info(args: &GrepArgs, cwd: &Path, clipboard: Option<String>) 
         window_gone: false,
         replace: args.replace.as_ref().map(|text| ReplaceInfo {
             text: if args.paste {
-                clipboard.clone().unwrap_or_default()
+                clipboard.unwrap_or_default().to_owned()
             } else {
                 text.clone()
             },

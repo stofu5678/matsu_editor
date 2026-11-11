@@ -162,21 +162,21 @@ mod tests {
     use super::*;
     use crate::a11y::node_of;
 
-    fn node(element: Stateful<Div>) -> gpui::accesskit::Node {
-        node_of(&element).expect("an element with an id and a role is in the tree")
+    fn node(element: &Stateful<Div>) -> gpui::accesskit::Node {
+        node_of(element).expect("an element with an id and a role is in the tree")
     }
 
     #[test]
     fn the_page_list_is_a_tab_list_of_tabs_and_the_shown_page_is_selected() {
-        let list = node(page_list(div().id("pages"), 3));
+        let list = node(&page_list(div().id("pages"), 3));
         assert_eq!(list.role(), Role::TabList);
         assert_eq!(list.label(), Some(PAGE_LIST_NAME));
         // What UIA reads: the size from the container, the zero-based position from the item
         // (accesskit_windows 0.34.0 node.rs 681-692; accesskit_consumer 0.38.0 node.rs 612-624).
         assert_eq!(list.size_of_set(), Some(3));
 
-        let shown = node(page_tab(div().id("t0"), "全般", true, 0));
-        let other = node(page_tab(div().id("t1"), "ウィンドウ", false, 1));
+        let shown = node(&page_tab(div().id("t0"), "全般", true, 0));
+        let other = node(&page_tab(div().id("t1"), "ウィンドウ", false, 1));
         assert_eq!(shown.role(), Role::Tab);
         assert_eq!(shown.label(), Some("全般"));
         assert_eq!(shown.is_selected(), Some(true));
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(other.position_in_set(), Some(1));
         assert_eq!(other.size_of_set(), None);
 
-        let panel = node(page_panel(div().id("body"), "全般"));
+        let panel = node(&page_panel(div().id("body"), "全般"));
         assert_eq!(
             (panel.role(), panel.label()),
             (Role::TabPanel, Some("全般"))
@@ -194,20 +194,20 @@ mod tests {
 
     #[test]
     fn a_group_box_is_a_group_named_by_its_title() {
-        let node = node(group(div().id("g"), "ファイルの扱い"));
+        let node = node(&group(div().id("g"), "ファイルの扱い"));
         assert_eq!(node.role(), Role::Group);
         assert_eq!(node.label(), Some("ファイルの扱い"));
     }
 
     #[test]
     fn a_list_exposes_its_items_and_the_chosen_one() {
-        let list = node(list_box(div().id("l"), "文字コード"));
+        let list = node(&list_box(div().id("l"), "文字コード"));
         assert_eq!(
             (list.role(), list.label()),
             (Role::ListBox, Some("文字コード"))
         );
-        let chosen = node(list_option(div().id("o1"), "UTF-8", true));
-        let other = node(list_option(div().id("o2"), "SJIS", false));
+        let chosen = node(&list_option(div().id("o1"), "UTF-8", true));
+        let other = node(&list_option(div().id("o2"), "SJIS", false));
         assert_eq!(chosen.role(), Role::ListBoxOption);
         assert_eq!(chosen.label(), Some("UTF-8"));
         assert_eq!(chosen.is_selected(), Some(true));
@@ -216,33 +216,33 @@ mod tests {
 
     #[test]
     fn an_editable_list_is_a_table_with_a_header_rows_and_cells() {
-        let table = node(table(div().id("t"), "キーワード", 4, 2));
+        let table = node(&table(div().id("t"), "キーワード", 4, 2));
         assert_eq!(table.role(), Role::Table);
         assert_eq!(table.row_count(), Some(5));
         assert_eq!(table.column_count(), Some(2));
-        assert_eq!(node(header_row(div().id("h"))).row_index(), Some(0));
-        let header = node(column_header(div().id("c"), "名前", 0));
+        assert_eq!(node(&header_row(div().id("h"))).row_index(), Some(0));
+        let header = node(&column_header(div().id("c"), "名前", 0));
         assert_eq!(
             (header.role(), header.label()),
             (Role::ColumnHeader, Some("名前"))
         );
         let texts = ["a".to_owned(), String::new(), "c".to_owned()];
-        let row = node(table_row(div().id("r"), &texts, 0, true));
+        let row = node(&table_row(div().id("r"), &texts, 0, true));
         assert_eq!(row.role(), Role::Row);
         assert_eq!(row.label(), Some("a、c"));
-        let blank = node(table_row(div().id("b"), &[String::new()], 2, false));
+        let blank = node(&table_row(div().id("b"), &[String::new()], 2, false));
         assert_eq!(blank.label(), Some("行 3"));
         assert_eq!(
-            node(header_row(div().id("hh"))).label(),
+            node(&header_row(div().id("hh"))).label(),
             Some(HEADER_ROW_NAME)
         );
         assert_eq!(row.row_index(), Some(1));
         assert_eq!(row.is_selected(), Some(true));
-        let filled = node(cell(div().id("x"), "abc", "名前", 1));
+        let filled = node(&cell(div().id("x"), "abc", "名前", 1));
         assert_eq!((filled.role(), filled.label()), (Role::Cell, Some("abc")));
         assert_eq!(filled.column_index(), Some(1));
         // An empty cell is named by its column.
-        let empty = node(cell(div().id("y"), "", "名前", 0));
+        let empty = node(&cell(div().id("y"), "", "名前", 0));
         assert_eq!(empty.label(), Some("名前（空）"));
     }
 }

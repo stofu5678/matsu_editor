@@ -347,7 +347,7 @@ fn a_plugin_command_runs_end_to_end_and_the_checks_before_it_hold(cx: &mut TestA
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     let output = wait_for(&view, cx, "正常に終了しました");
     assert!(
         output.contains("Hello (JavaScript)") || output.contains("ハロー"),
@@ -363,7 +363,7 @@ fn a_plugin_command_runs_end_to_end_and_the_checks_before_it_hold(cx: &mut TestA
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     for _ in 0..600 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
@@ -402,7 +402,7 @@ fn a_plugin_that_fails_three_times_is_stopped_and_shows_it(cx: &mut TestAppConte
             .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
             .unwrap();
         let editor = view.clone();
-        cx.update(|_, app| run(editor, prepared, app));
+        cx.update(|_, app| run(&editor, prepared, app));
         let output = wait_for(&view, cx, "エラーで終了しました");
         assert!(output.contains("壊れています"), "{output}");
         assert_eq!(is_stopped(id), round == 3, "after {round}");
@@ -424,7 +424,7 @@ fn a_plugin_that_fails_three_times_is_stopped_and_shows_it(cx: &mut TestAppConte
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     for _ in 0..600 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
@@ -459,7 +459,7 @@ fn everything_a_plugin_does_in_a_call_is_undone_by_one_undo(cx: &mut TestAppCont
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     wait_for(&view, cx, "正常に終了しました");
     assert_eq!(text_of(&view, cx), "元abc");
     let undo = super::super::function_code("F_UNDO").unwrap();
@@ -495,7 +495,7 @@ fn a_plugin_that_asks_without_end_leaves_the_window_its_turn(cx: &mut TestAppCon
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     wait_for(&view, cx, "正常に終了しました");
     assert_eq!(text_of(&view, cx), "done");
     set_test_interpreter(None);
@@ -548,14 +548,14 @@ fn a_second_plugin_call_waits_until_the_first_is_over(cx: &mut TestAppContext) {
         .unwrap();
     let id = first.id.clone();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, first, app));
+    cx.update(|_, app| run(&editor, first, app));
     assert!(view.read_with(cx, |v, _| v.macros.plugin_running));
     // Another call on the same window is refused at once, and says why.
     let second = cx
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, second, app));
+    cx.update(|_, app| run(&editor, second, app));
     let output = view.read_with(cx, |v, _| v.macro_output_text());
     assert!(
         output.contains("ほかのプラグインかマクロが動いている間"),
@@ -593,7 +593,7 @@ fn a_macro_cannot_start_while_a_plugin_is_in_a_call(cx: &mut TestAppContext) {
         .unwrap();
     let id = prepared.id.clone();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     assert!(view.read_with(cx, |v, _| v.macros.busy()));
     // Neither a macro text nor a macro file starts, and the document is not touched.
     let started = view.update_in(cx, |v, window, cx| {
@@ -629,7 +629,7 @@ fn a_plugin_does_not_edit_a_document_that_replaced_the_one_it_began_on(cx: &mut 
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     for _ in 0..600 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
@@ -676,14 +676,14 @@ fn two_panes_of_one_document_do_not_run_plugins_or_macros_at_once(cx: &mut TestA
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let id = prepared.id.clone();
-    let editor = first.clone();
-    cx2.update(|_, app| run(editor, prepared, app));
+    let editor = first;
+    cx2.update(|_, app| run(&editor, prepared, app));
     // The other pane shares the undo history: it is refused, for a plugin and for a macro.
     let again = cx2
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = second.clone();
-    cx2.update(|_, app| run(editor, again, app));
+    cx2.update(|_, app| run(&editor, again, app));
     let output = second.read_with(cx2, |v, _| v.macro_output_text());
     assert!(
         output.contains("ほかのプラグインかマクロが動いている間"),
@@ -723,7 +723,7 @@ fn closing_the_pane_that_began_a_call_frees_the_document_for_the_other_pane(
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = second.clone();
-    cx2.update(|_, app| run(editor, prepared, app));
+    cx2.update(|_, app| run(&editor, prepared, app));
     assert!(first.read_with(cx2, |v, cx| v.plugin_in_call(cx)));
     // The pane that began the call goes away.
     drop(second);
@@ -758,7 +758,7 @@ fn a_plugin_does_not_start_while_a_key_macro_waits_for_a_dialog(cx: &mut TestApp
         .unwrap();
     let id = prepared.id.clone();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     let output = view.read_with(cx, |v, _| v.macro_output_text());
     assert!(
         output.contains("ほかのプラグインかマクロが動いている間"),
@@ -775,7 +775,7 @@ fn a_plugin_does_not_start_while_a_key_macro_waits_for_a_dialog(cx: &mut TestApp
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     assert!(!view.read_with(cx, |v, _| v.macros.plugin_running));
     cx.update(|_, app| shutdown(app, &id));
     set_test_interpreter(None);
@@ -800,7 +800,7 @@ fn the_end_of_a_call_does_not_free_the_busy_mark_of_a_document_that_replaced_its
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     // The window loads another document; a call of another pane begins on it (the mark is set)
     // before the first call has noticed.
     let doc = Document::from_utf8("新".as_bytes().to_vec()).unwrap();
@@ -839,7 +839,7 @@ fn a_silent_plugin_is_stopped_when_its_document_is_replaced(cx: &mut TestAppCont
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
     let editor = view.clone();
-    cx.update(|_, app| run(editor, prepared, app));
+    cx.update(|_, app| run(&editor, prepared, app));
     let doc = Document::from_utf8("新".as_bytes().to_vec()).unwrap();
     view.update(cx, |view, cx| {
         view.load_document(SharedDocument::new(DocumentModel::new(doc), None), None, cx);
@@ -874,7 +874,7 @@ fn a_plugin_does_not_start_while_a_macro_runs_in_another_pane(cx: &mut TestAppCo
         .unwrap();
     let id = prepared.id.clone();
     let editor = second.clone();
-    cx2.update(|_, app| run(editor, prepared, app));
+    cx2.update(|_, app| run(&editor, prepared, app));
     let output = second.read_with(cx2, |v, _| v.macro_output_text());
     assert!(
         output.contains("ほかのプラグインかマクロが動いている間"),

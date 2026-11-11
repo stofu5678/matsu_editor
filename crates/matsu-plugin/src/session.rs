@@ -536,7 +536,7 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 
 /// Starts the macro. The events go to `sink` from other threads, in order, ending with
 /// `Finished`.
-pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
+pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
     if config.language == Language::AppleScript && !cfg!(target_os = "macos") {
         return Err(StartError::NotSupportedHere {
             language: config.language,
@@ -912,7 +912,7 @@ impl Report {
 /// response line, or `None` for a notification). This blocks the calling thread: the editor
 /// uses `start` instead. The tests and the command line mode use this.
 pub fn run_blocking(
-    config: MacroConfig,
+    config: &MacroConfig,
     mut handler: impl FnMut(&str) -> Option<String>,
 ) -> Result<Report, StartError> {
     let (tx, rx) = mpsc::channel();

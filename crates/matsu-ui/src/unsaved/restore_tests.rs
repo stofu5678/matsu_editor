@@ -120,7 +120,7 @@ fn windows_tabs_and_text_come_back(cx: &mut TestAppContext) {
         .write_session(&Session {
             windows: vec![
                 SessionWindow {
-                    docs: vec![a.clone(), b.clone()],
+                    docs: vec![a, b],
                     active: 1,
                 },
                 one_window(&[&c]),
@@ -597,7 +597,7 @@ fn the_tab_in_front_is_still_the_same_document_when_an_earlier_one_is_gone(
     store
         .write_session(&Session {
             windows: vec![SessionWindow {
-                docs: vec![gone, a.clone(), b.clone()],
+                docs: vec![gone, a, b],
                 active: 1,
             }],
             active_window: 0,

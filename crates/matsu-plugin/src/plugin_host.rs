@@ -256,7 +256,7 @@ impl PluginHost {
         let sink: Sink = Arc::new(move |event| {
             let _ = tx.send(event);
         });
-        let session = session::start(config, sink)?;
+        let session = session::start(&config, sink)?;
         Ok(Process { session, events })
     }
 
@@ -267,7 +267,7 @@ impl PluginHost {
         &mut self,
         jack: &str,
         handler: &str,
-        args: Value,
+        args: &Value,
         timeout: Duration,
     ) -> Result<(), BeginError> {
         if self.stopped {
@@ -462,7 +462,7 @@ impl PluginHost {
         &mut self,
         jack: &str,
         handler: &str,
-        args: Value,
+        args: &Value,
         timeout: Duration,
         mut answer: impl FnMut(&str) -> Option<String>,
     ) -> Result<Report, BeginError> {
@@ -645,7 +645,7 @@ mod tests {
         host.note(&Outcome::TimedOut);
         assert!(host.is_stopped());
         assert!(matches!(
-            host.begin("Command", "a.js", Value::Null, Duration::from_secs(1)),
+            host.begin("Command", "a.js", &Value::Null, Duration::from_secs(1)),
             Err(BeginError::Stopped)
         ));
         host.reset();
@@ -673,7 +673,7 @@ mod tests {
             "./../outside.js",
         ] {
             let error = host
-                .begin("Command", handler, Value::Null, Duration::from_secs(1))
+                .begin("Command", handler, &Value::Null, Duration::from_secs(1))
                 .unwrap_err();
             assert!(
                 matches!(error, BeginError::Outside { .. }),
@@ -705,7 +705,12 @@ mod tests {
     fn a_handler_that_cannot_be_read_does_not_start_a_process() {
         let mut host = host();
         let error = host
-            .begin("Command", "missing.js", Value::Null, Duration::from_secs(1))
+            .begin(
+                "Command",
+                "missing.js",
+                &Value::Null,
+                Duration::from_secs(1),
+            )
             .unwrap_err();
         assert!(matches!(error, BeginError::Handler { .. }), "{error}");
         assert!(

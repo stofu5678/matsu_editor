@@ -388,7 +388,7 @@ fn the_recent_folders_are_in_the_menu_and_open_the_dialog_there(cx: &mut TestApp
     assert_eq!(request.kind, Kind::OpenFile { multiple: true });
     assert_eq!(request.start.as_deref(), Some(dir.path()));
     // and the file chosen is opened
-    let file = chosen.clone();
+    let file = chosen;
     cx.simulate_path_prompt_response(move |_| Some(vec![file]));
     cx.run_until_parked();
     let text = f.view.read_with(cx, |view, app| {
