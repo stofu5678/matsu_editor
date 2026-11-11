@@ -9,6 +9,8 @@
 //! - [`Terminal::spawn`] returns the terminal and an [`EventReceiver`] with the [`TerminalEvent`]s: redraw,
 //!   the cleaned title, bell, clipboard store (OSC 52 writes) and child exit. OSC 52 reads are refused.
 //! - [`encode_key`] and [`encode_paste`] turn keys and pasted text into the bytes to [`Terminal::write`].
+//! - Before the editor ends, [`wait_for_closing`] waits (up to a limit) for the terminals that were closed,
+//!   so that their shells end with the editor.
 //!
 //! MATSU's own environment is never changed (no `std::env::set_var`): the child gets `TERM` and
 //! `COLORTERM` through the spawn options only. See [`shell`] for what `alacritty_terminal` cannot leave out.
@@ -26,6 +28,6 @@ pub use screen::{Cell, ClipboardKind, Color, Cursor, CursorShape, Modes, Rgb, Ro
 pub use shell::ShellCommand;
 pub use terminal::{
     DEFAULT_SCROLLBACK_LINES, EventReceiver, Options, Snapshot, Terminal, TerminalEvent,
-    TerminalSize,
+    TerminalSize, wait_for_closing,
 };
 pub use title::{MAX_TITLE_CHARS, clean_title};

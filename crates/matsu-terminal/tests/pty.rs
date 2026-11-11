@@ -18,15 +18,54 @@ fn command(unix_script: &str, windows_args: &[&str]) -> ShellCommand {
     }
 }
 
-fn start(shell: ShellCommand) -> (Terminal, EventReceiver) {
+/// The terminal of a test. Dropping it shuts the terminal down and waits until its shell has ended, so that no
+/// shell outlives the test binary: on Windows, a closing that the end of the process cuts short leaves the
+/// shell behind.
+struct Started(Option<Terminal>);
+
+impl Started {
+    /// The terminal itself, for a test of its own `Drop` (which then waits with `wait_for_closing`).
+    fn into_inner(mut self) -> Terminal {
+        self.0.take().expect("the terminal")
+    }
+}
+
+impl std::ops::Deref for Started {
+    type Target = Terminal;
+
+    fn deref(&self) -> &Terminal {
+        self.0.as_ref().expect("the terminal")
+    }
+}
+
+impl std::ops::DerefMut for Started {
+    fn deref_mut(&mut self) -> &mut Terminal {
+        self.0.as_mut().expect("the terminal")
+    }
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        if let Some(terminal) = self.0.take() {
+            drop(terminal);
+            let closed = matsu_terminal::wait_for_closing(LIMIT);
+            if !std::thread::panicking() {
+                assert!(closed, "a shell was not closed in time");
+            }
+        }
+    }
+}
+
+fn start(shell: ShellCommand) -> (Started, EventReceiver) {
     start_with(Options {
         shell: Some(shell),
         ..Options::default()
     })
 }
 
-fn start_with(options: Options) -> (Terminal, EventReceiver) {
-    Terminal::spawn(options).expect("spawn the terminal")
+fn start_with(options: Options) -> (Started, EventReceiver) {
+    let (terminal, events) = Terminal::spawn(options).expect("spawn the terminal");
+    (Started(Some(terminal)), events)
 }
 
 fn screen_text(terminal: &Terminal) -> String {
@@ -327,12 +366,18 @@ fn dropping_the_terminal_does_not_block() {
     let (terminal, events) = start(long_running());
     // Let the child start (a redraw or the first output), then drop while it still runs.
     let _ = events.recv_timeout(Duration::from_secs(5));
+    let terminal = terminal.into_inner();
     let started = Instant::now();
     drop(terminal);
     assert!(
         started.elapsed() < Duration::from_secs(5),
         "dropping took {:?}",
         started.elapsed()
+    );
+    // The closing goes on elsewhere, and can be waited for.
+    assert!(
+        matsu_terminal::wait_for_closing(LIMIT),
+        "the shell was not closed in time"
     );
 }
 

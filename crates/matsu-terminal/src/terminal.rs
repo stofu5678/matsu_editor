@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvError, RecvTimeoutError, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -96,8 +96,10 @@ impl Dimensions for TerminalSize {
 pub struct Options {
     pub size: TerminalSize,
     /// The directory the shell starts in; the parent's directory when `None`. A path that is not a directory
-    /// is an error, on every OS (Windows would refuse it, and Unix would start the shell elsewhere without a
-    /// word): the caller chooses where to go instead (ADR-0028: the document's folder, else the home folder).
+    /// is an error, so that the caller chooses where to go instead (ADR-0028: the document's folder, else the
+    /// home folder): Windows would refuse it, and Unix would start the shell elsewhere without a word. (On
+    /// Unix, a directory the shell may not enter, or one removed in between, still starts it in the parent's
+    /// directory: `alacritty_terminal` 0.26.0 ignores a failed `chdir`.)
     pub working_directory: Option<PathBuf>,
     /// The shell; `None` is the default shell (see [`shell`]).
     pub shell: Option<ShellCommand>,
@@ -356,7 +358,8 @@ pub struct Snapshot {
 /// A terminal with a shell running in it.
 ///
 /// Dropping it (or [`Terminal::shutdown`]) stops the reader thread and closes the PTY on another thread, so
-/// the UI thread never waits for the child or for ConPTY.
+/// the UI thread never waits for the child or for ConPTY. Before the process ends, [`wait_for_closing`] waits
+/// for those threads.
 pub struct Terminal {
     term: Arc<FairMutex<Term<Listener>>>,
     sender: EventLoopSender,
@@ -479,7 +482,7 @@ impl Terminal {
     pub fn resize(&self, size: TerminalSize) -> io::Result<()> {
         let size = size.clamped();
         *self.shared.size.lock().expect("size") = size;
-        self.term.lock().resize(size);
+        self.with_term(|term| term.resize(size));
         self.shared.request_redraw();
         if !self.is_running() {
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
@@ -491,74 +494,58 @@ impl Terminal {
 
     /// The terminal modes.
     pub fn modes(&self) -> Modes {
-        Modes::from_term(*self.term.lock().mode())
+        self.with_term(|term| Modes::from_term(*term.mode()))
     }
 
     /// The size, scrollback, cursor and modes of the screen.
     pub fn info(&self) -> ScreenInfo {
-        screen_info(&self.term.lock())
+        self.with_term(|term| screen_info(term))
     }
 
     /// Copies lines of the grid. Line 0 is the first line of the live screen, lines above it (negative) are
     /// the scrollback, down to `-history_size`; the last is `rows - 1`. Lines outside that range are left
     /// out, so fewer than `count` rows may come back.
     pub fn read_lines(&self, first: i32, count: usize) -> Vec<Row> {
-        let term = self.term.lock();
-        let top = -i32::try_from(term.history_size()).unwrap_or(i32::MAX);
-        let bottom = i32::try_from(term.screen_lines()).unwrap_or(i32::MAX) - 1;
-        let last = i64::from(first) + i64::try_from(count).unwrap_or(i64::MAX) - 1;
-        let start = first.max(top);
-        let end = i32::try_from(last.min(i64::from(bottom))).unwrap_or(bottom);
-        (start..=end)
-            .map(|line| Row::from_grid(&term.grid()[Line(line)]))
-            .collect()
+        self.with_term(|term| {
+            let top = -i32::try_from(term.history_size()).unwrap_or(i32::MAX);
+            let bottom = i32::try_from(term.screen_lines()).unwrap_or(i32::MAX) - 1;
+            let last = i64::from(first) + i64::try_from(count).unwrap_or(i64::MAX) - 1;
+            let start = first.max(top);
+            let end = i32::try_from(last.min(i64::from(bottom))).unwrap_or(bottom);
+            (start..=end)
+                .map(|line| Row::from_grid(&term.grid()[Line(line)]))
+                .collect()
+        })
     }
 
     /// Copies the view: the live screen, or the scrollback when the view is scrolled back, with the screen
     /// state, all under one lock.
     pub fn snapshot(&self) -> Snapshot {
-        let term = self.term.lock();
-        let info = screen_info(&term);
-        let offset = i32::try_from(info.display_offset).unwrap_or(0);
-        let rows = (0..term.screen_lines())
-            .map(|row| {
-                let line = i32::try_from(row).unwrap_or(0) - offset;
-                Row::from_grid(&term.grid()[Line(line)])
-            })
-            .collect();
-        let colors = term.colors();
-        let color_overrides = (0..=258)
-            .filter_map(|index| {
-                colors[index].map(|rgb| {
-                    (
-                        index,
-                        Rgb {
-                            r: rgb.r,
-                            g: rgb.g,
-                            b: rgb.b,
-                        },
-                    )
-                })
-            })
-            .collect();
-        Snapshot {
-            info,
-            rows,
-            color_overrides,
-        }
+        self.with_term(|term| snapshot_of(term))
     }
 
     /// Scrolls the view back (positive) or forward (negative) by lines. A redraw is reported, as for
     /// [`Terminal::scroll_to_bottom`] and [`Terminal::resize`].
     pub fn scroll_display(&self, lines: i32) {
-        self.term.lock().scroll_display(Scroll::Delta(lines));
+        self.with_term(|term| term.scroll_display(Scroll::Delta(lines)));
         self.shared.request_redraw();
     }
 
     /// Scrolls the view to the live screen.
     pub fn scroll_to_bottom(&self) {
-        self.term.lock().scroll_display(Scroll::Bottom);
+        self.with_term(|term| term.scroll_display(Scroll::Bottom));
         self.shared.request_redraw();
+    }
+
+    /// Runs `f` with the terminal state locked for the UI, holding the reader's lease as well.
+    ///
+    /// The reader thread takes the lease, reads the PTY, and then only tries the lock; when the lock is taken,
+    /// it reads again, and `alacritty_terminal` 0.26.0 drops the bytes it has read so far when that read fails
+    /// (`EIO` on Linux, once the child has ended). Holding the lease keeps the reader out while the UI has the
+    /// state, so it never meets a taken lock, and the last output of a child is not lost.
+    fn with_term<R>(&self, f: impl FnOnce(&mut Term<Listener>) -> R) -> R {
+        let _lease = self.term.lease();
+        f(&mut self.term.lock_unfair())
     }
 
     /// Stops the reader thread and closes the PTY, which ends the shell if it is still running. The work
@@ -570,18 +557,98 @@ impl Terminal {
         let _ = self.sender.send(Msg::Shutdown);
         // Joining the reader returns the event loop with the PTY; dropping that waits for the child on
         // Unix and may wait for ConPTY's output to be read on Windows. Neither may block the UI thread.
+        CLOSING.started();
         let closer = std::thread::Builder::new()
             .name("matsu-terminal-close".to_owned())
-            .spawn(move || drop(reader.join()));
-        // If the thread cannot be started, the handle is dropped: the reader thread ends by itself and
-        // closes the PTY on its own thread.
-        drop(closer);
+            .spawn(move || {
+                drop(reader.join());
+                CLOSING.finished();
+            });
+        if closer.is_err() {
+            // The handle went with the closure: the reader thread ends by itself and closes the PTY on its
+            // own thread, which cannot be waited for.
+            CLOSING.finished();
+        }
     }
+}
+
+/// How many terminals are still closing their PTY on a closer thread ([`Terminal::shutdown`]).
+static CLOSING: Closing = Closing::new();
+
+struct Closing {
+    count: Mutex<usize>,
+    done: Condvar,
+}
+
+impl Closing {
+    const fn new() -> Self {
+        Self {
+            count: Mutex::new(0),
+            done: Condvar::new(),
+        }
+    }
+
+    fn started(&self) {
+        *self.count.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+    }
+
+    fn finished(&self) {
+        let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        *count = count.saturating_sub(1);
+        self.done.notify_all();
+    }
+}
+
+/// Waits until every terminal shut down so far has closed its PTY, which ends its shell, or until `timeout`
+/// has passed. Returns whether they all have.
+///
+/// For the end of the editor: the closing runs on other threads, and a process that ends before them leaves
+/// the shells behind on Windows. A shell whose ConPTY was never closed keeps running, and one whose closing
+/// was cut short can hang for good (ADR-0028, 10: no child outlives its window).
+pub fn wait_for_closing(timeout: Duration) -> bool {
+    let count = CLOSING.count.lock().unwrap_or_else(PoisonError::into_inner);
+    let (count, _) = CLOSING
+        .done
+        .wait_timeout_while(count, timeout, |count| *count > 0)
+        .unwrap_or_else(PoisonError::into_inner);
+    *count == 0
 }
 
 impl Drop for Terminal {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+/// Copies the view of `term`: see [`Terminal::snapshot`].
+fn snapshot_of(term: &Term<Listener>) -> Snapshot {
+    let info = screen_info(term);
+    let offset = i32::try_from(info.display_offset).unwrap_or(0);
+    let rows = (0..term.screen_lines())
+        .map(|row| {
+            let line = i32::try_from(row).unwrap_or(0) - offset;
+            Row::from_grid(&term.grid()[Line(line)])
+        })
+        .collect();
+    let colors = term.colors();
+    let color_overrides = (0..=258)
+        .filter_map(|index| {
+            colors[index].map(|rgb| {
+                (
+                    index,
+                    Rgb {
+                        r: rgb.r,
+                        g: rgb.g,
+                        b: rgb.b,
+                    },
+                )
+            })
+        })
+        .collect();
+    Snapshot {
+        info,
+        rows,
+        color_overrides,
     }
 }
 
