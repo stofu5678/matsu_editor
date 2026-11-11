@@ -722,8 +722,7 @@ fn closing_the_pane_that_began_a_call_frees_the_document_for_the_other_pane(
     let prepared = cx2
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
-    let editor = second.clone();
-    cx2.update(|_, app| run(&editor, prepared, app));
+    cx2.update(|_, app| run(&second, prepared, app));
     assert!(first.read_with(cx2, |v, cx| v.plugin_in_call(cx)));
     // The pane that began the call goes away.
     drop(second);

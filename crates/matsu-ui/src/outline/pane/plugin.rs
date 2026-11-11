@@ -152,8 +152,12 @@ async fn run_plug(
         if given_up(cx) {
             return None;
         }
-        let entity: Entity<EditorView> = view.upgrade()?;
-        match cx.update(|app| begin(app, &entity, code, &collected)) {
+        // The handle is dropped before the wait: it must not keep the view alive meanwhile.
+        let begun = {
+            let entity: Entity<EditorView> = view.upgrade()?;
+            cx.update(|app| begin(app, &entity, code, &collected))
+        };
+        match begun {
             Begin::Started => break,
             Begin::Refused(reason) => {
                 collected.borrow_mut().ending = Some(Ending::Refused(reason));

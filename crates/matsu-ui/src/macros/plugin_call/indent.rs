@@ -192,7 +192,7 @@ fn start(cx: &mut App, editor: &Entity<EditorView>, call: SmartIndentCall) {
         view.macros.indent_closed = false;
         true
     });
-    if begun && !run(&editor.clone(), prepared, cx) {
+    if begun && !run(editor, prepared, cx) {
         editor.update(cx, |view, _| view.macros.indent_guard = None);
     }
 }
