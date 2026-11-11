@@ -80,6 +80,8 @@ jobs:
           event: ${{ github.event_name }}
           head-repo-id: ${{ github.event.pull_request.head.repo.id }}
           repo-id: ${{ github.repository_id }}
+          head-commit-time: ${{ github.event.head_commit.timestamp }}
+          head-commit-committer: ${{ github.event.head_commit.committer.email }}
 
   # The quick checks share one job and one runner. As six jobs they each ran for 2 minutes or less but waited 5
   # minutes or more for a runner of their own when several pull requests were open. Every step after the first runs
@@ -115,6 +117,10 @@ jobs:
       - name: mac-runner admission
         if: success() || failure()
         run: bash tools/mac-runner/tests/admit-test.sh
+      # Which runner the macOS jobs get (ADR-0027, .github/actions/mac-runner/pick.sh). Bash and GNU date only.
+      - name: mac-runner routing
+        if: success() || failure()
+        run: bash .github/actions/mac-runner/pick-test.sh
       # Licenses (no GPL family, see CLAUDE.md), advisories, and sources.
       - name: deny
         if: success() || failure()
