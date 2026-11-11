@@ -46,7 +46,7 @@ pub fn owner(handle: RawWindowHandle) -> isize {
 /// Shows the print dialog owned by `owner` and prints. Returns whether it printed: false when the
 /// user cancels. It blocks until the dialog closes, so call it off the UI thread, as GPUI does
 /// for its own dialogs.
-pub fn print(owner: isize, job: PrintJob) -> Result<bool, Error> {
+pub fn print(owner: isize, job: &PrintJob) -> Result<bool, Error> {
     let mut pd: PRINTDLGW = unsafe { std::mem::zeroed() };
     pd.lStructSize = std::mem::size_of::<PRINTDLGW>() as u32;
     pd.hwndOwner = owner as HWND;
@@ -75,7 +75,7 @@ pub fn print(owner: isize, job: PrintJob) -> Result<bool, Error> {
             err => Err(Error(format!("印刷ダイアログのエラー {err:#x}"))),
         };
     }
-    let result = print_dc(pd.hDC, &job, None);
+    let result = print_dc(pd.hDC, job, None);
     unsafe { DeleteDC(pd.hDC) };
     free(&pd);
     result.map(|_| true).map_err(Error)
@@ -182,8 +182,8 @@ impl Fonts {
     /// of its own has the half-width print font.
     fn of(&self, kind: FontKind, bold: bool, underline: bool) -> Result<HFONT, String> {
         let kind = match kind {
-            FontKind::Header if !has_own(&self.setting.header_font) => FontKind::Han,
-            FontKind::Footer if !has_own(&self.setting.footer_font) => FontKind::Han,
+            FontKind::Header if !has_own(self.setting.header_font.as_ref()) => FontKind::Han,
+            FontKind::Footer if !has_own(self.setting.footer_font.as_ref()) => FontKind::Han,
             _ => kind,
         };
         let key = (kind as u8, bold, underline);
@@ -219,8 +219,8 @@ impl Fonts {
     }
 }
 
-fn has_own(font: &Option<matsu_print::HeaderFooterFont>) -> bool {
-    font.as_ref().is_some_and(|f| !f.face.is_empty())
+fn has_own(font: Option<&matsu_print::HeaderFooterFont>) -> bool {
+    font.is_some_and(|f| !f.face.is_empty())
 }
 
 impl Drop for Fonts {
