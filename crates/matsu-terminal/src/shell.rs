@@ -13,12 +13,12 @@
 //! ([`extra_env`]). MATSU's own environment is never changed: `alacritty_terminal::tty::setup_env` (which
 //! calls `set_var`) is not called.
 //!
-//! **Variables whose names start with `MATSU_` are not removed from the child's environment.** ADR-0028
-//! point 6 wants them left out, but `alacritty_terminal` 0.26.0 cannot do that on any OS: on Unix it only
-//! adds variables to the `Command` it builds (`Options::env` has no way to remove one), and on Windows it
-//! builds the environment block as `Options::env` plus the parent's whole environment. `MATSU_` variables are
-//! diagnostic switches (`MATSU_FONT_DIAGNOSTICS` and the like), not secrets. The PR description lists the
-//! options for the user.
+//! **Variables whose names start with `MATSU_` reach the child too**, as do `ALACRITTY_WINDOW_ID` and
+//! `WINDOWID`, which `alacritty_terminal` adds. It cannot leave a variable out on any OS: on Unix it only adds
+//! variables to the `Command` it builds (`Options::env` has no way to remove one), and on Windows it builds
+//! the environment block as `Options::env` plus the parent's whole environment. The user chose (2026-11-11)
+//! to leave them there and to keep no secret in a `MATSU_` variable (ADR-0028, decision 6 as changed):
+//! they are diagnostic switches (`MATSU_FONT_DIAGNOSTICS` and the like).
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
