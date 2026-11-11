@@ -50,7 +50,7 @@ pub const SECTION: &str = "CustMenu";
 pub const MATSU_VERSION_KEY: &str = "nMatsuCustomMenuVer";
 /// The current version of MATSU's own items. A saved menu with a smaller version (or with none) gets the items
 /// of the versions after it once.
-pub const MATSU_CURRENT_VERSION: i32 = 1;
+pub const MATSU_CURRENT_VERSION: i32 = 2;
 /// `MAX_CUSTOM_MENU` (`sakura_core/env/CommonSetting.h`).
 pub const MAX_CUSTOM_MENU: usize = 25;
 /// `MAX_CUSTOM_MENU_NAME_LEN`, in UTF-16 units.
@@ -159,6 +159,18 @@ mod defaults {
     ];
     const AFTER_COPY_CRLF: u16 = 30603; // F_COPY_CRLF
 
+    /// The six MATSU-only items that encode and decode the selection (version 2), a group of their own
+    /// after 「すべて選択」. The keys are digits: Sakura's menu uses most letters.
+    pub(super) const MATSU_ENCODINGS: [(u16, char); 6] = [
+        (32704, '1'), // F_URL_ENCODE
+        (32705, '2'), // F_URL_DECODE
+        (32706, '3'), // F_HTML_ESCAPE
+        (32707, '4'), // F_HTML_UNESCAPE
+        (32708, '5'), // F_BASE64_ENCODE
+        (32709, '6'), // F_BASE64_DECODE_TEXT
+    ];
+    const AFTER_SELECT_ALL: u16 = 30401; // F_SELECTALL
+
     /// Version 1 of MATSU's own items in a saved right-click menu: each of `MATSU_COPIES` that the menu lacks
     /// goes right after 「CRLF改行でコピー」 (or after the copy before it), with its access key unless another
     /// item has it. Nothing is added when the place is not in the menu or the menu is full.
@@ -184,8 +196,41 @@ mod defaults {
         }
     }
 
-    /// Sakura's right-click menu with `MATSU_COPIES` right after 「CRLF改行でコピー」. N and M are free in it.
-    pub(super) fn right_click_with_matsu_copies() -> Vec<(u16, char)> {
+    /// Version 2 of MATSU's own items in a saved right-click menu: the `MATSU_ENCODINGS` that the menu lacks
+    /// go after 「すべて選択」, behind a separator of their own (the separator that follows 「すべて選択」 in
+    /// Sakura's menu then ends the group). Nothing is added when the place is not in the menu or the group
+    /// does not fit in the 48 items.
+    pub(super) fn add_matsu_encodings(items: &mut Vec<super::CustomMenuItem>) {
+        let missing: Vec<_> = MATSU_ENCODINGS
+            .iter()
+            .filter(|(function, _)| !items.iter().any(|item| item.function == *function))
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        let Some(at) = items
+            .iter()
+            .position(|item| item.function == AFTER_SELECT_ALL)
+        else {
+            return;
+        };
+        if items.len() + missing.len() + 1 > super::MAX_CUSTOM_MENU_ITEMS {
+            return;
+        }
+        let mut added = vec![super::CustomMenuItem::SEPARATOR];
+        for &&(function, key) in &missing {
+            let taken = items.iter().any(|item| item.key == Some(key));
+            added.push(super::CustomMenuItem::command(
+                function,
+                (!taken).then_some(key),
+            ));
+        }
+        items.splice(at + 1..at + 1, added);
+    }
+
+    /// Sakura's right-click menu with `MATSU_COPIES` right after 「CRLF改行でコピー」, and `MATSU_ENCODINGS`
+    /// after 「すべて選択」. N and M are free in it, and so are the digits.
+    pub(super) fn right_click_with_matsu_items() -> Vec<(u16, char)> {
         let mut items = RIGHT_CLICK.to_vec();
         let at = items
             .iter()
@@ -193,6 +238,12 @@ mod defaults {
             .expect("Sakura's right-click menu has F_COPY_CRLF")
             + 1;
         items.splice(at..at, MATSU_COPIES);
+        let at = items
+            .iter()
+            .position(|&(function, _)| function == AFTER_SELECT_ALL)
+            .expect("Sakura's right-click menu has F_SELECTALL")
+            + 1;
+        items.splice(at..at, std::iter::once((0, '\0')).chain(MATSU_ENCODINGS));
         items
     }
 
@@ -282,12 +333,12 @@ pub struct CustomMenus {
 impl Default for CustomMenus {
     /// Sakura's defaults (`CShareData::Init` and `InitPopupMenu`): the right-click menu, custom menu 1 and
     /// the tab menu have items; the others are empty. The one difference is in the right-click menu: the
-    /// MATSU-only copies with LF and with CR (`F_COPY_LF`, `F_COPY_CR`) follow 「CRLF改行でコピー」
-    /// (`defaults::right_click_with_matsu_copies`).
+    /// MATSU-only copies with LF and with CR (`F_COPY_LF`, `F_COPY_CR`) follow 「CRLF改行でコピー」, and the six
+    /// encodings and decodings of the selection follow 「すべて選択」 (`defaults::right_click_with_matsu_items`).
     fn default() -> Self {
         let mut menus = vec![CustomMenu::empty(); MAX_CUSTOM_MENU];
         menus[INDEX_FOR_RBUTTONUP] =
-            CustomMenu::with_items(&defaults::right_click_with_matsu_copies());
+            CustomMenu::with_items(&defaults::right_click_with_matsu_items());
         menus[1] = CustomMenu::with_items(defaults::MENU_1);
         menus[INDEX_FOR_TABWND] = CustomMenu::with_items(defaults::TAB);
         Self { menus }
@@ -361,8 +412,12 @@ impl CustomMenus {
     pub fn from_profile(profile: &Profile, by_name: &dyn Fn(&str) -> Option<u16>) -> Self {
         let mut all = Self::read_raw(profile, by_name);
         let version = profile.get_i32(SECTION, MATSU_VERSION_KEY).unwrap_or(0);
-        if version < MATSU_CURRENT_VERSION {
-            defaults::add_matsu_copies(&mut all.menus[INDEX_FOR_RBUTTONUP].items);
+        let right_click = &mut all.menus[INDEX_FOR_RBUTTONUP].items;
+        if version < 1 {
+            defaults::add_matsu_copies(right_click);
+        }
+        if version < 2 {
+            defaults::add_matsu_encodings(right_click);
         }
         all
     }
@@ -585,7 +640,7 @@ mod tests {
         // InitPopupMenu: 30 items in the right-click menu, 7 in custom menu 1, 27 in the tab menu.
         // MATSU's right-click menu has the two copies on top of Sakura's 30 (see
         // `the_default_right_click_menu_is_sakuras_with_the_two_copies`).
-        assert_eq!((counts[0], counts[1], counts[24]), (30 + 2, 7, 27));
+        assert_eq!((counts[0], counts[1], counts[24]), (30 + 2 + 7, 7, 27));
         assert!(counts[2..24].iter().all(|&n| n == 0));
         let right = menus.get(0).unwrap();
         assert_eq!(right.items[0], CustomMenuItem::command(30210, Some('U')));
@@ -612,10 +667,24 @@ mod tests {
         );
         expected.insert(crlf + 1, CustomMenuItem::command(32700, Some('N')));
         expected.insert(crlf + 2, CustomMenuItem::command(32701, Some('M')));
+        // The encodings and decodings: a separator and the six items after 「すべて選択」.
+        let select_all = expected.iter().position(|i| i.function == 30401).unwrap();
+        assert!(
+            expected[select_all + 1].is_separator(),
+            "Sakura: a separator follows"
+        );
+        let encodings = std::iter::once(CustomMenuItem::SEPARATOR).chain(
+            [32704, 32705, 32706, 32707, 32708, 32709]
+                .into_iter()
+                .zip('1'..='6')
+                .map(|(function, key)| CustomMenuItem::command(function, Some(key))),
+        );
+        expected.splice(select_all + 1..select_all + 1, encodings);
         assert_eq!(CustomMenus::default().get(0).unwrap().items, expected);
-        // Sakura's menu has no other N or M.
+        // Sakura's menu has no other N or M, and no digits.
         let keys: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(_, k)| k).collect();
         assert!(!keys.contains(&'N') && !keys.contains(&'M'));
+        assert!(!keys.iter().any(char::is_ascii_digit));
         // The other default menus are Sakura's.
         let menus = CustomMenus::default();
         assert_eq!(menus.get(1).unwrap().items.len(), defaults::MENU_1.len());
@@ -625,7 +694,7 @@ mod tests {
     #[test]
     fn a_file_with_the_right_click_menu_keeps_sakuras_items_where_it_lists_none() {
         // 30 items counted, one listed: the rest are Sakura's own defaults, not shifted by the two new ones.
-        let menus = read("[CustMenu]\nnMatsuCustomMenuVer=1\nnCMIN[00]=30\nnCMIF[00][00]=30102\n");
+        let menus = read("[CustMenu]\nnMatsuCustomMenuVer=2\nnCMIN[00]=30\nnCMIF[00][00]=30102\n");
         let sakura: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(f, _)| f).collect();
         let got: Vec<_> = menus
             .get(0)
@@ -639,7 +708,7 @@ mod tests {
         // A file with other menus only gets MATSU's default.
         let menus = read("[CustMenu]\nnCMIN[02]=1\n");
         assert_eq!(menus.get(0), CustomMenus::default().get(0));
-        assert_eq!(menus.get(0).unwrap().items.len(), 32);
+        assert_eq!(menus.get(0).unwrap().items.len(), 32 + 7);
     }
 
     #[test]
@@ -655,7 +724,7 @@ mod tests {
             .unwrap();
         let reread = CustomMenus::from_profile(&profile, &names);
         assert_eq!(reread, after);
-        assert_eq!(reread.get(0).unwrap().items.len(), 32);
+        assert_eq!(reread.get(0).unwrap().items.len(), 32 + 7);
         // Writing again over the file that now has the menu writes no more than what changed.
         let mut third = reread.menus().to_vec();
         third[0].popup = false;
@@ -899,15 +968,98 @@ mod tests {
         let mut expected: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(f, _)| f).collect();
         let at = expected.iter().position(|&f| f == 30603).unwrap() + 1;
         expected.splice(at..at, [32700, 32701]);
+        // Version 2's items come too: the file has no MATSU version at all.
+        let select_all = expected.iter().position(|&f| f == 30401).unwrap() + 1;
+        expected.splice(
+            select_all..select_all,
+            [0, 32704, 32705, 32706, 32707, 32708, 32709],
+        );
         assert_eq!(right_click_functions(&menus), expected);
         let items = &menus.get(0).unwrap().items;
         assert_eq!(items[at].key, Some('N'));
         assert_eq!(items[at + 1].key, Some('M'));
     }
 
+    /// The right-click menu of MATSU 0.9.2 or before: Sakura's items and the two copies, MATSU version 1.
+    fn version_1_right_click_file() -> String {
+        let mut text = String::from("[CustMenu]\nnMatsuCustomMenuVer=1\nnCMIN[00]=32\n");
+        let mut items = defaults::RIGHT_CLICK.to_vec();
+        let at = items.iter().position(|&(f, _)| f == 30603).unwrap() + 1;
+        items.splice(at..at, defaults::MATSU_COPIES);
+        for (j, (function, key)) in items.iter().enumerate() {
+            text += &format!("nCMIF[00][{j:02}]={function}\nnCMIK[00][{j:02}]={key}\n");
+        }
+        text
+    }
+
+    #[test]
+    fn a_right_click_menu_of_matsu_version_1_gets_the_encodings_once_after_select_all() {
+        let menus = read(&version_1_right_click_file());
+        let functions = right_click_functions(&menus);
+        let select_all = functions.iter().position(|&f| f == 30401).unwrap();
+        assert_eq!(
+            functions[select_all..select_all + 9],
+            [30401, 0, 32704, 32705, 32706, 32707, 32708, 32709, 0],
+            "a group of its own, ended by the separator that Sakura has after the selection"
+        );
+        assert_eq!(functions.len(), 32 + 7);
+        let items = &menus.get(0).unwrap().items;
+        let keys: Vec<_> = items[select_all + 2..select_all + 8]
+            .iter()
+            .map(|i| i.key)
+            .collect();
+        assert_eq!(keys, "123456".chars().map(Some).collect::<Vec<_>>());
+        // The copies were not added again.
+        assert_eq!(functions.iter().filter(|&&f| f == 32700).count(), 1);
+        // What was written has the version, and reading it gives the same menus.
+        let mut file = Profile::from_bytes(version_1_right_click_file().as_bytes());
+        let before = CustomMenus::read_raw(&file, &names);
+        menus
+            .write_to_profile(&mut file, None, Some(&before))
+            .unwrap();
+        CustomMenus::write_matsu_version(&mut file).unwrap();
+        assert_eq!(CustomMenus::from_profile(&file, &names), menus);
+    }
+
+    #[test]
+    fn a_right_click_menu_of_matsu_version_2_is_not_given_the_encodings_back() {
+        let text =
+            version_1_right_click_file().replace("nMatsuCustomMenuVer=1", "nMatsuCustomMenuVer=2");
+        let functions = right_click_functions(&read(&text));
+        assert_eq!(functions.len(), 32);
+        assert!(!functions.contains(&32704));
+    }
+
+    #[test]
+    fn the_encodings_a_right_click_menu_already_has_are_not_doubled_and_keys_taken_are_left() {
+        let text = "[CustMenu]\nnMatsuCustomMenuVer=1\nnCMIN[00]=3\nnCMIF[00][00]=30401\n\
+             nCMIF[00][01]=32706\nnCMIF[00][02]=30604\nnCMIK[00][02]=2\n";
+        let menus = read(text);
+        assert_eq!(
+            right_click_functions(&menus),
+            [30401, 0, 32704, 32705, 32707, 32708, 32709, 32706, 30604]
+        );
+        let items = &menus.get(0).unwrap().items;
+        assert_eq!(items[3].key, None, "2 belongs to another item");
+        assert_eq!(items[2].key, Some('1'));
+    }
+
+    #[test]
+    fn a_right_click_menu_without_select_all_or_room_is_left_alone_by_version_2() {
+        let menus = read("[CustMenu]\nnMatsuCustomMenuVer=1\nnCMIN[00]=1\nnCMIF[00][00]=30604\n");
+        assert_eq!(right_click_functions(&menus), [30604]);
+        // 48 items: 41 would be needed with the group, and 7 more do not fit.
+        let mut text =
+            String::from("[CustMenu]\nnMatsuCustomMenuVer=1\nnCMIN[00]=48\nnCMIF[00][00]=30401\n");
+        for j in 1..48 {
+            text += &format!("nCMIF[00][{j:02}]=30604\n");
+        }
+        assert_eq!(right_click_functions(&read(&text)).len(), 48);
+    }
+
     #[test]
     fn a_right_click_menu_saved_with_the_matsu_version_is_not_given_the_copies_back() {
-        let text = format!("{}nMatsuCustomMenuVer=1\n", old_right_click_file());
+        let text = format!("{}nMatsuCustomMenuVer=2\n", old_right_click_file());
         let sakura: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(f, _)| f).collect();
         assert_eq!(right_click_functions(&read(&text)), sakura);
     }
@@ -925,7 +1077,7 @@ mod tests {
             .unwrap();
         CustomMenus::write_matsu_version(&mut file).unwrap();
         assert_eq!(CustomMenus::from_profile(&file, &names), once);
-        assert_eq!(file.get(SECTION, MATSU_VERSION_KEY), Some("1"));
+        assert_eq!(file.get(SECTION, MATSU_VERSION_KEY), Some("2"));
     }
 
     #[test]

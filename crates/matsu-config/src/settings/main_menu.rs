@@ -71,7 +71,7 @@ pub const CURRENT_VERSION: i32 = 2;
 pub const MATSU_VERSION_KEY: &str = "nMatsuMainMenuVer";
 /// The current version of MATSU's own items. A saved menu with a smaller version (or with none) gets the
 /// items of the versions after it once.
-pub const MATSU_CURRENT_VERSION: i32 = 2;
+pub const MATSU_CURRENT_VERSION: i32 = 3;
 
 /// `F_NODE`: a node whose name is the name of the row.
 pub const F_NODE: u16 = 0;
@@ -276,6 +276,8 @@ struct Addition {
     function: u16,
     after: u16,
     separator_before: bool,
+    /// A separator after the new row (the end of a group of its own). MATSU's additions only.
+    separator_after: bool,
     /// The access key of the new row, used only when no sibling has it. Sakura's additions have none.
     key: Option<char>,
 }
@@ -287,7 +289,15 @@ impl Addition {
             function,
             after,
             separator_before,
+            separator_after: false,
             key: None,
+        }
+    }
+
+    const fn with_separator_after(self) -> Self {
+        Self {
+            separator_after: true,
+            ..self
         }
     }
 
@@ -326,14 +336,23 @@ const ADDITIONS: [Addition; 21] = [
 
 /// The items that only MATSU has, which the menus saved before them lack (version 1: the copies with LF and
 /// with CR, and the preview in another tab; version 2: the chooser of the connection to run the database
-/// function on; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
+/// function on; version 3: the six encodings and decodings of the selection, a group of its own in the 変換 menu
+/// after 「空白→TAB」; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
 /// Sakura's, they are added after the item they follow, with the access key of the default menu unless a
 /// sibling in the same submenu already has it.
-const MATSU_ADDITIONS: [Addition; 4] = [
+const MATSU_ADDITIONS: [Addition; 10] = [
     Addition::new(1, 32700, 30603, false).with_key('N'), // F_COPY_LF after F_COPY_CRLF
     Addition::new(1, 32701, 32700, false).with_key('M'), // F_COPY_CR after F_COPY_LF
     Addition::new(1, 32702, 31370, false).with_key('G'), // the preview in another tab after F_WIN_OUTPUT
     Addition::new(2, 32703, 30171, false).with_key('C'), // the chooser of the connection after F_PLSQL_COMPILE_ON_SQLPLUS
+    Addition::new(3, 32704, 30831, true).with_key('E'), // F_URL_ENCODE after F_SPACETOTAB, with a separator
+    Addition::new(3, 32705, 32704, false).with_key('D'), // F_URL_DECODE
+    Addition::new(3, 32706, 32705, false).with_key('P'), // F_HTML_ESCAPE
+    Addition::new(3, 32707, 32706, false).with_key('R'), // F_HTML_UNESCAPE
+    Addition::new(3, 32708, 32707, false).with_key('B'), // F_BASE64_ENCODE
+    Addition::new(3, 32709, 32708, false)
+        .with_key('Y')
+        .with_separator_after(), // F_BASE64_DECODE_TEXT, then a separator
 ];
 
 impl MainMenu {
@@ -408,7 +427,7 @@ impl MainMenu {
     /// has the function anywhere. `additions` is Sakura's table or MATSU's.
     fn add_newer_items(&mut self, additions: &[Addition], version: i32) {
         for add in additions.iter().filter(|a| a.version > version) {
-            let extra = usize::from(add.separator_before);
+            let extra = usize::from(add.separator_before) + usize::from(add.separator_after);
             if self.rows.iter().any(|r| r.function == add.function)
                 || self.rows.len() + extra >= MAX_MAINMENU
             {
@@ -429,6 +448,9 @@ impl MainMenu {
             let mut row = MenuRow::leaf(level, add.function);
             row.key = add.key.filter(|&key| !self.sibling_has_key(at, key));
             added.push(row);
+            if add.separator_after {
+                added.push(MenuRow::separator(level));
+            }
             self.rows.splice(at + 1..at + 1, added);
         }
     }

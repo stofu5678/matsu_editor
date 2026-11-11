@@ -394,7 +394,7 @@ fn a_menu_of_matsu_version_1_gets_the_chooser_after_the_database_run_once() {
     let mut file = profile("");
     menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
         .unwrap();
-    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("2"));
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("3"));
     assert_eq!(MainMenu::from_profile(&file, &names, &default_menu()), menu);
     // a menu with no MATSU version at all gets it too, with version 1's items that have a place
     let text = MATSU_MENU_WITH_DATABASE.replace("nMatsuMainMenuVer=1\n", "");
@@ -450,7 +450,7 @@ fn the_matsu_version_is_written_with_a_saved_menu_and_not_in_an_exported_file() 
     let menu = read(OLD_MATSU_MENU);
     menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
         .unwrap();
-    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("2"));
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("3"));
     let exported = menu.export_profile(&|_| None).unwrap();
     assert_eq!(exported.get("MainMenu", "nMatsuMainMenuVer"), None);
 }

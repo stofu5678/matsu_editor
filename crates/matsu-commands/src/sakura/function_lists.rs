@@ -253,6 +253,12 @@ pub static FUNCTION_LISTS: [&[u16]; 15] = [
         30814, // F_HANKATATOZENHIRA
         30830, // F_TABTOSPACE
         30831, // F_SPACETOTAB
+        32704, // F_URL_ENCODE (MATSU-only)
+        32705, // F_URL_DECODE (MATSU-only)
+        32706, // F_HTML_ESCAPE (MATSU-only)
+        32707, // F_HTML_UNESCAPE (MATSU-only)
+        32708, // F_BASE64_ENCODE (MATSU-only)
+        32709, // F_BASE64_DECODE_TEXT (MATSU-only)
         30850, // F_CODECNV_AUTO2SJIS
         30851, // F_CODECNV_EMAIL
         30852, // F_CODECNV_EUC2SJIS

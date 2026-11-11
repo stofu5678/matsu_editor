@@ -9,6 +9,7 @@
 //! * [`code`]: character code conversions of the selection, Base64 and uudecode.
 //! * [`kana`]: full and half width, hiragana and katakana, alphanumerics and symbols.
 //! * [`tabs`]: tabs to spaces and spaces to tabs.
+//! * [`text_encoding`]: URL, HTML and Base64 encoding and decoding (MATSU-only).
 //! * [`datetime`]: the date and time pictures of `F_INS_DATE` and `F_INS_TIME`, and the clock.
 
 pub mod case;
@@ -16,3 +17,4 @@ pub mod code;
 pub mod datetime;
 pub mod kana;
 pub mod tabs;
+pub mod text_encoding;
