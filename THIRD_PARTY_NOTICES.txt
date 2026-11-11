@@ -1917,7 +1917,7 @@ BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 --------------------------------------------------------------------------------
 
 Used by:
-  * encoding_rs 0.8.42 - https://github.com/hsivonen/encoding_rs
+  * encoding_rs 0.8.44 - https://github.com/hsivonen/encoding_rs
 
 // Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
 //
@@ -2202,7 +2202,7 @@ BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 --------------------------------------------------------------------------------
 
 Used by:
-  * encoding_rs 0.8.42 - https://github.com/hsivonen/encoding_rs
+  * encoding_rs 0.8.44 - https://github.com/hsivonen/encoding_rs
 
 Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
 
@@ -8968,7 +8968,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * encoding_rs 0.8.42 - https://github.com/hsivonen/encoding_rs
+  * encoding_rs 0.8.44 - https://github.com/hsivonen/encoding_rs
   * multiversion_no_op 1.0.0 - https://github.com/hsivonen/multiversion_no_op
   * utf8_iter 1.0.4 - https://github.com/hsivonen/utf8_iter
 
