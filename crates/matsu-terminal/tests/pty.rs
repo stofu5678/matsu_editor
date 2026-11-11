@@ -126,6 +126,20 @@ fn long_running() -> ShellCommand {
     command("sleep 60", &["/c", "ping", "-n", "60", "127.0.0.1"])
 }
 
+/// Starts [`long_running`]. On Windows it waits until `ping` has printed its first line (which names the
+/// address in every language), so that the shell is attached to its console before the test closes it: a
+/// ConPTY closed while its client is still starting can leave the client running when the test binary ends
+/// right after. (`sleep` prints nothing; Unix needs no wait.)
+fn start_long_running() -> (Started, EventReceiver) {
+    let (terminal, events) = start(long_running());
+    if cfg!(windows) {
+        wait_for_screen(&terminal, &events, "ping's first line", |t| {
+            t.contains("127.0.0.1")
+        });
+    }
+    (terminal, events)
+}
+
 #[test]
 fn output_reaches_the_grid() {
     let (terminal, events) = start(command(
@@ -207,7 +221,7 @@ fn after_the_exit_nothing_can_be_written() {
 
 #[test]
 fn events_end_when_the_terminal_is_gone() {
-    let (terminal, events) = start(long_running());
+    let (terminal, events) = start_long_running();
     drop(terminal);
     let deadline = Instant::now() + LIMIT;
     loop {
@@ -297,6 +311,11 @@ fn resize_changes_the_screen_and_the_child_sees_it() {
         wait_for_screen(&terminal, &events, "the first size", |t| {
             t.contains("24 80")
         });
+    } else {
+        // As in `start_long_running`: the shell is attached before the test goes on (and closes it).
+        wait_for_screen(&terminal, &events, "ping's first line", |t| {
+            t.contains("127.0.0.1")
+        });
     }
 
     terminal.resize(TerminalSize::new(100, 30)).expect("resize");
@@ -363,9 +382,8 @@ fn input_reaches_the_child() {
 
 #[test]
 fn dropping_the_terminal_does_not_block() {
-    let (terminal, events) = start(long_running());
-    // Let the child start (a redraw or the first output), then drop while it still runs.
-    let _ = events.recv_timeout(Duration::from_secs(5));
+    let (terminal, _events) = start_long_running();
+    // The child has started; drop while it still runs.
     let terminal = terminal.into_inner();
     let started = Instant::now();
     drop(terminal);
@@ -383,7 +401,7 @@ fn dropping_the_terminal_does_not_block() {
 
 #[test]
 fn writing_after_shutdown_is_an_error() {
-    let (mut terminal, _events) = start(long_running());
+    let (mut terminal, _events) = start_long_running();
     terminal.shutdown();
     assert!(terminal.write(b"x").is_err());
     assert!(terminal.resize(TerminalSize::new(90, 20)).is_err());
@@ -394,7 +412,7 @@ fn writing_after_shutdown_is_an_error() {
 #[test]
 fn encodings_follow_the_terminal_modes() {
     use matsu_terminal::{Key, Modifiers};
-    let (terminal, _events) = start(long_running());
+    let (terminal, _events) = start_long_running();
     assert_eq!(
         terminal.encode_key(Key::Up, Modifiers::NONE).expect("key"),
         b"\x1b[A"
