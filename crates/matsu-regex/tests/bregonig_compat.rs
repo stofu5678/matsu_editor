@@ -182,7 +182,7 @@ fn our_outcome(case: &Case) -> Outcome {
         Err(_) => return Outcome::Rejected,
     };
     if case.kind == "replace_all" {
-        return our_replace_all(case, matcher);
+        return our_replace_all(case, &matcher);
     }
     // Sakura matches one line; a subject with a line ending is cut at it, because this crate
     // matches the line without its ending (the cases that say so are known differences).
@@ -232,9 +232,9 @@ fn our_outcome(case: &Case) -> Outcome {
     }
 }
 
-fn our_replace_all(case: &Case, matcher: Arc<RegexMatcher>) -> Outcome {
+fn our_replace_all(case: &Case, matcher: &Arc<RegexMatcher>) -> Outcome {
     let replacer =
-        match RegexReplacer::new(matcher.clone(), &case.replacement, ReplaceTarget::Match) {
+        match RegexReplacer::new(Arc::clone(matcher), &case.replacement, ReplaceTarget::Match) {
             Ok(r) => r,
             Err(_) => return Outcome::Rejected,
         };

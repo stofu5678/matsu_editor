@@ -874,7 +874,7 @@ impl Runner<'_> {
             subject = format!("{text}{eol}");
             &subject
         };
-        let shown = shown_path(paths, &layout);
+        let shown = shown_path(paths, layout);
         let mut at = 0;
         if layout.line_type == LineType::NoHitLine {
             if next_hit(matcher.as_ref(), whole, &mut at).is_some() {
@@ -957,7 +957,7 @@ impl Runner<'_> {
                 String::new()
             }
         });
-        let shown = shown_path(paths, &layout);
+        let shown = shown_path(paths, layout);
         let out = &mut self.buffer;
         let (full_form, base2, file_form, file_form2): (Form, &str, Form, Form) = match layout.style
         {
@@ -1020,7 +1020,7 @@ impl Form {
 }
 
 /// The name written in front of a hit (`pszDispFilePath`).
-fn shown_path<'a>(paths: &FilePaths<'a>, layout: &Layout) -> &'a str {
+fn shown_path<'a>(paths: &FilePaths<'a>, layout: Layout) -> &'a str {
     if layout.separate_folder || layout.base_folder {
         paths.relative
     } else {

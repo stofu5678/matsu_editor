@@ -37,13 +37,13 @@ fn message(view: &Entity<EditorView>, cx: &mut VisualTestContext, bytes: bool) -
             select_count_by_byte: bytes,
             ..StatusbarOptions::default()
         };
-        v.selection_message(&options, cx)
+        v.selection_message(options, cx)
     })
 }
 
 fn code(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
     view.update(cx, |v, cx| {
-        v.caret_char_code(&StatusbarOptions::default(), cx)
+        v.caret_char_code(StatusbarOptions::default(), cx)
     })
 }
 
@@ -215,9 +215,9 @@ fn the_column_by_characters(cx: &mut TestAppContext) {
             ..ruler
         };
         // tab (4 cells) and a wide character (2 cells): the ruler column
-        assert_eq!(v.status_position(&ruler, cx), (1, 7));
+        assert_eq!(v.status_position(ruler, cx), (1, 7));
         // the characters before the caret: the tab and one letter
-        assert_eq!(v.status_position(&chars, cx), (1, 3));
+        assert_eq!(v.status_position(chars, cx), (1, 3));
     });
 }
 

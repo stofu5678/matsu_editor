@@ -516,7 +516,7 @@ pub fn respond(
         });
     let id = id?;
     Some(match outcome {
-        Ok(result) => response_ok(&id, result),
+        Ok(result) => response_ok(&id, &result),
         Err(error) => response_error(&id, &error),
     })
 }
@@ -528,6 +528,10 @@ mod tests {
     use super::*;
     use crate::model::TextModel;
 
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "test helper called with json!() temporaries at about 70 sites; taking &Value would add a & to each"
+    )]
     fn run(doc: &mut TextModel, method: &str, params: Value) -> Result<Value, RpcError> {
         call(doc, method, params.as_array().unwrap())
     }

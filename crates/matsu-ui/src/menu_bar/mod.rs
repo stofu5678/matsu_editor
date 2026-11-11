@@ -603,7 +603,6 @@ impl BarMenu {
         gpui::canvas(
             |_, _, _| (),
             move |_, (), window, cx| {
-                let this = this.clone();
                 // Every draw: the Right key that waited for the popup to draw its selection. A
                 // popup near the right edge of the window opens its submenus to the left, where
                 // the Left key goes in and the Right key does not: if the focus did not move, try
@@ -670,6 +669,10 @@ impl BarMenu {
         }
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "the signature is fixed by GPUI's on_hover listener, which passes &bool"
+    )]
     fn handle_hover(&mut self, hovered: &bool, window: &mut Window, cx: &mut Context<Self>) {
         if !*hovered {
             return;

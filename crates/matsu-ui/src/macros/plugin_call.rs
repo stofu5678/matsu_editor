@@ -649,7 +649,7 @@ fn prepare(
             }
             let mut settings = HostSettings::new(
                 &def.id,
-                &plugin_dir.clone().unwrap_or_default(),
+                &plugin_dir.unwrap_or_default(),
                 Language::Bundled(Engine::QuickJs),
                 want_resident,
             );
@@ -932,7 +932,7 @@ pub(crate) fn describe(outcome: &Outcome, limit: Duration) -> String {
 /// An event call (a plug of a jack such as `DocumentBeforeSave`) says nothing when it goes well: it
 /// happens at each save and each open, and the panel and the status bar are for what the user did. A
 /// failure is told as for a command.
-pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) -> bool {
+pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App) -> bool {
     let Prepared {
         label,
         id,
@@ -951,7 +951,6 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         .unwrap_or_else(|| limit_of(jack));
     // The call of the jack `Outline` ends in its result (the pane waits for it).
     let end = {
-        let outline = outline.clone();
         move |ending: Ending| {
             if let Some(collected) = &outline {
                 collected.borrow_mut().ending = Some(ending);
@@ -981,7 +980,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         }
         return false;
     }
-    if let Err(error) = host.borrow_mut().begin(jack, &handler, args, limit) {
+    if let Err(error) = host.borrow_mut().begin(jack, &handler, &args, limit) {
         end(Ending::Refused(error.to_string()));
         // A plugin that three failures stopped has said so already.
         if !(event && matches!(error, plugin_host::BeginError::Stopped)) {

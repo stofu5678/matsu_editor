@@ -616,7 +616,7 @@ fn opening_from_a_modified_window_uses_a_new_window(cx: &mut TestAppContext) {
     cx.simulate_input("typed");
     f.run(cx, "F_FILEOPEN", &[]);
     assert!(cx.did_prompt_for_paths(), "no path given: the open dialog");
-    let chosen = path.clone();
+    let chosen = path;
     cx.simulate_path_prompt_response(move |options| {
         assert!(options.files && options.multiple);
         Some(vec![chosen])
@@ -983,7 +983,7 @@ fn close_and_open_does_not_open_a_file_twice(cx: &mut TestAppContext) {
     });
     let f = Fixture { view: editor };
     f.run(cx, "F_FILECLOSE_OPEN", &[]);
-    let chosen = path.clone();
+    let chosen = path;
     cx.simulate_path_prompt_response(move |_| Some(vec![chosen]));
     cx.run_until_parked();
     assert_eq!(

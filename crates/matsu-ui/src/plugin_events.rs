@@ -145,7 +145,7 @@ fn try_start(
         let Some(call) = call.refresh(app, &dirs) else {
             return (Step::Skipped, None);
         };
-        if plugin_call::run(entity, call, app) {
+        if plugin_call::run(&entity, call, app) {
             (Step::Started, None)
         } else {
             (Step::Skipped, None)

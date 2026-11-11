@@ -729,6 +729,7 @@ struct Grid<'a> {
 }
 
 /// The styles of the text of a row.
+#[derive(Clone, Copy)]
 struct Styling<'a> {
     /// The style of what no run covers; `None` when the print is not in color.
     plain: Option<TextStyle>,

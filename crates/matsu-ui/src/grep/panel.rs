@@ -441,7 +441,7 @@ impl GrepPanel {
                     self.settings.paste = false;
                     cx.notify();
                     self.show_error(
-                        DialogError {
+                        &DialogError {
                             message: NO_CLIPBOARD.to_owned(),
                             regex: false,
                         },
@@ -463,7 +463,7 @@ impl GrepPanel {
         let info = match checked {
             Ok(info) => info,
             Err(error) => {
-                self.show_error(error, window, cx);
+                self.show_error(&error, window, cx);
                 return;
             }
         };
@@ -704,10 +704,10 @@ impl GrepPanel {
         column
     }
 
-    fn show_error(&self, error: DialogError, window: &mut Window, cx: &mut Context<Self>) {
+    fn show_error(&self, error: &DialogError, window: &mut Window, cx: &mut Context<Self>) {
         self.editor
             .update(cx, |editor, cx| {
-                editor.grep_dialog_error_box(&error, window, cx)
+                editor.grep_dialog_error_box(error, window, cx)
             })
             .ok();
     }

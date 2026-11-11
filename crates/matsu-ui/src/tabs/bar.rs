@@ -569,7 +569,6 @@ impl Workspace {
         // `OnTabRButtonUp`: `ExecTabCommand( F_CUSTMENU_BASE + CUSTMENU_INDEX_FOR_TABWND )` activates
         // the tab, then sends the function to its window, which opens the menu at the pointer.
         let open_menu = {
-            let view = view.clone();
             cx.listener(move |this, event: &gpui::MouseUpEvent, window, cx| {
                 // The tab menu is the editor's (custom menu 24): a preview has none.
                 if !preview {
@@ -653,22 +652,16 @@ impl Workspace {
             });
         if let Some(from) = tab {
             element = element
-                .on_drag(
-                    DraggedTab {
-                        from,
-                        caption: caption.clone(),
-                    },
-                    |dragged, _, window, cx| {
-                        // `m_ptSrcCursor`: where the drag began, for the window a drop outside
-                        // the window makes.
-                        cx.set_global(TabDrag(Some(TabDragOrigin {
-                            window: window.window_handle(),
-                            index: dragged.from,
-                            start: window.mouse_position(),
-                        })));
-                        cx.new(|_| dragged.clone())
-                    },
-                )
+                .on_drag(DraggedTab { from, caption }, |dragged, _, window, cx| {
+                    // `m_ptSrcCursor`: where the drag began, for the window a drop outside
+                    // the window makes.
+                    cx.set_global(TabDrag(Some(TabDragOrigin {
+                        window: window.window_handle(),
+                        index: dragged.from,
+                        start: window.mouse_position(),
+                    })));
+                    cx.new(|_| dragged.clone())
+                })
                 .on_drop(cx.listener(move |this, dragged: &DraggedTab, _, cx| {
                     this.move_tab(dragged.from, from, cx);
                 }));

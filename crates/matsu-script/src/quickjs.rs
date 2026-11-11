@@ -92,7 +92,7 @@ impl Vm {
     }
 
     /// A runtime for one handler file of a plugin, with the macro API and the `Plugin` object.
-    fn for_plugin(init: &PluginInit, editor: Rc<RefCell<dyn Editor>>) -> Result<Self, String> {
+    fn for_plugin(init: &PluginInit, editor: &Rc<RefCell<dyn Editor>>) -> Result<Self, String> {
         let vm = Self::new()?;
         vm.context.with(|ctx| -> Result<(), String> {
             let hooks = install(&ctx, &init.info, Some(&init.plugin), editor)
@@ -139,7 +139,7 @@ impl Engine for QuickJs {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
         let vm = Vm::new()?;
         vm.context
-            .with(|ctx| start(&ctx, init, editor, &vm.hooks))?;
+            .with(|ctx| start(&ctx, init, &editor, &vm.hooks))?;
         vm.finish()
     }
 
@@ -159,7 +159,7 @@ impl Engine for QuickJs {
             let outcome = match vms.entry(invoke.name.clone()) {
                 std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
                 std::collections::hash_map::Entry::Vacant(entry) => {
-                    Vm::for_plugin(init, editor.clone()).map(|vm| entry.insert(vm))
+                    Vm::for_plugin(init, &editor).map(|vm| entry.insert(vm))
                 }
             }
             .and_then(|vm| {
@@ -224,7 +224,7 @@ fn restore_hooks<'js>(
 fn start(
     ctx: &Ctx<'_>,
     init: &Initialize,
-    editor: Rc<RefCell<dyn Editor>>,
+    editor: &Rc<RefCell<dyn Editor>>,
     saved: &RefCell<Option<Hooks>>,
 ) -> Result<(), String> {
     let hooks = install(ctx, &init.info, None, editor)
@@ -263,7 +263,7 @@ fn install<'js>(
     ctx: &Ctx<'js>,
     info: &Json,
     plugin: Option<&Json>,
-    editor: Rc<RefCell<dyn Editor>>,
+    editor: &Rc<RefCell<dyn Editor>>,
 ) -> rquickjs::Result<Object<'js>> {
     // The script's output goes through Rust and is flushed: the requests are written to the same
     // pipe by Rust and have to stay in order with it.

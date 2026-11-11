@@ -166,6 +166,10 @@ pub(crate) mod testing {
         }
 
         /// Runs a function by name.
+        #[expect(
+            clippy::needless_pass_by_value,
+            reason = "test helper called with json!() temporaries at about 120 sites; taking &Value would add a & to each"
+        )]
         pub fn call(&mut self, name: &str, params: Value) -> Result<Value, RpcError> {
             let params = params.as_array().expect("params are an array").clone();
             let mut cx = CommandContext::new(

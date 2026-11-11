@@ -530,7 +530,7 @@ fn settings_path_of_user() -> Option<std::path::PathBuf> {
 }
 
 /// What a document needs, from its view and the settings.
-fn want_of(view: &EditorView, shared: &SharedDocument, prefs: &KeepPrefs) -> Want {
+fn want_of(view: &EditorView, shared: &SharedDocument, prefs: KeepPrefs) -> Want {
     if view.is_grep_window() {
         return Want::Drop;
     }
@@ -843,7 +843,7 @@ pub(crate) fn tick_window_at(
     // The folder is opened (and locked) when the first document has something to keep, not when the editor starts.
     let wants_keep = tabs.iter().any(|view| {
         let view = view.read(cx);
-        want_of(view, view.document().read(cx), &prefs) == Want::Keep
+        want_of(view, view.document().read(cx), prefs) == Want::Keep
     });
     if wants_keep {
         let ini_path = settings_path(cx);
@@ -869,7 +869,7 @@ pub(crate) fn tick_window_at(
             let (want, revision) = {
                 let shared = document.read(cx);
                 (
-                    want_of(view.read(cx), shared, &prefs),
+                    want_of(view.read(cx), shared, prefs),
                     revision_of(view.read(cx), shared),
                 )
             };
@@ -1083,7 +1083,7 @@ pub(crate) fn covered(view: &EditorView, cx: &App) -> bool {
         return false;
     };
     let shared = view.document().read(cx);
-    if want_of(view, shared, &prefs(cx)) != Want::Keep {
+    if want_of(view, shared, prefs(cx)) != Want::Keep {
         return false;
     }
     let Some(entry) = entries.get(&view.document().entity_id()) else {

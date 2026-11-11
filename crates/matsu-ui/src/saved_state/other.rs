@@ -64,10 +64,10 @@ pub(crate) fn install(cx: &mut App, profile: &Profile) {
 }
 
 /// Writes the entries that are not what the file has. Without a file on disk nothing is written.
-fn write(cx: &App, entries: Vec<(&'static str, Entry)>) {
+fn write(cx: &App, entries: &[(&'static str, Entry)]) {
     crate::history::write_settings(cx, |profile| {
         let mut changed = false;
-        for (key, entry) in &entries {
+        for (key, entry) in entries {
             let same = match entry {
                 // A number the file already has stays as written.
                 Entry::Number(n) => profile.get_i32(SECTION, key) == Some(*n),
@@ -94,14 +94,14 @@ enum Entry {
 /// The DIFF dialog's OK (`CDlgDiff::GetData`): the options and the choice of the new or the old
 /// file.
 pub(crate) fn remember_diff_flags(cx: &App, flags: u32) {
-    write(cx, vec![(KEY_DIFF, Entry::Number(flags as i32))]);
+    write(cx, &[(KEY_DIFF, Entry::Number(flags as i32))]);
 }
 
 /// The OK of 「タグファイルの作成」 (`CDlgTagsMake::GetData`).
 pub(crate) fn remember_tags_make(cx: &App, options: &TagsMakeOptions) {
     write(
         cx,
-        vec![
+        &[
             (
                 KEY_TAGS_OPT,
                 Entry::Number(if options.recursive { TAGS_RECURSIVE } else { 0 }),
@@ -115,7 +115,7 @@ pub(crate) fn remember_tags_make(cx: &App, options: &TagsMakeOptions) {
 pub(crate) fn remember_tag_jump_options(cx: &App, ignore_case: bool, partial: bool) {
     write(
         cx,
-        vec![
+        &[
             (KEY_ICASE, Entry::Number(i32::from(ignore_case))),
             (KEY_ANYWHERE, Entry::Number(i32::from(partial))),
         ],

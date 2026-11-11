@@ -28,7 +28,7 @@ impl UiCommand for TileV {
         with_screen(window, cx, |screen, all, current| {
             tile_windows(screen, all, current, true)
         })
-        .map_err(unavailable)
+        .map_err(|e| unavailable(&e))
     }
 }
 

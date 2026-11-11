@@ -834,7 +834,7 @@ fn an_import_adds_the_keywords_of_the_file_to_the_chosen_set(cx: &mut TestAppCon
     .unwrap();
     key(cx, 'i');
     assert!(cx.did_prompt_for_paths());
-    let chosen = path.clone();
+    let chosen = path;
     cx.simulate_path_prompt_response(move |_| Some(vec![chosen]));
     cx.run_until_parked();
     let set = entries_in(cx).remove(0);

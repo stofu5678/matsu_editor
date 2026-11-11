@@ -250,7 +250,7 @@ fn a_recorded_macro_is_saved_and_loaded_through_the_dialogs(cx: &mut TestAppCont
     let (g, cx) = setup(cx, "xyz");
     cx.simulate_keystrokes("ctrl-l");
     assert!(cx.did_prompt_for_paths());
-    let chosen = path.clone();
+    let chosen = path;
     cx.simulate_path_prompt_response(move |_| Some(vec![chosen]));
     cx.run_until_parked();
     cx.simulate_keystrokes(EXEC);
@@ -1010,7 +1010,7 @@ fn a_message_box_waits_for_the_answer(cx: &mut TestAppContext) {
 /// Answers a "choose a file to open / a folder" dialog when the macro has opened it.
 fn answer_paths(cx: &mut VisualTestContext, paths: Option<Vec<PathBuf>>) {
     if cx.did_prompt_for_paths() {
-        cx.simulate_path_prompt_response(move |_| paths.clone());
+        cx.simulate_path_prompt_response(move |_| paths);
     }
 }
 
@@ -1064,7 +1064,7 @@ fn the_save_dialog_gives_the_path_and_a_cancel_gives_an_empty_string(cx: &mut Te
         |cx| {
             if let Some(answer) = answers.first().cloned() {
                 let tried = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    cx.simulate_new_path_selection(move |_| answer.clone());
+                    cx.simulate_new_path_selection(move |_| answer);
                 }));
                 if tried.is_ok() {
                     answers.remove(0);

@@ -29,7 +29,7 @@ impl UiCommand for Cascade {
         with_screen(window, cx, |screen, all, current| {
             cascade_windows(screen, all, current)
         })
-        .map_err(unavailable)
+        .map_err(|e| unavailable(&e))
     }
 }
 

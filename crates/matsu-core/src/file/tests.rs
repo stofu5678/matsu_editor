@@ -1764,16 +1764,12 @@ fn measure_open_by_ranges() {
     let mut file = open_file(&path, &options).unwrap();
     println!("by ranges: open_file {:?}", t.elapsed());
     let t = Instant::now();
-    let lines: Vec<_> = file
-        .document
-        .lines(0..60)
-        .map(|l| l.unwrap().text.len())
-        .collect();
-    println!(
-        "the first {} lines (a screen): {:?}",
-        lines.len(),
-        t.elapsed()
-    );
+    let mut lines = 0;
+    for line in file.document.lines(0..60) {
+        line.unwrap();
+        lines += 1;
+    }
+    println!("the first {} lines (a screen): {:?}", lines, t.elapsed());
     let job = file.take_scan();
     let t = Instant::now();
     if let Some(job) = job {
@@ -1852,7 +1848,7 @@ fn a_huge_file_that_has_to_be_read_whole_can_be_asked_about_first() {
         "{error}"
     );
     // Under the size, or for a file that can be read by ranges, there is nothing to ask.
-    let mut small = options.clone();
+    let mut small = options;
     small.huge_file_len = Some(1000);
     assert!(open_file(&path, &small).is_ok());
     let utf8 = dir.write("utf8.txt", b"abc\n");

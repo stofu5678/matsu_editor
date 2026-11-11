@@ -369,7 +369,7 @@ impl FavoriteDialog {
     /// Asks, and runs `change` on the history if the answer is yes.
     fn confirm_then(
         &mut self,
-        message: String,
+        message: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
         change: impl FnOnce(&mut History) + 'static,
@@ -377,7 +377,7 @@ impl FavoriteDialog {
         let answer = crate::boxes::prompt(
             window,
             PromptLevel::Warning,
-            &message,
+            message,
             None,
             &["はい(Y)", "いいえ(N)"],
             cx,
@@ -394,7 +394,7 @@ impl FavoriteDialog {
     pub(crate) fn ask_delete_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tab = self.tab;
         if !self.rows().is_empty() {
-            self.confirm_then(confirm_all(tab), window, cx, move |h| delete_all(h, tab));
+            self.confirm_then(&confirm_all(tab), window, cx, move |h| delete_all(h, tab));
         }
     }
 
@@ -402,7 +402,7 @@ impl FavoriteDialog {
     pub(crate) fn ask_delete_non_favorites(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tab = self.tab;
         if !self.rows().is_empty() {
-            self.confirm_then(confirm_non_favorites(tab), window, cx, move |h| {
+            self.confirm_then(&confirm_non_favorites(tab), window, cx, move |h| {
                 delete_non_favorites(h, tab);
             });
         }
@@ -412,7 +412,7 @@ impl FavoriteDialog {
     pub(crate) fn ask_delete_missing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tab = self.tab;
         if !self.rows().is_empty() {
-            self.confirm_then(confirm_missing(tab), window, cx, move |h| {
+            self.confirm_then(&confirm_missing(tab), window, cx, move |h| {
                 delete_missing(h, tab, path_exists);
             });
         }

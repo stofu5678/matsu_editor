@@ -725,7 +725,7 @@ impl EditorView {
             self.relayout_in(cx);
         }
         if let Some(moved) = moved {
-            self.apply_frame_move(moved, cx);
+            self.apply_frame_move(&moved, cx);
         }
         let doc = self.document.read(cx).doc();
         let _ = self.cursor.clamp_if_outside(doc);
@@ -815,7 +815,7 @@ impl EditorView {
     pub fn status(&self, cx: &App) -> StatusInfo {
         let shared = self.document.read(cx);
         let options = crate::status_options::current(cx);
-        let (line, column) = self.status_position(&options, cx);
+        let (line, column) = self.status_position(options, cx);
         // In a window on a huge file the lines are counted from the start of the file, "about"
         // while the scan has not passed the window (`view/scan_window.rs`).
         let base = shared.line_base();
@@ -823,8 +823,8 @@ impl EditorView {
             line: line + usize::try_from(base.lines_before).unwrap_or(usize::MAX - line),
             line_approx: base.approx,
             column,
-            char_code: self.caret_char_code(&options, cx),
-            selection: self.selection_message(&options, cx),
+            char_code: self.caret_char_code(options, cx),
+            selection: self.selection_message(options, cx),
             lines: self.status_line_count(cx),
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),

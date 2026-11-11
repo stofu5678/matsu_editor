@@ -27,7 +27,7 @@ impl UiCommand for MaximizeH {
         with_screen(window, cx, |screen, _, current| {
             maximize_window(screen, current, false)
         })
-        .map_err(unavailable)
+        .map_err(|e| unavailable(&e))
     }
 }
 

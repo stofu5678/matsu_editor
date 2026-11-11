@@ -569,7 +569,7 @@ impl Source for Gate {
 #[test]
 fn a_job_shows_the_scanned_start_read_only_and_then_the_whole_file() {
     let text = "line\r\n".repeat(2000);
-    let gate = Gate::new(text.clone().into_bytes(), 3);
+    let gate = Gate::new(text.into_bytes(), 3);
     let o = options(64, 4, false);
     let job = ScanJob::spawn(gate.clone(), codec(Encoding::Utf8), o).unwrap();
     gate.wait_for_reads(4);
@@ -841,10 +841,14 @@ fn measure_scan_of_a_file() {
         std::thread::yield_now();
     }
     let doc = job.snapshot().unwrap();
-    let first: Vec<_> = doc.lines(0..40).map(|l| l.unwrap().text.len()).collect();
+    let mut first = 0;
+    for line in doc.lines(0..40) {
+        line.unwrap();
+        first += 1;
+    }
     println!(
         "first {} lines readable after {:?}",
-        first.len(),
+        first,
         started.elapsed()
     );
     let mut last = Instant::now();

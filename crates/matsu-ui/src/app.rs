@@ -615,7 +615,7 @@ impl Workspace {
                 crate::view::mouse::window_activated(cx, window.window_handle().window_id());
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
-                crate::file_watch::spawn_check(this.panes().active().clone(), window, cx);
+                crate::file_watch::spawn_check(this.panes().active(), window, cx);
             }
         })
         .detach();
@@ -938,7 +938,7 @@ mod tests {
                 .items
                 .iter()
                 .filter_map(|i| match i {
-                    gpui::OwnedMenuItem::Action { name, .. } => Some(name.to_string()),
+                    gpui::OwnedMenuItem::Action { name, .. } => Some(name.clone()),
                     _ => None,
                 })
                 .collect()

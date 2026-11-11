@@ -71,7 +71,7 @@ impl EditorView {
     /// Applies the values of a document type to this view: the font, the layout, the colors. The
     /// temporary changes (zoom, wrap) are reset, as they are when Sakura changes the type.
     pub fn apply_settings(&mut self, settings: ViewSettings, cx: &mut Context<Self>) {
-        self.apply_settings_keeping(settings, Temporary::default(), cx);
+        self.apply_settings_keeping(settings, &Temporary::default(), cx);
     }
 
     /// The type of the view is the same and its settings changed (the type settings dialog, OK):
@@ -108,7 +108,7 @@ impl EditorView {
             .then_some(prefs.settings.tab_width);
         self.apply_settings_keeping(
             settings,
-            Temporary {
+            &Temporary {
                 wrap,
                 font,
                 tab_width,
@@ -120,7 +120,7 @@ impl EditorView {
     fn apply_settings_keeping(
         &mut self,
         settings: ViewSettings,
-        keep: Temporary,
+        keep: &Temporary,
         cx: &mut Context<Self>,
     ) {
         let status_bar = self.prefs.show_status_bar;

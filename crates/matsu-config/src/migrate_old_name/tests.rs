@@ -318,6 +318,11 @@ fn two_migrations_at_the_same_time_leave_one_whole_matsu_ini() {
         sb.write("home/.config/ume-editor/more.txt", &big);
         let env = sb.env();
         let outcomes: Vec<Outcome> = std::thread::scope(|scope| {
+            // Collect first: every thread must be running before the first join.
+            #[expect(
+                clippy::needless_collect,
+                reason = "all threads must start before any is joined"
+            )]
             let handles: Vec<_> = (0..4)
                 .map(|_| scope.spawn(|| migrate(Os::Linux, &env)))
                 .collect();

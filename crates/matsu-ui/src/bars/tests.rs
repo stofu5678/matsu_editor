@@ -117,13 +117,13 @@ fn bounds(cx: &mut VisualTestContext, selector: String) -> Option<Bounds<Pixels>
     cx.debug_bounds(Box::leak(selector.into_boxed_str()))
 }
 
-fn center_of(cx: &mut VisualTestContext, selector: String) -> gpui::Point<Pixels> {
-    bounds(cx, selector.clone())
+fn center_of(cx: &mut VisualTestContext, selector: &str) -> gpui::Point<Pixels> {
+    bounds(cx, selector.to_owned())
         .unwrap_or_else(|| panic!("{selector} is painted"))
         .center()
 }
 
-fn click(cx: &mut VisualTestContext, selector: String, modifiers: Modifiers) {
+fn click(cx: &mut VisualTestContext, selector: &str, modifiers: Modifiers) {
     let at = center_of(cx, selector);
     cx.simulate_click(at, modifiers);
 }
@@ -235,11 +235,11 @@ fn a_click_on_a_toolbar_button_runs_its_function(cx: &mut TestAppContext) {
     cx.simulate_input("x");
     assert_eq!(text(cx, &editor), "x");
     // Button 33 is the undo of Sakura's default toolbar; 34 the redo.
-    let undo = center_of(cx, "tool-button-33".into());
+    let undo = center_of(cx, "tool-button-33");
     cx.simulate_click(undo, Modifiers::none());
     cx.run_until_parked();
     assert_eq!(text(cx, &editor), "");
-    let redo = center_of(cx, "tool-button-34".into());
+    let redo = center_of(cx, "tool-button-34");
     cx.simulate_click(redo, Modifiers::none());
     cx.run_until_parked();
     assert_eq!(text(cx, &editor), "x");
@@ -284,7 +284,7 @@ fn a_button_without_a_command_does_nothing(cx: &mut TestAppContext) {
     let editor = view(cx, handle);
     let cx = &mut VisualTestContext::from_window(handle, cx);
     cx.simulate_input("x");
-    let at = center_of(cx, "tool-button-481".into());
+    let at = center_of(cx, "tool-button-481");
     cx.simulate_click(at, Modifiers::none());
     cx.run_until_parked();
     assert_eq!(text(cx, &editor), "x");
@@ -322,7 +322,7 @@ fn a_click_on_a_function_key_runs_the_function_of_the_key_map(cx: &mut TestAppCo
     let cx = &mut VisualTestContext::from_window(handle, cx);
     cx.simulate_input("x");
     // F1 is index 0.
-    let f1 = center_of(cx, "function-key-0".into());
+    let f1 = center_of(cx, "function-key-0");
     cx.simulate_click(f1, Modifiers::none());
     cx.run_until_parked();
     assert_eq!(text(cx, &editor), "");
@@ -335,19 +335,19 @@ fn the_buttons_follow_the_modifiers_held(cx: &mut TestAppContext) {
     let editor = view(cx, handle);
     let cx = &mut VisualTestContext::from_window(handle, cx);
     cx.simulate_input("x");
-    click(cx, "function-key-0".into(), Modifiers::none());
+    click(cx, "function-key-0", Modifiers::none());
     cx.run_until_parked();
     assert_eq!(text(cx, &editor), "");
     // With Shift held, the first button is the redo.
     cx.simulate_modifiers_change(Modifiers::shift());
     cx.run_until_parked();
-    click(cx, "function-key-0".into(), Modifiers::shift());
+    click(cx, "function-key-0", Modifiers::shift());
     cx.run_until_parked();
     assert_eq!(text(cx, &editor), "x");
     // With Ctrl held it has no function: a click does nothing.
     cx.simulate_modifiers_change(Modifiers::control());
     cx.run_until_parked();
-    click(cx, "function-key-0".into(), Modifiers::control());
+    click(cx, "function-key-0", Modifiers::control());
     cx.run_until_parked();
     assert_eq!(text(cx, &editor), "x");
 }

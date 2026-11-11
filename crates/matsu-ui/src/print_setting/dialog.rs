@@ -503,7 +503,7 @@ impl PrintSettingDialog {
     fn combo(
         &self,
         id: &'static str,
-        text: String,
+        text: &str,
         list: List,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -632,7 +632,7 @@ impl Render for PrintSettingDialog {
             .gap_2()
             .items_center()
             .child(div().w(px(104.)).text_right().child("ページ設定(1)"))
-            .child(self.combo("ps-setting", self.name_of(self.current), List::Setting, cx))
+            .child(self.combo("ps-setting", &self.name_of(self.current), List::Setting, cx))
             .child(
                 Button::new("ps-rename")
                     .label("設定名変更(2)...")
@@ -648,7 +648,7 @@ impl Render for PrintSettingDialog {
                     .child(div().w(px(104.)).text_right().child("半角フォント(F)"))
                     .child(self.combo(
                         "ps-font-han",
-                        self.draft.print_font_face_han.clone(),
+                        &self.draft.print_font_face_han.clone(),
                         List::FontHan,
                         cx,
                     )),
@@ -663,7 +663,7 @@ impl Render for PrintSettingDialog {
                     .child(div().w(px(104.)).text_right().child("全角フォント(K)"))
                     .child(self.combo(
                         "ps-font-zen",
-                        self.draft.print_font_face_zen.clone(),
+                        &self.draft.print_font_face_zen.clone(),
                         List::FontZen,
                         cx,
                     )),
@@ -691,7 +691,7 @@ impl Render for PrintSettingDialog {
                     .gap_2()
                     .items_center()
                     .child(div().w(px(104.)).text_right().child("用紙サイズ(Z)"))
-                    .child(self.combo("ps-paper", paper_name, List::Paper, cx)),
+                    .child(self.combo("ps-paper", &paper_name, List::Paper, cx)),
             )
             .when(open(List::Paper), |this| {
                 this.child(self.list_view(List::Paper, cx))

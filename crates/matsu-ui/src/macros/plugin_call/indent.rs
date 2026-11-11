@@ -103,7 +103,7 @@ impl EditorView {
         }
         let editor = cx.entity();
         // The call needs this view, which the command that asked for it is still in.
-        cx.defer(move |cx| start(cx, editor, call));
+        cx.defer(move |cx| start(cx, &editor, call));
     }
 
     /// The text, the caret or the selection is not as the call of the `SmartIndent` jack left it: the
@@ -172,7 +172,7 @@ impl EditorView {
     }
 }
 
-fn start(cx: &mut App, editor: Entity<EditorView>, call: SmartIndentCall) {
+fn start(cx: &mut App, editor: &Entity<EditorView>, call: SmartIndentCall) {
     let Some(dirs) = crate::plugin_commands::search_dirs(cx) else {
         return;
     };
@@ -192,7 +192,7 @@ fn start(cx: &mut App, editor: Entity<EditorView>, call: SmartIndentCall) {
         view.macros.indent_closed = false;
         true
     });
-    if begun && !run(editor.clone(), prepared, cx) {
+    if begun && !run(editor, prepared, cx) {
         editor.update(cx, |view, _| view.macros.indent_guard = None);
     }
 }

@@ -224,6 +224,11 @@ fn launches_at_the_same_moment_end_with_one_receiver() {
     let key = Arc::new(unique_key("race"));
     let (tx, rx) = mpsc::channel();
     let barrier = Arc::new(Barrier::new(LAUNCHES));
+    // Collect first: every thread must be running before the first join.
+    #[expect(
+        clippy::needless_collect,
+        reason = "all threads must start before any is joined"
+    )]
     let threads: Vec<_> = (0..LAUNCHES)
         .map(|i| {
             let (key, barrier, tx) = (key.clone(), barrier.clone(), tx.clone());
@@ -411,7 +416,7 @@ fn the_arguments_of_a_request_keep_their_order() {
     };
     let cwd = std::env::current_dir().unwrap();
     let sent = Request {
-        cwd: cwd.clone(),
+        cwd,
         args: ["c.txt", "日本語 b.txt", "a.txt"]
             .into_iter()
             .map(OsString::from)

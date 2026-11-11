@@ -239,7 +239,7 @@ impl EditorView {
                 if this.macros.serial == serial
                     && let Some(running) = &this.macros.running
                 {
-                    running.session.send(pending.reply(value));
+                    running.session.send(pending.reply(&value));
                     running.session.release();
                 }
             });

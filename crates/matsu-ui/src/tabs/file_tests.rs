@@ -127,7 +127,7 @@ fn a_file_from_outside_is_a_tab_of_the_active_window(cx: &mut TestAppContext) {
     std::fs::write(&a, "alpha").unwrap();
     std::fs::write(&b, "beta").unwrap();
     let handle = window(cx, true);
-    from_outside(cx, vec![a.clone(), b.clone()]);
+    from_outside(cx, vec![a.clone(), b]);
     assert_eq!(windows(cx), 1, "tabs, not windows");
     assert_eq!(captions(cx, handle), ["(無題)1", "a.txt", "b.txt"]);
     // The first file again: its tab, no copy.
