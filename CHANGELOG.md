@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/stofu5678/matsu_editor/compare/v0.9.2...v0.10.0) (2026-11-11)
+
+
+### Features
+
+* **commands:** add URL, HTML and Base64 encoding and decoding of the selection ([#373](https://github.com/stofu5678/matsu_editor/issues/373)) ([8d089b1](https://github.com/stofu5678/matsu_editor/commit/8d089b1fcd97e08f88905c7b46335f00bd939ab0))
+
 ## [0.9.2](https://github.com/stofu5678/matsu_editor/compare/v0.9.1...v0.9.2) (2026-11-06)
 
 
