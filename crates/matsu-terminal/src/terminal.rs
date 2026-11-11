@@ -146,14 +146,16 @@ pub enum TerminalEvent {
 /// The receiving end of the terminal's events.
 pub struct EventReceiver {
     rx: Receiver<TerminalEvent>,
-    shared: Arc<Shared>,
+    /// Shared with the listener. The receiver must not own the `Sender` (through `Shared`): the channel
+    /// disconnects when the terminal is gone, so `recv` returns an error instead of waiting for ever.
+    redraw_pending: Arc<AtomicBool>,
 }
 
 impl EventReceiver {
     fn seen(&self, event: TerminalEvent) -> TerminalEvent {
         if event == TerminalEvent::Redraw {
             // Cleared before the UI reads the screen, so a change after the read sends a new event.
-            self.shared.redraw_pending.store(false, Ordering::Release);
+            self.redraw_pending.store(false, Ordering::Release);
         }
         event
     }
@@ -177,7 +179,7 @@ impl EventReceiver {
 /// State shared by the UI side, the reader thread and the listener.
 struct Shared {
     events: Sender<TerminalEvent>,
-    redraw_pending: AtomicBool,
+    redraw_pending: Arc<AtomicBool>,
     /// The way to the PTY, set once the event loop exists.
     writer: OnceLock<EventLoopSender>,
     size: Mutex<TerminalSize>,
@@ -337,6 +339,13 @@ pub struct Snapshot {
     pub info: ScreenInfo,
     /// The lines of the view: with `info.display_offset` 0 the live screen, otherwise scrolled back.
     pub rows: Vec<Row>,
+    /// Colors a program set with OSC 4, 10, 11 and 12, as `(index, color)`: 0 to 255 the palette, 256 the
+    /// foreground, 257 the background, 258 the cursor. The UI draws these instead of its theme's colors for
+    /// the same [`crate::Color::Indexed`] and [`crate::Color::Default`] cells.
+    ///
+    /// Queries (OSC 4, 10, 11 and 12 with `?`) are answered from the options' colors and the xterm
+    /// palette, not from these: the answer is written while the reader thread holds the terminal's lock.
+    pub color_overrides: Vec<(usize, Rgb)>,
 }
 
 /// A terminal with a shell running in it.
@@ -357,7 +366,7 @@ impl Terminal {
         let (events, receiver) = mpsc::channel();
         let shared = Arc::new(Shared {
             events,
-            redraw_pending: AtomicBool::new(false),
+            redraw_pending: Arc::new(AtomicBool::new(false)),
             writer: OnceLock::new(),
             size: Mutex::new(size),
             exit_status: Mutex::new(None),
@@ -378,7 +387,7 @@ impl Terminal {
 
         let shell = options.shell.or_else(shell::default_shell);
         let pty_options = tty::Options {
-            shell: shell.map(|s| tty::Shell::new(s.program, s.args)),
+            shell: shell.map(|s| tty::Shell::new(shell::program_for_launch(&s.program), s.args)),
             working_directory: options.working_directory,
             // Read what the child wrote before it ended, so a short command's output is not lost.
             drain_on_exit: true,
@@ -401,23 +410,32 @@ impl Terminal {
             shared: Arc::clone(&shared),
             reader: Some(reader),
         };
+        let redraw_pending = Arc::clone(&shared.redraw_pending);
         Ok((
             terminal,
             EventReceiver {
                 rx: receiver,
-                shared,
+                redraw_pending,
             },
         ))
     }
 
+    /// Whether the reader thread is still running: false after [`Terminal::shutdown`] and once the shell
+    /// has ended (the screen stays readable, but nothing can be written or resized any more).
+    pub fn is_running(&self) -> bool {
+        self.reader
+            .as_ref()
+            .is_some_and(|reader| !reader.is_finished())
+    }
+
     /// Writes bytes to the program (keys from [`encode_key`], pastes from [`encode_paste`]).
     ///
-    /// An error means the terminal has been shut down or the reader thread has ended.
+    /// An error means the terminal is not running (see [`Terminal::is_running`]).
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
         if bytes.is_empty() {
             return Ok(());
         }
-        if self.reader.is_none() {
+        if !self.is_running() {
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         }
         self.sender
@@ -436,12 +454,13 @@ impl Terminal {
         encode_paste(text, &self.modes())
     }
 
-    /// Changes the size of the screen and of the PTY (the program gets SIGWINCH or the ConPTY resize).
+    /// Changes the size of the screen and of the PTY (the program gets SIGWINCH or the ConPTY resize). The
+    /// screen is resized even when the terminal is not running; the error then tells the PTY was not.
     pub fn resize(&self, size: TerminalSize) -> io::Result<()> {
         let size = size.clamped();
         *self.shared.size.lock().expect("size") = size;
         self.term.lock().resize(size);
-        if self.reader.is_none() {
+        if !self.is_running() {
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         }
         self.sender
@@ -486,7 +505,26 @@ impl Terminal {
                 Row::from_grid(&term.grid()[Line(line)])
             })
             .collect();
-        Snapshot { info, rows }
+        let colors = term.colors();
+        let color_overrides = (0..=258)
+            .filter_map(|index| {
+                colors[index].map(|rgb| {
+                    (
+                        index,
+                        Rgb {
+                            r: rgb.r,
+                            g: rgb.g,
+                            b: rgb.b,
+                        },
+                    )
+                })
+            })
+            .collect();
+        Snapshot {
+            info,
+            rows,
+            color_overrides,
+        }
     }
 
     /// Scrolls the view back (positive) or forward (negative) by lines.
@@ -558,7 +596,7 @@ mod tests {
             let (events, receiver) = mpsc::channel();
             let shared = Arc::new(Shared {
                 events,
-                redraw_pending: AtomicBool::new(false),
+                redraw_pending: Arc::new(AtomicBool::new(false)),
                 writer: OnceLock::new(),
                 size: Mutex::new(size),
                 exit_status: Mutex::new(None),
@@ -582,7 +620,7 @@ mod tests {
                 processor: Processor::new(),
                 events: EventReceiver {
                     rx: receiver,
-                    shared: Arc::clone(&shared),
+                    redraw_pending: Arc::clone(&shared.redraw_pending),
                 },
                 shared,
             }

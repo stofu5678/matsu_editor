@@ -148,6 +148,40 @@ fn exit_status_zero() {
 }
 
 #[test]
+fn after_the_exit_nothing_can_be_written() {
+    let (terminal, events) = start(command("exit 0", &["/c", "exit", "0"]));
+    wait_for_event(&events, "the child's exit", |event| match event {
+        TerminalEvent::ChildExit { .. } => Some(()),
+        _ => None,
+    });
+    // The reader thread ends right after it reports the exit.
+    let deadline = Instant::now() + LIMIT;
+    while terminal.is_running() {
+        assert!(Instant::now() < deadline, "the reader thread did not end");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(terminal.write(b"x").is_err());
+    assert!(terminal.resize(TerminalSize::new(90, 20)).is_err());
+    // The screen is still there, resized.
+    assert_eq!(terminal.info().columns, 90);
+}
+
+#[test]
+fn events_end_when_the_terminal_is_gone() {
+    let (terminal, events) = start(long_running());
+    drop(terminal);
+    let deadline = Instant::now() + LIMIT;
+    loop {
+        match events.recv_timeout(Duration::from_millis(100)) {
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                assert!(Instant::now() < deadline, "the events never ended");
+            }
+        }
+    }
+}
+
+#[test]
 fn a_missing_program_is_an_error() {
     let result = Terminal::spawn(Options {
         shell: Some(ShellCommand::new(

@@ -71,6 +71,28 @@ pub fn windows_default_shell(path: &OsStr) -> ShellCommand {
     }
 }
 
+/// The program as `alacritty_terminal` must be given it: on Windows it puts the program into the command
+/// line as it is, so a path with spaces (`C:\Program Files\PowerShell\7\pwsh.exe`) must be quoted or
+/// `CreateProcessW` may start `C:\Program.exe` instead. Elsewhere the program is used as it is.
+pub fn program_for_launch(program: &str) -> String {
+    if cfg!(windows) {
+        quote_for_command_line(program)
+    } else {
+        program.to_owned()
+    }
+}
+
+/// `program` in double quotes when it has a space or tab and is not quoted yet. A Windows path cannot
+/// contain a double quote, so no escaping is needed.
+fn quote_for_command_line(program: &str) -> String {
+    let needs_quotes = program.contains([' ', '\t']) && !program.starts_with('"');
+    if needs_quotes {
+        format!("\"{program}\"")
+    } else {
+        program.to_owned()
+    }
+}
+
 /// The first file named `name` in the directories of `path` (a `PATH` value).
 pub fn find_on_path(name: &str, path: &OsStr) -> Option<PathBuf> {
     std::env::split_paths(path)
@@ -113,6 +135,20 @@ mod tests {
 
         let shell = windows_default_shell(&path);
         assert_eq!(shell.program, "powershell.exe");
+    }
+
+    #[test]
+    fn programs_with_spaces_are_quoted_for_the_command_line() {
+        assert_eq!(
+            quote_for_command_line(r"C:\Program Files\PowerShell\7\pwsh.exe"),
+            r#""C:\Program Files\PowerShell\7\pwsh.exe""#
+        );
+        assert_eq!(quote_for_command_line("cmd.exe"), "cmd.exe");
+        assert_eq!(
+            quote_for_command_line(r#""C:\a b\x.exe""#),
+            r#""C:\a b\x.exe""#
+        );
+        assert_eq!(quote_for_command_line("a\tb"), "\"a\tb\"");
     }
 
     #[test]
