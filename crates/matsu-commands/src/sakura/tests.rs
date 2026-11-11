@@ -30,15 +30,18 @@ fn key(name: &str) -> &'static KeyBinding {
         .unwrap_or_else(|| panic!("no key {name}"))
 }
 
-/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF`, `F_COPY_CR`, `F_PREVIEW_TAB` and `F_PLSQL_COMPILE_ON_DATABASE_CHOICE`,
-/// also in the main menu. The counts in the comments above are Sakura's.
-const MATSU_ONLY: usize = 4;
+/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF`, `F_COPY_CR`, `F_PREVIEW_TAB`, `F_PLSQL_COMPILE_ON_DATABASE_CHOICE` and
+/// the six encodings and decodings of the selection (`F_URL_ENCODE` ... `F_BASE64_DECODE_TEXT`), also in the
+/// main menu, where the six have two separator lines of their own (`MATSU_MENU_SEPARATORS`). The counts in
+/// the comments above are Sakura's.
+const MATSU_ONLY: usize = 10;
+const MATSU_MENU_SEPARATORS: usize = 2;
 
 #[test]
 fn counts_match_sakura() {
     assert_eq!(FUNCTIONS.len(), 524 + MATSU_ONLY);
     assert_eq!(KEY_BINDINGS.len(), 100);
-    assert_eq!(MAIN_MENU.len(), 336 + MATSU_ONLY);
+    assert_eq!(MAIN_MENU.len(), 336 + MATSU_ONLY + MATSU_MENU_SEPARATORS);
     assert_eq!(FUNCTION_GROUPS.len(), 15);
 }
 
@@ -287,4 +290,99 @@ fn the_edit_menu_has_the_matsu_only_copies_after_copy_crlf() {
     assert_eq!(MAIN_MENU[crlf + 2].code, function("F_COPY_CR").code);
     assert_eq!(MAIN_MENU[crlf + 1].level, MAIN_MENU[crlf].level);
     assert_eq!(MAIN_MENU[crlf + 3].code, function("F_COPY_ADDCRLF").code);
+}
+
+const ENCODINGS: [(&str, u16, &str, &str); 6] = [
+    ("F_URL_ENCODE", 32704, "url_encode", "URLエンコード"),
+    ("F_URL_DECODE", 32705, "url_decode", "URLデコード"),
+    ("F_HTML_ESCAPE", 32706, "html_escape", "HTMLエスケープ"),
+    (
+        "F_HTML_UNESCAPE",
+        32707,
+        "html_unescape",
+        "HTMLエスケープを戻す",
+    ),
+    (
+        "F_BASE64_ENCODE",
+        32708,
+        "base64_encode",
+        "Base64エンコード",
+    ),
+    (
+        "F_BASE64_DECODE_TEXT",
+        32709,
+        "base64_decode_text",
+        "Base64デコード",
+    ),
+];
+
+#[test]
+fn the_encodings_of_the_selection_are_matsu_only_conversions() {
+    for (name, code, id, label) in ENCODINGS {
+        let f = function(name);
+        assert_eq!((f.code, f.id, f.label), (code, id, Some(label)));
+        assert_eq!(f.kind, FunctionKind::Command);
+        // Group 7 is 変換, where F_TOUPPER is.
+        assert_eq!(f.groups, function("F_TOUPPER").groups, "{name}");
+    }
+    // Sakura's 「Base64デコードして保存」 is another function and keeps its name.
+    assert_eq!(
+        function("F_BASE64DECODE").label,
+        Some("Base64デコードして保存")
+    );
+}
+
+#[test]
+fn the_convert_menu_has_the_encodings_as_a_group_of_their_own_after_space_to_tab() {
+    let position = |code| MAIN_MENU.iter().position(|i| i.code == code).unwrap();
+    let at = position(function("F_SPACETOTAB").code);
+    assert_eq!(MAIN_MENU[at + 1].kind, MenuKind::Separator);
+    for (i, (_, code, _, label)) in ENCODINGS.iter().enumerate() {
+        let item = &MAIN_MENU[at + 2 + i];
+        assert_eq!(
+            (item.code, item.label, item.level),
+            (*code, Some(*label), 1)
+        );
+    }
+    assert_eq!(MAIN_MENU[at + 8].kind, MenuKind::Separator);
+    // The submenu of the character code conversions follows.
+    assert_eq!(MAIN_MENU[at + 9].kind, MenuKind::Node);
+    // The access keys are all different within the group and in the whole 変換 menu.
+    let convert = position(34054);
+    let end = (convert + 1..MAIN_MENU.len())
+        .find(|&i| MAIN_MENU[i].level == 0)
+        .unwrap();
+    let mut keys = HashSet::new();
+    for item in MAIN_MENU[convert + 1..end].iter().filter(|i| i.level == 1) {
+        if let Some(key) = item.access_key {
+            assert!(keys.insert(key), "{} has the key {key} twice", item.code);
+        }
+    }
+}
+
+#[test]
+fn the_encodings_have_macro_names_that_are_not_sakuras() {
+    for (name, name_code, macro_name) in [
+        ("F_URL_ENCODE", 32704, "EncodeUrl"),
+        ("F_URL_DECODE", 32705, "DecodeUrl"),
+        ("F_HTML_ESCAPE", 32706, "EscapeHtml"),
+        ("F_HTML_UNESCAPE", 32707, "UnescapeHtml"),
+        ("F_BASE64_ENCODE", 32708, "EncodeBase64"),
+        ("F_BASE64_DECODE_TEXT", 32709, "DecodeBase64"),
+    ] {
+        let row = crate::sakura::macro_functions::MACRO_COMMANDS
+            .iter()
+            .find(|m| m.name == macro_name)
+            .unwrap_or_else(|| panic!("no macro {macro_name}"));
+        assert_eq!(
+            (row.function, row.code, row.key_macro),
+            (name, name_code, true)
+        );
+    }
+    // Sakura's `Base64Decode` is the save command.
+    let save = crate::sakura::macro_functions::MACRO_COMMANDS
+        .iter()
+        .find(|m| m.name == "Base64Decode")
+        .unwrap();
+    assert_eq!(save.function, "F_BASE64DECODE");
 }

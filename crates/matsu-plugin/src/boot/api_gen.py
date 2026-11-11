@@ -1510,6 +1510,36 @@ def install(call):
             implemented)."""
             return call("SPACEToTAB", _pack())
 
+        def EncodeUrl(self) -> None:
+            """MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("EncodeUrl", _pack())
+
+        def DecodeUrl(self) -> None:
+            """MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("DecodeUrl", _pack())
+
+        def EscapeHtml(self) -> None:
+            """MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("EscapeHtml", _pack())
+
+        def UnescapeHtml(self) -> None:
+            """MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("UnescapeHtml", _pack())
+
+        def EncodeBase64(self) -> None:
+            """MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("EncodeBase64", _pack())
+
+        def DecodeBase64(self) -> None:
+            """MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a
+            key, the menu and a key macro run."""
+            return call("DecodeBase64", _pack())
+
         def AutoToSJIS(self) -> None:
             """Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the
             command that a key, the menu and a key macro run. The last arguments may be left

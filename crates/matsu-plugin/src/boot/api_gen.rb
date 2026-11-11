@@ -2115,6 +2115,54 @@ module MatsuEditorApi
       @call.call('SPACEToTAB', _pack())
     end
 
+    # EncodeUrl() -> null
+    #
+    # MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def EncodeUrl
+      @call.call('EncodeUrl', _pack())
+    end
+
+    # DecodeUrl() -> null
+    #
+    # MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def DecodeUrl
+      @call.call('DecodeUrl', _pack())
+    end
+
+    # EscapeHtml() -> null
+    #
+    # MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def EscapeHtml
+      @call.call('EscapeHtml', _pack())
+    end
+
+    # UnescapeHtml() -> null
+    #
+    # MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def UnescapeHtml
+      @call.call('UnescapeHtml', _pack())
+    end
+
+    # EncodeBase64() -> null
+    #
+    # MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def EncodeBase64
+      @call.call('EncodeBase64', _pack())
+    end
+
+    # DecodeBase64() -> null
+    #
+    # MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
+    def DecodeBase64
+      @call.call('DecodeBase64', _pack())
+    end
+
     # AutoToSJIS() -> null
     #
     # Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a

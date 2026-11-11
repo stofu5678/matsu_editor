@@ -353,7 +353,14 @@ impl FuncStates {
             | "F_CODECNV_SJIS2UTF8"
             | "F_CODECNV_SJIS2UTF7"
             | "F_BASE64DECODE"
-            | "F_UUDECODE" => self.text_selected,
+            | "F_UUDECODE"
+            // MATSU's own conversions of the selection, like the 変換 functions above.
+            | "F_URL_ENCODE"
+            | "F_URL_DECODE"
+            | "F_HTML_ESCAPE"
+            | "F_HTML_UNESCAPE"
+            | "F_BASE64_ENCODE"
+            | "F_BASE64_DECODE_TEXT" => self.text_selected,
             "F_CUT_LINE" | "F_DELETE_LINE" => !self.text_selected,
             // `Command_OPEN_HfromtoC( TRUE )`: the file has a header or source of the same name.
             "F_OPEN_HfromtoC" => self.path.as_deref().is_some_and(|path| {
@@ -498,6 +505,13 @@ const MODIFICATION_FORBIDDEN: &[&str] = &[
     "F_CODECNV_SJIS2EUC",
     "F_CODECNV_SJIS2UTF8",
     "F_CODECNV_SJIS2UTF7",
+    // MATSU's own conversions of the selection change the text too.
+    "F_URL_ENCODE",
+    "F_URL_DECODE",
+    "F_HTML_ESCAPE",
+    "F_HTML_UNESCAPE",
+    "F_BASE64_ENCODE",
+    "F_BASE64_DECODE_TEXT",
     "F_REPLACE_DIALOG",
     "F_REPLACE",
     "F_REPLACE_ALL",

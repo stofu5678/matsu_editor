@@ -89,12 +89,12 @@ fn function_codes_and_menu_numbers_agree() {
     }
 }
 
-// The default right-click menu is `InitPopupMenu`'s (30 items) plus MATSU's copies with LF and CR (2): Undo
+// The default right-click menu is `InitPopupMenu`'s (30 items) plus MATSU's copies with LF and CR (2) and its encodings and decodings (6 and a separator): Undo
 // first, with its access key and shortcut.
 #[test]
 fn the_default_right_click_menu_is_sakuras() {
     let rows = build(&CustomMenus::default(), 0, &all);
-    assert_eq!(rows.len(), 30 + 2);
+    assert_eq!(rows.len(), 30 + 2 + 7);
     let Entry::Item(undo) = &rows[0] else {
         panic!("{:?}", rows[0]);
     };
@@ -107,7 +107,7 @@ fn the_default_right_click_menu_is_sakuras() {
     assert!(undo.enabled);
     // Three rows of the cut, copy and paste group are separated from Undo and Redo.
     assert_eq!(rows[2], Entry::Separator);
-    assert_eq!(rows.iter().filter(|e| **e == Entry::Separator).count(), 7);
+    assert_eq!(rows.iter().filter(|e| **e == Entry::Separator).count(), 8);
 }
 
 // MATSU-only: the copies with LF and CR follow 「CRLF改行でコピー」 in the default right-click menu.
@@ -231,7 +231,7 @@ fn the_right_click_menu_can_be_a_submenu_too() {
     let all_menus = menus("[CustMenu]\nnCMIN[02]=1\nnCMIF[02][00]=RMenu\nnCMIK[02][00]=R\n");
     let rows = build(&all_menus, 2, &all);
     let inside = submenu(&rows, "右クリックメニュー(R)");
-    assert_eq!(inside.len(), 30 + 2); // Sakura's 30 and MATSU's two copies
+    assert_eq!(inside.len(), 30 + 2 + 7); // Sakura's 30, MATSU's two copies and its six encodings with a separator
 }
 
 #[test]

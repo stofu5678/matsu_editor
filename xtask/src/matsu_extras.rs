@@ -27,6 +27,10 @@ pub struct Extra {
     pub access_key: char,
     /// The name a macro calls.
     pub macro_name: &'static str,
+    /// A separator line in the main menu before this item (the start of a group of its own).
+    pub separator_before: bool,
+    /// A separator line in the main menu after this item (the end of that group).
+    pub separator_after: bool,
 }
 
 /// In order: the second one is placed after the first.
@@ -40,6 +44,8 @@ pub const EXTRAS: &[Extra] = &[
         after: "F_COPY_CRLF",
         access_key: 'N',
         macro_name: "CopyLF",
+        separator_before: false,
+        separator_after: false,
     },
     Extra {
         code: 32701,
@@ -50,6 +56,8 @@ pub const EXTRAS: &[Extra] = &[
         after: "F_COPY_LF",
         access_key: 'M',
         macro_name: "CopyCR",
+        separator_before: false,
+        separator_after: false,
     },
     // The preview tab (ADR-0024): Sakura has nothing like it.
     Extra {
@@ -61,6 +69,8 @@ pub const EXTRAS: &[Extra] = &[
         after: "F_WIN_OUTPUT",
         access_key: 'G',
         macro_name: "PreviewTab",
+        separator_before: false,
+        separator_after: false,
     },
     // Chooses a connection of `databases.ini` and runs the document with it (ADR-0023): Sakura has
     // only the default-connection run (F10).
@@ -73,6 +83,84 @@ pub const EXTRAS: &[Extra] = &[
         after: "F_PLSQL_COMPILE_ON_SQLPLUS",
         access_key: 'C',
         macro_name: "ExecDatabaseChoice",
+        separator_before: false,
+        separator_after: false,
+    },
+    // Encoding and decoding of the selection (group 7, 変換): a group of its own in the 変換 menu,
+    // after 「空白→TAB」 and before the 「文字コード変換」 submenu. Sakura has none of these (its
+    // 「Base64デコードして保存」 writes a file and stays as it is). The macro names avoid Sakura's
+    // `Base64Decode`.
+    Extra {
+        code: 32704,
+        name: "F_URL_ENCODE",
+        id: "url_encode",
+        group: 7,
+        label: "URLエンコード",
+        after: "F_SPACETOTAB",
+        access_key: 'E',
+        macro_name: "EncodeUrl",
+        separator_before: true,
+        separator_after: false,
+    },
+    Extra {
+        code: 32705,
+        name: "F_URL_DECODE",
+        id: "url_decode",
+        group: 7,
+        label: "URLデコード",
+        after: "F_URL_ENCODE",
+        access_key: 'D',
+        macro_name: "DecodeUrl",
+        separator_before: false,
+        separator_after: false,
+    },
+    Extra {
+        code: 32706,
+        name: "F_HTML_ESCAPE",
+        id: "html_escape",
+        group: 7,
+        label: "HTMLエスケープ",
+        after: "F_URL_DECODE",
+        access_key: 'P',
+        macro_name: "EscapeHtml",
+        separator_before: false,
+        separator_after: false,
+    },
+    Extra {
+        code: 32707,
+        name: "F_HTML_UNESCAPE",
+        id: "html_unescape",
+        group: 7,
+        label: "HTMLエスケープを戻す",
+        after: "F_HTML_ESCAPE",
+        access_key: 'R',
+        macro_name: "UnescapeHtml",
+        separator_before: false,
+        separator_after: false,
+    },
+    Extra {
+        code: 32708,
+        name: "F_BASE64_ENCODE",
+        id: "base64_encode",
+        group: 7,
+        label: "Base64エンコード",
+        after: "F_HTML_UNESCAPE",
+        access_key: 'B',
+        macro_name: "EncodeBase64",
+        separator_before: false,
+        separator_after: false,
+    },
+    Extra {
+        code: 32709,
+        name: "F_BASE64_DECODE_TEXT",
+        id: "base64_decode_text",
+        group: 7,
+        label: "Base64デコード",
+        after: "F_BASE64_ENCODE",
+        access_key: 'Y',
+        macro_name: "DecodeBase64",
+        separator_before: false,
+        separator_after: true,
     },
 ];
 
@@ -136,16 +224,28 @@ pub fn apply(tables: &mut Tables) -> Result<(), String> {
             .position(|i| i.kind == MenuKind::Leaf && i.code == after_code)
             .ok_or_else(|| format!("{} is not in the main menu", extra.after))?;
         let level = tables.menu[menu].level;
-        tables.menu.insert(
-            menu + 1,
-            MenuItem {
-                level,
-                kind: MenuKind::Leaf,
-                code: extra.code,
-                access_key: Some(extra.access_key),
-                label: Some(extra.label.to_string()),
-            },
-        );
+        let separator = || MenuItem {
+            level,
+            kind: MenuKind::Separator,
+            code: 1,
+            access_key: None,
+            label: None,
+        };
+        let mut items = Vec::new();
+        if extra.separator_before {
+            items.push(separator());
+        }
+        items.push(MenuItem {
+            level,
+            kind: MenuKind::Leaf,
+            code: extra.code,
+            access_key: Some(extra.access_key),
+            label: Some(extra.label.to_string()),
+        });
+        if extra.separator_after {
+            items.push(separator());
+        }
+        tables.menu.splice(menu + 1..menu + 1, items);
     }
     Ok(())
 }
