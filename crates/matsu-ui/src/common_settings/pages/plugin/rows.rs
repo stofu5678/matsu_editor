@@ -209,17 +209,7 @@ pub(super) fn row_of(
     }
     row[FOLDER] = rec.name.clone();
     let def = dirs.and_then(|dirs| dirs.load_def(&rec.name, DEFAULT_LANGUAGE));
-    match &def {
-        Some(def) => {
-            row[NAME] = def.name.clone();
-            row[DESCRIPTION] = def.description.clone();
-            row[AUTHOR] = def.author.clone();
-            row[VERSION] = def.version.clone();
-            row[URL] = def.url.clone();
-            row[OPTIONS] = def.options.len().to_string();
-        }
-        None => row[NAME] = "-".to_owned(),
-    }
+    // The note first: it borrows the definition, whose texts then move into the row.
     row[NOTE] = match &def {
         None => NOT_FOUND_NOTE.to_owned(),
         Some(def) => def
@@ -228,6 +218,17 @@ pub(super) fn row_of(
             .map(unsupported_text)
             .unwrap_or_default(),
     };
+    match def {
+        Some(def) => {
+            row[OPTIONS] = def.options.len().to_string();
+            row[NAME] = def.name;
+            row[DESCRIPTION] = def.description;
+            row[AUTHOR] = def.author;
+            row[VERSION] = def.version;
+            row[URL] = def.url;
+        }
+        None => row[NAME] = "-".to_owned(),
+    }
     let plugin_dir = dirs.and_then(|dirs| dirs.plugin_dir(&rec.name));
     row[CONSENT] = match consent.consent_for_dir(&rec.id, plugin_dir.as_deref()) {
         Consent::Off => "off",

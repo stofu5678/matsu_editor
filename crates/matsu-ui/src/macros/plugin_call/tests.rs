@@ -527,7 +527,7 @@ fn a_plugin_that_was_replaced_by_another_folder_gets_a_host_of_that_folder(
     assert_ne!(dir_one, dir_two);
     assert!(dir_two.starts_with(second.dir.path()), "{dir_two:?}");
     set_test_interpreter(None);
-    cx.update(|_, app| shutdown(app, &two.id));
+    cx.update(|_, app| shutdown(app, two.id()));
 }
 
 #[gpui::test]
@@ -546,7 +546,7 @@ fn a_second_plugin_call_waits_until_the_first_is_over(cx: &mut TestAppContext) {
     let first = cx
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
-    let id = first.id.clone();
+    let id = first.id().to_owned();
     let editor = view.clone();
     cx.update(|_, app| run(&editor, first, app));
     assert!(view.read_with(cx, |v, _| v.macros.plugin_running));
@@ -591,7 +591,7 @@ fn a_macro_cannot_start_while_a_plugin_is_in_a_call(cx: &mut TestAppContext) {
     let prepared = cx
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
-    let id = prepared.id.clone();
+    let id = prepared.id().to_owned();
     let editor = view.clone();
     cx.update(|_, app| run(&editor, prepared, app));
     assert!(view.read_with(cx, |v, _| v.macros.busy()));
@@ -675,7 +675,7 @@ fn two_panes_of_one_document_do_not_run_plugins_or_macros_at_once(cx: &mut TestA
     let prepared = cx2
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
-    let id = prepared.id.clone();
+    let id = prepared.id().to_owned();
     let editor = first;
     cx2.update(|_, app| run(&editor, prepared, app));
     // The other pane shares the undo history: it is refused, for a plugin and for a macro.
@@ -755,7 +755,7 @@ fn a_plugin_does_not_start_while_a_key_macro_waits_for_a_dialog(cx: &mut TestApp
     let prepared = cx
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
-    let id = prepared.id.clone();
+    let id = prepared.id().to_owned();
     let editor = view.clone();
     cx.update(|_, app| run(&editor, prepared, app));
     let output = view.read_with(cx, |v, _| v.macro_output_text());
@@ -871,7 +871,7 @@ fn a_plugin_does_not_start_while_a_macro_runs_in_another_pane(cx: &mut TestAppCo
     let prepared = cx2
         .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
         .unwrap();
-    let id = prepared.id.clone();
+    let id = prepared.id().to_owned();
     let editor = second.clone();
     cx2.update(|_, app| run(&editor, prepared, app));
     let output = second.read_with(cx2, |v, _| v.macro_output_text());

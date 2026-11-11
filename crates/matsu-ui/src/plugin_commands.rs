@@ -11,6 +11,7 @@
 
 use gpui::{App, Context};
 use matsu_commands::plugin_commands::{self, CommandInfo};
+use matsu_config::Profile;
 use matsu_config::plugins::consent::{Consent, ConsentFile};
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState, SearchDirs};
 
@@ -34,6 +35,12 @@ pub(crate) fn dirs_of(user: &UserSettings) -> Option<SearchDirs> {
     ))
 }
 
+/// The plugin settings of `user`, read in place (the whole profile is not copied for it). Without a
+/// profile they are those of an empty one.
+pub(crate) fn settings_of(user: &UserSettings) -> PluginSettings {
+    PluginSettings::from_profile(user.profile().unwrap_or(&Profile::default()))
+}
+
 /// Makes the table of the commands from the settings now (see [`refresh_for`]). Returns whether the
 /// commands changed.
 pub(crate) fn refresh(cx: &App) -> bool {
@@ -45,8 +52,7 @@ pub(crate) fn refresh(cx: &App) -> bool {
 /// enabled may have changed). Returns whether the commands changed.
 pub(crate) fn refresh_for(user: &UserSettings) -> bool {
     let before = plugin_commands::commands();
-    let profile = user.profile().cloned().unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = settings_of(user);
     plugin_commands::set_slots(
         settings
             .table

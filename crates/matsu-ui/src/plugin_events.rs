@@ -45,7 +45,7 @@ use std::time::Duration;
 
 use gpui::{App, AsyncApp, AsyncWindowContext, Entity, EntityId, WeakEntity};
 use matsu_config::plugins::def::Jack;
-use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState};
+use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginState};
 
 use crate::app::Workspace;
 use crate::macros::plugin_call::{self, Prepared, Turn};
@@ -62,9 +62,7 @@ const WAITING: &str = "プラグインを待っています";
 
 /// The plugins that may run, in the order of the table, with their folders. Empty when plugins are off.
 fn running_folders(cx: &mut App) -> Vec<String> {
-    let profile =
-        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of);
     if !settings.enabled {
         return Vec::new();
     }
