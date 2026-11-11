@@ -136,14 +136,16 @@ impl Field {
 
     /// The strings of the list, newest first (`CDlgGrep::OnInitDialog` fills the combo boxes
     /// from `m_aSearchKeys`, `m_aGrepFiles` and the like).
-    fn entries(self, cx: &App) -> Vec<String> {
+    ///
+    /// `f` reads the list in place: the history is not copied for a look at it.
+    fn with_entries<R>(self, cx: &App, f: impl FnOnce(&[String]) -> R) -> R {
         match self {
-            Field::Key => history::search_keys(cx),
-            Field::File => history::grep_files(cx),
-            Field::Folder => history::grep_folders(cx),
-            Field::ExcludeFile => history::exclude_files(cx),
-            Field::ExcludeFolder => history::exclude_folders(cx),
-            Field::Replacement => history::replace_keys(cx),
+            Field::Key => history::with_search_keys(cx, f),
+            Field::File => history::with_grep_files(cx, f),
+            Field::Folder => history::with_grep_folders(cx, f),
+            Field::ExcludeFile => history::with_exclude_files(cx, f),
+            Field::ExcludeFolder => history::with_exclude_folders(cx, f),
+            Field::Replacement => history::with_replace_keys(cx, f),
         }
     }
 }
@@ -154,8 +156,8 @@ impl Field {
 /// it, to be chosen later. A value that was given (the command line, the last search) comes
 /// first. The file box takes `*.*` that way too (Sakura starts with it in the history).
 fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
-    fn newest(list: Vec<String>) -> Option<String> {
-        list.into_iter().next()
+    fn newest(list: &[String]) -> Option<String> {
+        list.first().cloned()
     }
     let mut keep = GrepBoxes {
         file: "",
@@ -164,7 +166,7 @@ fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
         exclude_folder: "",
     };
     if settings.file.is_empty() {
-        match newest(history::grep_files(cx)) {
+        match history::with_grep_files(cx, newest) {
             Some(file) => settings.file = file,
             None => {
                 settings.file = "*.*".to_owned();
@@ -173,12 +175,12 @@ fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
         }
     }
     if settings.folder.is_empty()
-        && let Some(folder) = newest(history::grep_folders(cx))
+        && let Some(folder) = history::with_grep_folders(cx, newest)
     {
         settings.folder = folder;
     }
     if settings.exclude_file.is_empty() {
-        match newest(history::exclude_files(cx)) {
+        match history::with_exclude_files(cx, newest) {
             Some(exclude) => settings.exclude_file = exclude,
             None => {
                 settings.exclude_file = DEFAULT_EXCLUDE_FILE.to_owned();
@@ -187,7 +189,7 @@ fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
         }
     }
     if settings.exclude_folder.is_empty() {
-        match newest(history::exclude_folders(cx)) {
+        match history::with_exclude_folders(cx, newest) {
             Some(exclude) => settings.exclude_folder = exclude,
             None => {
                 settings.exclude_folder = DEFAULT_EXCLUDE_FOLDER.to_owned();
@@ -473,8 +475,8 @@ impl GrepPanel {
             // `GetData` writes the folders back as they are checked.
             self.show_settings(window, cx);
         }
-        let settings = self.settings.clone();
-        remember(cx, settings.clone());
+        remember(cx, self.settings.clone());
+        let settings = &self.settings;
         super::window::remember_window(cx, document.filter(|_| from_this_text));
         // The strings go into the histories (`CDlgGrep::GetData`; `CDlgGrepReplace::GetData` adds
         // the replacement). Not the boxes of the files and folders when the text of the window is
@@ -548,14 +550,16 @@ impl GrepPanel {
         if self.dropdown.is_some_and(|d| d.field == field) {
             self.dropdown = None;
         } else {
-            let entries = field.entries(cx);
             let current = self.field_input(field).read(cx).value();
-            self.dropdown = (self.field_enabled(field) && !entries.is_empty()).then(|| DropDown {
+            let (empty, at) = field.with_entries(cx, |entries| {
+                (
+                    entries.is_empty(),
+                    entries.iter().position(|e| e == current.as_str()),
+                )
+            });
+            self.dropdown = (self.field_enabled(field) && !empty).then(|| DropDown {
                 field,
-                highlight: entries
-                    .iter()
-                    .position(|e| e == current.as_str())
-                    .unwrap_or(0),
+                highlight: at.unwrap_or(0),
             });
             if let Some(open) = self.dropdown {
                 self.list_scroll.scroll_to_item(open.highlight);
@@ -565,7 +569,13 @@ impl GrepPanel {
     }
 
     /// Puts a string of the list in its box, closes the list and gives the focus back to the box.
-    fn pick(&mut self, field: Field, text: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn pick(
+        &mut self,
+        field: Field,
+        text: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.dropdown = None;
         let input = self.field_input(field).clone();
         input.update(cx, |state, cx| {
@@ -578,17 +588,21 @@ impl GrepPanel {
     /// Up and Down in a box whose list is closed go through the list, as in a combo box. From a
     /// string that is not in the list, both take the first.
     fn step(&mut self, field: Field, down: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let entries = field.entries(cx);
-        if entries.is_empty() {
-            return;
-        }
         let current = self.field_input(field).read(cx).value();
-        let next = match (entries.iter().position(|e| e == current.as_str()), down) {
-            (Some(i), true) => (i + 1).min(entries.len() - 1),
-            (Some(i), false) => i.saturating_sub(1),
-            (None, _) => 0,
-        };
-        self.pick(field, entries[next].clone(), window, cx);
+        let next = field.with_entries(cx, |entries| {
+            if entries.is_empty() {
+                return None;
+            }
+            let next = match (entries.iter().position(|e| e == current.as_str()), down) {
+                (Some(i), true) => (i + 1).min(entries.len() - 1),
+                (Some(i), false) => i.saturating_sub(1),
+                (None, _) => 0,
+            };
+            Some(entries[next].clone())
+        });
+        if let Some(next) = next {
+            self.pick(field, next.into(), window, cx);
+        }
     }
 
     /// The keys of the combo boxes (as those of the find dialog): Alt+Down and F4 open or close
@@ -623,11 +637,11 @@ impl GrepPanel {
                 _ => false,
             };
         };
-        let entries = field.entries(cx);
+        let count = field.with_entries(cx, <[String]>::len);
         match key {
-            "down" | "up" if plain && !entries.is_empty() => {
+            "down" | "up" if plain && count > 0 => {
                 let highlight = if key == "down" {
-                    (open.highlight + 1).min(entries.len() - 1)
+                    (open.highlight + 1).min(count - 1)
                 } else {
                     open.highlight.saturating_sub(1)
                 };
@@ -635,8 +649,9 @@ impl GrepPanel {
                 self.list_scroll.scroll_to_item(highlight);
                 cx.notify();
             }
-            "enter" if plain && open.highlight < entries.len() => {
-                self.pick(field, entries[open.highlight].clone(), window, cx);
+            "enter" if plain && open.highlight < count => {
+                let text = field.with_entries(cx, |entries| entries[open.highlight].clone());
+                self.pick(field, text.into(), window, cx);
             }
             "escape" => {
                 self.dropdown = None;
@@ -676,7 +691,10 @@ impl GrepPanel {
                 ),
         );
         if let Some(open) = self.dropdown.filter(|d| d.field == field) {
-            let entries = field.entries(cx).into_iter().enumerate().map(|(i, text)| {
+            let texts: Vec<SharedString> = field.with_entries(cx, |entries| {
+                entries.iter().cloned().map(SharedString::from).collect()
+            });
+            let entries = texts.into_iter().enumerate().map(|(i, text)| {
                 let picked = text.clone();
                 div()
                     .id((id, i))
@@ -684,7 +702,7 @@ impl GrepPanel {
                     .truncate()
                     .when(i == open.highlight, |d| d.bg(rgb(0xcce4f7)))
                     .hover(|d| d.bg(rgb(0xe5f1fb)))
-                    .child(SharedString::from(text))
+                    .child(text)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.pick(field, picked.clone(), window, cx);
                     }))
@@ -733,7 +751,7 @@ impl GrepPanel {
             let chosen = receiver.await.ok().flatten();
             if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
                 this.update_in(cx, |this, window, cx| {
-                    this.set_folder(&quote_folder(&path.to_string_lossy()), window, cx);
+                    this.set_folder(quote_folder(&path.to_string_lossy()), window, cx);
                 })
                 .ok();
             }
@@ -741,8 +759,7 @@ impl GrepPanel {
         .detach();
     }
 
-    fn set_folder(&mut self, folder: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let folder = folder.to_owned();
+    fn set_folder(&mut self, folder: String, window: &mut Window, cx: &mut Context<Self>) {
         self.folder
             .update(cx, |state, cx| state.set_value(folder, window, cx));
     }
@@ -768,7 +785,7 @@ impl GrepPanel {
                 .map(|p| p.to_string_lossy().into_owned())
         });
         if let Some(folder) = folder {
-            self.set_folder(&quote_folder(&folder), window, cx);
+            self.set_folder(quote_folder(&folder), window, cx);
         }
     }
 
@@ -790,7 +807,7 @@ impl GrepPanel {
             .map(|f| quote_folder(f))
             .collect::<Vec<_>>()
             .join(";");
-        self.set_folder(&joined, window, cx);
+        self.set_folder(joined, window, cx);
     }
 
     fn change(&mut self, change: impl FnOnce(&mut GrepSettings), cx: &mut Context<Self>) {
@@ -847,7 +864,7 @@ impl Focusable for GrepPanel {
 
 impl Render for GrepPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let s = self.settings.clone();
+        let s = &self.settings;
         let regex = s.options.regex;
         let result_only = s.style == OutputStyle::ResultOnly;
         // The boxes and buttons of the files and folders are not used while the text of the window
@@ -1215,8 +1232,7 @@ impl EditorView {
         // The histories first, then the folder of the file in the window (`OnInitDialog` takes it
         // when the folder is still empty or 初期値をカレントフォルダーにする is on).
         fill_from_histories(&mut settings, cx);
-        let path = self.document.read(cx).path().map(Path::to_path_buf);
-        settings.offer_folder(path.as_deref());
+        settings.offer_folder(self.document.read(cx).path());
         self.show_grep_panel(settings, replace, window, cx);
     }
 

@@ -26,7 +26,7 @@ pub struct StatusInfo {
     /// The name of the encoding, with " BOM付" when the document has a BOM ([`charset_label`]).
     pub charset: String,
     /// The name of the line ending that Enter inserts ([`eol_name`]).
-    pub eol: String,
+    pub eol: &'static str,
     /// The code of the character at the caret, or the name of the line ending when the caret is at
     /// it (`EditorView::caret_char_code`). Empty at the end of the file.
     pub char_code: String,
@@ -50,7 +50,7 @@ impl Default for StatusInfo {
             modified: false,
             overwrite: false,
             charset: String::new(),
-            eol: String::new(),
+            eol: "",
             char_code: String::new(),
             selection: None,
             notice: None,
@@ -107,7 +107,7 @@ impl StatusInfo {
         match part {
             Part::Message => self.message(),
             Part::Position => self.position_text(),
-            Part::Eol => self.eol.clone(),
+            Part::Eol => self.eol.to_owned(),
             Part::CharCode => self.char_code.clone(),
             Part::Charset => self.charset.clone(),
             Part::Rec => "REC".to_owned(),
@@ -190,7 +190,7 @@ mod tests {
             column: 12,
             lines: 100,
             charset: charset_label(Encoding::Utf8, true),
-            eol: "CRLF".to_owned(),
+            eol: "CRLF",
             char_code: "U+3042".to_owned(),
             ..StatusInfo::default()
         }

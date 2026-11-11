@@ -111,6 +111,49 @@ pub fn install(cx: &mut App, history: SearchHistory) {
     cx.set_global(history);
 }
 
+/// Runs `f` on the strings of a history list, newest first, without copying the list (`&[]` when
+/// the application has no history).
+fn with_keys<R>(
+    cx: &App,
+    list: impl Fn(&SearchKeys) -> &KeyList,
+    f: impl FnOnce(&[String]) -> R,
+) -> R {
+    match cx.try_global::<SearchHistory>() {
+        Some(h) => f(list(&h.keys).items()),
+        None => f(&[]),
+    }
+}
+
+/// [`search_keys`], read in place.
+pub fn with_search_keys<R>(cx: &App, f: impl FnOnce(&[String]) -> R) -> R {
+    with_keys(cx, |k| &k.search, f)
+}
+
+/// [`replace_keys`], read in place.
+pub fn with_replace_keys<R>(cx: &App, f: impl FnOnce(&[String]) -> R) -> R {
+    with_keys(cx, |k| &k.replace, f)
+}
+
+/// [`grep_files`], read in place.
+pub fn with_grep_files<R>(cx: &App, f: impl FnOnce(&[String]) -> R) -> R {
+    with_keys(cx, |k| &k.grep_file, f)
+}
+
+/// [`grep_folders`], read in place.
+pub fn with_grep_folders<R>(cx: &App, f: impl FnOnce(&[String]) -> R) -> R {
+    with_keys(cx, |k| &k.grep_folder, f)
+}
+
+/// [`exclude_files`], read in place.
+pub fn with_exclude_files<R>(cx: &App, f: impl FnOnce(&[String]) -> R) -> R {
+    with_keys(cx, |k| &k.exclude_file, f)
+}
+
+/// [`exclude_folders`], read in place.
+pub fn with_exclude_folders<R>(cx: &App, f: impl FnOnce(&[String]) -> R) -> R {
+    with_keys(cx, |k| &k.exclude_folder, f)
+}
+
 /// The search strings, newest first.
 pub fn search_keys(cx: &App) -> Vec<String> {
     cx.try_global::<SearchHistory>()
