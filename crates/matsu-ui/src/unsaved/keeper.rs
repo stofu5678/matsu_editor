@@ -364,7 +364,7 @@ impl Keeper {
         let Some(entry) = self.entries.get_mut(&document) else {
             return;
         };
-        drop_copy(writer, &mut self.windows, entry);
+        drop_copy(writer, entry);
     }
 
     /// The copy of the document is not wanted any more (it was closed or saved): it is discarded now, and the
@@ -381,7 +381,7 @@ impl Keeper {
         let State::Running(writer) = &self.state else {
             return;
         };
-        drop_copy(writer, &mut self.windows, entry);
+        drop_copy(writer, entry);
     }
 
     /// Starts the writer for the settings file at `ini_path` the first time it is needed. Returns what to tell the
@@ -409,16 +409,14 @@ impl Keeper {
     }
 }
 
-/// The copy of `entry` goes: the writer discards it, the tabs of the windows no longer name it, and the entry
-/// forgets it.
-fn drop_copy(writer: &Writer, windows: &mut [(WindowId, WindowReport)], entry: &mut Entry) {
+/// The copy of `entry` goes: the writer discards it, and the entry forgets it.
+///
+/// The tabs of the windows still name the copy until their next tick: [`Keeper::session`] leaves out a copy
+/// that is gone, as it does for a document that was closed, and counts the front tab among the tabs that are
+/// left. (Taking it out of the tabs here kept the index of the front tab, which then named the next tab when
+/// an earlier copy went.)
+fn drop_copy(writer: &Writer, entry: &mut Entry) {
     if let Some(id) = entry.id.take() {
-        for (_, report) in windows {
-            if let Some(position) = report.ids.iter().position(|i| *i == id) {
-                report.ids.remove(position);
-                report.active = report.active.min(report.ids.len().saturating_sub(1));
-            }
-        }
         writer.discard(id);
     }
     entry.forget_copy();
@@ -1095,4 +1093,74 @@ pub(crate) fn kept_for_exit(cx: &App, document: EntityId) -> bool {
     cx.try_global::<Keeper>()
         .and_then(|k| k.entries.get(&document))
         .is_some_and(|e| e.kept_for_exit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A keeper with a writer in `dir` and one window whose tabs have the copies `ids`, the front tab at
+    /// `active`. The document of the copy `ids[n]` is `EntityId::from(n + 1)`.
+    fn keeper_with(dir: &std::path::Path, ids: &[&str], active: usize) -> Keeper {
+        let mut keeper = Keeper::new();
+        keeper.state = State::Running(Writer::start(dir).expect("start the writer"));
+        let now = Instant::now();
+        for (n, id) in (1u64..).zip(ids) {
+            let mut entry = Entry::new(now);
+            entry.id = Some((*id).to_owned());
+            keeper.entries.insert(EntityId::from(n), entry);
+        }
+        let window = WindowId::from(1);
+        let report = WindowReport {
+            ids: ids.iter().map(|id| (*id).to_owned()).collect(),
+            active,
+            at: now,
+        };
+        keeper.windows.push((window, report));
+        keeper.active_window = Some(window);
+        keeper
+    }
+
+    /// The tabs of the one window of the session, and the copy of its front tab.
+    fn front(keeper: &Keeper) -> (Vec<String>, String) {
+        let session = keeper.session();
+        let window = &session.windows[0];
+        (window.docs.clone(), window.docs[window.active].clone())
+    }
+
+    fn names(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| (*n).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_front_tab_stays_when_the_copy_of_an_earlier_tab_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c", "d"], 2);
+        keeper.copy_saved(EntityId::from(1));
+        assert_eq!(front(&keeper), (names(&["b", "c", "d"]), "c".to_owned()));
+    }
+
+    #[test]
+    fn the_front_tab_stays_when_the_copy_of_a_later_tab_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c", "d"], 1);
+        keeper.copy_saved(EntityId::from(4));
+        assert_eq!(front(&keeper), (names(&["a", "b", "c"]), "b".to_owned()));
+    }
+
+    #[test]
+    fn the_next_tab_is_in_front_when_the_copy_of_the_front_tab_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c", "d"], 2);
+        keeper.copy_saved(EntityId::from(3));
+        assert_eq!(front(&keeper), (names(&["a", "b", "d"]), "d".to_owned()));
+    }
+
+    #[test]
+    fn the_tab_before_is_in_front_when_the_copy_of_the_last_tab_in_front_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c"], 2);
+        keeper.copy_saved(EntityId::from(3));
+        assert_eq!(front(&keeper), (names(&["a", "b"]), "b".to_owned()));
+    }
 }
