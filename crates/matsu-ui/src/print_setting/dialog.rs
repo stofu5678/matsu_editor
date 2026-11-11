@@ -30,6 +30,7 @@ use gpui_component::{Disableable as _, h_flex, v_flex};
 use matsu_config::settings::print::{NAME_MAX, PrintSettings};
 use matsu_config::settings::{FontSetting, LogFont};
 use matsu_print::{HeaderFooterFont, Orientation, PAPER_INFO, PrintSetting, find_paper_info};
+use std::borrow::Cow;
 
 use super::model::{self, Number};
 use crate::font_dialog::model::families;
@@ -83,7 +84,8 @@ pub(crate) struct PrintSettingDialog {
     pub(super) footer: [Entity<InputState>; 3],
     /// The width of the line numbers in characters (`m_nLineNumberColumns`).
     pub(super) number_columns: u32,
-    /// The fonts of the OS.
+    /// The fonts of the OS that the dialog lists, filtered, sorted and without duplicates (made
+    /// once: the OS does not change them while the dialog is open).
     installed: Vec<String>,
     list: Option<List>,
     result: Option<async_channel::Sender<Option<Answer>>>,
@@ -133,7 +135,7 @@ impl PrintSettingDialog {
             header,
             footer,
             number_columns,
-            installed: cx.text_system().all_font_names(),
+            installed: families(cx.text_system().all_font_names(), ""),
             list: None,
             result: Some(result),
             focus: cx.focus_handle(),
@@ -150,9 +152,9 @@ impl PrintSettingDialog {
 
     /// `OnChangeSettingType`, the part that sets the edit boxes: they show `draft`.
     fn show_setting(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let draft = self.draft.clone();
+        let draft = &self.draft;
         for (number, input) in Number::ALL.into_iter().zip(&self.numbers) {
-            let text = number.of(&draft).to_string();
+            let text = number.of(draft).to_string();
             input.update(cx, |state, cx| state.set_value(text, window, cx));
         }
         for (form, input) in draft
@@ -176,8 +178,8 @@ impl PrintSettingDialog {
         model::collect(
             &self.draft,
             &Self::texts(&self.numbers, cx),
-            &Self::texts(&self.header, cx),
-            &Self::texts(&self.footer, cx),
+            Self::texts(&self.header, cx),
+            Self::texts(&self.footer, cx),
         )
     }
 
@@ -206,12 +208,17 @@ impl PrintSettingDialog {
     }
 
     /// The name of the setting `index` as the list shows it.
-    pub(crate) fn name_of(&self, index: usize) -> String {
+    fn name_ref(&self, index: usize) -> &str {
         if index == self.current {
-            self.draft.name.clone()
+            &self.draft.name
         } else {
-            self.settings.get(index).name.clone()
+            &self.settings.get(index).name
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn name_of(&self, index: usize) -> String {
+        self.name_ref(index).to_owned()
     }
 
     #[cfg(test)]
@@ -398,29 +405,25 @@ impl PrintSettingDialog {
         }
     }
 
-    /// The font names to list for a face: the installed fonts, and the face itself if this
-    /// machine lacks it.
-    fn font_names(&self, face: &str) -> Vec<String> {
-        families(self.installed.clone(), face)
-    }
-
     fn list_rows(&self, list: List) -> (Vec<String>, Option<usize>) {
         match list {
             List::Setting => (
                 (0..self.settings.slots().len())
-                    .map(|i| self.name_of(i))
+                    .map(|i| self.name_ref(i).to_owned())
                     .collect(),
                 Some(self.current),
             ),
             List::FontHan => {
-                let names = self.font_names(&self.draft.print_font_face_han);
+                let names =
+                    font_names(&self.installed, &self.draft.print_font_face_han).into_owned();
                 let at = names
                     .iter()
                     .position(|n| *n == self.draft.print_font_face_han);
                 (names, at)
             }
             List::FontZen => {
-                let names = self.font_names(&self.draft.print_font_face_zen);
+                let names =
+                    font_names(&self.installed, &self.draft.print_font_face_zen).into_owned();
                 let at = names
                     .iter()
                     .position(|n| *n == self.draft.print_font_face_zen);
@@ -449,13 +452,19 @@ impl PrintSettingDialog {
                 return;
             }
             List::FontHan => {
-                if let Some(name) = self.font_names(&self.draft.print_font_face_han).get(row) {
-                    self.draft.print_font_face_han = name.clone();
+                let name = font_names(&self.installed, &self.draft.print_font_face_han)
+                    .get(row)
+                    .cloned();
+                if let Some(name) = name {
+                    self.draft.print_font_face_han = name;
                 }
             }
             List::FontZen => {
-                if let Some(name) = self.font_names(&self.draft.print_font_face_zen).get(row) {
-                    self.draft.print_font_face_zen = name.clone();
+                let name = font_names(&self.installed, &self.draft.print_font_face_zen)
+                    .get(row)
+                    .cloned();
+                if let Some(name) = name {
+                    self.draft.print_font_face_zen = name;
                 }
             }
             List::Paper => {
@@ -624,15 +633,14 @@ impl Render for PrintSettingDialog {
         let now = self.collect(cx);
         let printable = model::printable(&now, self.number_columns);
         let ok_enabled = model::has_printable_area(&now, self.number_columns);
-        let paper_name = find_paper_info(self.draft.print_paper_size)
-            .map_or_else(String::new, |p| p.name.to_owned());
+        let paper_name = find_paper_info(self.draft.print_paper_size).map_or("", |p| p.name);
         let open = |list: List| self.list == Some(list);
 
         let top = h_flex()
             .gap_2()
             .items_center()
             .child(div().w(px(104.)).text_right().child("ページ設定(1)"))
-            .child(self.combo("ps-setting", &self.name_of(self.current), List::Setting, cx))
+            .child(self.combo("ps-setting", self.name_ref(self.current), List::Setting, cx))
             .child(
                 Button::new("ps-rename")
                     .label("設定名変更(2)...")
@@ -648,7 +656,7 @@ impl Render for PrintSettingDialog {
                     .child(div().w(px(104.)).text_right().child("半角フォント(F)"))
                     .child(self.combo(
                         "ps-font-han",
-                        &self.draft.print_font_face_han.clone(),
+                        &self.draft.print_font_face_han,
                         List::FontHan,
                         cx,
                     )),
@@ -663,7 +671,7 @@ impl Render for PrintSettingDialog {
                     .child(div().w(px(104.)).text_right().child("全角フォント(K)"))
                     .child(self.combo(
                         "ps-font-zen",
-                        &self.draft.print_font_face_zen.clone(),
+                        &self.draft.print_font_face_zen,
                         List::FontZen,
                         cx,
                     )),
@@ -691,7 +699,7 @@ impl Render for PrintSettingDialog {
                     .gap_2()
                     .items_center()
                     .child(div().w(px(104.)).text_right().child("用紙サイズ(Z)"))
-                    .child(self.combo("ps-paper", &paper_name, List::Paper, cx)),
+                    .child(self.combo("ps-paper", paper_name, List::Paper, cx)),
             )
             .when(open(List::Paper), |this| {
                 this.child(self.list_view(List::Paper, cx))
@@ -912,6 +920,20 @@ impl Render for PrintSettingDialog {
     }
 }
 
+/// The font names to list for a face: the listed fonts, and the face itself if this machine
+/// lacks it. `installed` is the list that `families` made (with no face), so that only the
+/// face of the setting can be missing from it.
+fn font_names<'a>(installed: &'a [String], face: &str) -> Cow<'a, [String]> {
+    if face.is_empty() || installed.iter().any(|f| f == face) {
+        Cow::Borrowed(installed)
+    } else {
+        let mut list = Vec::with_capacity(installed.len() + 1);
+        list.push(face.to_owned());
+        list.extend_from_slice(installed);
+        Cow::Owned(list)
+    }
+}
+
 impl EditorView {
     /// Opens the dialog over the view and focuses it.
     pub(crate) fn open_print_setting_dialog(
@@ -930,5 +952,31 @@ impl EditorView {
         dialog.update(cx, |dialog, cx| dialog.focus_first(window, cx));
         self.print.setup_dialog = Some(dialog);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod font_name_tests {
+    use super::font_names;
+    use std::borrow::Cow;
+
+    fn fonts() -> Vec<String> {
+        ["Arial", "Consolas"].map(str::to_owned).to_vec()
+    }
+
+    #[test]
+    fn a_listed_face_or_no_face_borrows_the_list() {
+        let list = fonts();
+        assert!(matches!(font_names(&list, "Consolas"), Cow::Borrowed(_)));
+        assert!(matches!(font_names(&list, ""), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn a_face_the_machine_lacks_goes_first() {
+        let list = fonts();
+        // a font of the settings file that this machine lacks (ＭＳ ゴシック on macOS)
+        let names = font_names(&list, "ＭＳ ゴシック");
+        assert_eq!(names.as_ref(), ["ＭＳ ゴシック", "Arial", "Consolas"]);
+        assert_eq!(list, fonts());
     }
 }

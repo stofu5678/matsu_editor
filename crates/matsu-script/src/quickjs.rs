@@ -191,7 +191,7 @@ fn run_handler(
     begin
         .call::<_, ()>((invoke.jack.as_str(), args))
         .map_err(|e| e.to_string())?;
-    let mut options = named(&invoke.name.replace('\0', "?"));
+    let mut options = named(invoke.name.replace('\0', "?"));
     // Loose unless the handler asks otherwise (rquickjs evaluates strictly by default): the plugins
     // of Sakura are JScript, which assigns to names that were never declared.
     options.strict = false;
@@ -232,7 +232,7 @@ fn start(
     *saved.borrow_mut() = Some(Persistent::save(ctx, hooks.clone()));
 
     // The name is what the stack shows (`name:3:5`). A NUL cannot be in a C string.
-    let options = named(&init.script.name.replace('\0', "?"));
+    let options = named(init.script.name.replace('\0', "?"));
     let result = ctx.eval_with_options::<Value, _>(init.script.source.as_str(), options);
     match result.catch(ctx) {
         Ok(_) => Ok(()),
@@ -252,9 +252,9 @@ fn describe_value<'js>(hooks: &Object<'js>, value: Value<'js>) -> String {
         .unwrap_or_else(|e| format!("an error that cannot be shown: {e}"))
 }
 
-fn named(filename: &str) -> EvalOptions {
+fn named(filename: String) -> EvalOptions {
     let mut options = EvalOptions::default();
-    options.filename = Some(filename.to_string());
+    options.filename = Some(filename);
     options
 }
 
@@ -335,7 +335,7 @@ fn install<'js>(
             object.into_value()
         }
     };
-    let boot: Function = ctx.eval_with_options(BOOT, named("matsu-script:boot"))?;
+    let boot: Function = ctx.eval_with_options(BOOT, named("matsu-script:boot".to_owned()))?;
     boot.call((raw, names, info, write, plugin))
 }
 

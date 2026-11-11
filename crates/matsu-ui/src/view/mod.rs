@@ -456,7 +456,7 @@ impl EditorView {
     ) -> R {
         let document = self.document.clone();
         // The macro that runs before a save is told the file it will be written to.
-        let save_path = self.macros.save_path().map(std::path::Path::to_owned);
+        let save_path = self.macros.save_path();
         // `bInsSpace` of the view, which `ChangeInsertSpace` and the type settings change.
         let ins_space = self.prefs.settings.ins_space;
         let input = self.prefs.settings.input.clone();
@@ -487,14 +487,14 @@ impl EditorView {
                 .with_ins_space(ins_space)
                 .with_input_options(input)
                 .with_line_start_colors(&start_states)
-                .with_save_path(save_path.as_deref())
+                .with_save_path(save_path)
                 .with_view_mode(view_mode);
             if let Some(quote) = quote {
                 command_cx = command_cx.with_quote_string(quote);
             }
             let result = f(&mut command_cx);
-            let changes = command_cx.finish();
-            if let Some(quote) = changes.quote_string.clone() {
+            let mut changes = command_cx.finish();
+            if let Some(quote) = changes.quote_string.take() {
                 cx.set_global(crate::clipboard::QuoteString(quote));
             }
             shared.set_overwrite(changes.overwrite, cx);
@@ -504,7 +504,7 @@ impl EditorView {
             }
             (result, changes)
         });
-        self.after_command(&changes, cx);
+        self.after_command(changes, cx);
         result
     }
 
@@ -672,11 +672,11 @@ impl EditorView {
 
     /// What ADR-0013 section 4 wants after a command: the layout matches the text, the caret is
     /// in view, and the window repaints.
-    fn after_command(&mut self, changes: &Changes, cx: &mut Context<Self>) {
+    fn after_command(&mut self, mut changes: Changes, cx: &mut Context<Self>) {
         if changes.text_changed() {
             // The context has already told the layout about every edit (`RowLayout`).
             self.layout_version = self.document.update(cx, |shared, cx| shared.changed(cx));
-            self.colors_after_edit(changes, self.layout_version, cx);
+            self.colors_after_edit(&changes, self.layout_version, cx);
         }
         if changes.text_changed() || changes.caret_moved || changes.selection_changed {
             self.marked = None;
@@ -684,13 +684,13 @@ impl EditorView {
         }
         self.refused_edit = changes.refused_in_view_mode;
         // After the clearing above: what the command says is for this very state of the text.
-        if let Some(text) = &changes.status_message {
-            self.notice = Some(text.clone());
+        if let Some(text) = changes.status_message.take() {
+            self.notice = Some(text);
         }
-        if let Some(text) = changes.message_box.clone() {
+        if let Some(text) = changes.message_box.take() {
             self.pending_message_boxes.push(text);
         }
-        self.completion_after_command(changes, cx);
+        self.completion_after_command(&changes, cx);
         if let Some(call) = changes.smart_indent_plugin {
             self.call_smart_indent_plugin(call, cx);
         }
@@ -829,7 +829,7 @@ impl EditorView {
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),
             charset: crate::status::charset_label(shared.file().encoding, shared.file().bom),
-            eol: crate::status::eol_name(shared.new_line()).to_owned(),
+            eol: crate::status::eol_name(shared.new_line()),
             recording: self.is_recording_key_macro(),
             zoom: self.prefs.zoom,
             // the incremental search shows its pattern where the notice goes
@@ -893,7 +893,7 @@ impl EditorView {
     ) -> matsu_print::HeaderContext {
         let wants = |code: &str| format.is_none_or(|f| f.contains(code));
         let shared = self.document.read(cx);
-        let path = shared.path().map(|p| p.to_string_lossy().into_owned());
+        let path = shared.path().map(|p| p.to_string_lossy());
         // The key of a Grep window; its title is the key, and the tab shows `【Grep】key`.
         let grep_key = self.grep_key();
         let subject = crate::file_names::title::Subject {
@@ -902,7 +902,7 @@ impl EditorView {
             view_mode: shared.view_mode(),
             unwritable: shared.disk().unwritable,
             recording_macro: self.is_recording_key_macro(),
-            grep_key: grep_key.as_deref(),
+            grep_key,
             caret: (self.cursor.caret().line, self.cursor.caret().col),
             untitled_number: shared.untitled_number(),
         };

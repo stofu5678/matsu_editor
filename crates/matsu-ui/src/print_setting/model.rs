@@ -104,15 +104,15 @@ pub(crate) fn parse_count(text: &str) -> i32 {
 pub(crate) fn collect(
     base: &PrintSetting,
     numbers: &[String; 8],
-    header: &[String; 3],
-    footer: &[String; 3],
+    header: [String; 3],
+    footer: [String; 3],
 ) -> PrintSetting {
     let mut s = base.clone();
     for (number, text) in Number::ALL.into_iter().zip(numbers) {
         number.put(&mut s, parse_count(text));
     }
-    s.header_form = header.clone();
-    s.footer_form = footer.clone();
+    s.header_form = header;
+    s.footer_form = footer;
     debug_assert_eq!(HEADER_MAX, 100);
     s.normalized()
 }
@@ -208,7 +208,7 @@ mod tests {
     fn the_fields_of_the_default_setting_give_the_default_setting() {
         let (n, h, f) = defaults();
         assert_eq!(
-            collect(&PrintSetting::default(), &n, &h, &f),
+            collect(&PrintSetting::default(), &n, h, f),
             PrintSetting::default()
         );
     }
@@ -218,7 +218,7 @@ mod tests {
         // DataCheckAndCorrect: at most or at least the limits of sDataRange
         let (_, h, f) = defaults();
         let n = texts(["3", "400", "9", "99", "99", "51", "0", "50"]);
-        let s = collect(&PrintSetting::default(), &n, &h, &f);
+        let s = collect(&PrintSetting::default(), &n, h.clone(), f.clone());
         assert_eq!(s.print_font_height, 7);
         assert_eq!(s.print_line_spacing, 150);
         assert_eq!(s.print_dansuu, 4);
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!((s.print_margin_ty, s.print_margin_by), (500, 500));
         assert_eq!((s.print_margin_lx, s.print_margin_rx), (0, 500));
         let n = texts(["500", "0", "0", "0", "0", "0", "0", "0"]);
-        let s = collect(&PrintSetting::default(), &n, &h, &f);
+        let s = collect(&PrintSetting::default(), &n, h, f);
         assert_eq!(s.print_font_height, 200);
         assert_eq!(s.print_dansuu, 1);
         assert_eq!(s.print_line_spacing, 0);
@@ -237,7 +237,7 @@ mod tests {
         let (_, h, f) = defaults();
         for (height, width) in [("24", 12), ("25", 13), ("7", 4), ("200", 100)] {
             let n = texts([height, "30", "1", "7", "10", "20", "20", "10"]);
-            let s = collect(&PrintSetting::default(), &n, &h, &f);
+            let s = collect(&PrintSetting::default(), &n, h.clone(), f.clone());
             assert_eq!(s.print_font_width, width, "{height}");
         }
     }
@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(parse_count("99999999999999"), i32::MAX);
         let (_, h, f) = defaults();
         let n = texts(["", "x", "", "", "", "", "", ""]);
-        let s = collect(&PrintSetting::default(), &n, &h, &f);
+        let s = collect(&PrintSetting::default(), &n, h, f);
         assert_eq!(s.print_font_height, 7);
         assert_eq!(s.print_line_spacing, 0);
         assert_eq!(s.print_dansuu, 1);
@@ -266,7 +266,7 @@ mod tests {
         let long = "あ".repeat(120);
         let header = [long.clone(), String::new(), "x".into()];
         let footer = [String::new(), long, String::new()];
-        let s = collect(&PrintSetting::default(), &n, &header, &footer);
+        let s = collect(&PrintSetting::default(), &n, header, footer);
         assert_eq!(s.header_form[0].chars().count(), 99);
         assert_eq!(s.header_form[2], "x");
         assert_eq!(s.footer_form[1].chars().count(), 99);
@@ -284,7 +284,7 @@ mod tests {
             ..PrintSetting::default()
         };
         let (n, h, f) = defaults();
-        let s = collect(&base, &n, &h, &f);
+        let s = collect(&base, &n, h, f);
         assert!(s.print_kinsoku_head);
         assert_eq!(s.print_font_face_han, "Courier");
         assert_eq!(s.header_font, base.header_font);
