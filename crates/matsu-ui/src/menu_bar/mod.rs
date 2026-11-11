@@ -40,8 +40,8 @@ pub(crate) mod popup_keys;
 
 use crate::app::Workspace;
 use crate::menu_bar::access::{
-    AltTap, after_down, after_up, as_in_popup, is_clickable, item_key, key_of, next_match,
-    presses_to_reach,
+    AltTap, Clickable, after_down, after_up, as_in_popup, is_clickable, item_key, key_of,
+    next_match, presses_to_reach,
 };
 use crate::tabs::content::MenuKind;
 use gpui::{
@@ -162,7 +162,7 @@ impl MenuBar {
         let menus: Vec<OwnedMenu> = crate::app::KindMenus::of(cx, self.kind)
             .unwrap_or_else(|| GlobalState::global(cx).app_menus().to_vec());
         self.menus = menus
-            .iter()
+            .into_iter()
             .enumerate()
             .map(|(ix, menu)| BarMenu::new(ix, menu, menu_bar.clone(), cx))
             .collect();
@@ -295,19 +295,15 @@ pub(crate) fn fill(
                 ..
             } if with_icons => {
                 let picture = function_picture(action.as_ref(), scale);
-                menu.menu_element_with_disabled(
-                    Action::boxed_clone(action.as_ref()),
-                    disabled,
-                    move |_, _| {
-                        crate::menu_icons::item_element(
-                            SharedString::from(name.clone()),
-                            picture.clone(),
-                            checked,
-                            disabled,
-                            scale,
-                        )
-                    },
-                )
+                menu.menu_element_with_disabled(action, disabled, move |_, _| {
+                    crate::menu_icons::item_element(
+                        SharedString::from(name.clone()),
+                        picture.clone(),
+                        checked,
+                        disabled,
+                        scale,
+                    )
+                })
             }
             OwnedMenuItem::Action {
                 name,
@@ -315,12 +311,7 @@ pub(crate) fn fill(
                 checked,
                 disabled,
                 ..
-            } => menu.menu_with_check_and_disabled(
-                name,
-                checked,
-                Action::boxed_clone(action.as_ref()),
-                disabled,
-            ),
+            } => menu.menu_with_check_and_disabled(name, checked, action, disabled),
             OwnedMenuItem::Separator => menu.separator(),
             OwnedMenuItem::Submenu(submenu) => {
                 let context = action_context.cloned();
@@ -376,19 +367,29 @@ pub(crate) struct BarMenu {
     pending_right: u8,
     /// The popup for `pending_key` has been through one render.
     pending_drawn: bool,
-    /// The items the open popup was built with, with their marks (the gray ones).
-    popup_items: Vec<OwnedMenuItem>,
+    /// Whether the selection can stop on each item the open popup was built with (the gray ones
+    /// cannot).
+    popup_items: Vec<Reachable>,
     _subscription: Option<Subscription>,
 }
 
+/// An item of the open popup as far as the keys are concerned: the selection can stop on it.
+struct Reachable(bool);
+
+impl Clickable for Reachable {
+    fn clickable(&self) -> bool {
+        self.0
+    }
+}
+
 impl BarMenu {
-    fn new(ix: usize, menu: &OwnedMenu, menu_bar: Entity<MenuBar>, cx: &mut App) -> Entity<Self> {
+    fn new(ix: usize, menu: OwnedMenu, menu_bar: Entity<MenuBar>, cx: &mut App) -> Entity<Self> {
         let name = menu.name.clone();
         cx.new(|_| Self {
             ix,
             menu_bar,
             name,
-            menu: menu.clone(),
+            menu,
             popup_menu: None,
             popup_window_height: Pixels::ZERO,
             bounds: Bounds::default(),
@@ -419,7 +420,10 @@ impl BarMenu {
                 let mut items = self.menu.items.clone();
                 MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
                 let items = as_in_popup(items);
-                self.popup_items = items.clone();
+                self.popup_items = items
+                    .iter()
+                    .map(|item| Reachable(is_clickable(item)))
+                    .collect();
                 let max_height = popup_max_height(
                     window.viewport_size().height,
                     self.bounds.bottom() + px(POPUP_OFFSET),
@@ -541,7 +545,8 @@ impl BarMenu {
             let reachable: Vec<usize> = with_key
                 .into_iter()
                 .filter(|&i| {
-                    is_clickable(&items[i]) && self.popup_items.get(i).is_some_and(is_clickable)
+                    is_clickable(&items[i])
+                        && self.popup_items.get(i).is_some_and(Clickable::clickable)
                 })
                 .collect();
             if !reachable.is_empty() && self.restart_popup(key, cx) {
@@ -553,20 +558,19 @@ impl BarMenu {
             return true;
         }
         let first = with_key[0];
-        match &items[first] {
-            OwnedMenuItem::Action {
+        match items.into_iter().nth(first) {
+            Some(OwnedMenuItem::Action {
                 disabled: false,
                 action,
                 ..
-            } => {
-                let action = Action::boxed_clone(action.as_ref());
+            }) => {
                 // The menu closes and the focus goes back, then the item runs where it was.
                 self.menu_bar.update(cx, |bar, cx| {
                     bar.set_selected_index(None, window, cx);
                 });
                 window.dispatch_action(action, cx);
             }
-            OwnedMenuItem::Submenu(_) => {
+            Some(OwnedMenuItem::Submenu(_)) => {
                 if self.restart_popup(key, cx) {
                     return true;
                 }

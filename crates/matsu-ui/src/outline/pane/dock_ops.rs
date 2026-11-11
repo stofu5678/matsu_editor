@@ -4,6 +4,7 @@
 //! follows the settings), `OnLButtonUp` (the size is kept when the bar is let go), `OnNotify`
 //! (`LVN_COLUMNCLICK`) and `OnCbnSelEndOk` (the sort is kept in the type).
 
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{
@@ -538,17 +539,15 @@ impl OutlinePane {
                 }
             }
         } else if let Some(shown) = &self.shown {
-            fn collect(nodes: &[TreeNode], into: &mut Vec<usize>) {
+            fn collect(nodes: &[TreeNode], into: &mut HashSet<usize>) {
                 for node in nodes {
                     if !node.children.is_empty() {
-                        into.push(node.order);
+                        into.insert(node.order);
                         collect(&node.children, into);
                     }
                 }
             }
-            let mut ids = Vec::new();
-            collect(&shown.tree, &mut ids);
-            self.expanded.extend(ids);
+            collect(&shown.tree, &mut self.expanded);
         }
         self.rebuild_rows();
         cx.notify();
