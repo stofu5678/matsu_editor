@@ -28,7 +28,7 @@ use gpui::App;
 use matsu_commands::plugin_commands::{self, plug_code};
 use matsu_config::plugins::consent::{Consent, ConsentFile};
 use matsu_config::plugins::def::Jack;
-use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState};
+use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginState};
 use matsu_outline::{FuncInfo, FuncInfoArr, list_type};
 use matsu_plugin::Value;
 use matsu_plugin::plugin_host::Outcome;
@@ -61,8 +61,7 @@ pub(crate) struct OutlinePlug {
 /// registered, switched on (`EnablePlugin`), readable, of a kind MATSU runs, and agreed to by the
 /// user with its files as they are.
 fn plugs_of(user: &UserSettings) -> Vec<OutlinePlug> {
-    let profile = user.profile().cloned().unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::plugin_commands::settings_of(user);
     let Some(dirs) = crate::plugin_commands::dirs_of(user).filter(|_| settings.enabled) else {
         return Vec::new();
     };

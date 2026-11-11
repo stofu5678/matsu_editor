@@ -38,7 +38,7 @@ use gpui::{App, Context};
 use matsu_commands::plugin_commands;
 use matsu_config::plugins::consent::{Consent, ConsentFile};
 use matsu_config::plugins::def::Jack;
-use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState, SearchDirs};
+use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginState, SearchDirs};
 use matsu_core::buffer::Pos;
 
 use crate::macros::plugin_call::{self, Prepared};
@@ -140,9 +140,7 @@ impl ComplementState {
 
 /// The folders of the plugins that may run, in the order of the plugin table.
 fn running_folders(cx: &App) -> Vec<String> {
-    let profile =
-        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of);
     if !settings.enabled {
         return Vec::new();
     }
@@ -216,9 +214,7 @@ pub(crate) fn chosen_slot(code: i32) -> Option<usize> {
 /// The folder of the plugin that the stored `nHokanType` `code` names, if it is registered.
 fn chosen_folder(cx: &App, code: i32) -> Option<String> {
     let slot = chosen_slot(code)?;
-    let profile =
-        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of);
     settings
         .table
         .get(slot)
@@ -266,9 +262,7 @@ pub(crate) fn forget_choices() {
 /// the agreement file. The agreement itself is checked again when a plugin is called.
 fn choices_key(cx: &App) -> Option<Vec<String>> {
     let dirs = crate::plugin_commands::search_dirs(cx)?;
-    let profile =
-        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of);
     let mut key = vec![
         dirs.consent_file().display().to_string(),
         settings.enabled.to_string(),
@@ -293,9 +287,7 @@ fn compute_choices(cx: &App) -> Vec<(String, i32)> {
     let Some(dirs) = crate::plugin_commands::search_dirs(cx) else {
         return Vec::new();
     };
-    let profile =
-        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of);
     if !settings.enabled {
         return Vec::new();
     }
