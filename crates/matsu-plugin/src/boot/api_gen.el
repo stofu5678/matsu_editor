@@ -1978,6 +1978,48 @@ command that this editor does not have yet answers the error -32001 (not
 implemented)."
   (apply #'editor-call "SPACEToTAB" args))
 
+(defun editor-encode-url (&rest args)
+  "EncodeUrl() -> null
+
+MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "EncodeUrl" args))
+
+(defun editor-decode-url (&rest args)
+  "DecodeUrl() -> null
+
+MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "DecodeUrl" args))
+
+(defun editor-escape-html (&rest args)
+  "EscapeHtml() -> null
+
+MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "EscapeHtml" args))
+
+(defun editor-unescape-html (&rest args)
+  "UnescapeHtml() -> null
+
+MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "UnescapeHtml" args))
+
+(defun editor-encode-base64 (&rest args)
+  "EncodeBase64() -> null
+
+MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "EncodeBase64" args))
+
+(defun editor-decode-base64 (&rest args)
+  "DecodeBase64() -> null
+
+MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a
+key, the menu and a key macro run."
+  (apply #'editor-call "DecodeBase64" args))
+
 (defun editor-auto-to-sjis (&rest args)
   "AutoToSJIS() -> null
 

@@ -417,8 +417,8 @@ fn the_page_shows_menu_0_with_its_name_and_the_buttons_follow_the_rules(cx: &mut
     choose_function(cx, 0, 1);
     assert!(button_is_usable(cx, "custmenu_insert"));
     assert!(button_is_usable(cx, "custmenu_add"));
-    // The last row cannot go down.
-    select_row(cx, 31);
+    // The last row cannot go down (Sakura's 30 items, MATSU's 2 copies, and a separator with the 6 conversions).
+    select_row(cx, 32 + 7 - 1);
     assert!(!button_is_usable(cx, "custmenu_down"));
 }
 

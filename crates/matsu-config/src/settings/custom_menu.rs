@@ -763,7 +763,7 @@ mod tests {
             .write_to_profile(&mut bad, None, Some(&before))
             .unwrap();
         assert_eq!(CustomMenus::from_profile(&bad, &names), after);
-        assert_eq!(sparse.get_i32(SECTION, "nCMIN[00]"), Some(32));
+        assert_eq!(sparse.get_i32(SECTION, "nCMIN[00]"), Some(32 + 7));
     }
 
     #[test]

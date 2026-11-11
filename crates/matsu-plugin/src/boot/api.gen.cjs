@@ -3071,6 +3071,78 @@ module.exports = function install(call) {
       return call('SPACEToTAB', args);
     },
     /**
+     * EncodeUrl() -> null
+     *
+     * MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    EncodeUrl() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('EncodeUrl', args);
+    },
+    /**
+     * DecodeUrl() -> null
+     *
+     * MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    DecodeUrl() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('DecodeUrl', args);
+    },
+    /**
+     * EscapeHtml() -> null
+     *
+     * MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    EscapeHtml() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('EscapeHtml', args);
+    },
+    /**
+     * UnescapeHtml() -> null
+     *
+     * MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    UnescapeHtml() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('UnescapeHtml', args);
+    },
+    /**
+     * EncodeBase64() -> null
+     *
+     * MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    EncodeBase64() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('EncodeBase64', args);
+    },
+    /**
+     * DecodeBase64() -> null
+     *
+     * MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
+     */
+    DecodeBase64() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('DecodeBase64', args);
+    },
+    /**
      * AutoToSJIS() -> null
      *
      * Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a

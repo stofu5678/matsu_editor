@@ -1141,6 +1141,30 @@ $global:MatsuApiNames = @(
     # menu and a key macro run. The last arguments may be left out. A command that this editor
     # does not have yet answers the error -32001 (not implemented).
     'SPACEToTAB'
+    # EncodeUrl() -> null
+    # MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'EncodeUrl'
+    # DecodeUrl() -> null
+    # MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'DecodeUrl'
+    # EscapeHtml() -> null
+    # MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'EscapeHtml'
+    # UnescapeHtml() -> null
+    # MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'UnescapeHtml'
+    # EncodeBase64() -> null
+    # MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'EncodeBase64'
+    # DecodeBase64() -> null
+    # MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
+    'DecodeBase64'
     # AutoToSJIS() -> null
     # Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
     # key, the menu and a key macro run. The last arguments may be left out. A command that this

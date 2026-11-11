@@ -3086,6 +3086,78 @@ final class Editor
     }
 
     /**
+     * EncodeUrl() -> null
+     *
+     * MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function EncodeUrl()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('EncodeUrl', func_get_args());
+    }
+
+    /**
+     * DecodeUrl() -> null
+     *
+     * MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function DecodeUrl()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DecodeUrl', func_get_args());
+    }
+
+    /**
+     * EscapeHtml() -> null
+     *
+     * MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function EscapeHtml()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('EscapeHtml', func_get_args());
+    }
+
+    /**
+     * UnescapeHtml() -> null
+     *
+     * MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function UnescapeHtml()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('UnescapeHtml', func_get_args());
+    }
+
+    /**
+     * EncodeBase64() -> null
+     *
+     * MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function EncodeBase64()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('EncodeBase64', func_get_args());
+    }
+
+    /**
+     * DecodeBase64() -> null
+     *
+     * MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
+     */
+    public static function DecodeBase64()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DecodeBase64', func_get_args());
+    }
+
+    /**
      * AutoToSJIS() -> null
      *
      * Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a

@@ -1391,6 +1391,36 @@ sub TABToSPACE { shift; return $CALL->('TABToSPACE', @_) }
 # does not have yet answers the error -32001 (not implemented).
 sub SPACEToTAB { shift; return $CALL->('SPACEToTAB', @_) }
 
+# EncodeUrl() -> null
+# MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub EncodeUrl { shift; return $CALL->('EncodeUrl', @_) }
+
+# DecodeUrl() -> null
+# MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub DecodeUrl { shift; return $CALL->('DecodeUrl', @_) }
+
+# EscapeHtml() -> null
+# MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub EscapeHtml { shift; return $CALL->('EscapeHtml', @_) }
+
+# UnescapeHtml() -> null
+# MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub UnescapeHtml { shift; return $CALL->('UnescapeHtml', @_) }
+
+# EncodeBase64() -> null
+# MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub EncodeBase64 { shift; return $CALL->('EncodeBase64', @_) }
+
+# DecodeBase64() -> null
+# MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+# menu and a key macro run.
+sub DecodeBase64 { shift; return $CALL->('DecodeBase64', @_) }
+
 # AutoToSJIS() -> null
 # Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
 # key, the menu and a key macro run. The last arguments may be left out. A command that this
