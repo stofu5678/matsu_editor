@@ -1,0 +1,33 @@
+//! The terminal behind MATSU Editor's shell tab (ADR-0028), with no UI.
+//!
+//! It wraps `alacritty_terminal`: the shell runs in a PTY (ConPTY on Windows), a reader thread feeds the
+//! terminal state, and the UI copies what it needs out of that state ([`Terminal::info`],
+//! [`Terminal::read_lines`], [`Terminal::snapshot`]) while holding the lock only for the copy.
+//!
+//! What the UI gets:
+//!
+//! - [`Terminal::spawn`] returns the terminal and an [`EventReceiver`] with the [`TerminalEvent`]s: redraw,
+//!   the cleaned title, bell, clipboard store (OSC 52 writes) and child exit. OSC 52 reads are refused.
+//! - [`encode_key`] and [`encode_paste`] turn keys and pasted text into the bytes to [`Terminal::write`].
+//! - Before the editor ends, [`wait_for_closing`] waits (up to a limit) for the terminals that were closed,
+//!   so that their shells end with the editor.
+//!
+//! MATSU's own environment is never changed (no `std::env::set_var`): the child gets `TERM` and
+//! `COLORTERM` through the spawn options only. See [`shell`] for what `alacritty_terminal` cannot leave out.
+
+mod keys;
+mod paste;
+mod screen;
+pub mod shell;
+mod terminal;
+mod title;
+
+pub use keys::{Key, Modifiers, encode_key};
+pub use paste::{PasteEncoding, encode_paste};
+pub use screen::{Cell, ClipboardKind, Color, Cursor, CursorShape, Modes, Rgb, Row, ScreenInfo};
+pub use shell::ShellCommand;
+pub use terminal::{
+    DEFAULT_SCROLLBACK_LINES, EventReceiver, Options, Snapshot, Terminal, TerminalEvent,
+    TerminalSize, wait_for_closing,
+};
+pub use title::{MAX_TITLE_CHARS, clean_title};

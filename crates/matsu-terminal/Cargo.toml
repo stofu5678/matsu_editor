@@ -1,0 +1,19 @@
+[package]
+name = "matsu-terminal"
+description = "UI-independent terminal of MATSU Editor: the shell in a PTY, the screen grid, and key and paste encodings (ADR-0028)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Pinned like GPUI: every minor version changes the API (ADR-0028). The `serde` feature is not needed.
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+
+[dev-dependencies]
+tempfile = "3.27"
