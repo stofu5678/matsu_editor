@@ -289,6 +289,8 @@ fn shells_then_close(
                 let go_on = crate::terminal::confirm_close(cx, running.len()).await;
                 asking.set(false);
                 if !go_on {
+                    // The close is given up: what was confirmed for it does not count for the next one.
+                    shells_confirmed.borrow_mut().clear();
                     return;
                 }
                 *shells_confirmed.borrow_mut() = running;
