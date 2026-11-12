@@ -147,6 +147,11 @@ impl Workspace {
         if self.content.preview().is_some() {
             return true;
         }
+        // The keys of a shell are the shell's, Alt+letter among them (programs use it as Meta): the menu bar
+        // is reached with the mouse.
+        if self.content.terminal().is_some() {
+            return false;
+        }
         let editor = self.editor().read(cx);
         // The docked outline pane is part of the window, not a dialog.
         let in_outline = self.outline.as_ref().is_some_and(|pane| {

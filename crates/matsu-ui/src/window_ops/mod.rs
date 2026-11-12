@@ -373,7 +373,13 @@ pub(crate) async fn close_windows(
         .collect();
     let closed = close_views(cx, closing).await;
     if closed && !keep_current {
-        close_preview_only_windows(cx, handles);
+        // The shells of those windows end with them: asked once, for all.
+        let shells = cx
+            .update(|_, app| running_shells_of(app, &handles))
+            .unwrap_or(0);
+        if shells == 0 || crate::terminal::confirm_close(cx, shells).await {
+            close_own_tab_only_windows(cx, handles);
+        }
     }
     closed
 }
@@ -412,19 +418,41 @@ pub(crate) async fn close_views(
     true
 }
 
-/// Closes the windows among `handles` that have only previews left.
-fn close_preview_only_windows(cx: &mut AsyncWindowContext, handles: Vec<AnyWindowHandle>) {
+/// How many shells run in the windows among `handles` that have no editor tab left (the windows that
+/// [`close_own_tab_only_windows`] closes).
+fn running_shells_of(app: &mut App, handles: &[AnyWindowHandle]) -> usize {
+    // A window is listed once for each document it had.
+    let mut unique: Vec<AnyWindowHandle> = Vec::new();
+    for handle in handles {
+        if !unique.contains(handle) {
+            unique.push(*handle);
+        }
+    }
+    let workspaces: Vec<_> = unique
+        .iter()
+        .filter_map(|handle| crate::file_ops::windows::workspace_of(app, *handle))
+        .collect();
+    workspaces
+        .iter()
+        .map(|workspace| workspace.read(app))
+        .filter(|ws| ws.tab_editors().is_empty())
+        .map(|ws| ws.running_shells(app))
+        .sum()
+}
+
+/// Closes the windows among `handles` that have only previews or shells left.
+fn close_own_tab_only_windows(cx: &mut AsyncWindowContext, handles: Vec<AnyWindowHandle>) {
     let _ = cx.update(|window, app| {
         for handle in handles {
             let Some(workspace) = crate::file_ops::windows::workspace_of(app, handle) else {
                 continue;
             };
             if handle == window.window_handle() {
-                workspace.update(app, |ws, cx| ws.close_if_only_previews(window, cx));
+                workspace.update(app, |ws, cx| ws.close_if_only_own_tabs(window, cx));
             } else {
                 handle
                     .update(app, |_, other, app| {
-                        workspace.update(app, |ws, cx| ws.close_if_only_previews(other, cx));
+                        workspace.update(app, |ws, cx| ws.close_if_only_own_tabs(other, cx));
                     })
                     .ok();
             }

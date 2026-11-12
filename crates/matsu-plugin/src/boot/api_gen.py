@@ -2283,6 +2283,11 @@ def install(call):
             the menu and a key macro run."""
             return call("PreviewTab", _pack())
 
+        def ShellTab(self) -> None:
+            """MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the
+            menu and a key macro run."""
+            return call("ShellTab", _pack())
+
         def TraceOut(self, arg1: str = _UNSET, arg2: int = _UNSET) -> None:
             """MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the
             menu and a key macro run."""

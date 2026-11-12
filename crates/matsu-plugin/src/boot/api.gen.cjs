@@ -4591,6 +4591,18 @@ module.exports = function install(call) {
       return call('PreviewTab', args);
     },
     /**
+     * ShellTab() -> null
+     *
+     * MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    ShellTab() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ShellTab', args);
+    },
+    /**
      * TraceOut(arg1: string?, arg2: int?) -> null
      *
      * MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a

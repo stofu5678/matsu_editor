@@ -162,6 +162,19 @@ pub const EXTRAS: &[Extra] = &[
         separator_before: false,
         separator_after: true,
     },
+    // The shell tab (ADR-0028): a terminal in a tab, next to the preview in the window menu.
+    Extra {
+        code: 32710,
+        name: "F_SHELL_TAB",
+        id: "shell_tab",
+        group: 12,
+        label: "シェルのタブを開く",
+        after: "F_PREVIEW_TAB",
+        access_key: 'S',
+        macro_name: "ShellTab",
+        separator_before: false,
+        separator_after: false,
+    },
 ];
 
 /// Labels MATSU Editor words differently from Sakura (ADR-0018 type F): `(function name, label)`.

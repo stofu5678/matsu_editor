@@ -261,7 +261,7 @@ impl Workspace {
     /// A new window opens the pane when the settings say it was open and docked (`ChangeLayout`
     /// with `OUTLINE_LAYOUT_FILECHANGED` does not open a floating one). The text keeps the focus.
     pub(crate) fn restore_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.outline.is_some() || self.content.preview().is_some() {
+        if self.outline.is_some() || !self.content.is_editor() {
             return;
         }
         let active = self.panes().active().clone();
@@ -327,7 +327,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.content.preview().is_some() {
+        if !self.content.is_editor() {
             return;
         }
         let index = self.panes().active().read(cx).view_settings().type_index;

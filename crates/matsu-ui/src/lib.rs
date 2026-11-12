@@ -87,6 +87,7 @@ mod status_options;
 mod support;
 mod tabs;
 mod tags;
+pub(crate) mod terminal;
 mod type_settings;
 pub mod ui_command;
 mod ui_commands;

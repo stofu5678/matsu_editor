@@ -38,6 +38,9 @@ pub struct StatusInfo {
     pub recording: bool,
     /// The zoom of the font, 1.0 for 100 % (`CEditWnd::GetFontZoom`).
     pub zoom: f64,
+    /// Only the message part says something (a tab that is not an editor, such as the shell): the other
+    /// parts are empty and do nothing when clicked.
+    pub message_only: bool,
 }
 
 impl Default for StatusInfo {
@@ -56,6 +59,7 @@ impl Default for StatusInfo {
             notice: None,
             recording: false,
             zoom: 1.0,
+            message_only: false,
         }
     }
 }
@@ -104,6 +108,9 @@ impl Part {
 impl StatusInfo {
     /// The text of `part`. REC is always "REC"; whether it is lit is [`recording`](Self::recording).
     pub fn text(&self, part: Part) -> String {
+        if self.message_only && part != Part::Message {
+            return String::new();
+        }
         match part {
             Part::Message => self.message(),
             Part::Position => self.position_text(),

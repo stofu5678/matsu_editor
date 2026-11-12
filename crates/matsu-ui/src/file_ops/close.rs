@@ -578,6 +578,8 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
         .unwrap_or(false);
     // What the plugins were told about the close: a round that starts over does not tell it twice.
     let mut log = crate::plugin_events::CloseLog::default();
+    // The question about running shells is asked once for the whole exit, however many rounds it takes.
+    let mut shells_asked = false;
     loop {
         if hot {
             // The latest content of every document is written before the questions, and again when a round
@@ -611,6 +613,20 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
             checked.push((view.entity_id(), version));
         }
         if snapshot(cx) == checked {
+            // Ending the editor ends the shells (ADR-0028 point 10): one question for all of them, after
+            // the questions about the documents.
+            let shells = cx
+                .update(|_, app| crate::terminal::running_shells(app))
+                .unwrap_or(0);
+            if shells > 0 && !shells_asked {
+                if !crate::terminal::confirm_close(cx, shells).await {
+                    let views: Vec<_> = editors.iter().map(|(_, v)| v.clone()).collect();
+                    forget_left_out(&views, cx);
+                    crate::plugin_events::restart_ended(&mut log, cx).await;
+                    return;
+                }
+                shells_asked = true;
+            }
             // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
             // (`MYWM_CLOSE` of each editor).
             let windows = cx

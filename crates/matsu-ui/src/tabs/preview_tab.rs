@@ -154,31 +154,29 @@ impl Workspace {
         self.content.panel().focus_handle(cx)
     }
 
-    /// Closes the window if every tab left in it is a preview: the documents they show are closed.
-    pub(crate) fn close_if_only_previews(&mut self, window: &mut Window, _: &mut Context<Self>) {
-        if self.has_preview_tab() && self.tab_editors().is_empty() {
+    /// Closes the window if every tab left in it is a preview or a shell: the documents the previews
+    /// show are closed. The question about running shells is asked before (`window_ops::close_windows`).
+    pub(crate) fn close_if_only_own_tabs(&mut self, window: &mut Window, _: &mut Context<Self>) {
+        if self.has_own_tab() && self.tab_editors().is_empty() {
             window.remove_window();
         }
     }
 
-    /// Whether the active tab is a preview.
-    pub(crate) fn active_is_preview(&self) -> bool {
-        self.content.preview().is_some()
+    /// Whether the active tab is not an editor: a preview or a shell.
+    pub(crate) fn active_is_own_tab(&self) -> bool {
+        !self.content.is_editor()
     }
 
-    /// Closes the active tab if it is a preview.
-    pub(crate) fn close_active_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Closes the active tab if it is not an editor (a running shell asks first, `close_own_tab`).
+    pub(crate) fn close_active_own_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = self.active_tab();
-        if self
-            .tab_content(active)
-            .is_some_and(|c| c.preview().is_some())
-        {
-            self.close_tab_or_window(active, window, cx);
+        if self.tab_content(active).is_some_and(|c| !c.is_editor()) {
+            self.close_own_tab(active, window, cx);
         }
     }
 
     /// Closes tab `index` without a question, or the window when it is the only tab. A preview has
-    /// nothing to save.
+    /// nothing to save; a shell was asked about before (`close_own_tab`).
     pub(crate) fn close_tab_or_window(
         &mut self,
         index: usize,

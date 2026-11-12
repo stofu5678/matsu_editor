@@ -225,6 +225,8 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
         .push((window.window_handle(), workspace.downgrade()));
     let workspace = workspace.downgrade();
     let asking = Rc::new(Cell::new(false));
+    // The user agreed to end the running shells (the question is asked once for the window).
+    let shells_confirmed = Rc::new(Cell::new(false));
     window.on_window_should_close(cx, move |window, cx| {
         let Some(workspace) = workspace.upgrade() else {
             return true;
@@ -237,9 +239,9 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             && workspace.read(cx).tab_count() > 1
         {
             // The active tab is a preview: it goes, with no question.
-            if workspace.read(cx).active_is_preview() {
+            if workspace.read(cx).active_is_own_tab() {
                 window.defer(cx, move |window, cx| {
-                    workspace.update(cx, |ws, cx| ws.close_active_preview(window, cx));
+                    workspace.update(cx, |ws, cx| ws.close_active_own_tab(window, cx));
                 });
                 return false;
             }
@@ -255,67 +257,107 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             }
             return false;
         }
-        // Every tab is asked about (`RequestCloseEditor` goes to each window of the group).
-        let views = workspace.read(cx).tab_editors();
-        // A Grep window cannot be closed while it searches (`CGrepAgent::OnBeforeClose`), and
-        // it is closed without the question about saving (`CEditDoc::OnFileClose`).
-        if let Some(busy) = views.iter().find(|v| v.read(cx).is_grep_running()) {
-            busy.update(cx, |view, cx| {
-                view.notice = Some("Grepの処理中です。".to_owned());
-                cx.notify();
-            });
-            return false;
-        }
-        if !views.iter().any(|v| needs_question(v, cx)) {
-            for view in &views {
-                view.update(cx, |view, cx| view.record_history(cx));
-            }
-            // The plugins of DocumentClose and EditorEnd run first, and then the window goes.
-            if crate::plugin_events::has_plugs(cx, &[Jack::DocumentClose, Jack::EditorEnd]) {
-                if !asking.replace(true) {
-                    let asking = asking.clone();
-                    let workspace = workspace.downgrade();
-                    window
-                        .spawn(cx, async move |cx| {
-                            let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
-                            let mut log = crate::plugin_events::CloseLog::default();
-                            let edited =
-                                crate::plugin_events::window_closing(&weak, &mut log, cx).await;
-                            asking.set(false);
-                            // The window stayed usable meanwhile: a tab that the user edited (or moved
-                            // here) is asked about by the next close, not thrown away.
-                            let same = workspace
-                                .read_with(cx, |ws, _| {
-                                    let tabs = ws.tab_editors();
-                                    tabs.len() == views.len()
-                                        && tabs.iter().zip(&views).all(|(a, b)| a == b)
-                                })
-                                .unwrap_or(false);
-                            if same && !edited {
-                                cx.update(|window, _| window.remove_window()).ok();
-                            } else {
-                                // The window stays after `EditorEnd`: the plugins are told it goes on.
-                                crate::plugin_events::restart_ended(&mut log, cx).await;
+        // Running shells are asked about once, with the documents' questions after them.
+        let shells = workspace.read(cx).running_shells(cx);
+        if shells > 0 && !shells_confirmed.get() {
+            if !asking.replace(true) {
+                let (asking, shells_confirmed) = (asking.clone(), shells_confirmed.clone());
+                let workspace = workspace.downgrade();
+                window
+                    .spawn(cx, async move |cx| {
+                        let go_on = crate::terminal::confirm_close(cx, shells).await;
+                        asking.set(false);
+                        if !go_on {
+                            return;
+                        }
+                        shells_confirmed.set(true);
+                        // The rest of the close, as if the user had asked again.
+                        cx.update(|window, app| {
+                            if let Some(workspace) = workspace.upgrade()
+                                && should_close(window, app, &workspace, &asking)
+                            {
+                                window.remove_window();
                             }
                         })
-                        .detach();
-                }
-                return false;
+                        .ok();
+                    })
+                    .detach();
             }
-            return true;
+            return false;
         }
-        if !asking.replace(true) {
-            let workspace = workspace.downgrade();
-            let asking = asking.clone();
-            window
-                .spawn(cx, async move |cx| {
-                    close_after_questions(&workspace, cx).await;
-                    asking.set(false);
-                })
-                .detach();
-        }
-        false
+        should_close(window, cx, &workspace, &asking)
     });
+}
+
+/// What the close button of the window does once the shells are dealt with: the documents of every tab are
+/// asked about, the plugins told, and then the window goes. `true` lets it go now; `false` means a flow
+/// that closes it later has started (or the close was refused).
+fn should_close(
+    window: &mut Window,
+    cx: &mut App,
+    workspace: &Entity<Workspace>,
+    asking: &Rc<Cell<bool>>,
+) -> bool {
+    // Every tab is asked about (`RequestCloseEditor` goes to each window of the group).
+    let views = workspace.read(cx).tab_editors();
+    // A Grep window cannot be closed while it searches (`CGrepAgent::OnBeforeClose`), and
+    // it is closed without the question about saving (`CEditDoc::OnFileClose`).
+    if let Some(busy) = views.iter().find(|v| v.read(cx).is_grep_running()) {
+        busy.update(cx, |view, cx| {
+            view.notice = Some("Grepの処理中です。".to_owned());
+            cx.notify();
+        });
+        return false;
+    }
+    if !views.iter().any(|v| needs_question(v, cx)) {
+        for view in &views {
+            view.update(cx, |view, cx| view.record_history(cx));
+        }
+        // The plugins of DocumentClose and EditorEnd run first, and then the window goes.
+        if crate::plugin_events::has_plugs(cx, &[Jack::DocumentClose, Jack::EditorEnd]) {
+            if !asking.replace(true) {
+                let asking = asking.clone();
+                let workspace = workspace.downgrade();
+                window
+                    .spawn(cx, async move |cx| {
+                        let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
+                        let mut log = crate::plugin_events::CloseLog::default();
+                        let edited =
+                            crate::plugin_events::window_closing(&weak, &mut log, cx).await;
+                        asking.set(false);
+                        // The window stayed usable meanwhile: a tab that the user edited (or moved
+                        // here) is asked about by the next close, not thrown away.
+                        let same = workspace
+                            .read_with(cx, |ws, _| {
+                                let tabs = ws.tab_editors();
+                                tabs.len() == views.len()
+                                    && tabs.iter().zip(&views).all(|(a, b)| a == b)
+                            })
+                            .unwrap_or(false);
+                        if same && !edited {
+                            cx.update(|window, _| window.remove_window()).ok();
+                        } else {
+                            // The window stays after `EditorEnd`: the plugins are told it goes on.
+                            crate::plugin_events::restart_ended(&mut log, cx).await;
+                        }
+                    })
+                    .detach();
+            }
+            return false;
+        }
+        return true;
+    }
+    if !asking.replace(true) {
+        let workspace = workspace.downgrade();
+        let asking = asking.clone();
+        window
+            .spawn(cx, async move |cx| {
+                close_after_questions(&workspace, cx).await;
+                asking.set(false);
+            })
+            .detach();
+    }
+    false
 }
 
 /// Asks about each tab with unsaved changes, then closes the window. Another window can move a

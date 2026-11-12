@@ -840,6 +840,7 @@ impl EditorView {
                 .or_else(|| self.notice.clone())
                 .or_else(|| shared.scan_text())
                 .or_else(crate::settings::startup_notice),
+            message_only: false,
         }
     }
 

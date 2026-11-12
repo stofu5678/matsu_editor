@@ -52,6 +52,9 @@ mod preview_tab;
 mod preview_tests;
 mod semantics;
 pub(crate) mod settings;
+mod terminal_tab;
+#[cfg(test)]
+mod terminal_tests;
 #[cfg(test)]
 mod tests;
 
@@ -160,9 +163,9 @@ impl Workspace {
         self.tab_content(index).map(|c| c.panes().active().clone())
     }
 
-    /// Whether one of the tabs is a preview (`crate::preview`).
-    pub(crate) fn has_preview_tab(&self) -> bool {
-        (0..self.tab_count()).any(|i| self.tab_content(i).is_some_and(|c| c.preview().is_some()))
+    /// Whether one of the tabs is not an editor: a preview (`crate::preview`) or a shell (`crate::terminal`).
+    pub(crate) fn has_own_tab(&self) -> bool {
+        (0..self.tab_count()).any(|i| self.tab_content(i).is_some_and(|c| !c.is_editor()))
     }
 
     /// Tab `index` as the window sees every kind of tab (`content::TabPanel`).
@@ -262,7 +265,7 @@ impl Workspace {
                 panes.forget_subscriptions();
                 panes.numbered()
             }
-            content::TabContent::Preview(_) => Vec::new(),
+            content::TabContent::Preview(_) | content::TabContent::Terminal(_) => Vec::new(),
         };
         let id = self.tabs.next_id;
         self.tabs.next_id += 1;

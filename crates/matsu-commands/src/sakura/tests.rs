@@ -30,11 +30,11 @@ fn key(name: &str) -> &'static KeyBinding {
         .unwrap_or_else(|| panic!("no key {name}"))
 }
 
-/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF`, `F_COPY_CR`, `F_PREVIEW_TAB`, `F_PLSQL_COMPILE_ON_DATABASE_CHOICE` and
+/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF`, `F_COPY_CR`, `F_PREVIEW_TAB`, `F_SHELL_TAB`, `F_PLSQL_COMPILE_ON_DATABASE_CHOICE` and
 /// the six encodings and decodings of the selection (`F_URL_ENCODE` ... `F_BASE64_DECODE_TEXT`), also in the
 /// main menu, where the six have two separator lines of their own (`MATSU_MENU_SEPARATORS`). The counts in
 /// the comments above are Sakura's.
-const MATSU_ONLY: usize = 10;
+const MATSU_ONLY: usize = 11;
 const MATSU_MENU_SEPARATORS: usize = 2;
 
 #[test]

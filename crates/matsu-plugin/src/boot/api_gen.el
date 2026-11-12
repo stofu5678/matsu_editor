@@ -2987,6 +2987,13 @@ MATSU Editor's own F_PREVIEW_TAB (not in Sakura). Runs the command that a key,
 the menu and a key macro run."
   (apply #'editor-call "PreviewTab" args))
 
+(defun editor-shell-tab (&rest args)
+  "ShellTab() -> null
+
+MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the
+menu and a key macro run."
+  (apply #'editor-call "ShellTab" args))
+
 (defun editor-trace-out (&rest args)
   "TraceOut(arg1: string?, arg2: int?) -> null
 

@@ -531,7 +531,7 @@ pub(crate) async fn close_side(
             // From a preview the sides are those of its tab among the tabs of the window; the
             // previews on a side stay.
             let workspace = workspace_of(app, handle)?;
-            if workspace.read(app).active_is_preview() {
+            if workspace.read(app).active_is_own_tab() {
                 let ws = workspace.read(app);
                 let (at, count) = (ws.active_tab(), ws.tab_count());
                 let range = if left {
