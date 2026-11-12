@@ -258,39 +258,53 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             }
             return false;
         }
-        // Running shells are asked about once, with the documents' questions after them.
-        let running = workspace.read(cx).running_shell_ids(cx);
-        if running
-            .iter()
-            .any(|id| !shells_confirmed.borrow().contains(id))
-        {
-            if !asking.replace(true) {
-                let (asking, shells_confirmed) = (asking.clone(), shells_confirmed.clone());
-                let workspace = workspace.downgrade();
-                window
-                    .spawn(cx, async move |cx| {
-                        let go_on = crate::terminal::confirm_close(cx, running.len()).await;
-                        asking.set(false);
-                        if !go_on {
-                            return;
-                        }
-                        *shells_confirmed.borrow_mut() = running;
-                        // The rest of the close, as if the user had asked again.
-                        cx.update(|window, app| {
-                            if let Some(workspace) = workspace.upgrade()
-                                && should_close(window, app, &workspace, &asking, &shells_confirmed)
-                            {
-                                window.remove_window();
-                            }
-                        })
-                        .ok();
-                    })
-                    .detach();
-            }
-            return false;
-        }
-        should_close(window, cx, &workspace, &asking, &shells_confirmed)
+        shells_then_close(window, cx, &workspace, &asking, &shells_confirmed)
     });
+}
+
+/// The close button of the window: the running shells that the user was not asked about are asked about once
+/// (all of them in one question), and then the documents' questions follow ([`should_close`]). After the
+/// answer this runs again, with what runs then: a shell that was started while the question was open is asked
+/// about too, and nothing closes before every running shell is among the confirmed ones. `true` lets the
+/// window go now.
+fn shells_then_close(
+    window: &mut Window,
+    cx: &mut App,
+    workspace: &Entity<Workspace>,
+    asking: &Rc<Cell<bool>>,
+    shells_confirmed: &Rc<RefCell<Vec<gpui::EntityId>>>,
+) -> bool {
+    let running = workspace.read(cx).running_shell_ids(cx);
+    if !running
+        .iter()
+        .any(|id| !shells_confirmed.borrow().contains(id))
+    {
+        return should_close(window, cx, workspace, asking, shells_confirmed);
+    }
+    if !asking.replace(true) {
+        let (asking, shells_confirmed) = (asking.clone(), shells_confirmed.clone());
+        let workspace = workspace.downgrade();
+        window
+            .spawn(cx, async move |cx| {
+                let go_on = crate::terminal::confirm_close(cx, running.len()).await;
+                asking.set(false);
+                if !go_on {
+                    return;
+                }
+                *shells_confirmed.borrow_mut() = running;
+                // The rest of the close, as if the user had asked again.
+                cx.update(|window, app| {
+                    if let Some(workspace) = workspace.upgrade()
+                        && shells_then_close(window, app, &workspace, &asking, &shells_confirmed)
+                    {
+                        window.remove_window();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+    }
+    false
 }
 
 /// What the close button of the window does once the shells are dealt with: the documents of every tab are

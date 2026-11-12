@@ -664,3 +664,26 @@ fn a_shell_started_while_the_group_question_is_open_is_asked_about(cx: &mut Test
     second.update(cx, |view, _| view.shutdown());
     assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
 }
+
+#[gpui::test]
+fn a_shell_started_while_the_window_question_is_open_is_asked_about(cx: &mut TestAppContext) {
+    let handle = terminal_window(cx);
+    let first = open(cx, handle, staying());
+    wait_for_text(cx, &first, "hello");
+    assert!(!visual(cx, handle).simulate_close());
+    cx.run_until_parked();
+    assert!(has_prompt(cx, handle), "the question about the shell");
+    // Another shell starts in the window meanwhile.
+    let second = open(cx, handle, staying());
+    wait_for_text(cx, &second, "hello");
+    answer(cx, handle, YES);
+    // The window is not closed on the old answer: the new shell is asked about too.
+    assert!(has_prompt(cx, handle), "the new shell is asked about");
+    assert!(cx.windows().contains(&handle));
+    answer(cx, handle, NO);
+    assert!(cx.windows().contains(&handle));
+    assert!(running(cx, &first) && running(cx, &second));
+    first.update(cx, |view, _| view.shutdown());
+    second.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}
