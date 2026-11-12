@@ -40,7 +40,16 @@ pub(crate) fn is_window_function(code: u16) -> bool {
 }
 
 /// The window function that the user's key map binds to the key, if there is one.
-fn window_function_of(keystroke: &Keystroke, cx: &App) -> Option<u16> {
+fn window_function_of(
+    keystroke: &Keystroke,
+    prefer_character_input: bool,
+    cx: &App,
+) -> Option<u16> {
+    // A character the layout wants typed (AltGr+E is a euro sign on some layouts, and GPUI reports it as
+    // Ctrl+Alt+E) is not a key of the window.
+    if prefer_character_input {
+        return None;
+    }
     let chord = crate::keys::chord_of(keystroke)?;
     let code = match crate::app::with_key_map(cx, |map| map.lookup(chord)) {
         Lookup::Command(reg) => FUNCTIONS
@@ -294,7 +303,7 @@ impl TerminalView {
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         // The window's keys stay with the window.
-        if let Some(code) = window_function_of(&event.keystroke, cx) {
+        if let Some(code) = window_function_of(&event.keystroke, event.prefer_character_input, cx) {
             cx.stop_propagation();
             self.in_workspace(window, cx, move |ws, window, cx| {
                 ws.run_after_event(code, window, cx);

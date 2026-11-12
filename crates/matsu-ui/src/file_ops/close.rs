@@ -579,8 +579,9 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
     // What the plugins were told about the close: a round that starts over does not tell it twice.
     let mut log = crate::plugin_events::CloseLog::default();
     // The question about running shells is asked once for the whole exit, however many rounds it takes: this is
-    // how many shells it was asked about (a shell started later is asked about again).
-    let mut shells_asked = 0_usize;
+    // which shells it was asked about (a shell that is not among them is asked about again, also when it took
+    // the place of one that ended).
+    let mut shells_asked: Vec<gpui::EntityId> = Vec::new();
     loop {
         if hot {
             // The latest content of every document is written before the questions, and again when a round
@@ -616,17 +617,17 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
         if snapshot(cx) == checked {
             // Ending the editor ends the shells (ADR-0028 point 10): one question for all of them, after
             // the questions about the documents.
-            let shells = cx
-                .update(|_, app| crate::terminal::running_shells(app))
-                .unwrap_or(0);
-            if shells > shells_asked {
-                if !crate::terminal::confirm_close(cx, shells).await {
+            let running = cx
+                .update(|_, app| crate::terminal::running_shell_ids(app))
+                .unwrap_or_default();
+            if running.iter().any(|id| !shells_asked.contains(id)) {
+                if !crate::terminal::confirm_close(cx, running.len()).await {
                     let views: Vec<_> = editors.iter().map(|(_, v)| v.clone()).collect();
                     forget_left_out(&views, cx);
                     crate::plugin_events::restart_ended(&mut log, cx).await;
                     return;
                 }
-                shells_asked = shells;
+                shells_asked = running;
             }
             // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
             // (`MYWM_CLOSE` of each editor).
@@ -650,10 +651,14 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
             let now: Vec<_> = snapshot(cx).into_iter().map(|(id, _)| id).collect();
             let before: Vec<_> = checked.iter().map(|(id, _)| *id).collect();
             // A shell that was started while the plugins ran is asked about too.
-            let shells_now = cx
-                .update(|_, app| crate::terminal::running_shells(app))
-                .unwrap_or(0);
-            if edited || now != before || shells_now > shells_asked {
+            let started = cx
+                .update(|_, app| {
+                    crate::terminal::running_shell_ids(app)
+                        .iter()
+                        .any(|id| !shells_asked.contains(id))
+                })
+                .unwrap_or(false);
+            if edited || now != before || started {
                 continue;
             }
             cx.update(|_, app| {

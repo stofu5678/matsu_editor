@@ -20,6 +20,13 @@ use crate::terminal::TerminalView;
 const YES: &str = "はい(Y)";
 const NO: &str = "いいえ(N)";
 
+/// A window for a test with a real PTY. The events of the shell come from a thread of their own and wake
+/// tasks of the window from there, which GPUI's test scheduler refuses unless parking is allowed.
+fn terminal_window(cx: &mut TestAppContext) -> AnyWindowHandle {
+    cx.executor().allow_parking();
+    window(cx, true)
+}
+
 /// A shell that prints `hello` and then stays, echoing what is typed (`cat`; on Windows, cmd.exe itself).
 fn staying() -> ShellCommand {
     if cfg!(windows) {
@@ -32,9 +39,14 @@ fn staying() -> ShellCommand {
 /// A shell that prints `bye` and ends with `code`.
 fn ending(code: i32) -> ShellCommand {
     if cfg!(windows) {
+        // The output right before the end can be lost by ConPTY: the shell waits a moment (about a second,
+        // `ping -n 2`) after it printed, and the tests look at the screen before they wait for the end.
         ShellCommand::new(
             "cmd.exe",
-            ["/C".to_owned(), format!("echo bye & exit {code}")],
+            [
+                "/C".to_owned(),
+                format!("echo bye & ping -n 2 127.0.0.1 >nul & exit {code}"),
+            ],
         )
     } else {
         ShellCommand::new(
@@ -116,7 +128,7 @@ fn has_prompt(cx: &mut TestAppContext, handle: AnyWindowHandle) -> bool {
 
 #[gpui::test]
 fn opening_a_shell_shows_its_output_in_a_tab_with_the_contract_of_a_tab(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
     let ws = workspace(cx, handle);
@@ -145,7 +157,7 @@ fn opening_a_shell_shows_its_output_in_a_tab_with_the_contract_of_a_tab(cx: &mut
 
 #[gpui::test]
 fn the_function_opens_a_shell_next_to_the_document(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     // The function starts a shell of the test's own (`use_shell_in_tests`), as the function always does.
     super::terminal_tab::use_shell_in_tests(staying());
     run(cx, handle, "F_SHELL_TAB");
@@ -164,7 +176,7 @@ fn the_function_opens_a_shell_next_to_the_document(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn typed_keys_reach_the_program(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let shell = if cfg!(windows) {
         ShellCommand::new("cmd.exe", ["/Q", "/K", "echo hello"])
     } else {
@@ -200,7 +212,7 @@ fn typed_keys_reach_the_program(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn the_keys_of_the_window_stay_with_the_window(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
     let ws = workspace(cx, handle);
@@ -276,7 +288,7 @@ fn the_default_keys_that_stay_with_the_window_are_these() {
 
 #[gpui::test]
 fn a_change_of_the_size_of_the_tab_resizes_the_terminal(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
     let grid = |cx: &mut TestAppContext| {
@@ -306,7 +318,7 @@ fn a_change_of_the_size_of_the_tab_resizes_the_terminal(cx: &mut TestAppContext)
 
 #[gpui::test]
 fn closing_a_running_shell_asks_first(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
     close_tab(cx, handle, 1);
@@ -325,7 +337,7 @@ fn closing_a_running_shell_asks_first(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn the_close_button_of_the_bar_asks_about_a_running_shell(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
     let visual = visual(cx, handle);
@@ -345,8 +357,9 @@ fn the_close_button_of_the_bar_asks_about_a_running_shell(cx: &mut TestAppContex
 
 #[gpui::test]
 fn closing_a_shell_that_has_ended_asks_nothing(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, ending(3));
+    wait_for_text(cx, &view, "bye");
     wait_for_end(cx, &view);
     assert_eq!(tab_count(cx, handle), 2, "a failed shell keeps its tab");
     let ws = workspace(cx, handle);
@@ -360,8 +373,9 @@ fn closing_a_shell_that_has_ended_asks_nothing(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_shell_that_ends_with_zero_closes_its_tab_and_one_that_fails_keeps_it(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let failing = open(cx, handle, ending(3));
+    wait_for_text(cx, &failing, "bye");
     wait_for_end(cx, &failing);
     // The last screen stays, and the tab and the status bar say what happened.
     assert!(screen(cx, &failing).contains("bye"));
@@ -402,7 +416,7 @@ fn a_shell_that_ends_with_zero_closes_its_tab_and_one_that_fails_keeps_it(cx: &m
 
 #[gpui::test]
 fn closing_the_window_asks_once_for_all_the_shells(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let first = open(cx, handle, staying());
     let second = open(cx, handle, staying());
     wait_for_text(cx, &first, "hello");
@@ -432,15 +446,16 @@ fn closing_the_window_asks_once_for_all_the_shells(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn closing_a_window_with_only_a_shell_that_ended_asks_nothing(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, ending(3));
+    wait_for_text(cx, &view, "bye");
     wait_for_end(cx, &view);
     assert!(visual(cx, handle).simulate_close());
 }
 
 #[gpui::test]
 fn exiting_the_editor_asks_once_for_all_the_shells(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let first = open(cx, handle, staying());
     let second = open(cx, handle, staying());
     wait_for_text(cx, &first, "hello");
@@ -464,7 +479,7 @@ fn exiting_the_editor_asks_once_for_all_the_shells(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn closing_the_group_asks_about_the_running_shells(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
     // From the tab of the document.
@@ -492,7 +507,7 @@ fn closing_the_group_asks_about_the_running_shells(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn ending_the_editor_waits_for_the_shells_to_close(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
     // What the end of the editor does (`app.rs`, `on_app_quit`): every shell is asked to end, and the
@@ -510,7 +525,7 @@ fn ending_the_editor_waits_for_the_shells_to_close(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn the_menus_of_the_window_are_the_shells_while_it_is_active(cx: &mut TestAppContext) {
-    let handle = window(cx, true);
+    let handle = terminal_window(cx);
     cx.update(|cx| {
         crate::app::set_key_map(cx, matsu_commands::keymap::KeyMap::default());
         crate::app::refresh_menus(cx);
@@ -536,4 +551,57 @@ fn the_menus_of_the_window_are_the_shells_while_it_is_active(cx: &mut TestAppCon
         names(cx).len() > 1,
         "Sakura's menus are back with the document"
     );
+}
+
+#[gpui::test]
+fn a_character_of_the_layout_is_typed_and_not_taken_as_a_key_of_the_window(
+    cx: &mut TestAppContext,
+) {
+    let handle = terminal_window(cx);
+    let view = open(cx, handle, staying());
+    wait_for_text(cx, &view, "hello");
+    // AltGr+E gives a euro sign on some layouts; GPUI reports Ctrl+Alt+E (Sakura's F_CASCADE) with the hint
+    // that the character is wanted.
+    let euro = gpui::Keystroke {
+        modifiers: gpui::Modifiers {
+            control: true,
+            alt: true,
+            ..Default::default()
+        },
+        key: "e".to_owned(),
+        key_char: Some("\u{20ac}".to_owned()),
+    };
+    visual(cx, handle).simulate_event(gpui::KeyDownEvent {
+        keystroke: euro,
+        is_held: false,
+        prefer_character_input: true,
+    });
+    cx.run_until_parked();
+    wait_for_text(cx, &view, "\u{20ac}");
+}
+
+#[gpui::test]
+fn a_shell_that_took_the_place_of_a_confirmed_one_is_not_confirmed(cx: &mut TestAppContext) {
+    let handle = terminal_window(cx);
+    let first = open(cx, handle, staying());
+    wait_for_text(cx, &first, "hello");
+    let ws = workspace(cx, handle);
+    let confirmed = ws.read_with(cx, |ws, cx| ws.running_shell_ids(cx));
+    assert_eq!(confirmed, vec![first.entity_id()]);
+    assert!(!ws.read_with(cx, |ws, cx| ws.has_unconfirmed_shell(cx, &confirmed)));
+    // The confirmed shell ends and another one starts: the number of running shells is the same.
+    first.update(cx, |view, _| view.shutdown());
+    let second = open(cx, handle, staying());
+    wait_for_text(cx, &second, "hello");
+    ws.read_with(cx, |ws, cx| {
+        assert_eq!(ws.running_shells(cx), 1);
+        assert!(
+            ws.has_unconfirmed_shell(cx, &confirmed),
+            "the new shell was not asked about"
+        );
+        let both = [first.entity_id(), second.entity_id()];
+        assert!(!ws.has_unconfirmed_shell(cx, &both));
+    });
+    second.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
 }

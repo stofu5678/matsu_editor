@@ -368,9 +368,11 @@ fn a_menu_saved_before_the_matsu_items_gets_them_once_in_their_places() {
     );
     assert_eq!(menu.rows[2], leaf(1, 32700, 'N'), "the default menu's key");
     assert_eq!(menu.rows[6], leaf(1, 32702, 'G'));
+    // L is the key of the sibling 30603 in this menu, so the shell tab goes without a key (the default menu
+    // gives it L).
     assert_eq!(
         menu.rows[7],
-        leaf(1, 32710, 'L'),
+        MenuRow::leaf(1, 32710),
         "the shell tab follows the preview"
     );
     // Sakura's own version is not touched: version 2 adds none of Sakura's items.

@@ -127,12 +127,12 @@ pub(crate) fn start(
     Ok(view)
 }
 
-/// The shells that run now in all windows.
-pub(crate) fn running_shells(cx: &App) -> usize {
+/// The running shells of all windows, by the entity of their views.
+pub(crate) fn running_shell_ids(cx: &App) -> Vec<gpui::EntityId> {
     crate::file_ops::windows::listed_workspaces(cx)
         .iter()
-        .map(|(_, workspace)| workspace.read(cx).running_shells(cx))
-        .sum()
+        .flat_map(|(_, workspace)| workspace.read(cx).running_shell_ids(cx))
+        .collect()
 }
 
 /// Ends every shell now, for the end of the editor. The closing runs on other threads, which

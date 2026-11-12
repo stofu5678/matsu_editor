@@ -142,6 +142,26 @@ impl Workspace {
             .collect()
     }
 
+    /// Which shells of this window are running: the entities of their views.
+    pub(crate) fn running_shell_ids(&self, cx: &gpui::App) -> Vec<gpui::EntityId> {
+        self.shell_views()
+            .iter()
+            .filter(|view| view.read(cx).is_running())
+            .map(Entity::entity_id)
+            .collect()
+    }
+
+    /// Whether a running shell of this window is not among `confirmed`: one the user was not asked about.
+    pub(crate) fn has_unconfirmed_shell(
+        &self,
+        cx: &gpui::App,
+        confirmed: &[gpui::EntityId],
+    ) -> bool {
+        self.running_shell_ids(cx)
+            .iter()
+            .any(|id| !confirmed.contains(id))
+    }
+
     /// How many shells of this window are running.
     pub(crate) fn running_shells(&self, cx: &gpui::App) -> usize {
         self.shell_views()
