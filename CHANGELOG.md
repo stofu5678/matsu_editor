@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/stofu5678/matsu_editor/compare/v0.10.0...v0.11.0) (2026-11-12)
+
+
+### Features
+
+* **terminal:** add matsu-terminal, the terminal behind the shell tab (ADR-0028) ([#382](https://github.com/stofu5678/matsu_editor/issues/382)) ([e75703a](https://github.com/stofu5678/matsu_editor/commit/e75703a8bbbe55511537ea8f0fefa4610c3cd573))
+
+
+### Bug Fixes
+
+* **unsaved:** keep the front tab of the session when an earlier tab's copy goes ([#383](https://github.com/stofu5678/matsu_editor/issues/383)) ([90060e1](https://github.com/stofu5678/matsu_editor/commit/90060e14bd05ab2d2da683fc35452d086d578932))
+
 ## [0.10.0](https://github.com/stofu5678/matsu_editor/compare/v0.9.2...v0.10.0) (2026-11-11)
 
 
