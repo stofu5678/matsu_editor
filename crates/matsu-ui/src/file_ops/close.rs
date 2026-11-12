@@ -543,7 +543,8 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
     let (count, confirm) = cx
         .update(|_, app| {
             (
-                super::windows::editors(app).len(),
+                // The windows, not only the ones with a document: a window of shells is closed too.
+                super::windows::workspaces(app).len(),
                 crate::common_settings::close_confirm(app),
             )
         })

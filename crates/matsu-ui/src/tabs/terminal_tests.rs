@@ -747,3 +747,60 @@ fn a_shell_opened_from_a_shell_tab_looks_like_that_shell(cx: &mut TestAppContext
     second.update(cx, |view, _| view.shutdown());
     assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
 }
+
+/// Two windows that are not bound into one group: one holds only a shell, the other a document.
+fn a_shell_window_and_a_document_window(
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, AnyWindowHandle, Entity<TerminalView>) {
+    cx.executor().allow_parking();
+    let shell_window = window(cx, false);
+    let view = open(cx, shell_window, staying());
+    wait_for_text(cx, &view, "hello");
+    let ws = workspace(cx, shell_window);
+    shell_window
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.close_tab_now(0, window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let other = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(
+                app,
+                crate::document::SharedDocument::empty(),
+                None,
+            )
+        })
+        .unwrap();
+    cx.run_until_parked();
+    (shell_window, other, view)
+}
+
+#[gpui::test]
+fn the_next_and_previous_window_reach_and_leave_a_window_that_holds_only_a_shell(
+    cx: &mut TestAppContext,
+) {
+    let (shell_window, other, view) = a_shell_window_and_a_document_window(cx);
+    let active = |cx: &mut TestAppContext| cx.update(|app| app.active_window());
+    // from the document window to the shell window, in both directions (there are two windows)
+    run(cx, other, "F_NEXTWINDOW");
+    assert_eq!(active(cx), Some(shell_window));
+    // from the shell window (its hidden view runs the function) back
+    run(cx, shell_window, "F_NEXTWINDOW");
+    assert_eq!(active(cx), Some(other));
+    run(cx, other, "F_PREVWINDOW");
+    assert_eq!(active(cx), Some(shell_window));
+    run(cx, shell_window, "F_PREVWINDOW");
+    assert_eq!(active(cx), Some(other));
+    view.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}
+
+#[gpui::test]
+fn the_windows_to_arrange_include_a_window_that_holds_only_a_shell(cx: &mut TestAppContext) {
+    let (shell_window, other, view) = a_shell_window_and_a_document_window(cx);
+    let all = cx.update(crate::window_ops::all_handles);
+    assert_eq!(all, vec![shell_window, other]);
+    view.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}

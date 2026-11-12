@@ -21,7 +21,7 @@ use matsu_platform::window::arrange::{
 };
 use matsu_platform::window::{self, Error, RawWindowHandle};
 
-use crate::file_ops::windows::{activate, editors};
+use crate::file_ops::windows::activate;
 use crate::view::EditorView;
 
 /// What the OS does with a window. All the windows are told apart by their GPUI handle.
@@ -321,15 +321,13 @@ pub(crate) fn window_after(
     Some(all[neighbor(all.len(), at, direction)])
 }
 
-/// All editor windows, oldest first (a window with tabs once).
+/// All windows of the editor, oldest first, also the ones that hold no document (only shells): the walk to
+/// the next window, the arrangement and the like must reach and start from them.
 pub(crate) fn all_handles(cx: &mut App) -> Vec<AnyWindowHandle> {
-    let mut handles = Vec::new();
-    for (handle, _) in editors(cx) {
-        if !handles.contains(&handle) {
-            handles.push(handle);
-        }
-    }
-    handles
+    crate::file_ops::windows::workspaces(cx)
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .collect()
 }
 
 /// `F_WIN_CLOSEALL` and `F_TAB_CLOSEOTHER`: asks about each window with unsaved changes and
