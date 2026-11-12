@@ -376,12 +376,12 @@ pub(crate) async fn close_windows(
         .chain(std::iter::once(current))
         .chain(windows)
         .collect();
-    let closed = close_views(cx, closing).await;
-    if closed && !keep_current {
-        // The shells of those windows end with them: asked once, for all.
-        // The windows stay usable while the question is open: a shell started meanwhile is asked about too.
-        let mut asked: Vec<gpui::EntityId> = Vec::new();
-        let mut go_on = true;
+    // The shells of those windows end with them, so they are asked about before anything is closed (the
+    // window that runs the flow may be the first to go, and the questions of the documents can be given up):
+    // once, for all of them. The windows stay usable while the question is open: a shell started meanwhile is
+    // asked about too.
+    let mut asked: Vec<gpui::EntityId> = Vec::new();
+    if !keep_current {
         loop {
             let running = cx
                 .update(|_, app| running_shell_ids_of(app, &handles))
@@ -390,14 +390,18 @@ pub(crate) async fn close_windows(
                 break;
             }
             if !crate::terminal::confirm_close(cx, running.len()).await {
-                go_on = false;
-                break;
+                return false;
             }
             asked = running;
         }
-        if go_on {
-            close_own_tab_only_windows(cx, handles);
-        }
+        // The windows that have no document already (only shells or previews) go now: the flow may not
+        // outlive its own window, and these do not depend on the answers about the documents.
+        let others: Vec<_> = handles.iter().copied().filter(|h| *h != current).collect();
+        close_own_tab_only_windows(cx, others, &asked);
+    }
+    let closed = close_views(cx, closing).await;
+    if closed && !keep_current {
+        close_own_tab_only_windows(cx, handles, &asked);
     }
     closed
 }
@@ -436,8 +440,7 @@ pub(crate) async fn close_views(
     true
 }
 
-/// The running shells (the entities of their views) of the windows among `handles` that have no editor tab
-/// left (the windows that [`close_own_tab_only_windows`] closes).
+/// The running shells (the entities of their views) of the windows among `handles`.
 fn running_shell_ids_of(app: &mut App, handles: &[AnyWindowHandle]) -> Vec<gpui::EntityId> {
     // A window is listed once for each document it had.
     let mut unique: Vec<AnyWindowHandle> = Vec::new();
@@ -453,18 +456,25 @@ fn running_shell_ids_of(app: &mut App, handles: &[AnyWindowHandle]) -> Vec<gpui:
     workspaces
         .iter()
         .map(|workspace| workspace.read(app))
-        .filter(|ws| ws.tab_editors().is_empty())
         .flat_map(|ws| ws.running_shell_ids(app))
         .collect()
 }
 
-/// Closes the windows among `handles` that have only previews or shells left.
-fn close_own_tab_only_windows(cx: &mut AsyncWindowContext, handles: Vec<AnyWindowHandle>) {
+/// Closes the windows among `handles` that have only previews or shells left, except a window with a running
+/// shell that is not among `asked` (one that was started after the question).
+fn close_own_tab_only_windows(
+    cx: &mut AsyncWindowContext,
+    handles: Vec<AnyWindowHandle>,
+    asked: &[gpui::EntityId],
+) {
     let _ = cx.update(|window, app| {
         for handle in handles {
             let Some(workspace) = crate::file_ops::windows::workspace_of(app, handle) else {
                 continue;
             };
+            if workspace.read(app).has_unconfirmed_shell(app, asked) {
+                continue;
+            }
             if handle == window.window_handle() {
                 workspace.update(app, |ws, cx| ws.close_if_only_own_tabs(window, cx));
             } else {
