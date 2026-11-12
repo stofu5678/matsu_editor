@@ -275,7 +275,7 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
                         // The rest of the close, as if the user had asked again.
                         cx.update(|window, app| {
                             if let Some(workspace) = workspace.upgrade()
-                                && should_close(window, app, &workspace, &asking)
+                                && should_close(window, app, &workspace, &asking, &shells_confirmed)
                             {
                                 window.remove_window();
                             }
@@ -286,7 +286,7 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             }
             return false;
         }
-        should_close(window, cx, &workspace, &asking)
+        should_close(window, cx, &workspace, &asking, &shells_confirmed)
     });
 }
 
@@ -298,6 +298,7 @@ fn should_close(
     cx: &mut App,
     workspace: &Entity<Workspace>,
     asking: &Rc<Cell<bool>>,
+    shells_confirmed: &Rc<Cell<usize>>,
 ) -> bool {
     // Every tab is asked about (`RequestCloseEditor` goes to each window of the group).
     let views = workspace.read(cx).tab_editors();
@@ -308,6 +309,8 @@ fn should_close(
             view.notice = Some("Grepの処理中です。".to_owned());
             cx.notify();
         });
+        // The close is given up: the next one asks about the shells again.
+        shells_confirmed.set(0);
         return false;
     }
     if !views.iter().any(|v| needs_question(v, cx)) {
@@ -319,7 +322,7 @@ fn should_close(
             if !asking.replace(true) {
                 // A shell that is started while the plugins run is asked about by the next close.
                 let shells = workspace.read(cx).running_shells(cx);
-                let asking = asking.clone();
+                let (asking, shells_confirmed) = (asking.clone(), shells_confirmed.clone());
                 let workspace = workspace.downgrade();
                 window
                     .spawn(cx, async move |cx| {
@@ -341,7 +344,9 @@ fn should_close(
                         if same && !edited {
                             cx.update(|window, _| window.remove_window()).ok();
                         } else {
-                            // The window stays after `EditorEnd`: the plugins are told it goes on.
+                            // The window stays after `EditorEnd`: the plugins are told it goes on, and the
+                            // next close asks about the shells again.
+                            shells_confirmed.set(0);
                             crate::plugin_events::restart_ended(&mut log, cx).await;
                         }
                     })
@@ -353,11 +358,15 @@ fn should_close(
     }
     if !asking.replace(true) {
         let workspace = workspace.downgrade();
-        let asking = asking.clone();
+        let (asking, shells_confirmed) = (asking.clone(), shells_confirmed.clone());
+        let shells = shells_confirmed.get();
         window
             .spawn(cx, async move |cx| {
-                close_after_questions(&workspace, cx).await;
+                close_after_questions(&workspace, cx, shells).await;
                 asking.set(false);
+                // The window is still here when the close was given up: the next one asks about the
+                // shells again.
+                shells_confirmed.set(0);
             })
             .detach();
     }
@@ -370,9 +379,10 @@ fn should_close(
 async fn close_after_questions(
     workspace: &WeakEntity<Workspace>,
     cx: &mut gpui::AsyncWindowContext,
+    shells: usize,
 ) {
     let mut log = crate::plugin_events::CloseLog::default();
-    if !close_after_questions_with(workspace, cx, &mut log).await {
+    if !close_after_questions_with(workspace, cx, &mut log, shells).await {
         // The window stays: what it was told of the close (`EditorEnd`) is taken back.
         crate::plugin_events::restart_ended(&mut log, cx).await;
     }
@@ -383,6 +393,7 @@ async fn close_after_questions_with(
     workspace: &WeakEntity<Workspace>,
     cx: &mut gpui::AsyncWindowContext,
     log: &mut crate::plugin_events::CloseLog,
+    shells: usize,
 ) -> bool {
     let mut asked: Vec<(gpui::EntityId, u64)> = Vec::new();
     // The tabs whose question was left out because their copy is kept.
@@ -447,10 +458,14 @@ async fn close_after_questions_with(
             let edited = crate::plugin_events::window_closing(&weak, log, cx).await;
             // The plugins took time: what the user changed meanwhile is asked about, not thrown away. The
             // copies of what the user threw away go only when the window really goes.
+            // (and a shell that was started meanwhile is asked about by the next close: `shells` are the
+            // ones the user agreed to end)
             let same_tabs = workspace
-                .read_with(cx, |ws, _| {
+                .read_with(cx, |ws, app| {
                     let tabs = ws.tab_editors();
-                    tabs.len() == views.len() && tabs.iter().zip(&views).all(|(a, b)| a == b)
+                    tabs.len() == views.len()
+                        && tabs.iter().zip(&views).all(|(a, b)| a == b)
+                        && ws.running_shells(app) <= shells
                 })
                 .unwrap_or(false);
             // A window that opened meanwhile makes this close an ordinary one: what was left out for the

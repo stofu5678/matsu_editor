@@ -157,8 +157,8 @@ fn anyhow_closed() -> gpui::private::anyhow::Error {
 
 /// `ResetGroupId` after `F_SHOWTAB` and `F_BIND_WINDOW` (`CAppNodeManager::ResetGroupId`): in tab
 /// mode the documents of all windows gather in the tabs of `window`; otherwise every tab of every
-/// window gets a window of its own. A window that is still reading a file is left as it is.
-/// `window` is the window that runs the function.
+/// window gets a window of its own. A window that is still reading a file, or has a running shell (it
+/// would end with the window), is left as it is. `window` is the window that runs the function.
 pub(crate) fn regroup(cx: &mut App, window: &mut Window) {
     let current = window.window_handle();
     let bound = settings::current(cx).bound();
@@ -176,7 +176,10 @@ pub(crate) fn regroup(cx: &mut App, window: &mut Window) {
         // after (Sakura orders the tabs by the number of the window).
         let mut front = 0;
         for (i, (handle, other)) in all.iter().enumerate() {
-            if *handle == current || has_pending(cx, *handle) {
+            if *handle == current
+                || has_pending(cx, *handle)
+                || other.read(cx).running_shells(cx) > 0
+            {
                 continue;
             }
             let sets = handle
