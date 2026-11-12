@@ -370,7 +370,7 @@ fn a_menu_saved_before_the_matsu_items_gets_them_once_in_their_places() {
     assert_eq!(menu.rows[6], leaf(1, 32702, 'G'));
     assert_eq!(
         menu.rows[7],
-        leaf(1, 32710, 'S'),
+        leaf(1, 32710, 'L'),
         "the shell tab follows the preview"
     );
     // Sakura's own version is not touched: version 2 adds none of Sakura's items.

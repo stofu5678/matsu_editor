@@ -170,7 +170,7 @@ pub const EXTRAS: &[Extra] = &[
         group: 12,
         label: "シェルのタブを開く",
         after: "F_PREVIEW_TAB",
-        access_key: 'S',
+        access_key: 'L',
         macro_name: "ShellTab",
         separator_before: false,
         separator_after: false,

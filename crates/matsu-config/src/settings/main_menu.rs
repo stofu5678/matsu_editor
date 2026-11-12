@@ -353,7 +353,7 @@ const MATSU_ADDITIONS: [Addition; 11] = [
     Addition::new(3, 32709, 32708, false)
         .with_key('Y')
         .with_separator_after(), // F_BASE64_DECODE_TEXT, then a separator
-    Addition::new(4, 32710, 32702, false).with_key('S'), // the shell tab after the preview tab
+    Addition::new(4, 32710, 32702, false).with_key('L'), // the shell tab after the preview tab
 ];
 
 impl MainMenu {

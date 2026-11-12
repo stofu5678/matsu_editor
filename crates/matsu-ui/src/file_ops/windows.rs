@@ -225,8 +225,9 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
         .push((window.window_handle(), workspace.downgrade()));
     let workspace = workspace.downgrade();
     let asking = Rc::new(Cell::new(false));
-    // The user agreed to end the running shells (the question is asked once for the window).
-    let shells_confirmed = Rc::new(Cell::new(false));
+    // How many running shells the user agreed to end (the question is asked once for the window). A shell
+    // started after that is asked about again.
+    let shells_confirmed = Rc::new(Cell::new(0_usize));
     window.on_window_should_close(cx, move |window, cx| {
         let Some(workspace) = workspace.upgrade() else {
             return true;
@@ -259,7 +260,7 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
         }
         // Running shells are asked about once, with the documents' questions after them.
         let shells = workspace.read(cx).running_shells(cx);
-        if shells > 0 && !shells_confirmed.get() {
+        if shells > shells_confirmed.get() {
             if !asking.replace(true) {
                 let (asking, shells_confirmed) = (asking.clone(), shells_confirmed.clone());
                 let workspace = workspace.downgrade();
@@ -270,7 +271,7 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
                         if !go_on {
                             return;
                         }
-                        shells_confirmed.set(true);
+                        shells_confirmed.set(shells);
                         // The rest of the close, as if the user had asked again.
                         cx.update(|window, app| {
                             if let Some(workspace) = workspace.upgrade()
@@ -316,6 +317,8 @@ fn should_close(
         // The plugins of DocumentClose and EditorEnd run first, and then the window goes.
         if crate::plugin_events::has_plugs(cx, &[Jack::DocumentClose, Jack::EditorEnd]) {
             if !asking.replace(true) {
+                // A shell that is started while the plugins run is asked about by the next close.
+                let shells = workspace.read(cx).running_shells(cx);
                 let asking = asking.clone();
                 let workspace = workspace.downgrade();
                 window
@@ -328,10 +331,11 @@ fn should_close(
                         // The window stayed usable meanwhile: a tab that the user edited (or moved
                         // here) is asked about by the next close, not thrown away.
                         let same = workspace
-                            .read_with(cx, |ws, _| {
+                            .read_with(cx, |ws, app| {
                                 let tabs = ws.tab_editors();
                                 tabs.len() == views.len()
                                     && tabs.iter().zip(&views).all(|(a, b)| a == b)
+                                    && ws.running_shells(app) <= shells
                             })
                             .unwrap_or(false);
                         if same && !edited {

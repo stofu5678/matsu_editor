@@ -578,8 +578,9 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
         .unwrap_or(false);
     // What the plugins were told about the close: a round that starts over does not tell it twice.
     let mut log = crate::plugin_events::CloseLog::default();
-    // The question about running shells is asked once for the whole exit, however many rounds it takes.
-    let mut shells_asked = false;
+    // The question about running shells is asked once for the whole exit, however many rounds it takes: this is
+    // how many shells it was asked about (a shell started later is asked about again).
+    let mut shells_asked = 0_usize;
     loop {
         if hot {
             // The latest content of every document is written before the questions, and again when a round
@@ -618,14 +619,14 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
             let shells = cx
                 .update(|_, app| crate::terminal::running_shells(app))
                 .unwrap_or(0);
-            if shells > 0 && !shells_asked {
+            if shells > shells_asked {
                 if !crate::terminal::confirm_close(cx, shells).await {
                     let views: Vec<_> = editors.iter().map(|(_, v)| v.clone()).collect();
                     forget_left_out(&views, cx);
                     crate::plugin_events::restart_ended(&mut log, cx).await;
                     return;
                 }
-                shells_asked = true;
+                shells_asked = shells;
             }
             // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
             // (`MYWM_CLOSE` of each editor).
@@ -648,7 +649,11 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
             // is asked about again. What the plugins wrote does not count.
             let now: Vec<_> = snapshot(cx).into_iter().map(|(id, _)| id).collect();
             let before: Vec<_> = checked.iter().map(|(id, _)| *id).collect();
-            if edited || now != before {
+            // A shell that was started while the plugins ran is asked about too.
+            let shells_now = cx
+                .update(|_, app| crate::terminal::running_shells(app))
+                .unwrap_or(0);
+            if edited || now != before || shells_now > shells_asked {
                 continue;
             }
             cx.update(|_, app| {

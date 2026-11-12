@@ -146,7 +146,8 @@ fn opening_a_shell_shows_its_output_in_a_tab_with_the_contract_of_a_tab(cx: &mut
 #[gpui::test]
 fn the_function_opens_a_shell_next_to_the_document(cx: &mut TestAppContext) {
     let handle = window(cx, true);
-    // The function starts the user's shell: only the tab is looked at, then the shell is ended.
+    // The function starts a shell of the test's own (`use_shell_in_tests`), as the function always does.
+    super::terminal_tab::use_shell_in_tests(staying());
     run(cx, handle, "F_SHELL_TAB");
     let ws = workspace(cx, handle);
     ws.read_with(cx, |ws, _| {
@@ -154,10 +155,7 @@ fn the_function_opens_a_shell_next_to_the_document(cx: &mut TestAppContext) {
         assert!(ws.tab_content(1).and_then(TabContent::terminal).is_some());
     });
     let views = ws.read_with(cx, |ws, _| ws.shell_views());
-    wait_until(cx, "the shell to print", {
-        let view = views[0].clone();
-        move |cx| !screen(cx, &view).is_empty() || view.read_with(cx, |v, _| v.ended().is_some())
-    });
+    wait_for_text(cx, &views[0], "hello");
     for view in views {
         view.update(cx, |view, _| view.shutdown());
     }

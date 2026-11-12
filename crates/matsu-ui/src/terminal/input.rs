@@ -62,7 +62,7 @@ pub(super) fn translate(
     }
     // Paste is kept free (ADR-0028 point 9: Ctrl+V on Windows and Linux): nothing is sent yet. Cmd+V on macOS
     // is passed above.
-    if keystroke.key == "v" && m.control && !mac {
+    if keystroke.key == "v" && m.control && !m.alt && !mac {
         return Translated::Ignore;
     }
     let mods = Modifiers {
@@ -212,6 +212,14 @@ mod tests {
         };
         let at = press("q", Some("@"), both);
         assert_eq!(translate(&at, false, false), Translated::Text("@".into()));
+        // AltGr+V is a character of the layout, not paste
+        let both_v = GpuiModifiers {
+            control: true,
+            alt: true,
+            ..plain()
+        };
+        let v = press("v", Some("@"), both_v);
+        assert_eq!(translate(&v, false, false), Translated::Text("@".into()));
         let hinted = press("2", Some("\""), alt());
         assert_eq!(
             translate(&hinted, true, false),
