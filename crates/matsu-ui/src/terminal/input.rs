@@ -94,7 +94,10 @@ pub(super) fn translate(
         };
     }
     match (text, base) {
-        // Alt+character is Meta: ESC and the character.
+        // On macOS Option types the character it gives (Option+B is a letter of its own): Terminal.app's and
+        // iTerm2's default. A setting to use it as Meta is for the settings PR.
+        (Some(text), _) if m.alt && mac => Translated::Text(text.to_owned()),
+        // Alt+character is Meta elsewhere, as in Windows Terminal and xterm: ESC and the character.
         (Some(text), _) if m.alt => {
             let mut chars = text.chars();
             match (chars.next(), chars.next()) {
@@ -200,6 +203,39 @@ mod tests {
                     ..Modifiers::NONE
                 }
             )
+        );
+    }
+
+    #[test]
+    fn option_types_its_character_on_macos_and_alt_is_meta_elsewhere() {
+        // macOS gives a character for Option+B; it is typed as it is, without ESC
+        let option_b = press("b", Some("\u{222b}"), alt());
+        assert_eq!(
+            translate(&option_b, false, true),
+            Translated::Text("\u{222b}".into())
+        );
+        // Windows and Linux: Alt+B is ESC b
+        let alt_b = press("b", Some("b"), alt());
+        assert_eq!(
+            translate(&alt_b, false, false),
+            Translated::Key(
+                Key::Char('b'),
+                Modifiers {
+                    alt: true,
+                    ..Modifiers::NONE
+                }
+            )
+        );
+        assert_eq!(
+            matsu_terminal::encode_key(
+                Key::Char('b'),
+                Modifiers {
+                    alt: true,
+                    ..Modifiers::NONE
+                },
+                &matsu_terminal::Modes::default()
+            ),
+            Some(b"\x1bb".to_vec())
         );
     }
 
