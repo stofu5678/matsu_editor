@@ -687,3 +687,41 @@ fn a_shell_started_while_the_window_question_is_open_is_asked_about(cx: &mut Tes
     second.update(cx, |view, _| view.shutdown());
     assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
 }
+
+#[gpui::test]
+fn closing_all_windows_reaches_a_window_that_holds_only_a_shell(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    // The windows are not bound into one group: the group is every window.
+    let shell_window = window(cx, false);
+    let view = open(cx, shell_window, staying());
+    wait_for_text(cx, &view, "hello");
+    // Its document is closed on its own; the shell is all that is left in it.
+    let ws = workspace(cx, shell_window);
+    shell_window
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.close_tab_now(0, window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let other = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(
+                app,
+                crate::document::SharedDocument::empty(),
+                None,
+            )
+        })
+        .unwrap();
+    cx.run_until_parked();
+    run(cx, other, "F_WIN_CLOSEALL");
+    cx.run_until_parked();
+    assert!(
+        has_prompt(cx, other),
+        "the shell of the other window is asked about"
+    );
+    answer(cx, other, YES);
+    assert!(!cx.windows().contains(&shell_window), "its window goes");
+    assert!(!cx.windows().contains(&other));
+    drop(view);
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}

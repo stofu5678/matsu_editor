@@ -39,6 +39,16 @@ pub(crate) fn group_views(
     }
 }
 
+/// The windows of the group of the window `handle`: itself in tab mode, else every window, also the ones that
+/// have no document (a window that holds only shells is in no list of documents).
+pub(crate) fn group_windows(cx: &mut App, handle: AnyWindowHandle) -> Vec<AnyWindowHandle> {
+    if settings::current(cx).bound() {
+        vec![handle]
+    } else {
+        workspaces(cx).into_iter().map(|(h, _)| h).collect()
+    }
+}
+
 /// Brings the document of `view` to the front: its window, and its tab. It happens after the
 /// function that asks for it ends (the window of that function may be the one to change).
 pub(crate) fn reveal(cx: &mut App, handle: AnyWindowHandle, view: Entity<EditorView>) {

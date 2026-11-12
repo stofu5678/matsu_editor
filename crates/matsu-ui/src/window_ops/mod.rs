@@ -364,12 +364,17 @@ pub(crate) async fn close_windows(
     if !keep_current {
         closing.extend(mine);
     }
-    // A window whose documents are all closed but that still has a preview (a tab that is not a
-    // document of the group) goes with them. Not when one document stays (`keep_current`).
+    // A window whose documents are all closed but that still has a preview or a shell (a tab that is not a
+    // document of the group) goes with them, and so does a window that had no document at all (only shells).
+    // Not when one document stays (`keep_current`).
+    let windows = cx
+        .update(|_, app| crate::tabs::flows::group_windows(app, current))
+        .unwrap_or_default();
     let handles: Vec<_> = closing
         .iter()
         .map(|(handle, _)| *handle)
         .chain(std::iter::once(current))
+        .chain(windows)
         .collect();
     let closed = close_views(cx, closing).await;
     if closed && !keep_current {
