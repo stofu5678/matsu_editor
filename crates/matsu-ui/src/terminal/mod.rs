@@ -91,11 +91,12 @@ pub(crate) fn start(
     window: &Window,
     cx: &mut Context<Workspace>,
 ) -> io::Result<Entity<TerminalView>> {
+    let shell = resolve_shell(start.shell.clone());
     let mut directory = start_directory(start.document_path.as_deref());
     let mut options = Options {
         size: START_SIZE,
         working_directory: directory.clone(),
-        shell: start.shell.clone(),
+        shell: shell.clone(),
         foreground: rgb_of(start.foreground),
         background: rgb_of(start.background),
         ..Options::default()
@@ -114,7 +115,7 @@ pub(crate) fn start(
         }
         other => other?,
     };
-    let program = program_name(start.shell.as_ref());
+    let program = program_name(shell.as_ref());
     let tooltip = view::tooltip_text(&program, directory.as_ref());
     let look = Look {
         font: start.font,
@@ -245,6 +246,13 @@ impl TabPanel for TerminalTab {
     }
 }
 
+/// The shell to start: the one given, else the default of `matsu-terminal` (PowerShell on Windows). On Unix the
+/// default is left to `alacritty_terminal` (`None`), whose choice is `$SHELL`, which `program_name` reads too.
+/// Resolved here so that the caption names the shell that really starts.
+fn resolve_shell(given: Option<ShellCommand>) -> Option<ShellCommand> {
+    given.or_else(matsu_terminal::shell::default_shell)
+}
+
 /// The name of a shell's program as the caption shows it: the file name without its folder and without
 /// `.exe`. `None` is the default shell of Unix, which is `$SHELL`.
 pub(crate) fn program_name(shell: Option<&ShellCommand>) -> String {
@@ -310,6 +318,20 @@ mod tests {
         assert_eq!(program_name(Some(&shell("\"C:\\a b\\fish.exe\""))), "fish");
         assert_eq!(program_name(Some(&shell(""))), "シェル");
         assert_eq!(program_name(Some(&shell(".exe"))), "シェル");
+    }
+
+    #[test]
+    fn the_caption_names_the_default_shell_that_starts() {
+        let given = ShellCommand::new("/bin/zsh", Vec::<String>::new());
+        assert_eq!(resolve_shell(Some(given.clone())), Some(given));
+        let resolved = resolve_shell(None);
+        if cfg!(windows) {
+            let name = program_name(resolved.as_ref());
+            assert!(name == "pwsh" || name == "powershell", "{name}");
+        } else {
+            assert_eq!(resolved, None);
+            assert_eq!(program_name(resolved.as_ref()), program_name(None));
+        }
     }
 
     #[test]
