@@ -62,17 +62,34 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<Entity<TerminalView>> {
         let editor = self.panes().active().clone();
-        let (document_path, font, font_size, colors) = {
+        // From a shell tab the look of that shell is taken: the view the window keeps out of sight there never
+        // got the user's settings. It has no document either, so the shell starts in the home folder.
+        let from_shell = self
+            .content
+            .terminal()
+            .map(|tab| tab.view().read(cx).text_look());
+        let (document_path, font, font_size, foreground, background) = {
             let view = editor.read(cx);
-            (
-                view.document()
-                    .read(cx)
-                    .path()
-                    .map(std::path::Path::to_path_buf),
-                view.text_font(cx),
-                view.font_px(),
-                view.view_settings().colors,
-            )
+            let path = view
+                .document()
+                .read(cx)
+                .path()
+                .map(std::path::Path::to_path_buf);
+            match from_shell {
+                Some((font, size, foreground, background)) => {
+                    (path, font, size, foreground, background)
+                }
+                None => {
+                    let colors = view.view_settings().colors;
+                    (
+                        path,
+                        view.text_font(cx),
+                        view.font_px(),
+                        colors.text,
+                        colors.background,
+                    )
+                }
+            }
         };
         let host = cx.weak_entity();
         let started = terminal::start(
@@ -81,8 +98,8 @@ impl Workspace {
                 document_path,
                 font,
                 font_size,
-                foreground: colors.text,
-                background: colors.background,
+                foreground,
+                background,
             },
             host.clone(),
             window,

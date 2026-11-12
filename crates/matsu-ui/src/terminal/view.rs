@@ -205,6 +205,24 @@ impl TerminalView {
         self.workspace.update(cx, |_, cx| cx.notify()).ok();
     }
 
+    /// The font, its size and the default colors (`0xRRGGBB`, foreground then background) this shell was
+    /// opened with: another shell opened from this tab looks the same.
+    pub(crate) fn text_look(&self) -> (TextFont, f32, u32, u32) {
+        (
+            self.look.font.clone(),
+            self.look.size,
+            self.look.palette.foreground,
+            self.look.palette.background,
+        )
+    }
+
+    /// Gives the shell another size and colors (for the tests).
+    #[cfg(test)]
+    pub(crate) fn set_text_look(&mut self, size: f32, foreground: u32, background: u32) {
+        self.look.size = size;
+        self.look.palette = Palette::new(foreground, background);
+    }
+
     pub(super) fn look(&self) -> &Look {
         &self.look
     }

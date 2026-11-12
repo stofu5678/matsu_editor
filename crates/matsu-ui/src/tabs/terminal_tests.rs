@@ -725,3 +725,25 @@ fn closing_all_windows_reaches_a_window_that_holds_only_a_shell(cx: &mut TestApp
     drop(view);
     assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
 }
+
+#[gpui::test]
+fn a_shell_opened_from_a_shell_tab_looks_like_that_shell(cx: &mut TestAppContext) {
+    let handle = terminal_window(cx);
+    let first = open(cx, handle, staying());
+    wait_for_text(cx, &first, "hello");
+    // Not the built-in look: the size and the colors the user's settings would give.
+    first.update(cx, |view, _| view.set_text_look(21.0, 0x112233, 0xeeddcc));
+    let second = open(cx, handle, staying());
+    wait_for_text(cx, &second, "hello");
+    let look = |cx: &mut TestAppContext, view: &Entity<TerminalView>| {
+        view.read_with(cx, |view, _| {
+            let (font, size, foreground, background) = view.text_look();
+            (font.family.to_string(), size, foreground, background)
+        })
+    };
+    assert_eq!(look(cx, &second), look(cx, &first));
+    assert_eq!(look(cx, &second).1, 21.0);
+    first.update(cx, |view, _| view.shutdown());
+    second.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}
