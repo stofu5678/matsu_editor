@@ -376,6 +376,10 @@ pub(crate) async fn close_windows(
         .chain(std::iter::once(current))
         .chain(windows)
         .collect();
+    // The question about closing several windows comes before anything is closed or asked about.
+    if !confirm_closing_several(cx, closing.len()).await {
+        return false;
+    }
     // The shells of those windows end with them, so they are asked about before anything is closed (the
     // window that runs the flow may be the first to go, and the questions of the documents can be given up):
     // once, for all of them. The windows stay usable while the question is open: a shell started meanwhile is
@@ -399,7 +403,7 @@ pub(crate) async fn close_windows(
         let others: Vec<_> = handles.iter().copied().filter(|h| *h != current).collect();
         close_own_tab_only_windows(cx, others, &asked);
     }
-    let closed = close_views(cx, closing).await;
+    let closed = close_each(cx, closing).await;
     if closed && !keep_current {
         close_own_tab_only_windows(cx, handles, &asked);
     }
@@ -432,6 +436,14 @@ pub(crate) async fn close_views(
     if !confirm_closing_several(cx, views.len()).await {
         return false;
     }
+    close_each(cx, views).await
+}
+
+/// [`close_views`] without the question about closing several windows (it was asked already).
+async fn close_each(
+    cx: &mut AsyncWindowContext,
+    views: Vec<(AnyWindowHandle, Entity<EditorView>)>,
+) -> bool {
     for (handle, view) in views {
         if !crate::tabs::bar::close_document(cx, handle, &view).await {
             return false;
