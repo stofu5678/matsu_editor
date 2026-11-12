@@ -458,16 +458,22 @@ async fn close_after_questions_with(
             let edited = crate::plugin_events::window_closing(&weak, log, cx).await;
             // The plugins took time: what the user changed meanwhile is asked about, not thrown away. The
             // copies of what the user threw away go only when the window really goes.
-            // (and a shell that was started meanwhile is asked about by the next close: `shells` are the
-            // ones the user agreed to end)
             let same_tabs = workspace
-                .read_with(cx, |ws, app| {
+                .read_with(cx, |ws, _| {
                     let tabs = ws.tab_editors();
-                    tabs.len() == views.len()
-                        && tabs.iter().zip(&views).all(|(a, b)| a == b)
-                        && ws.running_shells(app) <= shells
+                    tabs.len() == views.len() && tabs.iter().zip(&views).all(|(a, b)| a == b)
                 })
                 .unwrap_or(false);
+            // A shell that was started meanwhile is asked about by the next close, not ended with this one:
+            // `shells` are the ones the user agreed to end. The close is given up (the caller takes the
+            // consent back) and not tried again here, which would never change the answer.
+            let started = workspace
+                .read_with(cx, |ws, app| ws.running_shells(app) > shells)
+                .unwrap_or(false);
+            if started {
+                close::forget_left_out(&views, cx);
+                return false;
+            }
             // A window that opened meanwhile makes this close an ordinary one: what was left out for the
             // copies is asked about now.
             let still_ends = cx
