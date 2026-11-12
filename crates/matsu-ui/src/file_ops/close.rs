@@ -628,6 +628,18 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
                     return;
                 }
                 shells_asked = running;
+                // The other windows stayed usable while the question was open: a document that was changed
+                // there, or a shell that was started, is asked about in another round, before anything closes.
+                let unconfirmed = cx
+                    .update(|_, app| {
+                        crate::terminal::running_shell_ids(app)
+                            .iter()
+                            .any(|id| !shells_asked.contains(id))
+                    })
+                    .unwrap_or(false);
+                if unconfirmed || snapshot(cx) != checked {
+                    continue;
+                }
             }
             // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
             // (`MYWM_CLOSE` of each editor).

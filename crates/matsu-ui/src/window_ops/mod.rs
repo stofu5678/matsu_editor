@@ -374,10 +374,23 @@ pub(crate) async fn close_windows(
     let closed = close_views(cx, closing).await;
     if closed && !keep_current {
         // The shells of those windows end with them: asked once, for all.
-        let shells = cx
-            .update(|_, app| running_shells_of(app, &handles))
-            .unwrap_or(0);
-        if shells == 0 || crate::terminal::confirm_close(cx, shells).await {
+        // The windows stay usable while the question is open: a shell started meanwhile is asked about too.
+        let mut asked: Vec<gpui::EntityId> = Vec::new();
+        let mut go_on = true;
+        loop {
+            let running = cx
+                .update(|_, app| running_shell_ids_of(app, &handles))
+                .unwrap_or_default();
+            if running.iter().all(|id| asked.contains(id)) {
+                break;
+            }
+            if !crate::terminal::confirm_close(cx, running.len()).await {
+                go_on = false;
+                break;
+            }
+            asked = running;
+        }
+        if go_on {
             close_own_tab_only_windows(cx, handles);
         }
     }
@@ -418,9 +431,9 @@ pub(crate) async fn close_views(
     true
 }
 
-/// How many shells run in the windows among `handles` that have no editor tab left (the windows that
-/// [`close_own_tab_only_windows`] closes).
-fn running_shells_of(app: &mut App, handles: &[AnyWindowHandle]) -> usize {
+/// The running shells (the entities of their views) of the windows among `handles` that have no editor tab
+/// left (the windows that [`close_own_tab_only_windows`] closes).
+fn running_shell_ids_of(app: &mut App, handles: &[AnyWindowHandle]) -> Vec<gpui::EntityId> {
     // A window is listed once for each document it had.
     let mut unique: Vec<AnyWindowHandle> = Vec::new();
     for handle in handles {
@@ -436,8 +449,8 @@ fn running_shells_of(app: &mut App, handles: &[AnyWindowHandle]) -> usize {
         .iter()
         .map(|workspace| workspace.read(app))
         .filter(|ws| ws.tab_editors().is_empty())
-        .map(|ws| ws.running_shells(app))
-        .sum()
+        .flat_map(|ws| ws.running_shell_ids(app))
+        .collect()
 }
 
 /// Closes the windows among `handles` that have only previews or shells left.

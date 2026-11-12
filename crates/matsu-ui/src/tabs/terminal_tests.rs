@@ -605,3 +605,62 @@ fn a_shell_that_took_the_place_of_a_confirmed_one_is_not_confirmed(cx: &mut Test
     second.update(cx, |view, _| view.shutdown());
     assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
 }
+
+const CANCEL: &str = "キャンセル";
+
+#[gpui::test]
+fn a_document_changed_while_the_shell_question_is_open_is_asked_about(cx: &mut TestAppContext) {
+    let handle = terminal_window(cx);
+    let view = open(cx, handle, staying());
+    wait_for_text(cx, &view, "hello");
+    let quits = crate::file_ops::close::quits();
+    run(cx, handle, "F_EXITALL");
+    cx.run_until_parked();
+    assert!(has_prompt(cx, handle), "the question about the shell");
+    // The document is changed while the question is open.
+    let ws = workspace(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.activate_tab(0, window, cx))
+        })
+        .unwrap();
+    visual(cx, handle).simulate_input("x");
+    cx.run_until_parked();
+    answer(cx, handle, YES);
+    // The edit is not thrown away: the document is asked about, and nothing has closed.
+    assert!(has_prompt(cx, handle), "the question about the document");
+    assert_eq!(crate::file_ops::close::quits(), quits);
+    answer(cx, handle, CANCEL);
+    assert_eq!(crate::file_ops::close::quits(), quits, "the editor stays");
+    assert!(cx.windows().contains(&handle));
+    assert!(running(cx, &view));
+    view.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}
+
+#[gpui::test]
+fn a_shell_started_while_the_group_question_is_open_is_asked_about(cx: &mut TestAppContext) {
+    let handle = terminal_window(cx);
+    let first = open(cx, handle, staying());
+    wait_for_text(cx, &first, "hello");
+    let ws = workspace(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.activate_tab(0, window, cx))
+        })
+        .unwrap();
+    run(cx, handle, "F_GROUPCLOSE");
+    cx.run_until_parked();
+    assert!(has_prompt(cx, handle), "the question about the shell");
+    // Another shell starts in the window meanwhile.
+    let second = open(cx, handle, staying());
+    wait_for_text(cx, &second, "hello");
+    answer(cx, handle, YES);
+    assert!(has_prompt(cx, handle), "the new shell is asked about too");
+    answer(cx, handle, NO);
+    assert!(cx.windows().contains(&handle));
+    assert!(running(cx, &first) && running(cx, &second));
+    first.update(cx, |view, _| view.shutdown());
+    second.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}

@@ -1,6 +1,8 @@
 //! The view of a shell tab: the screen of one terminal, its keys, and the events of the shell.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{
     App, Context, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyDownEvent,
@@ -93,7 +95,17 @@ pub(crate) struct TerminalView {
     /// The size changed and the window has not been told (its status bar shows the size).
     size_told: bool,
     ended: Option<Ended>,
+    /// A `Redraw` is on its way to this view (see [`should_forward`]).
+    redraw_waiting: Arc<AtomicBool>,
     _events: Option<Task<()>>,
+}
+
+/// Whether the bridge hands `event` to the UI. The core reports one `Redraw` until the receiver has read it,
+/// but the bridge reads at once, so on its own every redraw would pile up in the channel while the UI is busy.
+/// A `Redraw` is therefore forwarded only when none is waiting (`waiting` is set here, cleared by the view when it
+/// handles the event); every other event is forwarded.
+fn should_forward(waiting: &AtomicBool, event: &TerminalEvent) -> bool {
+    *event != TerminalEvent::Redraw || !waiting.swap(true, Ordering::AcqRel)
 }
 
 impl TerminalView {
@@ -115,6 +127,7 @@ impl TerminalView {
             size,
             size_told: true,
             ended: None,
+            redraw_waiting: Arc::new(AtomicBool::new(false)),
             _events: None,
         }
     }
@@ -128,11 +141,12 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let (sender, receiver) = async_channel::unbounded();
+        let waiting = Arc::clone(&self.redraw_waiting);
         let spawned = std::thread::Builder::new()
             .name("matsu-terminal-events".to_owned())
             .spawn(move || {
                 while let Ok(event) = events.recv() {
-                    if sender.send_blocking(event).is_err() {
+                    if should_forward(&waiting, &event) && sender.send_blocking(event).is_err() {
                         break;
                     }
                 }
@@ -155,6 +169,8 @@ impl TerminalView {
     fn handle_event(&mut self, event: &TerminalEvent, window: &mut Window, cx: &mut Context<Self>) {
         match *event {
             TerminalEvent::Redraw => {
+                // Cleared before the screen is read, so a change after the read sends another one.
+                self.redraw_waiting.store(false, Ordering::Release);
                 cx.notify();
                 if std::mem::take(&mut self.size_told) {
                     self.tell_window(cx);
@@ -386,5 +402,30 @@ pub(super) fn tooltip_text(program: &str, directory: Option<&PathBuf>) -> String
     match directory {
         Some(directory) => format!("シェル: {program}\n{}", directory.display()),
         None => format!("シェル: {program}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_one_redraw_waits_for_the_view_and_the_other_events_all_go() {
+        let waiting = AtomicBool::new(false);
+        let redraw = TerminalEvent::Redraw;
+        assert!(should_forward(&waiting, &redraw));
+        // the view has not handled it yet: the next ones are left out
+        assert!(!should_forward(&waiting, &redraw));
+        assert!(!should_forward(&waiting, &redraw));
+        // the other events are never dropped
+        assert!(should_forward(
+            &waiting,
+            &TerminalEvent::ChildExit { code: Some(3) }
+        ));
+        assert!(should_forward(&waiting, &TerminalEvent::Bell));
+        assert!(should_forward(&waiting, &TerminalEvent::Title("t".into())));
+        // the view handled it: the next redraw goes
+        waiting.store(false, Ordering::Release);
+        assert!(should_forward(&waiting, &redraw));
     }
 }
