@@ -249,6 +249,7 @@ fn the_pages_are_in_sakuras_order() {
             "プラグイン",
             // MATSU Editor's own, after the pages of Sakura.
             "シェル",
+            "ワンライナー",
         ]
     );
     // The pages that are built; the others are added one by one, each by its own module.
@@ -272,7 +273,7 @@ fn the_pages_are_in_sakuras_order() {
 /// The pages that keep their own state (the kind chosen, the row selected) in controls with no key
 /// of their own: the id of such a control starts with the page's prefix. The prefixes of the pages
 /// that are not built yet are here too, so that each page can be built without changing this list.
-const KEYLESS_PREFIXES: [&str; 8] = [
+const KEYLESS_PREFIXES: [&str; 9] = [
     "toolbar_",
     "keybind_",
     "custmenu_",
@@ -281,6 +282,7 @@ const KEYLESS_PREFIXES: [&str; 8] = [
     "mainmenu_",
     "helper_",
     "plugin_",
+    "oneliner_",
 ];
 
 #[test]
@@ -1262,8 +1264,8 @@ fn the_keys_of_a_property_sheet(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(window, "ctrl-shift-tab");
     assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::General);
     cx.simulate_keystrokes(window, "ctrl-shift-tab");
-    // The last page is MATSU Editor's own, シェル.
-    assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::Terminal);
+    // The last page is MATSU Editor's own, ワンライナー (after シェル).
+    assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::OneLiner);
     cx.simulate_keystrokes(window, "ctrl-tab");
     assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::General);
 

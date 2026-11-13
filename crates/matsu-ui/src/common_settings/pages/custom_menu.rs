@@ -33,6 +33,7 @@ use gpui::{Context, Window};
 use matsu_config::settings::CustomMenus;
 use matsu_config::settings::custom_menu::MAX_CUSTOM_MENU;
 use matsu_config::settings::macros::RegisteredMacros;
+use matsu_config::settings::oneliner::OneLiners;
 
 use super::super::Env;
 use super::super::dialog::CommonSettingsDialog;
@@ -84,8 +85,13 @@ fn functions_of_kind(kind: i32) -> Vec<u16> {
 }
 
 /// `CFuncLookup::Funccode2Name`: the name of function `code`; a custom menu has its own name.
-fn function_name(code: u16, menus: &CustomMenus, macros: &RegisteredMacros) -> String {
-    crate::func_name::funccode_to_name(code, menus, macros)
+fn function_name(
+    code: u16,
+    menus: &CustomMenus,
+    macros: &RegisteredMacros,
+    oneliners: &OneLiners,
+) -> String {
+    crate::func_name::funccode_to_name_with(code, menus, macros, oneliners)
 }
 
 /// The text of a row of the menu's list (`SetDataMenuList`): the name, then the access key in
@@ -94,13 +100,14 @@ fn row_text(
     item: &matsu_config::settings::CustomMenuItem,
     menus: &CustomMenus,
     macros: &RegisteredMacros,
+    oneliners: &OneLiners,
 ) -> String {
     let name = if let Some(text) = item.text.as_deref().filter(|_| item.is_unknown()) {
         format!("{UNKNOWN_LABEL}{text}")
     } else if item.is_separator() {
         SEPARATOR_TEXT.to_owned()
     } else {
-        function_name(item.function, menus, macros)
+        function_name(item.function, menus, macros, oneliners)
     };
     match item.key {
         Some(key) => format!("{name}({key})"),
