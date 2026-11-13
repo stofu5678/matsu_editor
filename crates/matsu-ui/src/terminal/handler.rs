@@ -122,8 +122,15 @@ impl InputHandler for TerminalInputHandler {
         self.0.accepts_text_input(window, cx)
     }
 
+    /// With a Japanese (or other) input source on macOS, GPUI offers a printable key to the IME before the view
+    /// sees it. Option+key is Meta when the setting says so, and that is the view's (`translate_with`): the
+    /// IME would commit the character Option makes instead of ESC and the key. (A dead key such as Option+E has
+    /// no character and always goes to the IME first, so it is not Meta.)
     fn prefers_ime_for_printable_keys(&mut self, window: &mut Window, cx: &mut App) -> bool {
-        self.0.prefers_ime_for_printable_keys(window, cx)
+        let option_is_meta = cfg!(target_os = "macos")
+            && super::settings::current(cx).option_as_meta
+            && window.modifiers().alt;
+        !option_is_meta && self.0.prefers_ime_for_printable_keys(window, cx)
     }
 
     fn text_input_configuration(
