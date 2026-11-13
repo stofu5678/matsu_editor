@@ -61,6 +61,7 @@ pub fn normalize_id(text: &str) -> String {
 /// The lines of a page outside its fenced code blocks, with their numbers (from 1).
 fn prose_lines(source: &str) -> Vec<(u32, &str)> {
     let mut fence: Option<char> = None;
+    let mut comment = false;
     let mut out = Vec::new();
     for (index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -73,6 +74,17 @@ fn prose_lines(source: &str) -> Vec<(u32, &str)> {
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             fence = trimmed.chars().next();
             continue;
+        }
+        // A comment that starts at the beginning of a line hides its lines (and any heading in them).
+        if comment {
+            comment = !line.contains("-->");
+            continue;
+        }
+        if trimmed.starts_with("<!--") {
+            comment = !trimmed.contains("-->");
+            if comment || trimmed.trim_end().ends_with("-->") {
+                continue;
+            }
         }
         out.push((u32::try_from(index + 1).unwrap_or(u32::MAX), line));
     }
@@ -474,6 +486,15 @@ mod tests {
             assert!(ids.contains(id), "{id} is missing in {ids:?}");
         }
         assert!(!ids.contains("項目") && !ids.contains("本文"));
+    }
+
+    #[test]
+    fn headings_in_comments_have_no_anchor() {
+        let ids = anchors("# a\n\n<!--\n## 隠す\n-->\n\n<!-- ## 一行 -->\n\n## 見せる\n");
+        assert!(
+            ids.contains("見せる") && !ids.contains("隠す") && !ids.contains("一行"),
+            "{ids:?}"
+        );
     }
 
     #[test]
