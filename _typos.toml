@@ -30,6 +30,9 @@ extend-exclude = [
 # cpy: a COBOL copybook extension in the built-in document type (sakura_core/types/CType_Cobol.cpp).
 cpy = "cpy"
 
+# sur: the macOS name "big_sur" in the Homebrew cask (packaging/homebrew/matsu-editor.rb, depends_on macos).
+sur = "sur"
+
 # mak: the extension of makefiles in the table of ctags kinds (CDlgTagJumpList.cpp).
 mak = "mak"
 

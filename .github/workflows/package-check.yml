@@ -17,6 +17,10 @@ on:
       - scripts/check-mac-dmg.sh
       - scripts/package-linux.sh
       - packaging/linux/**
+      - packaging/homebrew/**
+      - packaging/scoop/**
+      - packaging/winget/**
+      - tools/packaging/**
       - .github/scripts/test-linux-install.sh
       - .github/scripts/test-rpm-in-fedora.sh
       - .github/scripts/apt-install.sh
@@ -39,6 +43,38 @@ concurrency:
 jobs:
   package:
     uses: ./.github/workflows/package.yml
+
+  # The package-manager files (ADR-0032): Homebrew cask, Scoop manifest, winget manifests. They parse, the winget
+  # files pass Microsoft's schemas, the files agree with each other and with matsu.iss, and the script that fills a
+  # release into them works on fake assets. Runs on a GitHub runner and needs nothing of the self-hosted Mac. The cask
+  # is checked for Ruby syntax only: `brew style` would need Homebrew and its RuboCop gems on a macOS runner.
+  manifests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install the checkers
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pyyaml==6.0.3 jsonschema==4.26.0
+      - name: Check the files
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" tools/packaging/check-manifests.py
+          ruby -c packaging/homebrew/matsu-editor.rb
+      - name: Fill a fake release into a copy and check it again
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/manifests"
+          mkdir -p "$work/assets" "$work/root"
+          cp -r packaging "$work/root/packaging"
+          for n in windows-x64.zip windows-arm64.zip windows-x64-setup.exe windows-arm64-setup.exe macos-arm64.dmg; do
+            echo "fake $n" > "$work/assets/matsu-v9.8.7-$n"
+          done
+          python3 tools/packaging/update-manifests.py 9.8.7 --assets-dir "$work/assets" --root "$work/root"
+          "$RUNNER_TEMP/venv/bin/python" tools/packaging/check-manifests.py --root "$work/root"
+          grep -q "$(sha256sum "$work/assets/matsu-v9.8.7-windows-x64-setup.exe" | cut -d' ' -f1)" "$work/root/packaging/winget/stofu5678.MATSUEditor.installer.yaml"
 
   # The Windows installer must not touch the user's data (ADR-0032, decision 3): install, update and uninstall it
   # on the two Windows targets and compare. The script is .github/scripts/test-windows-installer.ps1.
