@@ -6,7 +6,7 @@
 |---|---|
 | `.github/workflows/release.yml` | main への push のたびに動く。リリース PR の更新、毎日版の公開、版のリリースへの添付 |
 | `.github/workflows/package.yml` | 5 つの対象で `matsu` と `matsu-script` をリリースビルドして、アーカイブにする（再利用する部品。公開はしない） |
-| `.github/workflows/package-check.yml` | リリース関係のファイルを変える PR で、`package.yml` と Windows のインストーラの試験を動かす（公開しない） |
+| `.github/workflows/package-check.yml` | リリース関係のファイルを変える PR で、`package.yml`、Windows のインストーラの試験、パッケージマネージャのファイルの検査を動かす（公開しない） |
 | `release-please-config.json`・`.release-please-manifest.json` | release-please の設定と、今の版 |
 
 ## 毎日版（nightly）
@@ -48,6 +48,34 @@ macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `
 - 利用者のデータには触れない（ADR-0032 の決めたこと 3）。インストール・更新・アンインストールは、`matsu.ini`、`unsaved\`、`plugins.ini`、`databases.ini`、`plugins\`、履歴、設定のフォルダー（`%APPDATA%\matsu-editor`）を作らず、書き換えず、消さない。インストール先にも `matsu.ini` を作らない（作ると持ち運び用の動きに固定されるため）。アンインストールはインストーラが入れたファイルだけを消すので、利用者がインストール先に置いた持ち運び用の `matsu.ini` は残り、そのフォルダーも残る。「設定も消す」という選択肢はない
 - `.github/scripts/test-windows-installer.ps1` が、`package-check.yml` の `installer-test`（`windows-2025` と `windows-11-arm`）で、利用者ごとの静かなインストール、更新、アンインストール、選択肢、全利用者を試し、`%APPDATA%\matsu-editor` の `matsu.ini` と `unsaved\x.txt` がハッシュも更新日時も変わらないことを確かめる
 - `matsu.exe` には版情報（製品名「MATSU Editor」、版、発行元、ライセンス）が入る（`crates/matsu/matsu.rc`。`build.rs` が `Cargo.toml` の版を入れる）。発行元は、`LICENSE-MIT` の著作権者と同じ `stofu5678`
+
+## インストールの方法ごとに触れるもの
+
+ADR-0032 の決めたこと 3 のとおり、どの方法も、利用者のデータ（`matsu.ini`、`unsaved/`、`plugins.ini`、`databases.ini`、`plugins/`、履歴、設定のフォルダー）を作らず、書き換えず、消さない。アンインストールの後も、設定と未保存の文書は残る（消したいときは、利用者が設定のフォルダーを自分で消す）。
+
+| 方法 | 入れるもの | 外すと |
+|---|---|---|
+| Windows のインストーラ（`-setup.exe`） | インストール先（既定は `%LOCALAPPDATA%\Programs\MATSU Editor`、全利用者は `Program Files`）、スタートメニューの項目、「アプリ」の項目（レジストリの `Uninstall`）。選択で、`Applications\matsu.exe`・`.txt` の登録・PATH | 入れたファイルと上の項目だけを消す。持ち運び用の `matsu.ini` を置いたなら、それとフォルダーは残る |
+| Windows の zip | なし（展開するだけ） | フォルダーを消す。持ち運び用の `matsu.ini` もそこにあれば消える |
+| macOS の `.dmg` | なし（`MATSU Editor.app` を `Applications` に置くのは利用者） | アプリを捨てる。設定は `~/Library/Application Support/matsu-editor` に残る |
+| macOS の tar.gz | なし | 同上 |
+| Linux の `.deb`・`.rpm` | `/usr/lib/matsu-editor/`、`/usr/bin/matsu`、`.desktop`、metainfo、アイコン、`/usr/share/doc/matsu-editor/` | パッケージが入れたファイルだけを消す。`~/.config/matsu-editor` は残る |
+| Linux の tar.gz | なし | フォルダーを消す |
+
+## パッケージマネージャのファイル
+
+ADR-0032 の決めたこと 5 のとおり、Homebrew・Scoop・winget のファイルは `packaging/` に置くだけで、まだ公開していない。tap・bucket のリポジトリを作ることと、winget-pkgs への最初の PR は、オーナーが行う（段階 B）。
+
+| 方法 | ファイル | 何を使うか |
+|---|---|---|
+| Homebrew（自分の tap） | `packaging/homebrew/matsu-editor.rb` | `.dmg`（macOS ARM64）。`MATSU Editor.app` を `/Applications` に置き、`matsu` コマンドは、アプリの中の `matsu` を呼ぶ小さなシェルスクリプトとして入れる（`matsu` は自分の実体の隣の `matsu-script` を使うので、アプリの中へのシンボリックリンクにはしない）。アドホック署名なので、`caveats` に隔離属性の外し方を書く。`zap` は書かない（設定を消してしまうため）。`livecheck` は GitHub のリリース |
+| Scoop（自分の bucket） | `packaging/scoop/matsu-editor.json` | 持ち運び用の zip（x64・ARM64）。`bin` は `matsu.exe`。`checkver` と `autoupdate` は GitHub のリリース |
+| winget | `packaging/winget/stofu5678.MATSUEditor*.yaml`（マニフェスト 1.28.0。バージョン・インストーラ・既定の言語 `en-US`・`ja-JP` の 4 ファイル） | Inno Setup のインストーラ（`InstallerType: inno`）。x64・ARM64 のそれぞれに、利用者ごと（`/CURRENTUSER`）と全利用者（`/ALLUSERS`）。`ProductCode` は `matsu.iss` の `AppId` に `_is1` を付けたもの |
+
+- **Scoop に `persist` を付けない。** Scoop は版ごとのフォルダー（`apps\matsu-editor\<版>`）に展開し、更新で古い版のフォルダーを消す。`matsu.ini` を `persist` すると、インストール先に `matsu.ini` ができて、持ち運び用の動きに固定される（設定の置き場が `%APPDATA%\matsu-editor` からインストール先に移る）。付けなければ、設定は `%APPDATA%\matsu-editor` に置かれ、更新・アンインストールでも残る。代償は、利用者が Scoop のフォルダーに持ち運び用の `matsu.ini` を置くと、更新で消えること（`notes` に書いてある）
+- 4 つのファイルとも、版は `0.0.0`、SHA-256 は 0 だけの見本になっている。新しい版のリリースを出したら、`tools/packaging/update-manifests.py <版>` が、リリースのアセットを `gh release download` で取り（読むだけで、何も送らない）、5 つの SHA-256（`.dmg`・zip 2 つ・`-setup.exe` 2 つ）と版、URL を、すべてのファイルに書く。ファイルが想定と違えば、何も書かずに止まる。`--assets-dir` を付けると、ダウンロードの代わりに手元のファイルを使う
+- `tools/packaging/check-manifests.py` が、ファイルの構文、winget のスキーマ（Microsoft の `winget-cli` の固定したコミットから取り、SHA-256 を確かめる）、ファイル同士と `matsu.iss` の食い違い（版、`ProductCode`、アセット名）、`zap` と `persist` が無いことを確かめる。CI（`package-check.yml` の `manifests`）が動かす。Homebrew の cask は `ruby -c` で構文だけ確かめる（`brew style` は macOS の実行機に Homebrew を入れる必要があり、軽くないため）
+- 段階 B で、tap・bucket に置くとき: Homebrew は `Casks/matsu-editor.rb`、Scoop は `bucket/matsu-editor.json` に、更新したファイルをコピーする。winget は、更新した 4 つのファイルを `manifests/s/stofu5678/MATSUEditor/<版>/` に置いて、`wingetcreate` か手で PR にする
 
 ## リリースビルドのプロファイル
 

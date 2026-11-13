@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
+PackageIdentifier: stofu5678.MATSUEditor
+PackageVersion: 0.0.0
+PackageLocale: en-US
+Publisher: stofu5678
+PublisherUrl: https://github.com/stofu5678
+PublisherSupportUrl: https://github.com/stofu5678/matsu_editor/issues
+Author: stofu5678
+PackageName: MATSU Editor
+PackageUrl: https://github.com/stofu5678/matsu_editor
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/stofu5678/matsu_editor/blob/main/LICENSE-MIT
+Copyright: Copyright (c) 2026 stofu5678
+ShortDescription: A text editor that brings the feel of SAKURA Editor to Windows, macOS and Linux.
+Description: MATSU Editor is a text editor written in Rust. It reproduces the key bindings and the way of working of SAKURA Editor, and opens very large files lightly.
+Moniker: matsu
+Tags:
+  - editor
+  - text-editor
+  - sakura-editor
+  - rust
+ReleaseNotesUrl: https://github.com/stofu5678/matsu_editor/releases/tag/v0.0.0
+ManifestType: defaultLocale
+ManifestVersion: 1.28.0

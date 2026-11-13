@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
+# The Inno Setup installer of packaging/windows/matsu.iss (ADR-0032). tools/packaging/update-manifests.py sets
+# PackageVersion, InstallerUrl and InstallerSha256.
+#
+# winget's default for InstallerType inno is the silent switches /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART.
+# The installer is per user by default; /CURRENTUSER and /ALLUSERS choose the scope (matsu.iss,
+# PrivilegesRequiredOverridesAllowed=commandline). The two scopes of an architecture are the same file.
+PackageIdentifier: stofu5678.MATSUEditor
+PackageVersion: 0.0.0
+InstallerType: inno
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+# AppId of matsu.iss ("{{" there is Inno's escape for one "{"), plus the "_is1" Inno adds to the uninstall key.
+ProductCode: '{7A716E2B-C55F-4618-92F3-3058FA1AAEEB}_is1'
+Installers:
+  - Architecture: x64
+    Scope: user
+    InstallerUrl: https://github.com/stofu5678/matsu_editor/releases/download/v0.0.0/matsu-v0.0.0-windows-x64-setup.exe
+    InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    InstallerSwitches:
+      Custom: /CURRENTUSER
+  - Architecture: x64
+    Scope: machine
+    InstallerUrl: https://github.com/stofu5678/matsu_editor/releases/download/v0.0.0/matsu-v0.0.0-windows-x64-setup.exe
+    InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    InstallerSwitches:
+      Custom: /ALLUSERS
+  - Architecture: arm64
+    Scope: user
+    InstallerUrl: https://github.com/stofu5678/matsu_editor/releases/download/v0.0.0/matsu-v0.0.0-windows-arm64-setup.exe
+    InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    InstallerSwitches:
+      Custom: /CURRENTUSER
+  - Architecture: arm64
+    Scope: machine
+    InstallerUrl: https://github.com/stofu5678/matsu_editor/releases/download/v0.0.0/matsu-v0.0.0-windows-arm64-setup.exe
+    InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    InstallerSwitches:
+      Custom: /ALLUSERS
+ManifestType: installer
+ManifestVersion: 1.28.0
