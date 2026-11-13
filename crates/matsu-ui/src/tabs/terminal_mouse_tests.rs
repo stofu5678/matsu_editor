@@ -103,10 +103,12 @@ fn wheel(
     cx.run_until_parked();
 }
 
+#[cfg(unix)]
 fn first_line(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> String {
     screen(cx, view).lines().next().unwrap_or("").to_owned()
 }
 
+#[cfg(unix)]
 fn first_number(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> i64 {
     first_line(cx, view)
         .split_whitespace()
@@ -245,15 +247,15 @@ mod windows_programs {
             ),
             "line 200",
         );
-        let before = first_number(cx, &view);
+        // The scroll position is what is checked, not the text: ConPTY paints the screen again after the
+        // resize, which can leave a second copy of the last lines in the scrollback.
+        let offset = |cx: &mut TestAppContext| view.read_with(cx, |view, _| view.display_offset());
+        assert_eq!(offset(cx), 0);
         wheel(cx, handle, &view, (2, 3), 5.0, Modifiers::default());
-        assert!(first_number(cx, &view) < before, "the view went back");
-        assert!(!screen(cx, &view).contains("line 200"));
-        // typing brings the view back to the live screen, where the last line is
+        assert!(offset(cx) > 0, "the view went back");
+        // typing brings the view back to the live screen
         visual(cx, handle).simulate_input("x");
-        wait_until(cx, "the bottom", |cx| {
-            screen(cx, &view).contains("line 200")
-        });
+        wait_until(cx, "the bottom", |cx| offset(cx) == 0);
     }
 }
 

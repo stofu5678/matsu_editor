@@ -161,6 +161,12 @@ impl TerminalView {
         (usize::try_from(row).unwrap_or(0), info.cursor.column)
     }
 
+    /// How many lines the view is scrolled back, 0 at the bottom (for the tests).
+    #[cfg(all(test, windows))]
+    pub(crate) fn display_offset(&self) -> usize {
+        self.terminal.info().display_offset
+    }
+
     /// The selected text (for the tests).
     #[cfg(test)]
     pub(crate) fn selected_text(&self) -> Option<String> {
