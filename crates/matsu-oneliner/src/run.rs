@@ -379,7 +379,7 @@ impl Run {
     /// The result, waiting at most `wait` for it; `None` when it is not there yet, and after it
     /// has been given. Output is kept inside until the process has ended.
     ///
-    /// The call takes in output for the time of `wait`, but at least [`WORK_SLICE`]: a caller
+    /// The call takes in output for the time of `wait`, but at least `WORK_SLICE` (20 ms): a caller
     /// that polls with a zero wait still gets the output through. It returns within about that
     /// time, however fast the command writes.
     pub fn poll(&mut self, wait: Duration) -> Option<Event> {
