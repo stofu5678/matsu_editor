@@ -3,7 +3,8 @@ name: Package
 # Reusable workflow: build `matsu` and `matsu-script` in release mode on the five targets and package them.
 # It publishes nothing. The caller decides what to do with the artifacts
 # (docs/release.md). Archive names are `matsu-<target>.zip` (Windows) or
-# `matsu-<target>.tar.gz` (macOS also has `matsu-<target>.dmg`); the caller adds the nightly or version label.
+# `matsu-<target>.tar.gz` (macOS also has `matsu-<target>.dmg`; Windows also has the installer
+# `matsu-<target>-setup.exe`); the caller adds the nightly or version label.
 
 on:
   workflow_call:
@@ -189,6 +190,49 @@ jobs:
       - name: Test the .deb and the .rpm
         if: runner.os == 'Linux'
         run: .github/scripts/test-linux-install.sh "${{ matrix.name }}" dist
+      # The Windows installer (ADR-0032) holds the files of the zip. The runner images have an Inno Setup of their own
+      # (6.7.1 on 2026-11-13), but its version changes with the image, so the version this workflow uses is fetched
+      # and checked here. Inno Setup's license (permissive, BSD-like) allows building and distributing installers of
+      # any program. The SHA-256 is of innosetup-6.7.4.exe as downloaded on 2026-11-13 (the release has no checksum
+      # file, only a signature for Inno's own tool). The installer is an x86 program; Windows on ARM runs it.
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          INNO_VERSION: 6.7.4
+          INNO_SHA256: a549929319f9120716677c685535ca4671e4b937b5fdc87e2585f32d8eb30e8c
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = 'is-' + ($env:INNO_VERSION -replace '\.', '_')
+          $url = "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$($env:INNO_VERSION).exe"
+          $file = Join-Path $env:RUNNER_TEMP 'innosetup.exe'
+          for ($try = 1; $try -le 3; $try++) {
+            try { Invoke-WebRequest -Uri $url -OutFile $file; break }
+            catch { if ($try -eq 3) { throw }; Start-Sleep -Seconds 10 }
+          }
+          $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash
+          if ($hash -ne $env:INNO_SHA256) { throw "innosetup.exe has SHA-256 $hash, expected $($env:INNO_SHA256)" }
+          $dir = Join-Path $env:RUNNER_TEMP 'innosetup'
+          $install = Start-Process -FilePath $file -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', "/DIR=`"$dir`""
+          if ($install.ExitCode -ne 0) { throw "the Inno Setup installer exited with $($install.ExitCode)" }
+          $iscc = Join-Path $dir 'ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "$iscc was not installed" }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build the installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The version of the workspace (release-please keeps it in Cargo.toml).
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if (-not $version) { throw 'no version in Cargo.toml' }
+          $arch = if ($env:TARGET -eq 'windows-arm64') { 'arm64' } else { 'x64compatible' }
+          $stage = Join-Path $PWD "dist/matsu-$($env:TARGET)"
+          & $env:ISCC "/DTarget=$($env:TARGET)" "/DArch=$arch" "/DAppVersion=$version" "/DStageDir=$stage" "/DOutDir=$(Join-Path $PWD 'dist')" packaging/windows/matsu.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited with $LASTEXITCODE" }
+          Get-Item "dist/matsu-$($env:TARGET)-setup.exe"
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-prefix }}-${{ matrix.name }}
@@ -198,5 +242,6 @@ jobs:
             dist/*.dmg
             dist/*.deb
             dist/*.rpm
+            dist/*-setup.exe
           if-no-files-found: error
           retention-days: 7
