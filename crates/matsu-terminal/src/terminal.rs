@@ -24,6 +24,7 @@ use crate::paste::{PasteEncoding, encode_paste};
 #[cfg(test)]
 use crate::screen::Color;
 use crate::screen::{ClipboardKind, Cursor, CursorShape, Modes, Rgb, Row, ScreenInfo};
+use crate::selection::{self, CellSide, SelectionMode, SelectionSpan};
 use crate::shell::{self, ShellCommand};
 use crate::title::clean_title;
 
@@ -336,6 +337,7 @@ fn term_config(scrollback_lines: usize) -> Config {
         scrolling_history: scrollback_lines,
         kitty_keyboard: false,
         osc52: Osc52::OnlyCopy,
+        semantic_escape_chars: crate::selection::WORD_DELIMITERS.to_owned(),
         ..Config::default()
     }
 }
@@ -353,6 +355,8 @@ pub struct Snapshot {
     /// Queries (OSC 4, 10, 11 and 12 with `?`) are answered from the options' colors and the xterm
     /// palette, not from these: the answer is written while the reader thread holds the terminal's lock.
     pub color_overrides: Vec<(usize, Rgb)>,
+    /// The selected cells on the view (see [`crate::SelectionSpan`]), if any.
+    pub selection: Option<SelectionSpan>,
 }
 
 /// A terminal with a shell running in it.
@@ -524,6 +528,37 @@ impl Terminal {
         self.with_term(|term| snapshot_of(term))
     }
 
+    /// Starts a selection at a cell of the view (`row` 0 is the first line of the view). A cell selection
+    /// ([`SelectionMode::Cells`]) selects nothing until [`Terminal::update_selection`] moves its end, so a
+    /// click selects nothing; words and lines are selected at once. Any selection there was is replaced.
+    pub fn start_selection(&self, mode: SelectionMode, row: i32, column: usize, side: CellSide) {
+        self.with_term(|term| selection::start(term, mode, row, column, side));
+        self.shared.request_redraw();
+    }
+
+    /// Moves the end of the selection to a cell of the view. Does nothing without a selection.
+    pub fn update_selection(&self, row: i32, column: usize, side: CellSide) {
+        self.with_term(|term| selection::update(term, row, column, side));
+        self.shared.request_redraw();
+    }
+
+    /// Clears the selection.
+    pub fn clear_selection(&self) {
+        self.with_term(selection::clear);
+        self.shared.request_redraw();
+    }
+
+    /// Whether any cell is selected.
+    pub fn has_selection(&self) -> bool {
+        self.with_term(|term| selection::is_selected(term))
+    }
+
+    /// The selected text (`\n` between lines), `None` without a selection. The blanks at the end of each
+    /// line are cut.
+    pub fn selected_text(&self) -> Option<String> {
+        self.with_term(|term| selection::text(term))
+    }
+
     /// Scrolls the view back (positive) or forward (negative) by lines. A redraw is reported, as for
     /// [`Terminal::scroll_to_bottom`] and [`Terminal::resize`].
     pub fn scroll_display(&self, lines: i32) {
@@ -649,6 +684,7 @@ fn snapshot_of(term: &Term<Listener>) -> Snapshot {
         info,
         rows,
         color_overrides,
+        selection: selection::span(term),
     }
 }
 

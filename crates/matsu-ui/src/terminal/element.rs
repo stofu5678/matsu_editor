@@ -12,14 +12,15 @@
 //! The screen is copied once per frame, under one short lock ([`matsu_terminal::Terminal::snapshot`]).
 
 use gpui::{
-    App, Bounds, ContentMask, Element, ElementId, Entity, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign, TextRun, Window,
-    fill, point, px, relative, rgb, size,
+    App, Bounds, ContentMask, DispatchPhase, Element, ElementId, ElementInputHandler, Entity,
+    GlobalElementId, InspectorElementId, IntoElement, LayoutId, MouseMoveEvent, Pixels, ShapedLine,
+    SharedString, Style, TextAlign, TextRun, Window, fill, point, px, relative, rgb, size,
 };
-use matsu_terminal::{Cell, CursorShape, Row, Snapshot};
+use matsu_terminal::{Cell, CursorShape, Row, SelectionSpan, Snapshot};
 
+use super::handler::TerminalInputHandler;
 use super::palette::{Packed, Palette, blend};
-use super::view::TerminalView;
+use super::view::{TerminalView, preedit_cells, rows_up};
 
 /// The height of a row, in pixels: the font's size and a little more, so that the box drawing of two rows
 /// meets without the gap of the editor's 1.5 lines.
@@ -115,10 +116,18 @@ fn is_blank(cell: &Cell) -> bool {
 
 /// The colors a cell is drawn with: its foreground and background after the inverse video, the dim
 /// attribute and the hidden one. `block_cursor` swaps them once more (a block cursor shows the cell inverted).
-fn resolve(cell: &Cell, palette: &Palette, block_cursor: bool) -> (Packed, Packed) {
+/// A `selected` cell has the selection's background and its own foreground (not swapped: the text of an
+/// inverse cell stays readable on it).
+fn resolve(cell: &Cell, palette: &Palette, block_cursor: bool, selected: bool) -> (Packed, Packed) {
     let mut foreground = palette.foreground_of(cell.fg);
     let mut background = palette.background_of(cell.bg);
-    if cell.inverse != block_cursor {
+    if selected {
+        background = palette.selection();
+        // Text of the very color of the selection would vanish in it.
+        if foreground == background {
+            foreground = palette.default_foreground();
+        }
+    } else if cell.inverse != block_cursor {
         std::mem::swap(&mut foreground, &mut background);
     }
     if cell.dim {
@@ -130,8 +139,53 @@ fn resolve(cell: &Cell, palette: &Palette, block_cursor: bool) -> (Packed, Packe
     (foreground, background)
 }
 
+/// What a row has besides its cells: where the block cursor is, if it is on this row, and the columns the
+/// selection covers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct RowMarks {
+    /// The column of the block cursor (a cell the cursor inverts is not shown as selected).
+    cursor: Option<usize>,
+    /// The first and the last column of the selection on this row, both included.
+    selected: Option<(usize, usize)>,
+}
+
+impl RowMarks {
+    /// Whether the cell at `column`, `span` columns wide, is selected: a wide character is selected when
+    /// either of its halves is.
+    fn selects(&self, column: usize, span: usize) -> bool {
+        self.cursor != Some(column)
+            && self
+                .selected
+                .is_some_and(|(first, last)| column <= last && column + span > first)
+    }
+}
+
+/// The columns of the view's row `row` (of `columns`) that the selection covers.
+fn selected_columns(
+    selection: Option<&SelectionSpan>,
+    row: usize,
+    columns: usize,
+) -> Option<(usize, usize)> {
+    let span = selection?;
+    let row = i32::try_from(row).ok()?;
+    if row < span.start_row || row > span.end_row {
+        return None;
+    }
+    let first = if row == span.start_row {
+        span.start_column
+    } else {
+        0
+    };
+    let last = if row == span.end_row {
+        span.end_column
+    } else {
+        columns.saturating_sub(1)
+    };
+    (first <= last).then_some((first, last))
+}
+
 /// Cuts a row into the pieces of text to shape.
-fn pieces_of(row: &Row, palette: &Palette, cursor_column: Option<usize>) -> Vec<Piece> {
+fn pieces_of(row: &Row, palette: &Palette, marks: RowMarks) -> Vec<Piece> {
     let mut pieces: Vec<Piece> = Vec::new();
     let mut current: Option<Piece> = None;
     for (column, cell) in row.cells.iter().enumerate() {
@@ -142,7 +196,12 @@ fn pieces_of(row: &Row, palette: &Palette, cursor_column: Option<usize>) -> Vec<
             pieces.extend(current.take());
             continue;
         }
-        let (color, _) = resolve(cell, palette, cursor_column == Some(column));
+        let (color, _) = resolve(
+            cell,
+            palette,
+            marks.cursor == Some(column),
+            marks.selects(column, span),
+        );
         let style = PieceStyle {
             color,
             bold: cell.bold,
@@ -168,7 +227,7 @@ fn pieces_of(row: &Row, palette: &Palette, cursor_column: Option<usize>) -> Vec<
 fn runs_of(
     row: &Row,
     palette: &Palette,
-    cursor_column: Option<usize>,
+    marks: RowMarks,
     wanted: impl Fn(&Cell) -> bool,
 ) -> Vec<(usize, usize, Packed)> {
     let mut runs: Vec<(usize, usize, Packed)> = Vec::new();
@@ -181,7 +240,15 @@ fn runs_of(
         }
         let color = match cell.underline_color {
             Some(color) if cell.underline => palette.foreground_of(color),
-            _ => resolve(cell, palette, cursor_column == Some(column)).0,
+            _ => {
+                resolve(
+                    cell,
+                    palette,
+                    marks.cursor == Some(column),
+                    marks.selects(column, span),
+                )
+                .0
+            }
         };
         match runs.last_mut() {
             Some((first, columns, last)) if *first + *columns == column && *last == color => {
@@ -194,18 +261,19 @@ fn runs_of(
 }
 
 /// The cells with a background of their own, as runs `(first column, columns, color)`.
-fn backgrounds_of(
-    row: &Row,
-    palette: &Palette,
-    cursor_column: Option<usize>,
-) -> Vec<(usize, usize, Packed)> {
+fn backgrounds_of(row: &Row, palette: &Palette, marks: RowMarks) -> Vec<(usize, usize, Packed)> {
     let default = palette.default_background();
     let mut runs: Vec<(usize, usize, Packed)> = Vec::new();
     for (column, cell) in row.cells.iter().enumerate() {
         let Some(span) = span_of(cell) else {
             continue;
         };
-        let (_, background) = resolve(cell, palette, cursor_column == Some(column));
+        let (_, background) = resolve(
+            cell,
+            palette,
+            marks.cursor == Some(column),
+            marks.selects(column, span),
+        );
         if background == default {
             continue;
         }
@@ -299,6 +367,8 @@ pub(super) struct Prepaint {
     snapshot: Snapshot,
     palette: Palette,
     focused: bool,
+    /// The text the IME is composing, drawn at the cursor.
+    preedit: Option<(String, std::ops::Range<usize>)>,
 }
 
 impl Element for TerminalElement {
@@ -349,9 +419,14 @@ impl Element for TerminalElement {
         };
         let (columns, rows) =
             cell.grid_in(f32::from(bounds.size.width), f32::from(bounds.size.height));
-        self.view
-            .update(cx, |view, _| view.fit(columns, rows, cell));
-        let snapshot = self.view.read(cx).screen();
+        self.view.update(cx, |view, _| {
+            view.fit(columns, rows, cell);
+            view.set_layout(bounds, cell);
+        });
+        let (snapshot, preedit) = {
+            let view = self.view.read(cx);
+            (view.screen(), view.preedit_with_selection())
+        };
         let mut palette = look.palette;
         palette.set_overrides(&snapshot.color_overrides);
         Prepaint {
@@ -359,6 +434,7 @@ impl Element for TerminalElement {
             snapshot,
             palette,
             focused: focus.is_focused(window),
+            preedit,
         }
     }
 
@@ -377,12 +453,31 @@ impl Element for TerminalElement {
             snapshot,
             palette,
             focused,
+            preedit,
         } = prepaint;
         let (cell, focused) = (*cell, *focused);
-        let (font, font_size) = {
+        let (font, font_size, focus) = {
             let view = self.view.read(cx);
-            (view.look().font.font(), view.look().size)
+            (
+                view.look().font.font(),
+                view.look().size,
+                view.focus_handle().clone(),
+            )
         };
+        // The text the platform delivers (typed, committed by an IME, composed) goes to the view.
+        window.handle_input(
+            &focus,
+            TerminalInputHandler(ElementInputHandler::new(bounds, self.view.clone())),
+            cx,
+        );
+        // A selection follows the pointer past the edge of the screen: an element's own move listener only
+        // hears the pointer while it is over the element, so the view listens on the window.
+        let view = self.view.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+            if phase == DispatchPhase::Bubble {
+                view.update(cx, |view, cx| view.on_mouse_move(event, window, cx));
+            }
+        });
         let fonts = Fonts::new(font);
         let size_px = px(font_size);
         let x_of = |column: usize| bounds.left() + px(column as f32 * cell.width);
@@ -400,16 +495,23 @@ impl Element for TerminalElement {
                     break;
                 }
                 let on_cursor_row = i64::try_from(index).ok() == Some(viewport_row);
-                let cursor_column = (on_cursor_row && block).then_some(cursor.column);
+                let marks = RowMarks {
+                    cursor: (on_cursor_row && block).then_some(cursor.column),
+                    selected: selected_columns(
+                        snapshot.selection.as_ref(),
+                        index,
+                        snapshot.info.columns,
+                    ),
+                };
 
-                for (first, columns, color) in backgrounds_of(row, palette, cursor_column) {
+                for (first, columns, color) in backgrounds_of(row, palette, marks) {
                     window.paint_quad(fill(
                         Bounds::new(point(x_of(first), y), size(width_of(columns), line)),
                         rgb(color),
                     ));
                 }
 
-                for piece in pieces_of(row, palette, cursor_column) {
+                for piece in pieces_of(row, palette, marks) {
                     let font = fonts.of(piece.style);
                     let whole = shape(window, &piece.text(), size_px, font, piece.style.color);
                     if fits(f32::from(whole.width()), piece.columns(), cell.width) {
@@ -448,8 +550,7 @@ impl Element for TerminalElement {
                     }
                 }
 
-                for (first, columns, color) in runs_of(row, palette, cursor_column, |c| c.underline)
-                {
+                for (first, columns, color) in runs_of(row, palette, marks, |c| c.underline) {
                     window.paint_quad(fill(
                         Bounds::new(
                             point(x_of(first), y + line - px(2.)),
@@ -458,8 +559,7 @@ impl Element for TerminalElement {
                         rgb(color),
                     ));
                 }
-                for (first, columns, color) in runs_of(row, palette, cursor_column, |c| c.strikeout)
-                {
+                for (first, columns, color) in runs_of(row, palette, marks, |c| c.strikeout) {
                     window.paint_quad(fill(
                         Bounds::new(
                             point(x_of(first), y + line / 2.),
@@ -483,6 +583,70 @@ impl Element for TerminalElement {
                         CursorShape::HollowBlock
                     },
                 );
+            }
+
+            if let Some((text, selection)) = preedit.as_ref()
+                && on_screen(viewport_row, snapshot.rows.len())
+            {
+                let cells = preedit_cells(text, cursor.column, snapshot.info.columns);
+                let text_len = text.encode_utf16().count();
+                // A preedit that wraps below the last row is drawn higher, over the rows above.
+                let up = rows_up(&cells, viewport_row as usize, snapshot.rows.len());
+                for piece in &cells {
+                    let row = (viewport_row as usize + piece.row).saturating_sub(up);
+                    let at = point(
+                        x_of(piece.column),
+                        bounds.top() + px(row as f32 * cell.height),
+                    );
+                    let width = width_of(piece.span);
+                    let foreground = palette.default_foreground();
+                    // Over the grid: the cells of the program under it are covered, the text is underlined.
+                    // The part the IME has selected (the segment it converts) has the selection's color.
+                    let chosen = !selection.is_empty()
+                        && piece.utf16 >= selection.start
+                        && piece.utf16 < selection.end;
+                    window.paint_quad(fill(
+                        Bounds::new(at, size(width, line)),
+                        rgb(if chosen {
+                            palette.selection()
+                        } else {
+                            palette.default_background()
+                        }),
+                    ));
+                    // The IME's caret: a bar before the cell it is in front of, or at the end of the text.
+                    if selection.is_empty() {
+                        let before = selection.start == piece.utf16;
+                        let at_end = selection.start >= text_len
+                            && cells.last().is_some_and(|last| std::ptr::eq(last, piece));
+                        if before || at_end {
+                            let bar_x = if before { at.x } else { at.x + width - px(2.) };
+                            window.paint_quad(fill(
+                                Bounds::new(point(bar_x, at.y), size(px(2.), line)),
+                                rgb(foreground),
+                            ));
+                        }
+                    }
+                    let mut shaped =
+                        shape(window, &piece.text, size_px, &fonts.regular, foreground);
+                    let squeezed =
+                        squeezed_size(font_size, f32::from(shaped.width()), piece.span, cell.width);
+                    if squeezed < font_size {
+                        shaped = shape(
+                            window,
+                            &piece.text,
+                            px(squeezed),
+                            &fonts.regular,
+                            foreground,
+                        );
+                    }
+                    shaped
+                        .paint(at, line, TextAlign::Left, None, window, cx)
+                        .ok();
+                    window.paint_quad(fill(
+                        Bounds::new(point(at.x, at.y + line - px(2.)), size(width, px(1.))),
+                        rgb(foreground),
+                    ));
+                }
             }
         });
     }
@@ -596,7 +760,7 @@ mod tests {
         let mut bold = cell('c');
         bold.bold = true;
         let cells = vec![cell('a'), cell('b'), cell(' '), bold, cell('d')];
-        let pieces = pieces_of(&row(cells), &palette(), None);
+        let pieces = pieces_of(&row(cells), &palette(), RowMarks::default());
         let texts: Vec<_> = pieces.iter().map(Piece::text).collect();
         assert_eq!(texts, ["ab", "c", "d"]);
         assert_eq!(pieces[0].cells[0].0, 0);
@@ -611,7 +775,7 @@ mod tests {
         let mut spacer = cell(' ');
         spacer.wide_spacer = true;
         let cells = vec![cell('a'), wide, spacer, cell('b')];
-        let pieces = pieces_of(&row(cells), &palette(), None);
+        let pieces = pieces_of(&row(cells), &palette(), RowMarks::default());
         assert_eq!(pieces.len(), 1);
         assert_eq!(pieces[0].text(), "aあb");
         assert_eq!(pieces[0].columns(), 4);
@@ -625,7 +789,7 @@ mod tests {
     fn combining_characters_stay_with_their_base() {
         let mut base = cell('e');
         base.zerowidth.push('\u{301}');
-        let pieces = pieces_of(&row(vec![base]), &palette(), None);
+        let pieces = pieces_of(&row(vec![base]), &palette(), RowMarks::default());
         assert_eq!(pieces[0].text(), "e\u{301}");
         assert_eq!(pieces[0].columns(), 1);
     }
@@ -633,23 +797,32 @@ mod tests {
     #[test]
     fn inverse_dim_and_hidden_change_the_colors() {
         let palette = palette();
-        let plain = resolve(&cell('a'), &palette, false);
+        let plain = resolve(&cell('a'), &palette, false, false);
         assert_eq!(plain, (0x000000, 0xffffff));
         let mut inverse = cell('a');
         inverse.inverse = true;
-        assert_eq!(resolve(&inverse, &palette, false), (0xffffff, 0x000000));
+        assert_eq!(
+            resolve(&inverse, &palette, false, false),
+            (0xffffff, 0x000000)
+        );
         // a block cursor inverts the cell once more
-        assert_eq!(resolve(&inverse, &palette, true), (0x000000, 0xffffff));
-        assert_eq!(resolve(&cell('a'), &palette, true), (0xffffff, 0x000000));
+        assert_eq!(
+            resolve(&inverse, &palette, true, false),
+            (0x000000, 0xffffff)
+        );
+        assert_eq!(
+            resolve(&cell('a'), &palette, true, false),
+            (0xffffff, 0x000000)
+        );
         let mut dim = cell('a');
         dim.dim = true;
-        assert_eq!(resolve(&dim, &palette, false).0, 0x7f7f7f);
+        assert_eq!(resolve(&dim, &palette, false, false).0, 0x7f7f7f);
         let mut hidden = cell('a');
         hidden.hidden = true;
-        let (fg, bg) = resolve(&hidden, &palette, false);
+        let (fg, bg) = resolve(&hidden, &palette, false, false);
         assert_eq!(fg, bg);
         // a hidden cell has no piece of text
-        assert!(pieces_of(&row(vec![hidden]), &palette, None).is_empty());
+        assert!(pieces_of(&row(vec![hidden]), &palette, RowMarks::default()).is_empty());
     }
 
     #[test]
@@ -658,9 +831,9 @@ mod tests {
         let mut c = cell('a');
         c.fg = Color::Indexed(196);
         c.bg = Color::Rgb(Rgb { r: 1, g: 2, b: 3 });
-        assert_eq!(resolve(&c, &palette, false), (0xff0000, 0x010203));
+        assert_eq!(resolve(&c, &palette, false, false), (0xff0000, 0x010203));
         c.fg = Color::Indexed(1);
-        assert_eq!(resolve(&c, &palette, false).0, palette.indexed(1));
+        assert_eq!(resolve(&c, &palette, false, false).0, palette.indexed(1));
     }
 
     #[test]
@@ -674,7 +847,7 @@ mod tests {
         spacer.wide_spacer = true;
         spacer.bg = Color::Indexed(1);
         let cells = vec![cell('a'), red.clone(), wide, spacer, cell('b'), red];
-        let runs = backgrounds_of(&row(cells), &palette(), None);
+        let runs = backgrounds_of(&row(cells), &palette(), RowMarks::default());
         let color = palette().indexed(1);
         assert_eq!(runs, vec![(1, 3, color), (5, 1, color)]);
     }
@@ -687,7 +860,8 @@ mod tests {
         under_a.underline = true;
         let cells = vec![under_a, under, cell('b')];
         assert_eq!(
-            runs_of(&row(cells), &palette(), None, |c| c.underline),
+            runs_of(&row(cells), &palette(), RowMarks::default(), |c| c
+                .underline),
             vec![(0, 2, 0x000000)]
         );
     }
@@ -700,5 +874,86 @@ mod tests {
         assert_eq!(squeezed_size(14.0, 14.4, 2, 7.2), 14.0);
         let squeezed = squeezed_size(14.0, 28.8, 2, 7.2);
         assert!((squeezed - 7.0).abs() < 1e-4, "{squeezed}");
+    }
+
+    fn span(start: (i32, usize), end: (i32, usize)) -> SelectionSpan {
+        SelectionSpan {
+            start_row: start.0,
+            start_column: start.1,
+            end_row: end.0,
+            end_column: end.1,
+        }
+    }
+
+    #[test]
+    fn the_selection_covers_part_of_its_first_and_last_rows_and_all_between() {
+        let one = span((2, 3), (2, 5));
+        assert_eq!(selected_columns(Some(&one), 2, 10), Some((3, 5)));
+        assert_eq!(selected_columns(Some(&one), 1, 10), None);
+        assert_eq!(selected_columns(Some(&one), 3, 10), None);
+        let many = span((1, 4), (3, 2));
+        assert_eq!(selected_columns(Some(&many), 0, 10), None);
+        assert_eq!(selected_columns(Some(&many), 1, 10), Some((4, 9)));
+        assert_eq!(selected_columns(Some(&many), 2, 10), Some((0, 9)));
+        assert_eq!(selected_columns(Some(&many), 3, 10), Some((0, 2)));
+        assert_eq!(selected_columns(Some(&many), 4, 10), None);
+        assert_eq!(selected_columns(None, 1, 10), None);
+        // a selection that began above the view covers the rows from its top
+        let above = span((-5, 7), (1, 1));
+        assert_eq!(selected_columns(Some(&above), 0, 10), Some((0, 9)));
+    }
+
+    #[test]
+    fn a_wide_character_is_selected_when_either_half_is() {
+        let marks = RowMarks {
+            cursor: None,
+            selected: Some((3, 3)),
+        };
+        assert!(marks.selects(3, 1));
+        // a wide character in columns 2 and 3, and one in 3 and 4
+        assert!(marks.selects(2, 2));
+        assert!(marks.selects(3, 2));
+        assert!(!marks.selects(1, 2));
+        assert!(!marks.selects(4, 1));
+    }
+
+    #[test]
+    fn selected_cells_have_the_selection_background_and_the_cursors_cell_stays_inverted() {
+        let palette = palette();
+        let mut inverse = cell('a');
+        inverse.inverse = true;
+        let selection = palette.selection();
+        // the text keeps its own foreground, not the swapped one
+        assert_eq!(
+            resolve(&inverse, &palette, false, true),
+            (0x000000, selection)
+        );
+        // text of the selection's own color is drawn in the default foreground
+        let mut same = cell('a');
+        same.fg = Color::Rgb(Rgb {
+            r: (selection >> 16) as u8,
+            g: (selection >> 8) as u8,
+            b: selection as u8,
+        });
+        assert_eq!(resolve(&same, &palette, false, true).0, 0x000000);
+        let cells = vec![cell('a'), cell('b'), cell('c')];
+        let marks = RowMarks {
+            cursor: None,
+            selected: Some((1, 2)),
+        };
+        assert_eq!(
+            backgrounds_of(&row(cells.clone()), &palette, marks),
+            vec![(1, 2, selection)]
+        );
+        // the cell of the block cursor is shown by the cursor, not as selected
+        let with_cursor = RowMarks {
+            cursor: Some(1),
+            selected: Some((1, 2)),
+        };
+        assert_eq!(
+            backgrounds_of(&row(cells), &palette, with_cursor),
+            // the inverted cell (the foreground is the background now), then the selected one
+            vec![(1, 1, 0x000000), (2, 1, selection)]
+        );
     }
 }

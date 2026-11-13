@@ -22,13 +22,13 @@ const NO: &str = "いいえ(N)";
 
 /// A window for a test with a real PTY. The events of the shell come from a thread of their own and wake
 /// tasks of the window from there, which GPUI's test scheduler refuses unless parking is allowed.
-fn terminal_window(cx: &mut TestAppContext) -> AnyWindowHandle {
+pub(super) fn terminal_window(cx: &mut TestAppContext) -> AnyWindowHandle {
     cx.executor().allow_parking();
     window(cx, true)
 }
 
 /// A shell that prints `hello` and then stays, echoing what is typed (`cat`; on Windows, cmd.exe itself).
-fn staying() -> ShellCommand {
+pub(super) fn staying() -> ShellCommand {
     if cfg!(windows) {
         ShellCommand::new("cmd.exe", ["/Q", "/K", "echo hello"])
     } else {
@@ -56,7 +56,7 @@ fn ending(code: i32) -> ShellCommand {
     }
 }
 
-fn open(
+pub(super) fn open(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,
     shell: ShellCommand,
@@ -73,7 +73,7 @@ fn open(
 }
 
 /// Runs the events until `done` is true, or fails after a while.
-fn wait_until(
+pub(super) fn wait_until(
     cx: &mut TestAppContext,
     what: &str,
     mut done: impl FnMut(&mut TestAppContext) -> bool,
@@ -90,25 +90,25 @@ fn wait_until(
     }
 }
 
-fn screen(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> String {
+pub(super) fn screen(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> String {
     view.read_with(cx, |view, _| view.screen_text())
 }
 
-fn wait_for_text(cx: &mut TestAppContext, view: &Entity<TerminalView>, text: &str) {
+pub(super) fn wait_for_text(cx: &mut TestAppContext, view: &Entity<TerminalView>, text: &str) {
     let view = view.clone();
     wait_until(cx, &format!("{text:?} on the screen"), move |cx| {
         screen(cx, &view).contains(text)
     });
 }
 
-fn wait_for_end(cx: &mut TestAppContext, view: &Entity<TerminalView>) {
+pub(super) fn wait_for_end(cx: &mut TestAppContext, view: &Entity<TerminalView>) {
     let view = view.clone();
     wait_until(cx, "the shell to end", move |cx| {
         view.read_with(cx, |view, _| view.ended().is_some())
     });
 }
 
-fn running(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> bool {
+pub(super) fn running(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> bool {
     view.read_with(cx, |view, _| view.is_running())
 }
 
@@ -122,7 +122,7 @@ fn close_tab(cx: &mut TestAppContext, handle: AnyWindowHandle, index: usize) {
     cx.run_until_parked();
 }
 
-fn has_prompt(cx: &mut TestAppContext, handle: AnyWindowHandle) -> bool {
+pub(super) fn has_prompt(cx: &mut TestAppContext, handle: AnyWindowHandle) -> bool {
     visual(cx, handle).has_pending_prompt()
 }
 
@@ -577,6 +577,9 @@ fn a_character_of_the_layout_is_typed_and_not_taken_as_a_key_of_the_window(
         prefer_character_input: true,
     });
     cx.run_until_parked();
+    // The terminal writes the character itself (a key with Ctrl and Alt is not delivered as text on every
+    // platform), and the window does not run the key.
+    assert_eq!(active_tab(cx, handle), 1, "the window did not run the key");
     wait_for_text(cx, &view, "\u{20ac}");
 }
 
