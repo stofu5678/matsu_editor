@@ -219,3 +219,12 @@ fn ordinary_japanese_and_code_have_no_secret_lines() {
     assert_eq!(p.secret_lines_total, 0);
     assert!(p.secrets.is_empty());
 }
+
+#[test]
+fn a_secret_whose_end_lies_past_the_display_cut_is_still_masked() {
+    let text = format!("https://user:{}@host/", "p".repeat(400));
+    let d = doc(&text);
+    let p = all(&d, &PreviewLimits::default());
+    assert_eq!(p.secret_lines_total, 1);
+    assert!(!p.head[0].text.contains("ppppp"));
+}

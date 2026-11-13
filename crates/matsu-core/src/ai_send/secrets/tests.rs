@@ -126,3 +126,29 @@ fn masking_never_shows_a_whole_secret() {
 fn masking_a_line_without_matches_changes_nothing() {
     assert_eq!(mask_line("日本語 text", &[]), "日本語 text");
 }
+
+#[test]
+fn overlapping_matches_become_their_union() {
+    // The password starts like an API key and goes on with characters a key does not have.
+    let line = "https://u:sk-proj-abc123DEF456ghi789JKL012+tail@example.com/";
+    let found = find_secrets(line);
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        &line[found[0].range.clone()],
+        "sk-proj-abc123DEF456ghi789JKL012+tail"
+    );
+    assert!(!mask_line(line, &found).contains("tail"));
+}
+
+#[test]
+fn a_long_line_of_candidates_is_scanned_in_linear_time() {
+    let start = std::time::Instant::now();
+    for line in [
+        "eyJabcdefghij.".repeat(300_000),
+        "https://".repeat(300_000),
+        "Bearer ".repeat(300_000),
+    ] {
+        let _ = find_secrets(&line);
+    }
+    assert!(start.elapsed().as_secs() < 5, "{:?}", start.elapsed());
+}

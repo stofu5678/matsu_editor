@@ -156,17 +156,16 @@ pub fn find_secrets(line: &str) -> Vec<SecretMatch> {
     found.extend(find_jwt(line));
     found.extend(find_bearer(line));
     found.extend(find_url_password(line));
-    found.sort_by_key(|m| (m.range.start, m.range.end));
-    // Drop what starts inside an earlier match.
+    // Overlapping matches become one: the union, with the kind of the first.
+    found.sort_by_key(|m| (m.range.start, std::cmp::Reverse(m.range.end)));
     let mut out: Vec<SecretMatch> = Vec::with_capacity(found.len());
     for m in found {
-        if out
-            .last()
-            .is_some_and(|last| m.range.start < last.range.end)
-        {
-            continue;
+        match out.last_mut() {
+            Some(last) if m.range.start < last.range.end => {
+                last.range.end = last.range.end.max(m.range.end);
+            }
+            _ => out.push(m),
         }
-        out.push(m);
     }
     out
 }
@@ -194,6 +193,10 @@ fn find_jwt(line: &str) -> Vec<SecretMatch> {
                 }
                 parts += 1;
                 part_len = 0;
+                if parts > 3 {
+                    ok = false;
+                    break;
+                }
             } else {
                 part_len += 1;
             }
@@ -204,8 +207,9 @@ fn find_jwt(line: &str) -> Vec<SecretMatch> {
                 kind: SecretKind::Jwt,
                 range: start..end,
             });
-            from = end;
         }
+        // What was walked is not walked again (a line of `eyJ...` words stays linear).
+        from = from.max(end);
     }
     out
 }
@@ -233,6 +237,9 @@ fn find_bearer(line: &str) -> Vec<SecretMatch> {
     out
 }
 
+/// The most bytes of `user:password@host` that are looked at.
+const MAX_AUTHORITY: usize = 512;
+
 /// `://user:password@host`: the password part.
 fn find_url_password(line: &str) -> Vec<SecretMatch> {
     let mut out = Vec::new();
@@ -240,7 +247,13 @@ fn find_url_password(line: &str) -> Vec<SecretMatch> {
     while let Some(i) = line[from..].find("://") {
         let start = from + i + 3;
         from = start;
-        let rest = &line[start..];
+        // Only the start of what follows is looked at, so that a long line full of `://` stays
+        // linear. A password longer than this is not found.
+        let mut stop = (start + MAX_AUTHORITY).min(line.len());
+        while !line.is_char_boundary(stop) {
+            stop -= 1;
+        }
+        let rest = &line[start..stop];
         let end = rest
             .find(|c: char| c.is_whitespace() || matches!(c, '/' | '"' | '\''))
             .unwrap_or(rest.len());

@@ -189,6 +189,9 @@ pub fn preview_range(
     Ok(preview)
 }
 
+/// The most bytes read of a line to show.
+const SHOWN_READ_BYTES: usize = 64 * 1024;
+
 struct Selection<'a> {
     doc: &'a Document,
     from: Pos,
@@ -227,8 +230,9 @@ impl Selection<'_> {
 
     /// Line `i` as the window shows it: masked, and cut to `limits.line_chars`.
     fn shown_line(&self, i: usize, limits: &PreviewLimits) -> Result<PreviewLine> {
-        // Reading `line_chars * 4` bytes is enough for `line_chars` characters.
-        let (text, _) = self.read(i, limits.line_chars.saturating_mul(4))?;
+        // Read as much as the scan does of a line, so that a secret that the scan finds is found
+        // here too and masked (the shown part is cut after masking).
+        let (text, _) = self.read(i, SHOWN_READ_BYTES)?;
         let masked = mask_line(&text, &find_secrets(&text));
         Ok(PreviewLine {
             number: i + 1,
