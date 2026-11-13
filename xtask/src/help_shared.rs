@@ -540,27 +540,27 @@ pub fn find_shared(
                         .zip(&sakura[file].1.chars[start..])
                         .take_while(|(a, b)| a == b)
                         .count();
-                    (len, file, start)
-                })
-                .max_by_key(|&(len, ..)| len);
-            match best {
-                Some((len, file, start)) if len >= min_real => {
                     let real = page.chars[i..i + len]
                         .iter()
                         .filter(|c| counts(**c))
                         .count();
-                    if real >= min_real {
-                        found.push(Shared {
-                            matsu_file: matsu_name.clone(),
-                            matsu_line: page.lines[i],
-                            sakura_file: sakura[file].0.clone(),
-                            sakura_line: sakura[file].1.lines[start],
-                            text: show(page, i, len),
-                            real_chars: real,
-                        });
-                    }
+                    (len, real, file, start)
+                })
+                // The candidate with the most counted characters: a longer one may hold fewer of them.
+                .max_by_key(|&(_, real, ..)| real);
+            match best {
+                Some((len, real, file, start)) if real >= min_real => {
+                    found.push(Shared {
+                        matsu_file: matsu_name.clone(),
+                        matsu_line: page.lines[i],
+                        sakura_file: sakura[file].0.clone(),
+                        sakura_line: sakura[file].1.lines[start],
+                        text: show(page, i, len),
+                        real_chars: real,
+                    });
                     i += len;
                 }
+                // Not enough counted characters (names, ASCII): a run that starts later may be enough.
                 _ => i += 1,
             }
         }
@@ -769,6 +769,27 @@ mod tests {
         );
         let s: String = normalize(&text).iter().map(|n| n.c).collect();
         assert_eq!(s, "見出しリンクと図abcd残る");
+    }
+
+    #[test]
+    fn a_match_with_too_few_counted_characters_does_not_hide_a_later_one() {
+        // The MATSU page has 20 ASCII letters and then 20 Japanese characters. One Sakura page shares the
+        // letters and the first 19 characters (19 counted), another shares only the 20 characters.
+        let n = Names::default();
+        let japanese = "あいうえおかきくけこさしすせそたちつてと";
+        let letters = "abcdefghijklmnopqrst";
+        let first = format!(
+            "{letters}{}Z",
+            &japanese[..japanese.char_indices().nth(19).unwrap().0]
+        );
+        let sakura = [
+            ("A.html".to_string(), prepare(&strip_html(&first), &n)),
+            ("B.html".to_string(), prepare(&strip_html(japanese), &n)),
+        ];
+        let matsu = md(&format!("{letters}{japanese}"), &n);
+        let found = find_shared(&matsu, &sakura, 20);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].sakura_file, "B.html");
     }
 
     #[test]

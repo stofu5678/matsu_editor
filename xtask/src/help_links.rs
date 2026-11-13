@@ -148,6 +148,20 @@ pub fn anchors(source: &str) -> HashSet<String> {
 pub fn links(source: &str) -> Vec<(u32, String)> {
     let mut out = Vec::new();
     for (number, line) in prose_lines(source) {
+        // A reference definition, `[label]: target "title"`: the target counts as a link whether or not
+        // a reference uses it (a reference such as `[text][label]` is then checked through it).
+        if let Some(definition) = line
+            .trim_start()
+            .strip_prefix('[')
+            .and_then(|rest| rest.split_once("]:"))
+        {
+            let target = definition.1.split_whitespace().next().unwrap_or("");
+            let target = target.trim_start_matches('<').trim_end_matches('>');
+            if !target.is_empty() {
+                out.push((number, target.to_string()));
+            }
+            continue;
+        }
         let mut rest = line;
         while let Some(start) = rest.find("](") {
             rest = &rest[start + 2..];
@@ -360,6 +374,21 @@ mod tests {
         assert_eq!(problems.len(), 2, "{problems:?}");
         assert!(problems[0].contains("#無い"));
         assert!(problems[1].contains("#これも無い"));
+    }
+
+    #[test]
+    fn a_reference_style_link_is_checked() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n- [b](b.md)\n"),
+            (
+                "a.md",
+                "# a\n\n[次][next] [b][]\n\n[next]: b.md#missing \"title\"\n[b]: b.md\n",
+            ),
+            ("b.md", "# b\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("a.md:5:") && problems[0].contains("#missing"));
     }
 
     #[test]
