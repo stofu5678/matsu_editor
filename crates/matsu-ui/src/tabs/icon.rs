@@ -23,6 +23,8 @@ pub(crate) enum TabIcon {
     Grep,
     /// A document with no file, or a window that is neither (`m_iIconApp`).
     App,
+    /// A shell tab (ADR-0028): the terminal icon of GPUI's set.
+    Terminal,
 }
 
 impl TabIcon {
@@ -44,6 +46,9 @@ impl TabIcon {
             Self::File => Icon::new(IconName::File).xsmall().into_any_element(),
             Self::Grep => Icon::new(IconName::FolderOpen).xsmall().into_any_element(),
             Self::App => img(app_picture()).size(px(14.)).into_any_element(),
+            Self::Terminal => Icon::new(IconName::SquareTerminal)
+                .xsmall()
+                .into_any_element(),
         };
         div().flex_none().child(picture).into_any_element()
     }

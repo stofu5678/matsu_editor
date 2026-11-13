@@ -186,6 +186,7 @@ pub(crate) fn run(
         crate::font_diagnostics::report(cx, &user);
         crate::view::EditorView::bind_keys(cx);
         crate::preview::bind_keys(cx);
+        crate::terminal::bind_keys(cx);
         // the title of the confirmation boxes (Windows), as Sakura's: the name of the application
         matsu_platform::dialog_title::install();
         crate::history::install(cx, &user);
@@ -204,11 +205,17 @@ pub(crate) fn run(
         cx.on_app_quit(|cx| {
             // The processes of the plugins end first: none is left running behind the editor.
             crate::macros::plugin_call::shutdown_all(cx);
+            // The shells are asked to end now, on their own threads, while the copies are written below.
+            crate::terminal::shutdown_all(cx);
             crate::history::view::record_all(cx);
             crate::saved_state::window::flush(cx);
             // The copies of the unsaved documents have their latest content when the process ends, however
             // it was asked to end (ADR-0022).
-            crate::unsaved::settle_at_quit(cx)
+            let settled = crate::unsaved::settle_at_quit(cx);
+            // A shell whose closing is cut short by the end of the process is left behind on Windows
+            // (`matsu_terminal::wait_for_closing`); the time is bounded (`terminal::QUIT_WAIT`).
+            matsu_terminal::wait_for_closing(crate::terminal::QUIT_WAIT);
+            settled
         })
         .detach();
         cx.on_window_closed(|cx, _| {
@@ -357,6 +364,16 @@ fn menus_of(
         MenuKind::Editor => editor_menus(cx, keymap, style, states, &mut built),
         MenuKind::Preview => {
             for menu in crate::preview::menus::menus(!cfg!(target_os = "macos")) {
+                // No Sakura function, so no picture.
+                built.icons.push(matsu_platform::menu_icons::Menu {
+                    title: menu.name.to_string(),
+                    items: vec![matsu_platform::menu_icons::Node::Plain; menu.items.len()],
+                });
+                built.menus.push(menu);
+            }
+        }
+        MenuKind::Terminal => {
+            for menu in crate::terminal::menus::menus() {
                 // No Sakura function, so no picture.
                 built.icons.push(matsu_platform::menu_icons::Menu {
                     title: menu.name.to_string(),
@@ -667,7 +684,7 @@ impl Workspace {
     ) -> Option<crate::menu_state::FuncStates> {
         match self.menu_kind() {
             MenuKind::Editor => Some(self.func_states(topmost, this, cx)),
-            MenuKind::Preview => None,
+            MenuKind::Preview | MenuKind::Terminal => None,
             #[cfg(test)]
             MenuKind::Probe => None,
         }
@@ -684,21 +701,26 @@ impl Render for Workspace {
         self.sync_outline(window, cx);
         let active = self.panes().active().clone();
         let editor = active.read(cx);
-        // A preview (ADR-0024) draws its own view; the bars of the editor are not shown with it.
+        // A preview (ADR-0024) and a shell (ADR-0028) draw their own views; the bars of the editor are not
+        // shown with them.
         let preview = self.content.preview().map(|p| p.view().clone());
+        let terminal = self.content.terminal().map(|t| t.view().clone());
+        let own = !self.content.is_editor();
         // The list of the tabs (the ▼ button of the bar) belongs to the view that runs its function:
         // with a preview that is the hidden view, which is not drawn, so the list is drawn here.
         let tab_list = editor.tab_list.clone();
         let title = editor.title_for(window.is_window_active(), cx);
         window.set_window_title(&if preview.is_some() {
             format!("プレビュー: {title}")
+        } else if let Some(shell) = &terminal {
+            format!("シェル: {}", shell.read(cx).program())
         } else {
             title
         });
         crate::doc_window::sync(window, editor, cx);
         let status = self.content.panel().status(cx);
         let show_status_bar = editor.status_bar_shown();
-        let macro_panel = if preview.is_some() {
+        let macro_panel = if own {
             None
         } else {
             editor.macro_panel(active.clone(), cx)
@@ -719,7 +741,7 @@ impl Render for Workspace {
             (tab_bar, None)
         };
         // The minimap draws the pane that is active.
-        let minimap_shown = crate::minimap::current(cx).shown && preview.is_none();
+        let minimap_shown = crate::minimap::current(cx).shown && !own;
         self.minimap.update(cx, |minimap, cx| {
             if minimap_shown {
                 minimap.follow(&active, cx);
@@ -729,7 +751,7 @@ impl Render for Workspace {
         });
         let minimap = minimap_shown.then(|| self.minimap.clone());
         let topmost = crate::window_ops::is_topmost(window, cx);
-        let (toolbar, funckeys_top, funckeys_bottom) = if preview.is_some() {
+        let (toolbar, funckeys_top, funckeys_bottom) = if own {
             (None, None, None)
         } else {
             (
@@ -738,20 +760,22 @@ impl Render for Workspace {
                 self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx),
             )
         };
-        let body = match preview {
-            Some(view) => div()
+        let body = match (preview, terminal) {
+            (Some(view), _) => div()
                 .size_full()
                 .relative()
                 .child(view)
                 .children(tab_list)
                 .into_any_element(),
-            None => self.render_panes(cx).into_any_element(),
+            (None, Some(view)) => div()
+                .size_full()
+                .relative()
+                .child(view)
+                .children(tab_list)
+                .into_any_element(),
+            (None, None) => self.render_panes(cx).into_any_element(),
         };
-        let outline = if self.content.preview().is_some() {
-            None
-        } else {
-            self.outline.clone()
-        };
+        let outline = if own { None } else { self.outline.clone() };
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
         let client_decorated = cfg!(target_os = "linux")

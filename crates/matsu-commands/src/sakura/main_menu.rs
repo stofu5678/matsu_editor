@@ -389,6 +389,7 @@ pub static MAIN_MENU: &[MenuItem] = &[
     MenuItem { level: 1, kind: Separator, code: 1, access_key: None, label: None },
     MenuItem { level: 1, kind: Leaf, code: 31370, access_key: Some('U'), label: Some("アウトプット") },
     MenuItem { level: 1, kind: Leaf, code: 32702, access_key: Some('G'), label: Some("プレビューを別のタブで開く") },
+    MenuItem { level: 1, kind: Leaf, code: 32710, access_key: Some('L'), label: Some("シェルのタブを開く") },
     MenuItem { level: 1, kind: Leaf, code: 31337, access_key: Some('D'), label: Some("ウィンドウ一覧表示...") },
     MenuItem { level: 1, kind: Separator, code: 1, access_key: None, label: None },
     MenuItem { level: 1, kind: Node, code: 34060, access_key: Some('A'), label: Some("ウィンドウ一覧") },

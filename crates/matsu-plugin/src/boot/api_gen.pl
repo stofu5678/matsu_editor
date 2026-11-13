@@ -2085,6 +2085,11 @@ sub ActivateWinOutput { shift; return $CALL->('ActivateWinOutput', @_) }
 # and a key macro run.
 sub PreviewTab { shift; return $CALL->('PreviewTab', @_) }
 
+# ShellTab() -> null
+# MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub ShellTab { shift; return $CALL->('ShellTab', @_) }
+
 # TraceOut(arg1: string?, arg2: int?) -> null
 # MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a
 # key macro run.

@@ -21,7 +21,7 @@ use matsu_platform::window::arrange::{
 };
 use matsu_platform::window::{self, Error, RawWindowHandle};
 
-use crate::file_ops::windows::{activate, editors};
+use crate::file_ops::windows::activate;
 use crate::view::EditorView;
 
 /// What the OS does with a window. All the windows are told apart by their GPUI handle.
@@ -321,15 +321,13 @@ pub(crate) fn window_after(
     Some(all[neighbor(all.len(), at, direction)])
 }
 
-/// All editor windows, oldest first (a window with tabs once).
+/// All windows of the editor, oldest first, also the ones that hold no document (only shells): the walk to
+/// the next window, the arrangement and the like must reach and start from them.
 pub(crate) fn all_handles(cx: &mut App) -> Vec<AnyWindowHandle> {
-    let mut handles = Vec::new();
-    for (handle, _) in editors(cx) {
-        if !handles.contains(&handle) {
-            handles.push(handle);
-        }
-    }
-    handles
+    crate::file_ops::windows::workspaces(cx)
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .collect()
 }
 
 /// `F_WIN_CLOSEALL` and `F_TAB_CLOSEOTHER`: asks about each window with unsaved changes and
@@ -364,16 +362,48 @@ pub(crate) async fn close_windows(
     if !keep_current {
         closing.extend(mine);
     }
-    // A window whose documents are all closed but that still has a preview (a tab that is not a
-    // document of the group) goes with them. Not when one document stays (`keep_current`).
+    // A window whose documents are all closed but that still has a preview or a shell (a tab that is not a
+    // document of the group) goes with them, and so does a window that had no document at all (only shells).
+    // Not when one document stays (`keep_current`).
+    let windows = cx
+        .update(|_, app| crate::tabs::flows::group_windows(app, current))
+        .unwrap_or_default();
     let handles: Vec<_> = closing
         .iter()
         .map(|(handle, _)| *handle)
         .chain(std::iter::once(current))
+        .chain(windows)
         .collect();
-    let closed = close_views(cx, closing).await;
+    // The question about closing several windows comes before anything is closed or asked about.
+    if !confirm_closing_several(cx, closing.len()).await {
+        return false;
+    }
+    // The shells of those windows end with them, so they are asked about before anything is closed (the
+    // window that runs the flow may be the first to go, and the questions of the documents can be given up):
+    // once, for all of them. The windows stay usable while the question is open: a shell started meanwhile is
+    // asked about too.
+    let mut asked: Vec<gpui::EntityId> = Vec::new();
+    if !keep_current {
+        loop {
+            let running = cx
+                .update(|_, app| running_shell_ids_of(app, &handles))
+                .unwrap_or_default();
+            if running.iter().all(|id| asked.contains(id)) {
+                break;
+            }
+            if !crate::terminal::confirm_close(cx, running.len()).await {
+                return false;
+            }
+            asked = running;
+        }
+        // The windows that have no document already (only shells or previews) go now: the flow may not
+        // outlive its own window, and these do not depend on the answers about the documents.
+        let others: Vec<_> = handles.iter().copied().filter(|h| *h != current).collect();
+        close_own_tab_only_windows(cx, others, &asked);
+    }
+    let closed = close_each(cx, closing).await;
     if closed && !keep_current {
-        close_preview_only_windows(cx, handles);
+        close_own_tab_only_windows(cx, handles, &asked);
     }
     closed
 }
@@ -404,6 +434,14 @@ pub(crate) async fn close_views(
     if !confirm_closing_several(cx, views.len()).await {
         return false;
     }
+    close_each(cx, views).await
+}
+
+/// [`close_views`] without the question about closing several windows (it was asked already).
+async fn close_each(
+    cx: &mut AsyncWindowContext,
+    views: Vec<(AnyWindowHandle, Entity<EditorView>)>,
+) -> bool {
     for (handle, view) in views {
         if !crate::tabs::bar::close_document(cx, handle, &view).await {
             return false;
@@ -412,19 +450,47 @@ pub(crate) async fn close_views(
     true
 }
 
-/// Closes the windows among `handles` that have only previews left.
-fn close_preview_only_windows(cx: &mut AsyncWindowContext, handles: Vec<AnyWindowHandle>) {
+/// The running shells (the entities of their views) of the windows among `handles`.
+fn running_shell_ids_of(app: &mut App, handles: &[AnyWindowHandle]) -> Vec<gpui::EntityId> {
+    // A window is listed once for each document it had.
+    let mut unique: Vec<AnyWindowHandle> = Vec::new();
+    for handle in handles {
+        if !unique.contains(handle) {
+            unique.push(*handle);
+        }
+    }
+    let workspaces: Vec<_> = unique
+        .iter()
+        .filter_map(|handle| crate::file_ops::windows::workspace_of(app, *handle))
+        .collect();
+    workspaces
+        .iter()
+        .map(|workspace| workspace.read(app))
+        .flat_map(|ws| ws.running_shell_ids(app))
+        .collect()
+}
+
+/// Closes the windows among `handles` that have only previews or shells left, except a window with a running
+/// shell that is not among `asked` (one that was started after the question).
+fn close_own_tab_only_windows(
+    cx: &mut AsyncWindowContext,
+    handles: Vec<AnyWindowHandle>,
+    asked: &[gpui::EntityId],
+) {
     let _ = cx.update(|window, app| {
         for handle in handles {
             let Some(workspace) = crate::file_ops::windows::workspace_of(app, handle) else {
                 continue;
             };
+            if workspace.read(app).has_unconfirmed_shell(app, asked) {
+                continue;
+            }
             if handle == window.window_handle() {
-                workspace.update(app, |ws, cx| ws.close_if_only_previews(window, cx));
+                workspace.update(app, |ws, cx| ws.close_if_only_own_tabs(window, cx));
             } else {
                 handle
                     .update(app, |_, other, app| {
-                        workspace.update(app, |ws, cx| ws.close_if_only_previews(other, cx));
+                        workspace.update(app, |ws, cx| ws.close_if_only_own_tabs(other, cx));
                     })
                     .ok();
             }

@@ -71,7 +71,7 @@ pub const CURRENT_VERSION: i32 = 2;
 pub const MATSU_VERSION_KEY: &str = "nMatsuMainMenuVer";
 /// The current version of MATSU's own items. A saved menu with a smaller version (or with none) gets the
 /// items of the versions after it once.
-pub const MATSU_CURRENT_VERSION: i32 = 3;
+pub const MATSU_CURRENT_VERSION: i32 = 4;
 
 /// `F_NODE`: a node whose name is the name of the row.
 pub const F_NODE: u16 = 0;
@@ -337,10 +337,10 @@ const ADDITIONS: [Addition; 21] = [
 /// The items that only MATSU has, which the menus saved before them lack (version 1: the copies with LF and
 /// with CR, and the preview in another tab; version 2: the chooser of the connection to run the database
 /// function on; version 3: the six encodings and decodings of the selection, a group of its own in the 変換 menu
-/// after 「空白→TAB」; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
+/// after 「空白→TAB」; version 4: the shell tab after the preview tab; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
 /// Sakura's, they are added after the item they follow, with the access key of the default menu unless a
 /// sibling in the same submenu already has it.
-const MATSU_ADDITIONS: [Addition; 10] = [
+const MATSU_ADDITIONS: [Addition; 11] = [
     Addition::new(1, 32700, 30603, false).with_key('N'), // F_COPY_LF after F_COPY_CRLF
     Addition::new(1, 32701, 32700, false).with_key('M'), // F_COPY_CR after F_COPY_LF
     Addition::new(1, 32702, 31370, false).with_key('G'), // the preview in another tab after F_WIN_OUTPUT
@@ -353,6 +353,7 @@ const MATSU_ADDITIONS: [Addition; 10] = [
     Addition::new(3, 32709, 32708, false)
         .with_key('Y')
         .with_separator_after(), // F_BASE64_DECODE_TEXT, then a separator
+    Addition::new(4, 32710, 32702, false).with_key('L'), // the shell tab after the preview tab
 ];
 
 impl MainMenu {

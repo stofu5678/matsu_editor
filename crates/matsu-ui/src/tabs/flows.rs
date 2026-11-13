@@ -39,6 +39,16 @@ pub(crate) fn group_views(
     }
 }
 
+/// The windows of the group of the window `handle`: itself in tab mode, else every window, also the ones that
+/// have no document (a window that holds only shells is in no list of documents).
+pub(crate) fn group_windows(cx: &mut App, handle: AnyWindowHandle) -> Vec<AnyWindowHandle> {
+    if settings::current(cx).bound() {
+        vec![handle]
+    } else {
+        workspaces(cx).into_iter().map(|(h, _)| h).collect()
+    }
+}
+
 /// Brings the document of `view` to the front: its window, and its tab. It happens after the
 /// function that asks for it ends (the window of that function may be the one to change).
 pub(crate) fn reveal(cx: &mut App, handle: AnyWindowHandle, view: Entity<EditorView>) {
@@ -157,8 +167,8 @@ fn anyhow_closed() -> gpui::private::anyhow::Error {
 
 /// `ResetGroupId` after `F_SHOWTAB` and `F_BIND_WINDOW` (`CAppNodeManager::ResetGroupId`): in tab
 /// mode the documents of all windows gather in the tabs of `window`; otherwise every tab of every
-/// window gets a window of its own. A window that is still reading a file is left as it is.
-/// `window` is the window that runs the function.
+/// window gets a window of its own. A window that is still reading a file, or has a running shell (it
+/// would end with the window), is left as it is. `window` is the window that runs the function.
 pub(crate) fn regroup(cx: &mut App, window: &mut Window) {
     let current = window.window_handle();
     let bound = settings::current(cx).bound();
@@ -176,7 +186,10 @@ pub(crate) fn regroup(cx: &mut App, window: &mut Window) {
         // after (Sakura orders the tabs by the number of the window).
         let mut front = 0;
         for (i, (handle, other)) in all.iter().enumerate() {
-            if *handle == current || has_pending(cx, *handle) {
+            if *handle == current
+                || has_pending(cx, *handle)
+                || other.read(cx).running_shells(cx) > 0
+            {
                 continue;
             }
             let sets = handle
@@ -531,7 +544,7 @@ pub(crate) async fn close_side(
             // From a preview the sides are those of its tab among the tabs of the window; the
             // previews on a side stay.
             let workspace = workspace_of(app, handle)?;
-            if workspace.read(app).active_is_preview() {
+            if workspace.read(app).active_is_own_tab() {
                 let ws = workspace.read(app);
                 let (at, count) = (ws.active_tab(), ws.tab_count());
                 let range = if left {
