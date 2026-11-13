@@ -121,20 +121,41 @@ fn keys(cx: &mut TestAppContext, handle: AnyWindowHandle, keystrokes: &str) {
     cx.run_until_parked();
 }
 
-/// The row of the screen that has exactly `line`, and the column its `needle` starts in.
+/// The row of the screen that has exactly `line`, and the column its `needle` starts in; `None` while the
+/// screen does not show the line.
 fn find(
     cx: &mut TestAppContext,
     view: &Entity<TerminalView>,
     line: &str,
     needle: &str,
-) -> (usize, usize) {
+) -> Option<(usize, usize)> {
     let text = screen(cx, view);
-    let row = text
-        .lines()
-        .position(|l| l == line)
-        .unwrap_or_else(|| panic!("no line {line:?} in {text:?}"));
+    let row = text.lines().position(|l| l == line)?;
     let column = line.find(needle).expect("the needle is in the line");
-    (row, column)
+    Some((row, column))
+}
+
+/// Does `attempt` again until it says it worked, or fails after a while.
+///
+/// A selection can be taken away by the terminal between two steps of a test: the tab is laid out after the
+/// shell started, so the terminal is resized, and on Windows ConPTY answers a resize by painting the screen
+/// again with erase sequences; `alacritty_terminal` clears a selection that an erase touches (and one when the
+/// number of columns changes). A step that needs the selection is therefore done again from its start, and
+/// what it checks is checked in the same attempt.
+fn until_it_holds(
+    cx: &mut TestAppContext,
+    what: &str,
+    mut attempt: impl FnMut(&mut TestAppContext) -> bool,
+) {
+    wait_until(cx, what, move |cx| attempt(cx));
+}
+
+/// Waits until the screen of the view is laid out (the mouse and the IME need its place).
+fn laid_out(cx: &mut TestAppContext, view: &Entity<TerminalView>) {
+    let view = view.clone();
+    wait_until(cx, "the screen to be laid out", move |cx| {
+        view.read_with(cx, |view, _| view.cell_point(0, 0, 0.0).is_some())
+    });
 }
 
 /// Drags over `columns` of `row` (the first to the last, both included) with the left button.
@@ -436,12 +457,19 @@ fn a_drag_selects_and_the_copy_key_copies_it_without_writing_the_interrupt(
     let handle = terminal_window(cx);
     let view = open(cx, handle, words());
     wait_for_line(cx, &view, "alpha beta gamma");
-    let (row, column) = find(cx, &view, "alpha beta gamma", "beta");
-    drag(cx, handle, &view, row, (column, column + 3));
-    assert_eq!(selected(cx, &view).as_deref(), Some("beta"));
-    set_clipboard(cx, "before");
-    keys(cx, handle, COPY);
-    assert_eq!(clipboard(cx).as_deref(), Some("beta"));
+    laid_out(cx, &view);
+    until_it_holds(cx, "the drag to be copied", |cx| {
+        let Some((row, column)) = find(cx, &view, "alpha beta gamma", "beta") else {
+            return false;
+        };
+        drag(cx, handle, &view, row, (column, column + 3));
+        if selected(cx, &view).as_deref() != Some("beta") {
+            return false;
+        }
+        set_clipboard(cx, "before");
+        keys(cx, handle, COPY);
+        clipboard(cx).as_deref() == Some("beta")
+    });
     assert_eq!(selected(cx, &view), None, "copying clears the selection");
     // The key was the copy's: the program is alive, and no ^C was written (the driver would show it).
     visual(cx, handle).simulate_input(if cfg!(windows) { "echo ok" } else { "ok" });
@@ -484,9 +512,14 @@ fn ctrl_c_is_the_programs_on_macos_even_with_a_selection(cx: &mut TestAppContext
     let shell = ShellCommand::new("/bin/sh", ["-c", "printf 'alpha beta gamma\\n'; sleep 60"]);
     let view = open(cx, handle, shell);
     wait_for_line(cx, &view, "alpha beta gamma");
-    let (row, column) = find(cx, &view, "alpha beta gamma", "beta");
-    drag(cx, handle, &view, row, (column, column + 3));
-    assert!(selected(cx, &view).is_some());
+    laid_out(cx, &view);
+    until_it_holds(cx, "a selection", |cx| {
+        let Some((row, column)) = find(cx, &view, "alpha beta gamma", "beta") else {
+            return false;
+        };
+        drag(cx, handle, &view, row, (column, column + 3));
+        selected(cx, &view).is_some()
+    });
     set_clipboard(cx, "before");
     keys(cx, handle, "ctrl-c");
     wait_for_end(cx, &view);
@@ -498,26 +531,33 @@ fn a_drag_goes_on_past_the_edge_of_the_screen(cx: &mut TestAppContext) {
     let handle = terminal_window(cx);
     let view = open(cx, handle, words());
     wait_for_line(cx, &view, "alpha beta gamma");
-    let (row, column) = find(cx, &view, "alpha beta gamma", "beta");
-    let from = view.read_with(cx, |view, _| {
-        view.cell_point(row, column, 0.25).expect("laid out")
+    laid_out(cx, &view);
+    until_it_holds(cx, "the drag past the edge", |cx| {
+        let Some((row, column)) = find(cx, &view, "alpha beta gamma", "beta") else {
+            return false;
+        };
+        let from = view.read_with(cx, |view, _| {
+            view.cell_point(row, column, 0.25).expect("laid out")
+        });
+        // far to the right of the window, on the same row
+        let far = gpui::point(gpui::px(5000.), from.y);
+        let vcx = visual(cx, handle);
+        vcx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        vcx.simulate_mouse_move(far, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+        // the selection followed the pointer out of the screen: to the end of the row
+        let followed = selected(cx, &view).as_deref() == Some("beta gamma");
+        visual(cx, handle).simulate_mouse_up(far, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+        if !followed || selected(cx, &view).as_deref() != Some("beta gamma") {
+            return false;
+        }
+        // the button is up: moving the pointer changes nothing
+        let back = view.read_with(cx, |view, _| view.cell_point(row, 0, 0.25).unwrap());
+        visual(cx, handle).simulate_mouse_move(back, None, Modifiers::default());
+        cx.run_until_parked();
+        selected(cx, &view).as_deref() == Some("beta gamma")
     });
-    // far to the right of the window, on the same row
-    let far = gpui::point(gpui::px(5000.), from.y);
-    let vcx = visual(cx, handle);
-    vcx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
-    vcx.simulate_mouse_move(far, MouseButton::Left, Modifiers::default());
-    cx.run_until_parked();
-    // the selection followed the pointer out of the screen: to the end of the row
-    assert_eq!(selected(cx, &view).as_deref(), Some("beta gamma"));
-    visual(cx, handle).simulate_mouse_up(far, MouseButton::Left, Modifiers::default());
-    cx.run_until_parked();
-    assert_eq!(selected(cx, &view).as_deref(), Some("beta gamma"));
-    // the button is up: moving the pointer changes nothing
-    let back = view.read_with(cx, |view, _| view.cell_point(row, 0, 0.25).unwrap());
-    visual(cx, handle).simulate_mouse_move(back, None, Modifiers::default());
-    cx.run_until_parked();
-    assert_eq!(selected(cx, &view).as_deref(), Some("beta gamma"));
 }
 
 #[gpui::test]
@@ -525,12 +565,18 @@ fn double_click_selects_a_word_and_triple_click_the_line(cx: &mut TestAppContext
     let handle = terminal_window(cx);
     let view = open(cx, handle, words());
     wait_for_line(cx, &view, "alpha beta gamma");
-    let (row, column) = find(cx, &view, "alpha beta gamma", "beta");
-    click(cx, handle, &view, (row, column + 1), 2);
-    assert_eq!(selected(cx, &view).as_deref(), Some("beta"));
-    click(cx, handle, &view, (row, column + 1), 3);
-    assert_eq!(selected(cx, &view).as_deref(), Some("alpha beta gamma"));
+    laid_out(cx, &view);
+    for (count, expected) in [(2, "beta"), (3, "alpha beta gamma")] {
+        until_it_holds(cx, &format!("{count} clicks to select"), |cx| {
+            let Some((row, column)) = find(cx, &view, "alpha beta gamma", "beta") else {
+                return false;
+            };
+            click(cx, handle, &view, (row, column + 1), count);
+            selected(cx, &view).as_deref() == Some(expected)
+        });
+    }
     // a click clears the selection
+    let (row, column) = find(cx, &view, "alpha beta gamma", "beta").expect("the line is there");
     click(cx, handle, &view, (row, column + 1), 1);
     assert_eq!(selected(cx, &view), None);
 }
@@ -540,17 +586,40 @@ fn typing_and_pasting_clear_the_selection(cx: &mut TestAppContext) {
     let handle = terminal_window(cx);
     let view = open(cx, handle, words());
     wait_for_line(cx, &view, "alpha beta gamma");
-    let (row, column) = find(cx, &view, "alpha beta gamma", "alpha");
-    drag(cx, handle, &view, row, (column, column + 4));
-    assert_eq!(selected(cx, &view).as_deref(), Some("alpha"));
-    visual(cx, handle).simulate_input("x");
-    cx.run_until_parked();
-    assert_eq!(selected(cx, &view), None, "typing clears the selection");
-    drag(cx, handle, &view, row, (column, column + 4));
-    assert!(selected(cx, &view).is_some());
+    laid_out(cx, &view);
+    // each step is its own attempt: it selects, checks the selection, does the thing and checks it is gone
+    until_it_holds(cx, "typing to clear a selection", |cx| {
+        let Some((row, column)) = find(cx, &view, "alpha beta gamma", "alpha") else {
+            return false;
+        };
+        drag(cx, handle, &view, row, (column, column + 4));
+        if selected(cx, &view).as_deref() != Some("alpha") {
+            return false;
+        }
+        visual(cx, handle).simulate_input("x");
+        cx.run_until_parked();
+        selected(cx, &view).is_none()
+    });
     set_clipboard(cx, "p");
-    keys(cx, handle, PASTE);
-    assert_eq!(selected(cx, &view), None, "pasting clears the selection");
+    until_it_holds(cx, "pasting to clear a selection", |cx| {
+        // the typed "x" is on the line now: the word is found by its own text
+        let Some(line) = screen(cx, &view)
+            .lines()
+            .find(|l| l.starts_with("alpha"))
+            .map(str::to_owned)
+        else {
+            return false;
+        };
+        let Some((row, column)) = find(cx, &view, &line, "alpha") else {
+            return false;
+        };
+        drag(cx, handle, &view, row, (column, column + 4));
+        if selected(cx, &view).as_deref() != Some("alpha") {
+            return false;
+        }
+        keys(cx, handle, PASTE);
+        selected(cx, &view).is_none()
+    });
 }
 
 #[gpui::test]
@@ -578,8 +647,13 @@ fn the_copy_item_of_the_menu_is_gray_until_something_is_selected(cx: &mut TestAp
             .unwrap();
         disabled.expect("the copy item")
     };
+    laid_out(cx, &view);
     assert!(copy_disabled(cx));
-    let (row, column) = find(cx, &view, "alpha beta gamma", "gamma");
-    drag(cx, handle, &view, row, (column, column + 4));
-    assert!(!copy_disabled(cx));
+    until_it_holds(cx, "a selection to light the copy item", |cx| {
+        let Some((row, column)) = find(cx, &view, "alpha beta gamma", "gamma") else {
+            return false;
+        };
+        drag(cx, handle, &view, row, (column, column + 4));
+        selected(cx, &view).is_some() && !copy_disabled(cx)
+    });
 }
