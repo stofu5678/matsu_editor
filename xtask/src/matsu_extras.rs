@@ -260,14 +260,15 @@ pub fn apply(tables: &mut Tables) -> Result<(), String> {
         }
         tables.menu.splice(menu + 1..menu + 1, items);
     }
-    add_oneliner_functions(tables)
+    add_oneliner_functions(tables)?;
+    add_oneliner_menu(tables)
 }
 
 /// The one-liners (ADR-0029): `F_ONELINER_0` to `F_ONELINER_49` run one-liner n of `[OneLiner]`, in a row
 /// from [`ONELINER_FIRST_CODE`] like Sakura's `F_USERMACRO_0 + n`; then the special item that stands for the
 /// registered ones in a menu, the input dialog and the settings. They are in no group of the command list
-/// (the key, toolbar and menu pages give them a kind of their own), in no macro table and not in the main menu
-/// yet: the commands and the menus come with the PR that runs them. The codes are the ones of
+/// (the key, toolbar and menu pages give them a kind of their own). The macro table has a row for each
+/// ([`oneliner_macros`]) and the main menu a submenu ([`add_oneliner_menu`]). The codes are the ones of
 /// `matsu_config::settings::oneliner`.
 pub const ONELINER_FIRST_CODE: u16 = 32711;
 const ONELINER_COUNT: u16 = 50;
@@ -298,14 +299,14 @@ fn oneliner_functions() -> Vec<Function> {
             "F_ONELINER_DIALOG",
             "oneliner_dialog",
             Kind::Command,
-            "ワンライナーを入力して実行",
+            "ワンライナーを入力して実行...",
         ),
         (
             2,
             "F_ONELINER_SETTINGS",
             "oneliner_settings",
             Kind::Command,
-            "ワンライナーの設定",
+            "ワンライナーの設定...",
         ),
     ] {
         out.push(Function {
@@ -336,5 +337,74 @@ fn add_oneliner_functions(tables: &mut Tables) -> Result<(), String> {
     tables
         .functions
         .splice(position + 1..position + 1, functions);
+    Ok(())
+}
+
+/// The macro names of the one-liners, in the order of the macro table: `OneLiner0` to `OneLiner49` call
+/// `F_ONELINER_0` to `F_ONELINER_49` (a key macro records them), and `OneLinerDialog` opens the input
+/// dialog (not recorded, like `ExecCommandDialog`). `(macro name, function name, recorded by key macros)`.
+/// A macro can run a registered one-liner but there is no macro that adds or changes one (ADR-0029).
+pub fn oneliner_macros() -> Vec<(String, String, bool)> {
+    let mut rows: Vec<(String, String, bool)> = (0..ONELINER_COUNT)
+        .map(|n| (format!("OneLiner{n}"), format!("F_ONELINER_{n}"), true))
+        .collect();
+    rows.push((
+        "OneLinerDialog".to_string(),
+        "F_ONELINER_DIALOG".to_string(),
+        false,
+    ));
+    rows
+}
+
+/// The submenu 「ワンライナー」 of the main menu (ADR-0029), right after 「外部コマンド実行」 in the tool menu:
+/// the registered one-liners, a separator, the input dialog and the settings. The node is a row of
+/// `F_NODE` with its own name, like a node the user makes.
+fn add_oneliner_menu(tables: &mut Tables) -> Result<(), String> {
+    let after = tables
+        .functions
+        .iter()
+        .find(|f| f.name == "F_EXECMD_DIALOG")
+        .map(|f| f.code)
+        .ok_or("F_EXECMD_DIALOG is not a function")?;
+    let at = tables
+        .menu
+        .iter()
+        .position(|i| i.kind == MenuKind::Leaf && i.code == after)
+        .ok_or("F_EXECMD_DIALOG is not in the main menu")?;
+    let level = tables.menu[at].level;
+    let list = ONELINER_FIRST_CODE + ONELINER_COUNT;
+    let item = |level, kind, code, access_key, label: Option<&str>| MenuItem {
+        level,
+        kind,
+        code,
+        access_key,
+        label: label.map(str::to_string),
+    };
+    let items = vec![
+        item(level, MenuKind::Node, 0, Some('O'), Some("ワンライナー")),
+        item(
+            level + 1,
+            MenuKind::Special,
+            list,
+            None,
+            Some("登録済みワンライナーリスト"),
+        ),
+        item(level + 1, MenuKind::Separator, 1, None, None),
+        item(
+            level + 1,
+            MenuKind::Leaf,
+            list + 1,
+            Some('I'),
+            Some("ワンライナーを入力して実行..."),
+        ),
+        item(
+            level + 1,
+            MenuKind::Leaf,
+            list + 2,
+            Some('S'),
+            Some("ワンライナーの設定..."),
+        ),
+    ];
+    tables.menu.splice(at + 1..at + 1, items);
     Ok(())
 }

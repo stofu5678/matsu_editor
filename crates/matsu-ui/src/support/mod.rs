@@ -41,6 +41,8 @@ pub(crate) struct Support {
     pub tags_make: Option<Entity<crate::tags::make::TagsMakeDialog>>,
     /// The dialog of 外部コマンド実行, while it is open (`crate::exec`).
     pub exec_dialog: Option<Entity<crate::exec::dialog::ExecDialog>>,
+    /// The dialog of 「ワンライナーを入力して実行」, while it is open (`crate::oneliner`).
+    pub oneliner_dialog: Option<Entity<crate::oneliner::dialog::OneLinerDialog>>,
     /// The dialog of 「ファイルツリー設定」, while it is open (`crate::outline::file_tree_dialog`).
     pub file_tree_dialog: Option<Entity<crate::outline::file_tree_dialog::FileTreeDialog>>,
     /// The box of a command that runs, with its 中断 button.
@@ -68,6 +70,12 @@ impl EditorView {
         out.extend(
             self.support
                 .exec_dialog
+                .clone()
+                .map(|e| e.into_any_element()),
+        );
+        out.extend(
+            self.support
+                .oneliner_dialog
                 .clone()
                 .map(|e| e.into_any_element()),
         );

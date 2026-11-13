@@ -390,7 +390,7 @@ fn the_page_shows_menu_0_with_its_name_and_the_buttons_follow_the_rules(cx: &mut
         )
     });
     assert_eq!((name.as_str(), key.as_str()), ("Mine", ""));
-    assert_eq!(items_now(cx).len(), 30 + 2 + 7); // Sakura's 30, MATSU's copies with LF and CR, and its encodings with a separator
+    assert_eq!(items_now(cx).len(), 30 + 2 + 7 + 1); // Sakura's 30, MATSU's copies with LF and CR, and its encodings with a separator
     // Nothing is selected, nothing is chosen in the function list.
     for id in [
         "custmenu_delete",
@@ -418,8 +418,8 @@ fn the_page_shows_menu_0_with_its_name_and_the_buttons_follow_the_rules(cx: &mut
     choose_function(cx, 0, 1);
     assert!(button_is_usable(cx, "custmenu_insert"));
     assert!(button_is_usable(cx, "custmenu_add"));
-    // The last row cannot go down (Sakura's 30 items, MATSU's 2 copies, and a separator with the 6 conversions).
-    select_row(cx, 32 + 7 - 1);
+    // The last row cannot go down (Sakura's 30 items, MATSU's 2 copies, and a separator with the 6 conversions, and the submenu of the one-liners).
+    select_row(cx, 33 + 7 - 1);
     assert!(!button_is_usable(cx, "custmenu_down"));
 }
 
@@ -859,7 +859,7 @@ fn a_right_click_menu_the_user_changed_is_written_with_the_version_and_removed_c
     let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
     menus[0].items.retain(|i| i.function != 32700);
     assert!(data::store(&data::encode(&menus), &mut p).unwrap());
-    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("2"));
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("3"));
     assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("4"));
     assert_eq!(right_click(&p), [30602, 30603, 32701, 30604]);
 }
@@ -898,7 +898,7 @@ fn renaming_an_old_right_click_menu_keeps_the_text_the_copies_shifted() {
     assert_eq!(p.get("CustMenu", "nCMIF[00][04]"), Some("Plugin/Cmd"));
     assert_eq!(p.get("CustMenu", "nCMIK[00][04]"), Some("P"));
     assert_eq!(p.get("CustMenu", "nCMIF[00][05]"), Some("NoSuchMacro"));
-    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("2"));
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("3"));
 }
 
 #[test]

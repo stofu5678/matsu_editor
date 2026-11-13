@@ -36,7 +36,8 @@ fn key(name: &str) -> &'static KeyBinding {
 /// the comments above are Sakura's.
 const MATSU_ONLY: usize = 11;
 /// The 53 functions of the one-liners (ADR-0029): `F_ONELINER_0` ... `F_ONELINER_49`, `F_ONELINER_LIST` (a
-/// `MenuSpecial`), `F_ONELINER_DIALOG` and `F_ONELINER_SETTINGS`. They are not in the main menu yet.
+/// `MenuSpecial`), `F_ONELINER_DIALOG` and `F_ONELINER_SETTINGS`. The main menu has a submenu for them (5 rows).
+const ONELINER_MENU_ITEMS: usize = 5;
 const ONELINER_FUNCTIONS: usize = 53;
 const MATSU_MENU_SEPARATORS: usize = 2;
 
@@ -44,7 +45,10 @@ const MATSU_MENU_SEPARATORS: usize = 2;
 fn counts_match_sakura() {
     assert_eq!(FUNCTIONS.len(), 524 + MATSU_ONLY + ONELINER_FUNCTIONS);
     assert_eq!(KEY_BINDINGS.len(), 100);
-    assert_eq!(MAIN_MENU.len(), 336 + MATSU_ONLY + MATSU_MENU_SEPARATORS);
+    assert_eq!(
+        MAIN_MENU.len(),
+        336 + MATSU_ONLY + MATSU_MENU_SEPARATORS + ONELINER_MENU_ITEMS
+    );
     assert_eq!(FUNCTION_GROUPS.len(), 15);
 }
 
@@ -406,11 +410,11 @@ fn the_oneliner_functions_are_in_a_row_and_have_no_group_or_menu_item() {
     let dialog = function("F_ONELINER_DIALOG");
     assert_eq!(
         (dialog.code, dialog.label),
-        (32762, Some("ワンライナーを入力して実行"))
+        (32762, Some("ワンライナーを入力して実行..."))
     );
     let settings = function("F_ONELINER_SETTINGS");
     assert_eq!(
         (settings.code, settings.label),
-        (32763, Some("ワンライナーの設定"))
+        (32763, Some("ワンライナーの設定..."))
     );
 }

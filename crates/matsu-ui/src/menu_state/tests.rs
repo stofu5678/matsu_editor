@@ -68,6 +68,8 @@ pub(super) fn base() -> FuncStates {
         key_macro_loaded: false,
         select_count_by_byte: false,
         key_search: false,
+        oneliners: Default::default(),
+        command_running: false,
     }
 }
 

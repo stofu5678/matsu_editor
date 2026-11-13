@@ -413,7 +413,13 @@ fn editor_menus(
         .unwrap_or_default();
     let custom = CustomMenuList(&custom_menus);
     let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
+    let oneliner_list = crate::oneliner::OneLinerList(
+        cx.try_global::<crate::settings::UserSettings>()
+            .map(crate::settings::UserSettings::shared_oneliners)
+            .unwrap_or_default(),
+    );
     let rest = ChainedLists(&custom, &macro_list);
+    let rest = ChainedLists(&rest, &oneliner_list);
     let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
     let lists = ChainedLists(&recent, &rest);
     // The menu of the user (`[MainMenu]`), Sakura's default without one.
