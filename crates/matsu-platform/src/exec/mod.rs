@@ -135,6 +135,27 @@ impl StdinSender {
     pub fn send(&self, piece: Vec<u8>) -> bool {
         self.0.send(piece).is_ok()
     }
+
+    /// Hands a piece over without waiting: `Err` gives the piece back when the process has not
+    /// taken the earlier ones yet ([`TrySend::Full`]), or says that it no longer reads
+    /// ([`TrySend::Closed`]). For a sender that must be able to give up (a process that left a
+    /// descendant holding its input open has ended, and nobody reads the pieces any more).
+    pub fn try_send(&self, piece: Vec<u8>) -> Result<(), TrySend> {
+        match self.0.try_send(piece) {
+            Ok(()) => Ok(()),
+            Err(mpsc::TrySendError::Full(piece)) => Err(TrySend::Full(piece)),
+            Err(mpsc::TrySendError::Disconnected(_)) => Err(TrySend::Closed),
+        }
+    }
+}
+
+/// Why [`StdinSender::try_send`] did not hand the piece over.
+#[derive(Debug, PartialEq, Eq)]
+pub enum TrySend {
+    /// The process has not taken the earlier pieces yet; the piece is given back.
+    Full(Vec<u8>),
+    /// The process no longer reads.
+    Closed,
 }
 
 /// The receiving end of the standard input, in [`Spec`].

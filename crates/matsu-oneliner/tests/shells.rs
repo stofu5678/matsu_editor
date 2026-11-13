@@ -246,6 +246,23 @@ mod unix {
     }
 
     #[test]
+    fn a_descendant_that_keeps_the_input_open_does_not_hold_the_run_back() {
+        // the shell ends at once; a background `sleep` still holds the input pipe, unread, and
+        // the text is far larger than the pipe: sending it must be given up
+        let line = "exec 3<&0; sleep 5 <&3 >/dev/null 2>&1 &";
+        let begun = Instant::now();
+        let (done, output) = run(SH, line, &twenty_megabytes(), OutputKind::Replace);
+        assert_eq!(done.exit.code, Some(0));
+        assert!(output.is_empty());
+        assert!(done.input_ended_with_break);
+        assert!(
+            begun.elapsed() < Duration::from_secs(4),
+            "the run waited for the descendant: {:?}",
+            begun.elapsed()
+        );
+    }
+
+    #[test]
     fn a_command_that_writes_a_lot_before_it_reads_does_not_lock_up() {
         // 30 MB out, and only then the input is read
         let (done, output) = run(

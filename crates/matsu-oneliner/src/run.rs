@@ -23,7 +23,7 @@ use matsu_core::oneliner::{
     Collector, ERROR_CAP_BYTES, OUTPUT_CAP_BYTES, Overflow, TextDecoder, Utf8Decoder,
     for_next_line, for_replace,
 };
-use matsu_platform::exec::{self, Exit, Program, Spec, StdinSender, Stopper};
+use matsu_platform::exec::{self, Exit, Program, Spec, StdinSender, Stopper, TrySend};
 
 use crate::shell::{self, ShellError, TextEncoding};
 
@@ -158,6 +158,10 @@ pub enum Event {
 
 /// What the thread that sends the input tells.
 struct InputState {
+    /// The process has ended: nothing reads the input any more, so sending it is given up (a
+    /// descendant of the shell may still hold the pipe open, and then a send would wait for ever).
+    /// The text is still read to its end, to know how it ends.
+    abandon: AtomicBool,
     ends_with_break: AtomicBool,
     done: AtomicBool,
     error: Mutex<Option<String>>,
@@ -203,6 +207,7 @@ pub fn start(request: Request) -> Result<Run, StartError> {
     let stopper = inner.stopper();
 
     let input = Arc::new(InputState {
+        abandon: AtomicBool::new(false),
         ends_with_break: AtomicBool::new(false),
         done: AtomicBool::new(false),
         error: Mutex::new(None),
@@ -283,7 +288,7 @@ fn feed(input: Input, encoding: TextEncoding, sender: StdinSender, state: Arc<In
             if sending {
                 match encode(encoding, chunk) {
                     // the process does not read any more: stop sending, go on reading
-                    Some(bytes) => sending = bytes.is_empty() || sender.send(bytes),
+                    Some(bytes) => sending = bytes.is_empty() || send(&sender, bytes, &state),
                     None => {
                         sending = false;
                         let mut error = state.error.lock().unwrap_or_else(|e| e.into_inner());
@@ -300,6 +305,26 @@ fn feed(input: Input, encoding: TextEncoding, sender: StdinSender, state: Arc<In
         }
         state.done.store(true, Ordering::SeqCst);
     });
+}
+
+/// Hands a piece to the process, waiting while it does not read; `false` when it does not read
+/// any more, or has ended ([`InputState::abandon`]).
+fn send(sender: &StdinSender, mut piece: Vec<u8>, state: &InputState) -> bool {
+    let mut pause = Duration::from_micros(50);
+    loop {
+        match sender.try_send(piece) {
+            Ok(()) => return true,
+            Err(TrySend::Closed) => return false,
+            Err(TrySend::Full(back)) => {
+                if state.abandon.load(Ordering::SeqCst) {
+                    return false;
+                }
+                piece = back;
+                thread::sleep(pause);
+                pause = (pause * 2).min(Duration::from_millis(2));
+            }
+        }
+    }
 }
 
 fn encode(encoding: TextEncoding, text: &str) -> Option<Vec<u8>> {
@@ -396,7 +421,10 @@ impl Run {
                         let _ = collector.push(&bytes);
                     }
                 }
-                Some(exec::Event::Exited(exit)) => self.exit = Some(exit),
+                Some(exec::Event::Exited(exit)) => {
+                    self.exit = Some(exit);
+                    self.input.abandon.store(true, Ordering::SeqCst);
+                }
                 None => {}
             }
             if Instant::now() >= deadline {
