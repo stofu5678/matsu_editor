@@ -43,15 +43,16 @@
 | `For i = 1 To n ... Next` | `for i = 1, n do ... end` | `for (let i = 1; i <= n; i++) { ... }` | `for i in range(1, n + 1):` |
 | `Do While 条件 ... Loop` | `while 条件 do ... end` | `while (条件) { ... }` | `while 条件:` |
 | `Chr(10)`、`vbLf` | `"\n"` | `"\n"` | `"\n"` |
-| `Len(s)` | `#s` | `s.length` | `len(s)` |
-| `Mid(s, 2, 3)`（2 文字目から 3 文字） | `s:sub(2, 4)` | `s.substr(1, 3)` | `s[1:4]` |
-| `InStr(s, "a")`（見つけた位置。1 から数える。なければ 0） | `s:find("a", 1, true)` | `s.indexOf("a")`（0 から数える。なければ -1） | `s.find("a")`（0 から数える。なければ -1） |
+| `Len(s)` | `utf8.len(s)` | `s.length` | `len(s)` |
+| `Mid(s, 2, 3)`（2 文字目から 3 文字） | `s:sub(utf8.offset(s, 2), utf8.offset(s, 5) - 1)` | `s.substr(1, 3)` | `s[1:4]` |
+| `InStr(s, "a")`（見つけた位置。1 から数える。なければ 0） | `s:find("a", 1, true)`（見つからないと `nil`。位置はバイト数） | `s.indexOf("a")`（0 から数える。なければ -1） | `s.find("a")`（0 から数える。なければ -1） |
 | `UCase(s)` | `s:upper()` | `s.toUpperCase()` | `s.upper()` |
 | `Trim(s)` | （`s:match("^%s*(.-)%s*$")`） | `s.trim()` | `s.strip()` |
 | `CStr(n)` | `tostring(n)` | `String(n)` | `str(n)` |
 | `WScript.Echo x` | `print(x)` | `console.log(x)` | `print(x)` |
 | `On Error Resume Next` | `pcall(...)` | `try { ... } catch (e) { ... }` | `try: ... except EditorError as e:` |
 
+- Lua の文字列は UTF-8 のバイト列です。`#s`、`s:sub`、`s:find` は、日本語の文字を数えず、バイトを数えます。文字で数える `utf8.len` と `utf8.offset` を使ってください。バイトの途中で切った文字列は、`Editor.InsText` が受け付けません
 - VBScript の文字の位置は 1 から数えます。JavaScript と Python は、0 から数えます。Lua は 1 から数えます。`Editor` の関数の行番号と桁は、どの言語でも 1 から数えます
 - コメントの `'` は、`--`（Lua）、`//`（JavaScript）、`#`（Python、Ruby）に変えます
 - `WScript.Echo` は、MATSU Editor にはありません。出力パネルに出すには、言語の `print` か `console.log` を使います
@@ -125,7 +126,7 @@ Editor.InsText(text)
 ### 書き換えで気をつけること
 
 - `GetLineStr` は、行の終わりの改行付きで返します。サクラは、その文書の改行（CR LF の文書なら `\r\n`）を付けて返します。MATSU Editor は、改行を `\n` にして返します。改行を取って使うときは、`\n` だけを取ってください
-- 上の例は、改行も一緒に連結するので、改行が元のまま残ります。最後の行に改行がない文書は、最後の行にも改行は付きません
+- 上の例は、改行も一緒につなぐので、行の区切りは残ります。ただし、CR LF や CR の文書の改行も `\n` にそろいます。最後の行に改行がない文書は、最後の行にも改行は付きません
 - 文書が空のとき、`GetLineCount(0)` は 0 です。ループは 1 回も回りません
 - 書き換えたマクロは、必ず、試し用の文書で動かして確かめてください。元のマクロと結果が同じか、`Undo`（`Ctrl+Z`）で戻せるかも確かめられます
 
