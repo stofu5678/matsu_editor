@@ -1,6 +1,6 @@
 # ADR-0032: インストーラとパッケージ、ストアでの公開
 
-- 状態: 提案
+- 状態: 一部決定（2026-11-13 に、ユーザーが段階 A を推奨どおりに決めた。段階 B・C は未決）
 - 日付: 2026-11-13（ユーザーが 2026-11-11 に、企画の 6 番目として出した）
 - 関連: [ADR-0014](0014-development-process.md)（署名は最初の設定だけ人が行う）、[ADR-0027](0027-self-hosted-mac-runner.md)（Mac の VM の実行機）、[ADR-0028](0028-terminal-tab.md)（シェルのタブ）、[ADR-0026](0026-resident-plugins.md)（プラグイン）、[ADR-0023](0023-database.md)、[ADR-0022](0022-autosave-unsaved.md)、[ADR-0018](0018-decision-policy.md)、[ADR-0016](0016-single-instance.md)、[ロードマップの Phase 9](../roadmap.md)
 - 下調べの詳細（出典、確かめていないこと）: [docs/poc/install.md](../poc/install.md)
@@ -197,6 +197,21 @@
 - `cargo-deb`、`cargo-generate-rpm`（MIT と記憶。実装の PR で確かめる）
 - `wingetcreate`（MIT）。`komac`（GPL-3.0）は使わない
 - 段階 B: SignPath か Artifact Signing の action（利用規約に同意が要る）、`rcodesign` を使うなら許諾を確かめる
+
+## 決めたこと
+
+2026-11-13 に、ユーザーが段階 A を推奨どおりに決めた（「段階 A を推奨どおり今作る」）。
+
+1. **段階**: 段階 A（署名もアカウントも要らない）を先に作る
+2. **Windows のインストーラ**: Inno Setup の `.exe`（x64 と ARM64。利用者ごとが既定で、機械ごとも選べる）。MSI は要望が出てから
+3. **利用者のデータ**: インストールとアンインストールは、設定・未保存の文書・プラグイン・履歴を作らず、書き換えず、消さない。「設定も消す」の選択肢は作らない
+4. **Linux と macOS**: Linux は `.deb`・`.rpm`・tar.gz（Flatpak と Snap は見送り。AppImage は要望が出てから）。macOS は `.dmg` を足す
+5. **パッケージマネージャ**: 自分の Homebrew の tap、Scoop のバケット、winget のマニフェストを、ファイルとして用意する。公開と提出（他のリポジトリへの PR を含む）は段階 B で、ユーザーが行う
+6. **ツール**: `wingetcreate`（MIT）を使い、`komac`（GPL-3.0）は使わない。`cargo-deb` と `cargo-generate-rpm` は、実装の PR で許諾を確かめる
+7. **自動更新**: 作らない
+8. **関連付け**: 既定でオフ。「プログラムから開く」は既定でオン。PATH への追加は選択で、既定はオフ
+
+段階 B・C の項目（「判断してほしいこと」の 4、5、6、8、11、12: 署名の置き場所と ADR-0027 の変更、Apple Developer Program、Windows の署名、トークン、Microsoft Store、Mac App Store と Flathub）は、まだ決めていない。ユーザーの準備ができたときに決める。
 
 ## PR の順番
 
