@@ -172,6 +172,20 @@ Check ((Get-RawPath 'User') -eq $userPathBefore) 'PATH is as before the install 
 Check ((Get-Snapshot $settingsDir) -eq $dataBefore) 'the user data is unchanged after the second uninstall'
 Remove-Item -Recurse -Force $userDir
 
+# ---- 5b. A PATH entry that was there before is the user's: the uninstall leaves it ----
+$ownPath = "$userPathBefore;$userDir".TrimStart(';')
+[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true).SetValue('Path', $ownPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+try {
+    Invoke-Installer 'install-own-path' @('/CURRENTUSER')
+    Check ((Get-RawPath 'User') -eq $ownPath) 'PATH is not changed when the folder is already there'
+    Invoke-Uninstaller $userDir
+    Check ((Get-RawPath 'User') -eq $ownPath) 'the uninstall leaves a PATH entry it did not add'
+}
+finally {
+    [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true).SetValue('Path', $userPathBefore, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+}
+Check (-not (Test-Path "HKCU:\Software\MATSU Editor")) 'no record of a PATH entry is left'
+
 # ---- 6. All users (the runner is an administrator) ----
 $machinePathBefore = Get-RawPath 'Machine'
 Invoke-Installer 'install-allusers' @('/ALLUSERS')

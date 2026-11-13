@@ -56,9 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: |
-            .github/scripts
-            Cargo.toml
+          # Cone mode takes folders; the files in the root (Cargo.toml) come with it.
+          sparse-checkout: .github/scripts
           persist-credentials: false
       - uses: actions/download-artifact@v8
         with:

@@ -122,6 +122,12 @@ begin
     Result := 'Environment';
 end;
 
+// The installer removes a PATH entry only if it added it itself: this value (under HKA\Software\MATSU Editor) holds the
+// folder it added. An entry that was there before (the user's own) is not recorded, so it stays after the uninstall.
+const
+  OwnKey = 'Software\{#AppName}';
+  OwnValue = 'PathEntryAdded';
+
 procedure AddToPath(Dir: String);
 var
   Paths: String;
@@ -129,19 +135,26 @@ begin
   // Raw (unexpanded) value: PATH is usually REG_EXPAND_SZ with %USERPROFILE% and the like in it.
   if not RegQueryStringValue(EnvRoot(), EnvSubKey(), 'Path', Paths) then
     Paths := '';
-  // Already there (an update, or the user added it): leave it as it is.
+  // Already there (an update, or the user added it): leave it as it is, and the record as it is.
   if Pos(';' + Lowercase(Dir) + ';', ';' + Lowercase(Paths) + ';') > 0 then
     Exit;
   if (Paths <> '') and (Paths[Length(Paths)] <> ';') then
     Paths := Paths + ';';
   RegWriteExpandStringValue(EnvRoot(), EnvSubKey(), 'Path', Paths + Dir);
+  RegWriteStringValue(EnvRoot(), OwnKey, OwnValue, Dir);
 end;
 
 procedure RemoveFromPath(Dir: String);
 var
-  Paths, Wrapped: String;
+  Paths, Wrapped, Added: String;
   P: Integer;
 begin
+  if not RegQueryStringValue(EnvRoot(), OwnKey, OwnValue, Added) then
+    Exit;
+  RegDeleteValue(EnvRoot(), OwnKey, OwnValue);
+  RegDeleteKeyIfEmpty(EnvRoot(), OwnKey);
+  if CompareText(Added, Dir) <> 0 then
+    Exit;
   if not RegQueryStringValue(EnvRoot(), EnvSubKey(), 'Path', Paths) then
     Exit;
   Wrapped := ';' + Paths + ';';
