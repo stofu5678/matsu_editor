@@ -463,6 +463,23 @@ pub fn feed_text(
         return Ok(());
     }
     let codec = encoding.codec();
+    read_chunks(doc, range, None, |text| {
+        let mut bytes = Vec::new();
+        // the report of the characters that cannot be written is not needed here
+        let _ = codec.encode(text, &mut bytes);
+        bytes.is_empty() || sink(bytes)
+    })
+}
+
+/// Reads the document by lines, `range` (else all of it), and hands the text over in chunks of
+/// about [`FEED_CHUNK_BYTES`]; `chunk` says whether to go on. The line breaks are the ones of the
+/// document, or `eol` for all of them. A break that ends the range is not part of it.
+pub(crate) fn read_chunks(
+    doc: &Document,
+    range: Option<(Pos, Pos)>,
+    eol: Option<&str>,
+    mut chunk: impl FnMut(&str) -> bool,
+) -> Result<(), BufferError> {
     let (first, last, from, to) = match range {
         Some((from, to)) => {
             let (from, to) = if (from.line, from.col) <= (to.line, to.col) {
@@ -475,13 +492,6 @@ pub fn feed_text(
         None => (0, doc.line_count().saturating_sub(1), None, None),
     };
     let mut text = String::new();
-    let mut send = |text: &mut String| -> bool {
-        let mut bytes = Vec::new();
-        // the report of the characters that cannot be written is not needed here
-        let _ = codec.encode(text, &mut bytes);
-        text.clear();
-        bytes.is_empty() || sink(bytes)
-    };
     for index in first..=last {
         let Some(line) = doc.line(index)? else { break };
         let start = from.filter(|f| f.line == index).map_or(0, |f| f.col);
@@ -490,15 +500,19 @@ pub fn feed_text(
             .map_or(line.text.len(), |t| t.col);
         text.push_str(line.text.get(start..end.max(start)).unwrap_or(""));
         let last_line = to.is_some_and(|t| t.line == index);
-        if !last_line && let Some(eol) = line.eol {
-            text.push_str(eol.as_str());
+        if !last_line && let Some(own) = line.eol {
+            text.push_str(eol.unwrap_or_else(|| own.as_str()));
         }
-        if text.len() >= FEED_CHUNK_BYTES && !send(&mut text) {
-            return Ok(());
+        if text.len() >= FEED_CHUNK_BYTES {
+            let more = chunk(&text);
+            text.clear();
+            if !more {
+                return Ok(());
+            }
         }
     }
     if !text.is_empty() {
-        send(&mut text);
+        chunk(&text);
     }
     Ok(())
 }

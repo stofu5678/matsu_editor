@@ -4,7 +4,7 @@
 use std::os::windows::process::CommandExt;
 use std::process::{Command, ExitStatus, Stdio};
 
-use super::split_program;
+use super::{Program, split_program};
 
 /// `CREATE_NEW_CONSOLE`: Sakura's flag; a command whose output is not taken gets its own console.
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
@@ -23,6 +23,17 @@ pub(super) fn direct_command(line: &str) -> Option<Command> {
         command.raw_arg(rest.trim_start_matches([' ', '\t']));
     }
     Some(command)
+}
+
+/// The program with its arguments (each quoted by the rules of the C runtime), then the rest of
+/// the command line as it is.
+pub(super) fn program_command(program: &Program) -> Command {
+    let mut command = Command::new(&program.program);
+    command.args(&program.args);
+    if let Some(raw) = &program.raw_args {
+        command.raw_arg(raw);
+    }
+    command
 }
 
 /// `cmd.exe /C line` (`/K` when the output is not taken, `/U` for Unicode output). Sakura gives

@@ -367,7 +367,8 @@ pub(crate) async fn run_command(
                     exit = Some(done);
                     break;
                 }
-                None => break,
+                // only with `Spec::separate_error`, which this command does not ask for
+                Some(Event::Error(_)) | None => break,
             }
         }
         let idle = batch.is_empty() && exit.is_none();

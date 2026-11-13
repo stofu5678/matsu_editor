@@ -14,6 +14,7 @@ pub mod indent_style;
 pub mod jump_history;
 pub mod model;
 pub mod modified;
+pub mod oneliner;
 pub mod search;
 pub mod sql_error;
 pub mod tag_file;
