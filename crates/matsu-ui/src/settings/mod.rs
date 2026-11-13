@@ -214,6 +214,14 @@ impl UserSettings {
             .unwrap_or_default()
     }
 
+    /// The registered one-liners (ワンライナー, `[OneLiner]`, ADR-0029) and the history of the input dialog.
+    pub fn oneliners(&self) -> matsu_config::settings::oneliner::OneLiners {
+        self.profile
+            .as_ref()
+            .map(matsu_config::settings::oneliner::OneLiners::from_profile)
+            .unwrap_or_default()
+    }
+
     /// The document types (タイプ別設定).
     pub fn document_types(&self) -> &DocumentTypes {
         &self.types

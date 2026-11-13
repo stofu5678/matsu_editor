@@ -260,5 +260,81 @@ pub fn apply(tables: &mut Tables) -> Result<(), String> {
         }
         tables.menu.splice(menu + 1..menu + 1, items);
     }
+    add_oneliner_functions(tables)
+}
+
+/// The one-liners (ADR-0029): `F_ONELINER_0` to `F_ONELINER_49` run one-liner n of `[OneLiner]`, in a row
+/// from [`ONELINER_FIRST_CODE`] like Sakura's `F_USERMACRO_0 + n`; then the special item that stands for the
+/// registered ones in a menu, the input dialog and the settings. They are in no group of the command list
+/// (the key, toolbar and menu pages give them a kind of their own), in no macro table and not in the main menu
+/// yet: the commands and the menus come with the PR that runs them. The codes are the ones of
+/// `matsu_config::settings::oneliner`.
+pub const ONELINER_FIRST_CODE: u16 = 32711;
+const ONELINER_COUNT: u16 = 50;
+
+/// The functions of the one-liners, in the order of the function table.
+fn oneliner_functions() -> Vec<Function> {
+    let mut out: Vec<Function> = (0..ONELINER_COUNT)
+        .map(|n| Function {
+            code: ONELINER_FIRST_CODE + n,
+            name: format!("F_ONELINER_{n}"),
+            id: format!("oneliner_{n}"),
+            kind: Kind::Command,
+            groups: Vec::new(),
+            label: Some(format!("ワンライナー {n}")),
+        })
+        .collect();
+    let next = ONELINER_FIRST_CODE + ONELINER_COUNT;
+    for (offset, name, id, kind, label) in [
+        (
+            0,
+            "F_ONELINER_LIST",
+            "oneliner_list",
+            Kind::MenuSpecial,
+            "登録済みワンライナーリスト",
+        ),
+        (
+            1,
+            "F_ONELINER_DIALOG",
+            "oneliner_dialog",
+            Kind::Command,
+            "ワンライナーを入力して実行",
+        ),
+        (
+            2,
+            "F_ONELINER_SETTINGS",
+            "oneliner_settings",
+            Kind::Command,
+            "ワンライナーの設定",
+        ),
+    ] {
+        out.push(Function {
+            code: next + offset,
+            name: name.to_string(),
+            id: id.to_string(),
+            kind,
+            groups: Vec::new(),
+            label: Some(label.to_string()),
+        });
+    }
+    out
+}
+
+/// Adds the functions of the one-liners after `F_SHELL_TAB`.
+fn add_oneliner_functions(tables: &mut Tables) -> Result<(), String> {
+    let functions = oneliner_functions();
+    for f in &functions {
+        if tables.functions.iter().any(|g| g.code == f.code) {
+            return Err(format!("code {} is already used", f.code));
+        }
+    }
+    let position = tables
+        .functions
+        .iter()
+        .position(|f| f.name == "F_SHELL_TAB")
+        .ok_or("F_SHELL_TAB is not a function")?;
+    tables
+        .functions
+        .splice(position + 1..position + 1, functions);
     Ok(())
 }

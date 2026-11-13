@@ -152,9 +152,10 @@ fn the_access_key_is_set_on_a_function_row_not_on_a_separator() {
 
 #[test]
 fn the_kinds_are_the_function_lookups_and_the_special_functions() {
-    assert_eq!(PAGE_KINDS.len(), 19);
+    assert_eq!(PAGE_KINDS.len(), 20);
     assert_eq!(PAGE_KINDS[16].0, "カスタムメニュー");
     assert_eq!(PAGE_KINDS[18], ("特別機能", 18));
+    assert_eq!(PAGE_KINDS[19], ("ワンライナー", 19));
     assert_eq!(functions_of_kind(18), SPECIAL_CODES);
     assert_eq!(functions_of_kind(16).len(), 25);
     assert!(functions_of_kind(99).is_empty());
