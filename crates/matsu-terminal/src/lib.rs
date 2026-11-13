@@ -8,6 +8,8 @@
 //!
 //! - [`Terminal::spawn`] returns the terminal and an [`EventReceiver`] with the [`TerminalEvent`]s: redraw,
 //!   the cleaned title, bell, clipboard store (OSC 52 writes) and child exit. OSC 52 reads are refused.
+//! - [`Terminal::start_selection`] and the rest select cells and give the selected text; the selection is in
+//!   [`Snapshot::selection`] for drawing.
 //! - [`encode_key`] and [`encode_paste`] turn keys and pasted text into the bytes to [`Terminal::write`].
 //! - Before the editor ends, [`wait_for_closing`] waits (up to a limit) for the terminals that were closed,
 //!   so that their shells end with the editor.
@@ -18,6 +20,7 @@
 mod keys;
 mod paste;
 mod screen;
+mod selection;
 pub mod shell;
 mod terminal;
 mod title;
@@ -25,6 +28,7 @@ mod title;
 pub use keys::{Key, Modifiers, encode_key};
 pub use paste::{PasteEncoding, encode_paste};
 pub use screen::{Cell, ClipboardKind, Color, Cursor, CursorShape, Modes, Rgb, Row, ScreenInfo};
+pub use selection::{CellSide, SelectionMode, SelectionSpan, WORD_DELIMITERS};
 pub use shell::ShellCommand;
 pub use terminal::{
     DEFAULT_SCROLLBACK_LINES, EventReceiver, Options, Snapshot, Terminal, TerminalEvent,
