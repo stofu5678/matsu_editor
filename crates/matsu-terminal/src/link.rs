@@ -60,12 +60,20 @@ pub(crate) fn in_term<T>(term: &Term<T>, row: usize, column: usize) -> Option<Li
             .is_some_and(|cell| cell.flags.contains(Flags::WRAPLINE))
     };
     let at = row - offset;
+    // A line that goes on past the rows that are looked at may hold an address that would be found cut short:
+    // there is no link then.
     let mut first = at;
-    while first > top && at - first < MAX_WRAPPED_ROWS && wraps(first - 1) {
+    while first > top && wraps(first - 1) {
+        if at - first >= MAX_WRAPPED_ROWS {
+            return None;
+        }
         first -= 1;
     }
     let mut last = at;
-    while last + 1 < screen_lines && last - at < MAX_WRAPPED_ROWS && wraps(last) {
+    while last + 1 < screen_lines && wraps(last) {
+        if last - at >= MAX_WRAPPED_ROWS {
+            return None;
+        }
         last += 1;
     }
     let rows: Vec<Row> = (first..=last)
@@ -599,11 +607,38 @@ mod tests {
 
     #[test]
     fn closing_brackets_are_trimmed_in_linear_time() {
-        let text = format!("http://a.example/b{}", ")".repeat(20_000));
-        let rows = [row(&text, text.len(), false)];
+        let chars: Vec<char> = format!("http://a.example/b{}", ")".repeat(20_000))
+            .chars()
+            .collect();
         let started = std::time::Instant::now();
-        assert_eq!(uri_at(&rows, 0, 3).as_deref(), Some("http://a.example/b"));
+        // the body starts after `http://`; only `a.example/b` stays
+        assert_eq!(trim_end(&chars, 7, chars.len()), 7 + "a.example/b".len());
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        // brackets that pair up stay
+        let chars: Vec<char> = "http://a.example/(b)).".chars().collect();
+        assert_eq!(
+            trim_end(&chars, 7, chars.len()),
+            "http://a.example/(b)".len()
+        );
+    }
+
+    #[test]
+    fn a_line_that_wraps_past_the_rows_that_are_looked_at_has_no_link() {
+        // 200 rows of 20 columns: the line is longer than MAX_WRAPPED_ROWS rows on both sides of a cell in
+        // the middle, and the address cannot be known whole there
+        let mut output = String::from("http://a.example/");
+        output.push_str(&"b".repeat(20 * 200));
+        let config = alacritty_terminal::term::Config {
+            scrolling_history: 1000,
+            ..alacritty_terminal::term::Config::default()
+        };
+        let size = crate::terminal::TerminalSize::new(20, 3);
+        let mut term = Term::new(config, &size, alacritty_terminal::event::VoidListener);
+        let mut processor: alacritty_terminal::vte::ansi::Processor =
+            alacritty_terminal::vte::ansi::Processor::new();
+        processor.advance(&mut term, output.as_bytes());
+        // the view is the last three rows of 200: none of them is within reach of the start of the line
+        assert_eq!(in_term(&term, 1, 3), None);
     }
 
     #[test]
