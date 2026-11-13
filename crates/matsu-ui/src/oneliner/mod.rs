@@ -26,6 +26,7 @@ mod list;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;
+mod workdir;
 
 pub(crate) use list::OneLinerList;
 

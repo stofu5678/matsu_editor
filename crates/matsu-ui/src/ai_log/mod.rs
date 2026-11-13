@@ -116,14 +116,12 @@ impl TabPanel for AiLogTab {
 
 /// A record that was added by [`begin`], for ending it. It does not keep the tab alive: when the tab was closed
 /// meanwhile, [`finish`](Self::finish) does nothing.
-#[allow(dead_code)] // used by the one-liner flow (ADR-0030 AI-4)
 #[derive(Clone)]
 pub(crate) struct RecordHandle {
     view: WeakEntity<AiLogView>,
     id: records::RecordId,
 }
 
-#[allow(dead_code)] // used by the one-liner flow (ADR-0030 AI-4)
 impl RecordHandle {
     /// Ends the record with the answer, the stderr, the exit code and the time it took.
     pub(crate) fn finish(&self, finished: Finished, cx: &mut App) {
@@ -135,7 +133,6 @@ impl RecordHandle {
 
 /// Adds a running record to the log of `workspace`'s window, opening the log tab next to the active one if the
 /// window has none. The tab does not take the focus: the document the user is working in keeps it.
-#[allow(dead_code)] // used by the one-liner flow (ADR-0030 AI-4)
 pub(crate) fn begin(
     workspace: &mut Workspace,
     started: Started,

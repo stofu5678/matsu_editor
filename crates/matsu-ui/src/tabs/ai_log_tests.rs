@@ -18,6 +18,7 @@ fn started(name: &str, command_line: &str) -> Started {
         name: name.to_owned(),
         command_line: command_line.to_owned(),
         input: "こんにちは\r\n世界".to_owned(),
+        input_size: None,
         started_at: chrono::Local
             .with_ymd_and_hms(2026, 11, 13, 10, 0, 0)
             .unwrap(),
