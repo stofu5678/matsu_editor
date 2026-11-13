@@ -39,6 +39,7 @@ macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `
 [ADR-0032](adr/0032-install.md) の段階 A。zip と同じ中身を、Inno Setup 6.7.4 で `matsu-<対象>-setup.exe` にまとめる（定義は `packaging/windows/matsu.iss`、作る手順は `package.yml` の「Install Inno Setup」「Build the installer」）。署名はまだない。
 
 - 既定は利用者ごと（`%LOCALAPPDATA%\Programs\MATSU Editor`、管理者権限なし）。最初のダイアログで「全利用者」（`Program Files`）も選べる。コマンドラインでは `/CURRENTUSER`・`/ALLUSERS`。静かに入れるには `/VERYSILENT /SUPPRESSMSGBOXES`
+- 画面の言語は Windows の表示言語に従う（日本語の Windows では日本語、それ以外は英語。Inno Setup 付属の `Japanese.isl` と、選択肢の日本語の文言を使う。言語を聞くダイアログは出さない。`/LANG=ja`・`/LANG=en` で決められる）
 - スタートメニューの項目と、「アプリ」（アンインストール）の項目を作る。`AppId` は固定で、同じ `AppId` の古い版の上に入れると更新になる（x64 と ARM64 も同じ `AppId`）
 - 選択肢（`/TASKS="openwith,associatetxt,addtopath"` のように名前でも指定できる）
   - `openwith`（既定でオン）: 「プログラムから開く」の一覧に `matsu.exe` を出す（`Applications\matsu.exe`）

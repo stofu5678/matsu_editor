@@ -69,14 +69,34 @@ WizardStyle=modern
 ; Tell Explorer about the changed PATH and file types.
 ChangesEnvironment=yes
 ChangesAssociations=yes
+ShowLanguageDialog=no
 ; An update closes a running MATSU Editor that holds the files (the editor keeps unsaved documents itself).
 CloseApplications=yes
 RestartApplications=no
 
+[Languages]
+; The language of the installer follows the language of Windows (ShowLanguageDialog=no): Japanese on a Japanese
+; Windows, English on every other one (the first entry is the fallback). No dialog asks, because the two
+; languages are the only ones and the choice is clear from the system. /LANG=ja or /LANG=en forces one.
+Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "ja"; MessagesFile: "compiler:Languages\Japanese.isl"
+
+[CustomMessages]
+en.GroupFileTypes=File types:
+ja.GroupFileTypes=ファイルの種類:
+en.GroupCommandLine=Command line:
+ja.GroupCommandLine=コマンドライン:
+en.TaskOpenWith=Show {#AppName} in the "Open with" list
+ja.TaskOpenWith=「プログラムから開く」の一覧にマツエディタを出す
+en.TaskAssociateTxt=Offer {#AppName} for .txt files (choose it in Settings > Apps > Default apps)
+ja.TaskAssociateTxt=.txt ファイルを開くプログラムの候補にマツエディタを出す（Windows の設定の「既定のアプリ」で選びます）
+en.TaskAddToPath=Add the folder of {#AppName} to the &PATH (to start matsu from a terminal)
+ja.TaskAddToPath=マツエディタのフォルダーを &PATH に追加する（ターミナルから matsu を起動するため）
+
 [Tasks]
-Name: openwith; Description: "Show {#AppName} in the ""Open with"" list"; GroupDescription: "File types:"
-Name: associatetxt; Description: "Offer {#AppName} for .txt files (choose it in Settings > Apps > Default apps)"; GroupDescription: "File types:"; Flags: unchecked
-Name: addtopath; Description: "Add the folder of {#AppName} to the &PATH (to start matsu from a terminal)"; GroupDescription: "Command line:"; Flags: unchecked
+Name: openwith; Description: "{cm:TaskOpenWith}"; GroupDescription: "{cm:GroupFileTypes}"
+Name: associatetxt; Description: "{cm:TaskAssociateTxt}"; GroupDescription: "{cm:GroupFileTypes}"; Flags: unchecked
+Name: addtopath; Description: "{cm:TaskAddToPath}"; GroupDescription: "{cm:GroupCommandLine}"; Flags: unchecked
 
 [Files]
 ; Everything the zip has (package.yml, "Stage the files"): the two programs, the licenses, the notices, README.txt and icons\.
