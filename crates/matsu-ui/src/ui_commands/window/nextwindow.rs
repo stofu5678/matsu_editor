@@ -9,7 +9,7 @@
 use crate::file_ops::windows::activate;
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
-use crate::window_ops::{all_handles, window_after};
+use crate::window_ops::{all_handles, show_edge_tab, window_after};
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, Result};
 use matsu_platform::window::arrange::Direction;
@@ -68,6 +68,8 @@ impl UiCommand for Nextwindow {
                 window.activate_window();
             } else {
                 activate(cx, target);
+                // going on forward, from its first tab
+                show_edge_tab(cx, target, false);
             }
         }
         Ok(())

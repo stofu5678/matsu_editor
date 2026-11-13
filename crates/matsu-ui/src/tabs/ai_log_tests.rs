@@ -282,6 +282,59 @@ fn the_log_is_reached_and_left_with_the_window_keys_without_a_tab_bar(cx: &mut T
     assert_eq!(active(cx), 0);
 }
 
+/// Two windows without the tab mode, each with a document and the log: the keys visit all four tabs and come back,
+/// in both directions (the walk does not stay on the last tab of every window).
+#[gpui::test]
+fn the_window_keys_visit_every_tab_of_every_window_and_come_back(cx: &mut TestAppContext) {
+    let first = window(cx, false);
+    let second = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(
+                app,
+                crate::document::SharedDocument::empty(),
+                None,
+            )
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let _a = begin(cx, first, started("a", "one"));
+    let _b = begin(cx, second, started("b", "two"));
+    cx.run_until_parked();
+    // the position: (window, tab)
+    let at = |cx: &mut TestAppContext| {
+        let active = cx
+            .update(|app| app.active_window())
+            .expect("a window is active");
+        let tab = workspace(cx, active).read_with(cx, |ws, _| ws.active_tab());
+        (if active == first { "first" } else { "second" }, tab)
+    };
+    cx.update(|app| crate::file_ops::windows::activate(app, first));
+    cx.run_until_parked();
+    assert_eq!(at(cx), ("first", 0));
+    let mut forward = Vec::new();
+    for _ in 0..4 {
+        let (window, _) = at(cx);
+        let handle = if window == "first" { first } else { second };
+        super::tests::run(cx, handle, "F_NEXTWINDOW");
+        forward.push(at(cx));
+    }
+    assert_eq!(
+        forward,
+        [("first", 1), ("second", 0), ("second", 1), ("first", 0)]
+    );
+    let mut back = Vec::new();
+    for _ in 0..4 {
+        let (window, _) = at(cx);
+        let handle = if window == "first" { first } else { second };
+        super::tests::run(cx, handle, "F_PREVWINDOW");
+        back.push(at(cx));
+    }
+    assert_eq!(
+        back,
+        [("second", 1), ("second", 0), ("first", 1), ("first", 0)]
+    );
+}
+
 fn clipboard(cx: &mut TestAppContext) -> Option<String> {
     cx.read_from_clipboard().and_then(|item| item.text())
 }
