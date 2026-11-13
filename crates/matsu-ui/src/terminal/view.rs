@@ -7,15 +7,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, Bounds, Context, FocusHandle, Focusable, InteractiveElement as _, IntoElement,
-    KeyDownEvent, Keystroke, MouseButton, ParentElement as _, Pixels, Render, Styled as _, Task,
-    WeakEntity, Window, div, rgb,
+    KeyDownEvent, Keystroke, Modifiers, MouseButton, ParentElement as _, Pixels, Render,
+    Styled as _, Task, WeakEntity, Window, div, rgb,
 };
 use matsu_commands::keymap::Lookup;
 use matsu_commands::sakura::{FUNCTIONS, FunctionKind};
 use matsu_terminal::{EventReceiver, Snapshot, Terminal, TerminalEvent, TerminalSize};
 
 use super::element::{CellSize, TerminalElement};
-use super::input::{Translated, translate};
+use super::input::{ScrollKey, Translated, translate};
 use super::palette::Palette;
 use super::{Close, Copy, Paste};
 use crate::app::Workspace;
@@ -25,6 +25,8 @@ use crate::view::text_font::TextFont;
 
 mod clipboard;
 mod ime;
+mod mouse;
+mod program;
 
 pub(super) use ime::{preedit_cells, rows_up};
 
@@ -93,7 +95,7 @@ pub(crate) struct TerminalView {
     focus: FocusHandle,
     workspace: WeakEntity<Workspace>,
     look: Look,
-    /// The name of the shell's program, for the caption.
+    /// The name of the shell's program: the caption of the tab until the program sets a title.
     program: String,
     /// What the tooltip says: the shell and its working directory.
     tooltip: String,
@@ -111,6 +113,29 @@ pub(crate) struct TerminalView {
     dragging: bool,
     /// A question about a paste of several lines is open.
     paste_asking: bool,
+    /// The title the program set (OSC 0 and 2), `None` for the shell's own name (`view::program`).
+    title: Option<String>,
+    bell: program::BellGate,
+    /// A bell rang while the tab or the window was in the background and the tab has not been looked at since.
+    bell_marked: bool,
+    /// The screen flashes: a bell rang while the terminal was looked at.
+    bell_flash: bool,
+    /// How many bells got through the gate.
+    bells_rung: usize,
+    /// The button the program was told is down (a press that was reported): its drag and release are the
+    /// program's too (`view::mouse`).
+    reported: Option<matsu_terminal::MouseButton>,
+    /// The cell of the last motion that was reported, so that a pointer inside a cell reports once.
+    last_cell: Option<(usize, usize)>,
+    /// Lines of the wheel not yet turned into a whole line (a trackpad sends pixels).
+    wheel_rest: f32,
+    /// The pointer and the modifiers as of the last mouse or modifier event, for the link under it.
+    pointer: Option<gpui::Point<Pixels>>,
+    last_modifiers: Modifiers,
+    /// The link under the pointer while the link key is held (it is underlined).
+    link: Option<matsu_terminal::Link>,
+    /// A question about a link is open.
+    link_asking: bool,
     _events: Option<Task<()>>,
 }
 
@@ -153,6 +178,18 @@ impl TerminalView {
             layout: None,
             dragging: false,
             paste_asking: false,
+            title: None,
+            bell: program::BellGate::default(),
+            bell_marked: false,
+            bell_flash: false,
+            bells_rung: 0,
+            reported: None,
+            last_cell: None,
+            wheel_rest: 0.0,
+            pointer: None,
+            last_modifiers: Modifiers::default(),
+            link: None,
+            link_asking: false,
             _events: None,
         }
     }
@@ -192,16 +229,21 @@ impl TerminalView {
     }
 
     fn handle_event(&mut self, event: &TerminalEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match *event {
+        match event {
             TerminalEvent::Redraw => {
                 // Cleared before the screen is read, so a change after the read sends another one.
                 self.redraw_waiting.store(false, Ordering::Release);
                 cx.notify();
+                if self.link.is_some() {
+                    // The lines moved under the pointer: is it still on the link?
+                    self.refresh_link(cx);
+                }
                 if std::mem::take(&mut self.size_told) {
                     self.tell_window(cx);
                 }
             }
             TerminalEvent::ChildExit { code } => {
+                let code = *code;
                 self.ended = Some(Ended { code });
                 // Nothing can be written any more: the text being composed has no place to go.
                 self.end_composition();
@@ -218,13 +260,22 @@ impl TerminalView {
                     self.tell_window(cx);
                 }
             }
-            // The program's title, the bell and the clipboard are the fourth PR (ADR-0028): the events are
-            // taken off the channel and dropped.
-            TerminalEvent::Title(_)
-            | TerminalEvent::ResetTitle
-            | TerminalEvent::Bell
-            | TerminalEvent::ClipboardStore { .. } => {}
+            TerminalEvent::Title(title) => self.set_title(title, cx),
+            TerminalEvent::ResetTitle => self.reset_title(cx),
+            TerminalEvent::Bell => self.on_bell(window, cx),
+            TerminalEvent::ClipboardStore { kind, text } => {
+                Self::store_clipboard(*kind, text.clone(), cx);
+            }
         }
+    }
+
+    fn on_mouse_up_event(
+        &mut self,
+        event: &gpui::MouseUpEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_mouse_up(event, cx);
     }
 
     /// The window shows things of this tab (the status bar, the caption): it is drawn again.
@@ -293,11 +344,6 @@ impl TerminalView {
 
     pub(crate) fn ended(&self) -> Option<Ended> {
         self.ended
-    }
-
-    /// The name of the shell's program (the caption of the tab).
-    pub(crate) fn program(&self) -> &str {
-        &self.program
     }
 
     pub(crate) fn tooltip(&self) -> &str {
@@ -425,15 +471,43 @@ impl TerminalView {
                 cx.stop_propagation();
                 self.paste(window, cx);
             }
+            Translated::Scroll(key) => {
+                cx.stop_propagation();
+                self.scroll_by_key(key);
+                cx.notify();
+            }
+        }
+    }
+
+    /// Scrolls the view through the scrollback for one of the scroll keys. A page is the screen less a line,
+    /// so the line at the edge stays in sight.
+    fn scroll_by_key(&mut self, key: ScrollKey) {
+        let page = i32::from(self.size.rows).saturating_sub(1).max(1);
+        match key {
+            ScrollKey::LineUp => self.terminal.scroll_display(1),
+            ScrollKey::LineDown => self.terminal.scroll_display(-1),
+            ScrollKey::PageUp => self.terminal.scroll_display(page),
+            ScrollKey::PageDown => self.terminal.scroll_display(-page),
+            ScrollKey::Top => self.terminal.scroll_to_top(),
+            ScrollKey::Bottom => self.terminal.scroll_to_bottom(),
         }
     }
 
     /// Writes a key to the program. A key that is sent clears the selection, as typing does.
     fn send_key(&mut self, key: matsu_terminal::Key, mods: matsu_terminal::Modifiers) {
         if let Some(bytes) = self.terminal.encode_key(key, mods) {
-            self.clear_selection();
-            self.send(&bytes);
+            self.send_typed(&bytes);
         }
+    }
+
+    /// Writes what the user typed, pasted or composed. Typing clears the selection (as in Windows Terminal)
+    /// and brings the view back to the live screen when it was scrolled back into the scrollback.
+    fn send_typed(&mut self, bytes: &[u8]) {
+        self.clear_selection();
+        if self.terminal.info().display_offset > 0 {
+            self.terminal.scroll_to_bottom();
+        }
+        self.send(bytes);
     }
 
     /// Runs `f` on the window after the event that is running ends: the window changes the tabs, and this view
@@ -460,7 +534,7 @@ impl Focusable for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let name = format!("シェル: {}", self.program);
+        let name = format!("シェル: {}", self.title_text());
         // The copy item of the menu is gray while nothing is selected: the native menu of macOS grays an
         // item whose action nobody handles.
         let selected = self.has_selection();
@@ -469,8 +543,18 @@ impl Render for TerminalView {
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_mouse_down))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up_event))
+            .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_mouse_up_event))
+            .on_mouse_up(MouseButton::Right, cx.listener(Self::on_mouse_up_event))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up_event))
+            .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::on_mouse_up_event))
+            .on_mouse_up_out(MouseButton::Right, cx.listener(Self::on_mouse_up_event))
+            .on_scroll_wheel(cx.listener(|this, event, _, cx| this.on_wheel(event, cx)))
+            .on_modifiers_changed(cx.listener(|this, event, _, cx| {
+                this.on_modifiers_changed(event, cx);
+            }))
             .when(selected, |el| {
                 el.on_action(cx.listener(|this, _: &Copy, _, cx| {
                     this.copy_selection(cx);

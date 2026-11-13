@@ -713,7 +713,7 @@ impl Render for Workspace {
         window.set_window_title(&if preview.is_some() {
             format!("プレビュー: {title}")
         } else if let Some(shell) = &terminal {
-            format!("シェル: {}", shell.read(cx).program())
+            format!("シェル: {}", shell.read(cx).title_text())
         } else {
             title
         });

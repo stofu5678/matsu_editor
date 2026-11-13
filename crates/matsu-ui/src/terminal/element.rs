@@ -16,7 +16,7 @@ use gpui::{
     GlobalElementId, InspectorElementId, IntoElement, LayoutId, MouseMoveEvent, Pixels, ShapedLine,
     SharedString, Style, TextAlign, TextRun, Window, fill, point, px, relative, rgb, size,
 };
-use matsu_terminal::{Cell, CursorShape, Row, SelectionSpan, Snapshot};
+use matsu_terminal::{Cell, CursorShape, Link, Row, SelectionSpan, Snapshot};
 
 use super::handler::TerminalInputHandler;
 use super::palette::{Packed, Palette, blend};
@@ -369,6 +369,10 @@ pub(super) struct Prepaint {
     focused: bool,
     /// The text the IME is composing, drawn at the cursor.
     preedit: Option<(String, std::ops::Range<usize>)>,
+    /// The link under the pointer while the link key is held: underlined.
+    link: Option<Link>,
+    /// A bell rang while the terminal was looked at: the screen flashes.
+    flash: bool,
 }
 
 impl Element for TerminalElement {
@@ -423,18 +427,33 @@ impl Element for TerminalElement {
             view.fit(columns, rows, cell);
             view.set_layout(bounds, cell);
         });
-        let (snapshot, preedit) = {
+        let (snapshot, preedit, link, flash) = {
             let view = self.view.read(cx);
-            (view.screen(), view.preedit_with_selection())
+            (
+                view.screen(),
+                view.preedit_with_selection(),
+                view.hover_link().cloned(),
+                view.bell_flashing(),
+            )
         };
+        let focused = focus.is_focused(window);
+        // The tab is looked at again: the mark of a bell that rang in the background goes (after the frame).
+        if focused && window.is_window_active() && self.view.read(cx).bell_marked() {
+            let view = self.view.clone();
+            window.defer(cx, move |_, cx| {
+                view.update(cx, |view, cx| view.clear_bell_mark(cx));
+            });
+        }
         let mut palette = look.palette;
         palette.set_overrides(&snapshot.color_overrides);
         Prepaint {
             cell,
             snapshot,
             palette,
-            focused: focus.is_focused(window),
+            focused,
             preedit,
+            link,
+            flash,
         }
     }
 
@@ -454,6 +473,8 @@ impl Element for TerminalElement {
             palette,
             focused,
             preedit,
+            link,
+            flash,
         } = prepaint;
         let (cell, focused) = (*cell, *focused);
         let (font, font_size, focus) = {
@@ -570,6 +591,19 @@ impl Element for TerminalElement {
                 }
             }
 
+            if let Some(link) = link.as_ref() {
+                for span in &link.spans {
+                    let y = bounds.top() + px(span.row as f32 * cell.height);
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            point(x_of(span.first), y + line - px(2.)),
+                            size(width_of(span.last + 1 - span.first), px(1.)),
+                        ),
+                        rgb(palette.default_foreground()),
+                    ));
+                }
+            }
+
             if on_screen(viewport_row, snapshot.rows.len()) && cursor.shape != CursorShape::Hidden {
                 paint_cursor(
                     window,
@@ -647,6 +681,14 @@ impl Element for TerminalElement {
                         rgb(foreground),
                     ));
                 }
+            }
+
+            if *flash {
+                // The visual bell: the foreground color over the screen, see through.
+                window.paint_quad(fill(
+                    bounds,
+                    gpui::rgba(palette.default_foreground() << 8 | 0x59),
+                ));
             }
         });
     }

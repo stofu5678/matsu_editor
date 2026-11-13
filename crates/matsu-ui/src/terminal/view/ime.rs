@@ -143,14 +143,12 @@ impl TerminalView {
         self.marked.is_some()
     }
 
-    /// Writes typed or committed text to the program, as UTF-8. Typing clears the selection, as in
-    /// Windows Terminal.
+    /// Writes typed or committed text to the program, as UTF-8 (see `send_typed`).
     pub(super) fn send_text(&mut self, text: &str) {
         if text.is_empty() {
             return;
         }
-        self.clear_selection();
-        self.send(text.as_bytes());
+        self.send_typed(text.as_bytes());
     }
 
     /// The preedit is over (committed or cancelled).

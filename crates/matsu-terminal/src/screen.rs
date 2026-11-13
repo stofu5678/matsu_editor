@@ -56,7 +56,8 @@ pub struct Cell {
     pub wide_spacer: bool,
     /// A blank cell at the end of a line, where a wide character did not fit and went to the next line.
     pub leading_wide_spacer: bool,
-    /// The link (OSC 8) the cell belongs to. Only the address is kept, for the later PRs.
+    /// The link (OSC 8) the cell belongs to. Only the address is kept ([`crate::link_at`] finds the link under a
+    /// cell).
     pub hyperlink: Option<Arc<str>>,
 }
 
