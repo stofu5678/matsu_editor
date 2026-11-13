@@ -48,6 +48,8 @@ impl LogText {
             end -= 1;
         }
         text.truncate(end);
+        // `truncate` keeps the allocation of the whole text; the limit is for the memory the log holds.
+        text.shrink_to_fit();
         Self {
             text,
             cut_from: Some(original),
@@ -357,12 +359,14 @@ mod tests {
     #[test]
     fn a_long_text_is_cut_on_a_character_boundary_and_says_so() {
         // Three bytes per character: the limit falls inside a character.
-        let text = "あ".repeat(MAX_TEXT_BYTES / 3 + 10);
+        let text = "あ".repeat(MAX_TEXT_BYTES);
         let cut = LogText::new(text.clone());
         assert!(cut.as_str().len() <= MAX_TEXT_BYTES);
         assert!(cut.as_str().len() > MAX_TEXT_BYTES - 3);
         assert_eq!(cut.cut_from(), Some(text.len()));
         assert!(text.starts_with(cut.as_str()));
+        // The memory of the cut part is given back, not only the length.
+        assert!(cut.text.capacity() < text.len() / 2);
         // A text of exactly the limit is whole.
         let whole = LogText::new("a".repeat(MAX_TEXT_BYTES));
         assert_eq!(whole.cut_from(), None);
