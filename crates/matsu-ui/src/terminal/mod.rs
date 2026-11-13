@@ -227,7 +227,7 @@ impl TabPanel for TerminalTab {
     }
 
     fn tooltip(&self, cx: &App) -> String {
-        self.view.read(cx).tooltip().to_owned()
+        self.view.read(cx).tooltip()
     }
 
     fn icon(&self, _: &App) -> crate::tabs::icon::TabIcon {

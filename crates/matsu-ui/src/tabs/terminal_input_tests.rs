@@ -123,7 +123,7 @@ pub(super) fn keys(cx: &mut TestAppContext, handle: AnyWindowHandle, keystrokes:
 
 /// The row of the screen that has exactly `line`, and the column its `needle` starts in; `None` while the
 /// screen does not show the line.
-fn find(
+pub(super) fn find(
     cx: &mut TestAppContext,
     view: &Entity<TerminalView>,
     line: &str,

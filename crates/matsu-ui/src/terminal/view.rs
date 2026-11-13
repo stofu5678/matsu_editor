@@ -121,6 +121,7 @@ pub(crate) struct TerminalView {
     /// The screen flashes: a bell rang while the terminal was looked at.
     bell_flash: bool,
     /// How many bells got through the gate.
+    #[cfg(all(test, unix))]
     bells_rung: usize,
     /// The button the program was told is down (a press that was reported): its drag and release are the
     /// program's too (`view::mouse`).
@@ -184,6 +185,7 @@ impl TerminalView {
             bell: program::BellGate::default(),
             bell_marked: false,
             bell_flash: false,
+            #[cfg(all(test, unix))]
             bells_rung: 0,
             reported: None,
             last_cell: None,
@@ -350,8 +352,13 @@ impl TerminalView {
         self.ended
     }
 
-    pub(crate) fn tooltip(&self) -> &str {
-        &self.tooltip
+    /// The tooltip of the tab: the shell and its working directory, led by the title the program set, if it
+    /// has (the caption shows the title instead of the shell's name, so the tooltip is where the shell is named).
+    pub(crate) fn tooltip(&self) -> String {
+        match &self.title {
+            Some(title) => format!("{title}\n{}", self.tooltip),
+            None => self.tooltip.clone(),
+        }
     }
 
     /// The size in cells, `80×24`.

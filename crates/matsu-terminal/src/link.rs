@@ -17,6 +17,7 @@ use alacritty_terminal::term::Term;
 use alacritty_terminal::term::cell::Flags;
 
 use crate::screen::{Cell, Row};
+use crate::title::is_unwanted;
 
 /// A run of cells of one row that belong to a link: the columns from `first` to `last`, both included.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -312,12 +313,12 @@ pub fn is_openable(uri: &str) -> bool {
     !authority.is_empty()
         && authority.len() <= MAX_AUTHORITY
         && !authority.contains('@')
-        && !uri.chars().any(|c| c.is_control() || c.is_whitespace())
+        && !uri.chars().any(|c| is_unwanted(c) || c.is_whitespace())
 }
 
 /// The address as a message shows it: control characters taken out and cut to `max` characters with `…`.
 pub fn display_uri(uri: &str, max: usize) -> String {
-    let clean: String = uri.chars().filter(|c| !c.is_control()).collect();
+    let clean: String = uri.chars().filter(|&c| !is_unwanted(c)).collect();
     if clean.chars().count() <= max {
         clean
     } else {
@@ -552,6 +553,10 @@ mod tests {
         assert!(!is_openable("https://example.com/a b"));
         assert!(!is_openable("https://example.com/\u{1b}[31m"));
         assert!(!is_openable("https://example.com/\n"));
+        // characters that reorder the text or show nothing
+        assert!(!is_openable("https://example.com/\u{202E}gro.live"));
+        assert!(!is_openable("https://example.com\u{200B}.evil.example/"));
+        assert!(!is_openable("https://example.com/\u{FEFF}"));
         assert!(!is_openable(""));
     }
 
@@ -702,6 +707,14 @@ mod tests {
     fn an_address_is_shown_without_controls_and_cut_when_long() {
         assert_eq!(display_uri("http://a/\u{1b}[31mb", 50), "http://a/[31mb");
         assert_eq!(display_uri("abcdef", 3), "abc…");
+        // reordering and zero-width characters are taken out too
+        assert_eq!(
+            display_uri(
+                "https://a.example/\u{202E}b\u{2066}c\u{200B}d\u{FEFF}e\u{200F}",
+                50
+            ),
+            "https://a.example/bcde"
+        );
         assert_eq!(display_uri("abc", 3), "abc");
     }
 }

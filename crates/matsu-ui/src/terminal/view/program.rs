@@ -80,7 +80,10 @@ impl TerminalView {
         if !self.bell.rings(Instant::now()) {
             return;
         }
-        self.bells_rung += 1;
+        #[cfg(all(test, unix))]
+        {
+            self.bells_rung += 1;
+        }
         if window.is_window_active() && self.focus.is_focused(window) {
             self.bell_flash = true;
             cx.notify();
@@ -121,7 +124,7 @@ impl TerminalView {
     }
 
     /// How many bells got through (the quick ones after one are not counted; for the tests).
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn bells_rung(&self) -> usize {
         self.bells_rung
     }
