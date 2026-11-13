@@ -148,7 +148,6 @@ pub(crate) fn begin(
 }
 
 /// Shows the log: goes to the tab if the window has one, opens it otherwise.
-#[allow(dead_code)] // reached from a menu or the confirmation window later (ADR-0030 AI-4)
 pub(crate) fn open(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
     workspace.ai_log_view(true, window, cx);
 }

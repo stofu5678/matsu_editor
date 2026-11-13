@@ -64,6 +64,27 @@ pub(crate) fn next_tab(at: usize, count: usize) -> usize {
     (at + 1) % count.max(1)
 }
 
+/// Where `F_NEXTWINDOW` / `F_PREVWINDOW` go inside a window that is not in the tab mode (the windows are not
+/// bound into one group) but holds a shell, a preview or the AI log next to its document. Those tabs are not windows,
+/// and with no tab bar the keys are the only way to reach them and to leave them. Returns `(step, wrap)`: `step` is
+/// the tab right after (or before) the active one, when there is one; `wrap` is where the walk goes when it is at the
+/// end and has no other window to go to. `None` when the window has no such tab.
+pub(crate) fn own_tab_walk(
+    at: usize,
+    count: usize,
+    has_own_tab: bool,
+    forward: bool,
+) -> Option<(Option<usize>, usize)> {
+    if !has_own_tab || count < 2 {
+        return None;
+    }
+    Some(if forward {
+        ((at + 1 < count).then_some(at + 1), 0)
+    } else {
+        (at.checked_sub(1), count - 1)
+    })
+}
+
 /// The tab that `F_PREVWINDOW` goes to (`CControlTray::ActivePrevWindow`).
 pub(crate) fn prev_tab(at: usize, count: usize) -> usize {
     (at + count.max(1) - 1) % count.max(1)
@@ -72,6 +93,17 @@ pub(crate) fn prev_tab(at: usize, count: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_own_tab_walk_steps_through_the_tabs_and_wraps_at_the_ends() {
+        // no shell, preview or log, or one tab: not a walk of tabs
+        assert_eq!(own_tab_walk(0, 2, false, true), None);
+        assert_eq!(own_tab_walk(0, 1, true, true), None);
+        assert_eq!(own_tab_walk(0, 3, true, true), Some((Some(1), 0)));
+        assert_eq!(own_tab_walk(2, 3, true, true), Some((None, 0)));
+        assert_eq!(own_tab_walk(2, 3, true, false), Some((Some(1), 2)));
+        assert_eq!(own_tab_walk(0, 3, true, false), Some((None, 2)));
+    }
 
     #[test]
     fn closing_goes_back_to_the_tab_that_was_active_before() {

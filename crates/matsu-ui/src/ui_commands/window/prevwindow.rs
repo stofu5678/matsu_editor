@@ -36,10 +36,35 @@ impl UiCommand for Prevwindow {
                 ws.activate_tab(to, window, cx);
             });
         }
+        // Without the tab mode, the tabs that are not documents (a shell, a preview, the AI log) are walked first.
+        let walk = view
+            .split_host
+            .as_ref()
+            .and_then(|host| host.upgrade())
+            .and_then(|ws| {
+                let ws = ws.read(cx);
+                crate::tabs::order::own_tab_walk(
+                    ws.active_tab(),
+                    ws.tab_count(),
+                    ws.has_own_tab(),
+                    false,
+                )
+            });
+        if let Some((Some(to), _)) = walk {
+            return view.with_workspace(window, cx, move |ws, window, cx| {
+                ws.activate_tab(to, window, cx)
+            });
+        }
         let current = window.window_handle();
         let all = all_handles(cx);
         if let Some(target) = window_after(&all, current, Direction::Previous) {
             if target == current {
+                // no other window: round the tabs of this one
+                if let Some((_, wrap)) = walk {
+                    return view.with_workspace(window, cx, move |ws, window, cx| {
+                        ws.activate_tab(wrap, window, cx);
+                    });
+                }
                 window.activate_window();
             } else {
                 activate(cx, target);

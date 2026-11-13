@@ -57,7 +57,7 @@ use matsu_config::settings::oneliner::OutputTo;
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::encoding::Eol;
 use matsu_core::exec::{exit_code_text, header_text};
-use matsu_core::oneliner::{OUTPUT_CAP_BYTES, feed_lf};
+use matsu_core::oneliner::{OUTPUT_CAP_BYTES, feed_lf, for_next_line, for_replace};
 use matsu_oneliner::{Event, Finished, Input, OutputKind, Request, RunError, StartError, start};
 use matsu_platform::exec::Stopper;
 
@@ -308,11 +308,8 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
             None => prepared.folder.clone(),
         },
         input: input_of(&prepared),
-        output: match job.output {
-            OutputTo::Replace => OutputKind::Replace,
-            OutputTo::NextLine => OutputKind::NextLine,
-            OutputTo::OutputWindow => OutputKind::Window,
-        },
+        // always the output as it is: `finish` finishes it off for the place of the result
+        output: OutputKind::Window,
         path: login_path,
     };
     // `start` reads the whole text once for `cmd` (to see that the code page can write it): not on the window's
@@ -397,12 +394,8 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         cx.background_executor().timer(POLL).await;
     };
 
-    // The process is over: its working folder goes, and the log has the end, whatever it was.
-    if let Some(dir) = workdir {
-        cx.background_executor()
-            .spawn(async move { dir.remove() })
-            .await;
-    }
+    // The process is over: the log has the end, whatever it was. The answer is the standard output as the command
+    // wrote it, whatever the place of the result (the finishing of 置き換える and 次の行に入れる is in `finish`).
     if log.is_some() {
         end_log(cx, log.as_ref(), log_end(&event, began));
     }
@@ -414,6 +407,13 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         })
         .ok()
         .flatten();
+    // The box is gone and the result is placed: only now the working folder is removed, so that キャンセル cannot
+    // meet a result that is already final.
+    if let Some(dir) = workdir {
+        cx.background_executor()
+            .spawn(async move { dir.remove() })
+            .await;
+    }
     if let Some(message) = message {
         tell(cx, PromptLevel::Warning, &message, None).await;
     }
@@ -523,6 +523,13 @@ async fn begin_ai(
         return None;
     }
     let handle = begin_log(view, cx, started_with(text, size)).await;
+    if handle.is_some() {
+        say(
+            view,
+            cx,
+            "AI に送る内容と答えを、AI ログのタブに記録します（メニューの「ワンライナー」の「AI ログを表示」で見られます）。",
+        );
+    }
     if handle.is_none() {
         release(view, cx);
         say(
@@ -745,7 +752,7 @@ fn finish(
     view.support.exec_running = None;
     window.focus(&view.focus_handle, cx);
     cx.notify();
-    let finished = match event {
+    let mut finished = match event {
         Event::Failed(error) => return Some(failure_message(&job.line, &run_error_text(&error))),
         Event::Finished(finished) => finished,
     };
@@ -795,6 +802,13 @@ fn finish(
             );
         }
         OutputTo::Replace | OutputTo::NextLine => {
+            // the output finished off for the place (ADR-0029): 置き換える drops the line break that the input did
+            // not have, 次の行に入れる ends with one
+            if job.output == OutputTo::Replace {
+                for_replace(&mut finished.output, finished.input_ended_with_break);
+            } else {
+                for_next_line(&mut finished.output);
+            }
             let result = apply(view, prepared, &finished.output, job.output, cx);
             if let Err(why) = result {
                 return Some(failure_message(

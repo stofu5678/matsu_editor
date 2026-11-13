@@ -261,6 +261,27 @@ fn the_selected_text_is_copied_to_the_clipboard(cx: &mut TestAppContext) {
     assert_eq!(copied, selected);
 }
 
+/// With no tab bar (the default settings) the log is reached and left with the keys of the next and previous window,
+/// as a shell or a preview tab is, and a walk that has gone round the tabs ends where it began.
+#[gpui::test]
+fn the_log_is_reached_and_left_with_the_window_keys_without_a_tab_bar(cx: &mut TestAppContext) {
+    let handle = window(cx, false);
+    let _record = begin(cx, handle, started("a", "one"));
+    cx.run_until_parked();
+    let ws = workspace(cx, handle);
+    let active = |cx: &mut TestAppContext| ws.read_with(cx, |ws, _| ws.active_tab());
+    assert_eq!(active(cx), 0, "the document keeps the focus");
+    super::tests::run(cx, handle, "F_NEXTWINDOW");
+    assert_eq!(active(cx), 1, "the log");
+    // the end of the tabs and no other window: round to the document
+    super::tests::run(cx, handle, "F_NEXTWINDOW");
+    assert_eq!(active(cx), 0);
+    super::tests::run(cx, handle, "F_PREVWINDOW");
+    assert_eq!(active(cx), 1);
+    super::tests::run(cx, handle, "F_PREVWINDOW");
+    assert_eq!(active(cx), 0);
+}
+
 fn clipboard(cx: &mut TestAppContext) -> Option<String> {
     cx.read_from_clipboard().and_then(|item| item.text())
 }

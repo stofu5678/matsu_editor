@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use matsu_config::settings::oneliner::{F_ONELINER_LIST, OneLiners, function_of_index};
+use matsu_config::settings::oneliner::{
+    F_AI_LOG_SHOW, F_ONELINER_LIST, OneLiners, function_of_index,
+};
 
 use crate::menu::{Item, Lists, MenuAction};
 
@@ -17,7 +19,8 @@ impl Lists for OneLinerList {
         if code != F_ONELINER_LIST {
             return Vec::new();
         }
-        self.0
+        let mut items: Vec<Item> = self
+            .0
             .slots
             .iter()
             .enumerate()
@@ -30,6 +33,15 @@ impl Lists for OneLinerList {
                     enabled: true,
                 })
             })
-            .collect()
+            .collect();
+        // The way back to the log of what was sent to an AI (ADR-0030): always there, last, so that a window
+        // without a tab bar can reach the log tab too, and no saved menu needs to change.
+        items.push(Item {
+            label: "AI ログを表示".to_owned(),
+            action: MenuAction::Function(F_AI_LOG_SHOW),
+            shortcut: None,
+            enabled: true,
+        });
+        items
     }
 }

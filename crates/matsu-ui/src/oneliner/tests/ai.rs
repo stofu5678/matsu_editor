@@ -398,3 +398,84 @@ fn cancelling_a_run_is_recorded(cx: &mut TestAppContext) {
         .expect("the record has ended");
     assert!(stderr.contains("キャンセル"), "{stderr}");
 }
+
+#[gpui::test]
+fn the_log_has_the_output_as_the_command_wrote_it_for_every_place(cx: &mut TestAppContext) {
+    let command = if cfg!(windows) {
+        "[Console]::Out.Write('answer')"
+    } else {
+        "printf answer"
+    };
+    for (place, expected) in [
+        (OutputTo::NextLine, "abc\nanswer\n"),
+        (OutputTo::Replace, "answer"),
+        (OutputTo::OutputWindow, "abc\n"),
+    ] {
+        let (_dir, w) = open(cx, &ai_ini(command, place, false), "abc\n");
+        run(cx, &w, 0);
+        let (output, _, _) = records(&w, cx)[0].end.clone().unwrap();
+        assert_eq!(
+            output, "answer",
+            "{place:?}: no line break is added or dropped"
+        );
+        assert_eq!(w.text(cx).replace("\r\n", "\n"), expected, "{place:?}");
+    }
+}
+
+#[gpui::test]
+fn the_status_bar_says_where_the_run_is_recorded(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, &ai_ini(LONG, OutputTo::NextLine, false), "abc\n");
+    w.slot(cx, 0);
+    wait_until(cx, "the box", |cx| w.running(cx));
+    let notice = w.notice(cx).unwrap_or_default();
+    assert!(notice.contains("AI ログを表示"), "{notice}");
+    w.cx(cx).simulate_keystrokes("escape");
+    wait_idle(&w, cx);
+}
+
+#[gpui::test]
+fn the_function_show_ai_log_opens_and_goes_to_the_log(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, &ai_ini(COPY, OutputTo::NextLine, false), "abc\n");
+    let code = matsu_config::settings::oneliner::F_AI_LOG_SHOW;
+    w.call_code(cx, code);
+    let ws = workspace(&w, cx).unwrap();
+    ws.read_with(cx, |ws, _| {
+        assert!(ws.ai_log_of_window().is_some());
+        assert_eq!(ws.active_tab(), 1, "the log is shown");
+    });
+}
+
+#[test]
+fn the_oneliner_submenu_always_ends_with_the_ai_log_item() {
+    use crate::menu::{Lists as _, MenuAction};
+    use matsu_config::settings::oneliner::{F_AI_LOG_SHOW, F_ONELINER_LIST, OneLiners};
+    // with no one-liner registered the item is the whole list; with some, it is the last
+    let none = crate::oneliner::OneLinerList(std::sync::Arc::new(OneLiners::default()));
+    let items = none.items(F_ONELINER_LIST);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].label, "AI ログを表示");
+    assert_eq!(items[0].action, MenuAction::Function(F_AI_LOG_SHOW));
+    assert!(items[0].enabled);
+}
+
+// ---- Tab in the dialogs of the flow, on a window with the key bindings of the app ----
+
+#[gpui::test]
+fn tab_stays_inside_the_input_dialog_on_a_real_window(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, "", "abc\n");
+    super::open_dialog(&w, cx);
+    // The dialog's controls are tab stops of `Root`'s own Tab handling (no key listener of the dialog is needed): the
+    // focus goes round the field and the buttons and never into the text behind, and no Tab is typed into it.
+    for key in ["tab", "tab", "tab", "tab", "shift-tab", "tab", "tab", "tab"] {
+        press(&w, cx, key);
+        let editor_focused = w
+            .handle
+            .update(cx, |_, window, app| {
+                w.view.read(app).focus_handle.is_focused(window)
+            })
+            .unwrap();
+        assert!(!editor_focused, "{key}: the focus left the dialog");
+        assert!(w.dialog(cx).is_some(), "{key}");
+    }
+    assert_eq!(w.text(cx), "abc\n");
+}

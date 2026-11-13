@@ -510,7 +510,8 @@ fn the_list_expands_to_the_registered_names(cx: &mut TestAppContext) {
     let items = list.items(F_ONELINER_LIST);
     let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
     // a one-liner without a name shows its command
-    assert_eq!(labels, ["up", "cat"]);
+    // and the way to the log of what was sent to an AI is the last item (ADR-0030)
+    assert_eq!(labels, ["up", "cat", "AI ログを表示"]);
     assert_eq!(
         items[1].action,
         MenuAction::Function(function_of_index(1).unwrap())
@@ -612,14 +613,15 @@ fn the_right_click_menu_shows_the_list_as_a_submenu_with_the_dialog_and_the_sett
             Entry::Submenu { label, .. } => label.clone(),
         })
         .collect();
-    assert_eq!(shape.len(), 4, "{shape:?}");
+    assert_eq!(shape.len(), 5, "{shape:?}");
     assert_eq!(shape[0], "up");
-    assert_eq!(shape[1], "-");
+    assert_eq!(shape[1], "AI ログを表示");
+    assert_eq!(shape[2], "-");
     assert!(
-        shape[2].starts_with("ワンライナーを入力して実行"),
+        shape[3].starts_with("ワンライナーを入力して実行"),
         "{shape:?}"
     );
-    assert!(shape[3].starts_with("ワンライナーの設定"), "{shape:?}");
+    assert!(shape[4].starts_with("ワンライナーの設定"), "{shape:?}");
     // and with none registered the submenu says so
     let empty = Default::default();
     let rows = entries_with_none(&menus, &keymap, &empty);
