@@ -42,11 +42,11 @@ impl AiLogView {
         &self.log
     }
 
-    /// Adds a running record, and shows the end of the log (where the newest record is).
+    /// Adds a running record. The view does not scroll by itself: the text view fills its list after it parses
+    /// the text, so a scroll made here would land on an empty list.
     pub(crate) fn begin(&mut self, started: Started, cx: &mut Context<Self>) -> RecordId {
         let id = self.log.begin(started);
         self.show(cx);
-        self.state.read(cx).list_state().scroll_to_end();
         id
     }
 
