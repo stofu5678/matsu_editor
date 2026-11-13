@@ -19,7 +19,7 @@
 | `.upy` | MicroPython | 同梱の `matsu-script` | なし |
 | `.mruby` | mruby | 同梱の `matsu-script` | なし |
 | `.mjs` `.cjs` | JavaScript（Node.js） | 外部 | Node.js |
-| `.ts` | TypeScript | 外部（Node.js が型を取り除く） | Node.js 22.18 以降 |
+| `.ts` | TypeScript | 外部（Node.js が型を取り除く） | Node.js。22 系は 22.18 以降、23 系は 23.6 以降、24 以降はすべて（23.0〜23.5 と 22.18 より前は、エラーになります） |
 | `.py` | Python | 外部 | Python |
 | `.rb` | Ruby | 外部 | Ruby |
 | `.php` | PHP | 外部 | PHP |
@@ -63,7 +63,11 @@
 
 - 行番号と桁は 1 から数えます。桁は UTF-16 の単位で数えるので、絵文字などは 2 と数えます。
 - 値を返す関数は、返した値をそのまま受け取れます。返さない関数の結果は、空の値です。
-- 引数が間違っているなど、エディタが拒否したときは、例外 `EditorError` が起きます。`code`（番号）と `message`（理由）を持ちます。Lua では `pcall` で受けて、`code` と `message` を読みます。PowerShell では `Get-EditorErrorCode $_` で番号を読みます。
+- 引数が間違っているなど、エディタが拒否したときは、言語ごとの形でエラーになります。
+  - Lua、JavaScript、TypeScript、Python、MicroPython、Ruby、mruby、PHP、Perl: 例外 `EditorError` が起きます。`code`（番号）と `message`（理由）を持ちます。Lua では `pcall` で受けて、`code` と `message` を読みます
+  - PowerShell: `Get-EditorErrorCode $_` で番号を読みます
+  - Emacs Lisp: シグナル `editor-error` が起きます。データは、番号と理由の 2 つの並びです（`condition-case` で受けて、データを読みます）
+  - AppleScript: AppleScript のエラーが起きます。エラー番号がエディタの番号で、文面は `EditorError 番号: 理由` の形です
 - `print` や `console.log` など、その言語の標準の出力は、出力パネルに出ます。
 
 Lua の短い例です。1 行目に題を足し、全体の行数を出力します。
@@ -93,6 +97,6 @@ print("lines:", Editor.GetLineCount(0))
 - `-M=` と `-MTYPE=`: `crates/matsu-ui/src/command_line.rs`、`crates/matsu-ui/src/ui_commands/macros/exec_ext_macro.rs`
 - 拡張子を受け付けない扱い: `crates/matsu-ui/src/macros/mod.rs` と `crates/matsu-ui/src/macros/tests.rs` の `an_unknown_extension_is_refused`
 - 出力パネル、中止、キャンセル確認待ち時間: `crates/matsu-ui/src/macros/output.rs`、`crates/matsu-ui/src/macros/mod.rs`（`CancelWait`）
-- 言語ごとの呼び方: `crates/matsu-plugin/samples/` の `sample.*`、`crates/matsu-script/src/lua.rs`（`EditorError` の作り）
+- 言語ごとの呼び方: `crates/matsu-plugin/samples/` の `sample.*`、`crates/matsu-script/src/lua.rs`（`EditorError` の作り）、`crates/matsu-plugin/src/boot/boot.el`（`editor-call`）、`crates/matsu-plugin/src/boot/boot.applescript`（`editorCall`）。Node.js の版: `crates/matsu-plugin/src/session.rs` の `node_strips_types`、`crates/matsu-plugin/src/boot/boot.cjs`
 - 桁の数え方: `crates/matsu-plugin/src/api.rs` の `MoveCursor`
 - サクラのソース: `sakura_core/macro/CWSHManager.cpp`（`Editor` オブジェクトを渡す）、`sakura_core/macro/CSMacroMgr.cpp`
