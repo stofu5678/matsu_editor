@@ -178,6 +178,17 @@ jobs:
         if: runner.os != 'Windows'
         working-directory: dist
         run: tar -czf "matsu-${{ matrix.name }}.tar.gz" "matsu-${{ matrix.name }}"
+      # ADR-0032 stage A: .deb and .rpm next to the tar.gz (scripts/package-linux.sh), installed and removed in
+      # the test, which proves that the user's files stay.
+      - name: Install the tools for the Linux packages
+        if: runner.os == 'Linux'
+        run: .github/scripts/apt-install.sh appstream desktop-file-utils dpkg-dev rpm
+      - name: Build the .deb and the .rpm
+        if: runner.os == 'Linux'
+        run: scripts/package-linux.sh "${{ matrix.name }}" target/release dist
+      - name: Test the .deb and the .rpm
+        if: runner.os == 'Linux'
+        run: .github/scripts/test-linux-install.sh "${{ matrix.name }}" dist
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-prefix }}-${{ matrix.name }}
@@ -185,5 +196,7 @@ jobs:
             dist/*.zip
             dist/*.tar.gz
             dist/*.dmg
+            dist/*.deb
+            dist/*.rpm
           if-no-files-found: error
           retention-days: 7
