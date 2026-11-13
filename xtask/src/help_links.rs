@@ -288,6 +288,20 @@ pub fn links(source: &str) -> Vec<(u32, String)> {
             }
             continue;
         }
+        // Raw HTML links: `<a href="target">`.
+        for quote in ['"', '\''] {
+            let key = format!("href={quote}");
+            let mut html = line;
+            while let Some(start) = html.find(&key) {
+                html = &html[start + key.len()..];
+                if let Some(end) = html.find(quote) {
+                    if !html[..end].is_empty() {
+                        out.push((number, html[..end].to_string()));
+                    }
+                    html = &html[end..];
+                }
+            }
+        }
         let mut rest = line;
         while let Some(start) = rest.find("](") {
             rest = &rest[start + 2..];
@@ -615,6 +629,20 @@ mod tests {
                 "# a\n\n<!--\n```\n-->\n\n[1](b.md 'タイトル') [2](b.md \"t\") [3](b.md (t)) [4](#missing)\n",
             ),
             ("b.md", "# b\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("#missing"));
+    }
+
+    #[test]
+    fn raw_html_links_are_checked() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n"),
+            (
+                "a.md",
+                "# a\n\n<a href=\"#a\">ok</a> <a href='#missing'>x</a> <a href=\"https://example.com\">y</a>\n",
+            ),
         ]);
         let problems = check(&pages, Path::new("/nonexistent"));
         assert_eq!(problems.len(), 1, "{problems:?}");
