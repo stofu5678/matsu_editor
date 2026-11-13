@@ -445,7 +445,9 @@ impl Run {
 
     /// The process is ended and the run is over.
     fn fail(&mut self, error: RunError) -> Event {
-        self.stopper.stop();
+        // stopping can take a moment (Windows starts `taskkill`): not on the thread that polls, which is the window's
+        let stopper = self.stopper.clone();
+        thread::spawn(move || stopper.stop());
         self.over = true;
         Event::Failed(error)
     }
