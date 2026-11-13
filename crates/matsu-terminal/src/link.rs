@@ -299,7 +299,7 @@ const MAX_AUTHORITY: usize = 255;
 
 /// Whether the address may be opened: `http` or `https` (any case), a host after `://` that has no user
 /// information (`user@`, which makes `https://trusted.example@evil.example` look like another host) and is not
-/// longer than [`MAX_AUTHORITY`], and neither control characters nor blanks (a program can write anything into
+/// longer than `MAX_AUTHORITY` (255), and neither control characters nor blanks (a program can write anything into
 /// an OSC 8 address).
 pub fn is_openable(uri: &str) -> bool {
     let lower = uri.to_ascii_lowercase();
