@@ -48,7 +48,7 @@ mod tests {
     fn an_empty_or_unusable_shell_is_the_default() {
         assert_eq!(shell_of(&with_shell("")), None);
         assert_eq!(shell_of(&with_shell("   ")), None);
-        assert_eq!(shell_of(&with_shell("sh -c 'x")), None);
+        assert_eq!(shell_of(&with_shell("\"sh -c x")), None);
     }
 
     #[test]
