@@ -110,10 +110,32 @@ fn heading_text(raw: &str) -> String {
 pub fn anchors(source: &str) -> HashSet<String> {
     let mut ids = HashSet::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
-    for (_, line) in prose_lines(source) {
-        let hashes = line.chars().take_while(|c| *c == '#').count();
-        if (1..=6).contains(&hashes) && line[hashes..].starts_with(' ') {
-            let text = line[hashes..].trim().trim_end_matches('#').trim_end();
+    let lines = prose_lines(source);
+    for (index, &(number, line)) in lines.iter().enumerate() {
+        // An ATX heading may be indented by up to 3 spaces. A Setext heading is a line of text followed by a
+        // line of `=` or `-`.
+        let indent = line.len() - line.trim_start_matches(' ').len();
+        let atx = line.trim_start_matches(' ');
+        let hashes = atx.chars().take_while(|c| *c == '#').count();
+        let underline = lines.get(index + 1).is_some_and(|&(next, below)| {
+            let below = below.trim();
+            next == number + 1
+                && !below.is_empty()
+                && (below.chars().all(|c| c == '=') || below.chars().all(|c| c == '-'))
+        });
+        let plain = !atx.is_empty()
+            && !atx.starts_with(['#', '-', '*', '+', '>', '|', '<', '['])
+            && !atx.starts_with(|c: char| c.is_ascii_digit());
+        let heading = if indent <= 3 && (1..=6).contains(&hashes) && atx[hashes..].starts_with(' ')
+        {
+            Some(&atx[hashes..])
+        } else if indent <= 3 && underline && plain {
+            Some(atx)
+        } else {
+            None
+        };
+        if let Some(text) = heading {
+            let text = text.trim().trim_end_matches('#').trim_end();
             let id = match text.rsplit_once("{#") {
                 Some((_, rest)) if rest.ends_with('}') => rest[..rest.len() - 1].to_string(),
                 _ => {
@@ -437,6 +459,16 @@ mod tests {
             check(&pages, Path::new("/nonexistent")),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn setext_and_indented_headings_have_anchors() {
+        let ids =
+            anchors("見出し一\n=====\n\n本文\n\n見出し二\n---\n\n   ### 字下げ\n\n- 項目\n---\n");
+        for id in ["見出し一", "見出し二", "字下げ"] {
+            assert!(ids.contains(id), "{id} is missing in {ids:?}");
+        }
+        assert!(!ids.contains("項目") && !ids.contains("本文"));
     }
 
     #[test]

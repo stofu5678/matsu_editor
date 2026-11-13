@@ -141,6 +141,9 @@ fn shared_text(
     if longest {
         let n = help_shared::longest_shared(&matsu_pages, &sakura_pages, 1);
         println!("the longest shared run is {n} characters (not counting names)");
+        if n == 0 {
+            return Ok(Vec::new());
+        }
         for shared in help_shared::find_shared(&matsu_pages, &sakura_pages, n) {
             println!(
                 "  {}:{} = {}:{} ({} real characters): {}",
