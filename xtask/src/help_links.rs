@@ -1,0 +1,398 @@
+//! The link check of the help (ADR-0031): every link between pages and every `#anchor` points at something
+//! that exists. mdBook checks neither anchors nor pages that no chapter lists.
+//!
+//! The anchors follow mdBook's rule (`mdbook-core` `utils::normalize_id`): a heading's text is lower-cased,
+//! letters, digits (of any script), `_` and `-` stay, white space becomes `-`, everything else is dropped; a
+//! second heading with the same id gets `-1`, the third `-2`. A heading may name its id with `{#id}`, and an
+//! HTML `id="..."` or `name="..."` in the page is an anchor too.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Component, Path, PathBuf};
+
+/// A page of the book: its path relative to the book's source folder (with `/`), and its text.
+pub struct Page {
+    pub path: String,
+    pub source: String,
+}
+
+/// Reads every `*.md` file under `dir` (recursively), sorted by path.
+pub fn read_pages(dir: &Path) -> Result<Vec<Page>, String> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<Page>) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.is_dir() {
+                walk(root, &path, out)?;
+            } else if path.extension().is_some_and(|e| e == "md") {
+                let source = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                let relative = path.strip_prefix(root).map_err(|e| e.to_string())?;
+                let path = relative
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                out.push(Page { path, source });
+            }
+        }
+        Ok(())
+    }
+    let mut pages = Vec::new();
+    walk(dir, dir, &mut pages)?;
+    pages.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(pages)
+}
+
+/// The id that mdBook gives a heading.
+pub fn normalize_id(text: &str) -> String {
+    text.chars()
+        .filter_map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                Some(c.to_lowercase().next().unwrap_or(c))
+            } else if c.is_whitespace() {
+                Some('-')
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// The lines of a page outside its fenced code blocks, with their numbers (from 1).
+fn prose_lines(source: &str) -> Vec<(u32, &str)> {
+    let mut fence: Option<char> = None;
+    let mut out = Vec::new();
+    for (index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if let Some(mark) = fence {
+            if trimmed.starts_with(&mark.to_string().repeat(3)) {
+                fence = None;
+            }
+            continue;
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            fence = trimmed.chars().next();
+            continue;
+        }
+        out.push((u32::try_from(index + 1).unwrap_or(u32::MAX), line));
+    }
+    out
+}
+
+/// The text of a heading as the reader sees it: no link targets, emphasis marks, code marks or tags.
+fn heading_text(raw: &str) -> String {
+    let mut out = String::new();
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            ']' if chars.peek() == Some(&'(') => {
+                for n in chars.by_ref() {
+                    if n == ')' {
+                        break;
+                    }
+                }
+            }
+            '[' | ']' | '*' | '`' => {}
+            '<' => {
+                for n in chars.by_ref() {
+                    if n == '>' {
+                        break;
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Every anchor of a page.
+pub fn anchors(source: &str) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for (_, line) in prose_lines(source) {
+        let hashes = line.chars().take_while(|c| *c == '#').count();
+        if (1..=6).contains(&hashes) && line[hashes..].starts_with(' ') {
+            let text = line[hashes..].trim().trim_end_matches('#').trim_end();
+            let id = match text.rsplit_once("{#") {
+                Some((_, rest)) if rest.ends_with('}') => rest[..rest.len() - 1].to_string(),
+                _ => {
+                    let id = normalize_id(&heading_text(text));
+                    let count = seen.entry(id.clone()).or_insert(0);
+                    let unique = if *count == 0 {
+                        id
+                    } else {
+                        format!("{id}-{count}")
+                    };
+                    *count += 1;
+                    unique
+                }
+            };
+            ids.insert(id);
+        }
+        for key in ["id=\"", "name=\""] {
+            let mut rest = line;
+            while let Some(start) = rest.find(key) {
+                rest = &rest[start + key.len()..];
+                if let Some(end) = rest.find('"') {
+                    ids.insert(rest[..end].to_string());
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// Every link of a page: `(line, target)`. Links with an empty target (the draft chapters of `SUMMARY.md`) are
+/// left out.
+pub fn links(source: &str) -> Vec<(u32, String)> {
+    let mut out = Vec::new();
+    for (number, line) in prose_lines(source) {
+        let mut rest = line;
+        while let Some(start) = rest.find("](") {
+            rest = &rest[start + 2..];
+            let mut depth = 1;
+            let mut end = None;
+            for (i, c) in rest.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(i);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let Some(end) = end else { break };
+            let mut target = rest[..end].trim();
+            // `[text](target "title")` and `[text](<target>)`.
+            if let Some((t, _)) = target.split_once(" \"") {
+                target = t.trim();
+            }
+            let target = target.trim_start_matches('<').trim_end_matches('>');
+            if !target.is_empty() {
+                out.push((number, target.to_string()));
+            }
+            rest = &rest[end..];
+        }
+    }
+    out
+}
+
+fn is_external(target: &str) -> bool {
+    // `http:`, `https:`, `mailto:` and any other scheme.
+    target.split_once(':').is_some_and(|(scheme, _)| {
+        !scheme.is_empty()
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+    })
+}
+
+/// Joins a relative link to the folder of the page that holds it, resolving `.` and `..`. `None` when the link
+/// leaves the book.
+fn resolve(page: &str, target: &str) -> Option<String> {
+    let mut parts: Vec<String> = Path::new(page)
+        .parent()
+        .into_iter()
+        .flat_map(|p| p.components())
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    for component in Path::new(target).components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::Normal(name) => parts.push(name.to_string_lossy().into_owned()),
+            _ => return None,
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Checks the links of every page (and `SUMMARY.md`) and that every page is in `SUMMARY.md`. `dir` is the
+/// book's source folder (for links to files that are not pages, such as images). Returns the problems, one
+/// line each.
+pub fn check(pages: &[Page], dir: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    let anchor_sets: HashMap<&str, HashSet<String>> = pages
+        .iter()
+        .map(|p| (p.path.as_str(), anchors(&p.source)))
+        .collect();
+    for page in pages {
+        for (line, target) in links(&page.source) {
+            if is_external(&target) {
+                continue;
+            }
+            let (path, anchor) = match target.split_once('#') {
+                Some((path, anchor)) => (path, Some(anchor)),
+                None => (target.as_str(), None),
+            };
+            let resolved = if path.is_empty() {
+                Some(page.path.clone())
+            } else {
+                resolve(&page.path, path)
+            };
+            let Some(resolved) = resolved else {
+                problems.push(format!(
+                    "{}:{line}: the link `{target}` leaves the book",
+                    page.path
+                ));
+                continue;
+            };
+            if let Some(anchors) = anchor_sets.get(resolved.as_str()) {
+                if let Some(anchor) = anchor
+                    && !anchor.is_empty()
+                    && !anchors.contains(anchor)
+                {
+                    problems.push(format!(
+                        "{}:{line}: `{target}` points at the anchor `#{anchor}`, which `{resolved}` does not have",
+                        page.path
+                    ));
+                }
+            } else if !PathBuf::from(dir).join(&resolved).exists() {
+                problems.push(format!(
+                    "{}:{line}: `{target}` points at `{resolved}`, which does not exist",
+                    page.path
+                ));
+            }
+        }
+    }
+    // Every page is a chapter: mdBook leaves out a page that SUMMARY.md does not list.
+    if let Some(summary) = pages.iter().find(|p| p.path == "SUMMARY.md") {
+        let listed: HashSet<String> = links(&summary.source)
+            .into_iter()
+            .filter(|(_, t)| !is_external(t))
+            .filter_map(|(_, t)| resolve("SUMMARY.md", t.split('#').next().unwrap_or("")))
+            .collect();
+        for page in pages {
+            if page.path != "SUMMARY.md" && !listed.contains(&page.path) {
+                problems.push(format!(
+                    "{}: the page is not listed in SUMMARY.md",
+                    page.path
+                ));
+            }
+        }
+    } else {
+        problems.push("SUMMARY.md is missing".into());
+    }
+    problems
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn page(path: &str, source: &str) -> Page {
+        Page {
+            path: path.into(),
+            source: source.into(),
+        }
+    }
+
+    fn book(files: &[(&str, &str)]) -> Vec<Page> {
+        files.iter().map(|(p, s)| page(p, s)).collect()
+    }
+
+    #[test]
+    fn heading_ids_follow_mdbook() {
+        let ids = anchors(
+            "# このヘルプについて\n\n## Hello, World!\n\n## Hello, World!\n\n## `code` と **強調** と [リンク](a.md)\n\n## 名前 {#custom}\n\n```\n# 飛ばす\n```\n",
+        );
+        for id in [
+            "このヘルプについて",
+            "hello-world",
+            "hello-world-1",
+            "code-と-強調-と-リンク",
+            "custom",
+        ] {
+            assert!(ids.contains(id), "{id} is missing in {ids:?}");
+        }
+        assert!(!ids.contains("飛ばす"));
+    }
+
+    #[test]
+    fn a_good_book_has_no_problems() {
+        let pages = book(&[
+            (
+                "SUMMARY.md",
+                "# 目次\n\n- [前書き](intro.md)\n- [まだない]()\n  - [次](sub/next.md)\n",
+            ),
+            (
+                "intro.md",
+                "# 前書き\n\n## 節\n\n[次](sub/next.md#終わり) [節](#節) [外](https://example.com/a(b))\n",
+            ),
+            ("sub/next.md", "# 次\n\n## 終わり\n\n[戻る](../intro.md)\n"),
+        ]);
+        assert_eq!(
+            check(&pages, Path::new("/nonexistent")),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_broken_page_link_is_caught() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [前書き](intro.md)\n"),
+            ("intro.md", "# 前書き\n\n[無い](missing.md)\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].starts_with("intro.md:3:"), "{problems:?}");
+        assert!(problems[0].contains("missing.md"));
+    }
+
+    #[test]
+    fn a_broken_anchor_is_caught() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [前書き](intro.md)\n- [次](next.md)\n"),
+            (
+                "intro.md",
+                "# 前書き\n\n[a](next.md#無い) [b](#これも無い)\n",
+            ),
+            ("next.md", "# 次\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(problems[0].contains("#無い"));
+        assert!(problems[1].contains("#これも無い"));
+    }
+
+    #[test]
+    fn a_page_missing_from_the_summary_is_caught() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [前書き](intro.md)\n"),
+            ("intro.md", "# a\n"),
+            ("lost.md", "# b\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(
+            problems,
+            vec!["lost.md: the page is not listed in SUMMARY.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn links_in_code_blocks_are_not_checked() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n"),
+            ("a.md", "# a\n\n```md\n[x](nowhere.md)\n```\n"),
+        ]);
+        assert!(check(&pages, Path::new("/nonexistent")).is_empty());
+    }
+
+    #[test]
+    fn a_link_that_leaves_the_book_is_caught() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n"),
+            ("a.md", "# a\n\n[x](../../outside.md)\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("leaves the book"));
+    }
+}

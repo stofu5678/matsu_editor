@@ -40,6 +40,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.files.outputs.code }}
+      help: ${{ steps.files.outputs.help }}
       mac: ${{ steps.mac.outputs.mac }}
       mac_kind: ${{ steps.mac.outputs.mac_kind }}
     steps:
@@ -50,6 +51,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           code=true
+          help=true
           if [ "$EVENT" = pull_request ]; then
             # A rename lists the new path as `filename` and the old one as `previous_filename`; both
             # count, so moving code into docs/ or to a .md name is a code change.
@@ -59,9 +61,21 @@ jobs:
             if [ -n "$files" ] && [ "$count" -lt 3000 ] && ! printf '%s\n' "$files" | grep -Ev '(\.md$|^docs/)' > /dev/null; then
               code=false
             fi
+            # The help job (below) runs for a change of the help, of its check (xtask), of the Sakura tables
+            # whose names the check leaves out, or of its own files. A docs-only change to docs/help/ is one.
+            # The same limit of 3000 files as above: a longer change counts.
+            help=false
+            if [ -n "$files" ] && [ "$count" -lt 3000 ]; then
+              if printf '%s\n' "$files" | grep -E '^(docs/help/|xtask/|crates/matsu-commands/src/sakura/|\.github/scripts/help-|\.github/workflows/ci\.yml$)' > /dev/null; then
+                help=true
+              fi
+            else
+              help=true
+            fi
             printf 'changed files:\n%s\n' "$files"
           fi
           echo "code=${code}" >> "$GITHUB_OUTPUT"
+          echo "help=${help}" >> "$GITHUB_OUTPUT"
 
       # Picks the runner of test (macos-arm64) (ADR-0027): the self-hosted runner in the VM on the maintainer's Mac,
       # or GitHub's macos-15. It is a step of this job, not a job of its own, so that a pull request does not wait
@@ -158,6 +172,93 @@ jobs:
       - name: doc
         if: success() || failure()
         run: cargo doc --workspace --no-deps --locked
+
+  # The help in docs/help/ (ADR-0031): the book builds, Pagefind indexes its Japanese text, no link or anchor is
+  # broken, and no run of text is shared with Sakura's help (GFDL, which must not be copied). The job is listed for
+  # every change, so that it can be a required check; its steps run only when the help, its check (xtask), or the
+  # Sakura tables whose names the check leaves out changed (the `help` output of the changes job). The tools are
+  # release binaries of pinned versions with their SHA-256 (the digests on the GitHub releases), not `cargo
+  # install`. The names of the variables avoid the prefixes MDBOOK_ and PAGEFIND_, which the tools read as settings.
+  help:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    needs: changes
+    runs-on: ubuntu-24.04
+    # About 3 minutes (the build of xtask takes seconds); the minimum of 10 from the rule above.
+    timeout-minutes: 10
+    env:
+      HELP_MDBOOK_VERSION: 0.5.4
+      # SHA-256 of mdbook-v0.5.4-x86_64-unknown-linux-gnu.tar.gz.
+      HELP_MDBOOK_SHA256: 3f28de05dafca9d0f2eab99c662116b0e37b89b1d96a08f8f430b9eeae958cd7
+      HELP_PAGEFIND_VERSION: 1.6.0
+      # SHA-256 of pagefind-v1.6.0-x86_64-unknown-linux-musl.tar.gz.
+      HELP_PAGEFIND_SHA256: 004d40c9a644c995dadc42b8031196c6f17e7a6dacf9a6c15c63286dd6ead5f2
+      # The Sakura commit that the tables in crates/matsu-commands/src/sakura/ were generated from (the first lines
+      # of functions.rs name it). Only help/ and one resource file are read, never copied into the repository.
+      HELP_SAKURA_COMMIT: 48db6c7c25e2d98bdf47baab201826b4da8c7303
+    steps:
+      - name: Nothing to check
+        if: needs.changes.outputs.help != 'true'
+        run: echo 'Neither docs/help/ nor its check changed.'
+      - if: needs.changes.outputs.help == 'true'
+        uses: actions/checkout@v7
+      - if: needs.changes.outputs.help == 'true'
+        uses: dtolnay/rust-toolchain@1.99.0
+      - name: Install mdBook and Pagefind
+        if: needs.changes.outputs.help == 'true'
+        run: |
+          mkdir -p "${RUNNER_TEMP}/help-bin"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${RUNNER_TEMP}/mdbook.tar.gz" \
+            "https://github.com/rust-lang/mdBook/releases/download/v${HELP_MDBOOK_VERSION}/mdbook-v${HELP_MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${HELP_MDBOOK_SHA256}  ${RUNNER_TEMP}/mdbook.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/mdbook.tar.gz" -C "${RUNNER_TEMP}/help-bin" mdbook
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${RUNNER_TEMP}/pagefind.tar.gz" \
+            "https://github.com/Pagefind/pagefind/releases/download/v${HELP_PAGEFIND_VERSION}/pagefind-v${HELP_PAGEFIND_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          echo "${HELP_PAGEFIND_SHA256}  ${RUNNER_TEMP}/pagefind.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/pagefind.tar.gz" -C "${RUNNER_TEMP}/help-bin" pagefind
+          echo "${RUNNER_TEMP}/help-bin" >> "${GITHUB_PATH}"
+      # Sakura's help and its resource file (the labels of the dialogs), at the pinned commit. git checks the hash
+      # of what it fetches, so the commit pins the content.
+      - name: Get Sakura's help
+        if: needs.changes.outputs.help == 'true'
+        run: |
+          if ! grep -q "commit ${HELP_SAKURA_COMMIT}" crates/matsu-commands/src/sakura/functions.rs; then
+            echo "::error::HELP_SAKURA_COMMIT is not the commit of the tables in crates/matsu-commands/src/sakura/. Change both."
+            exit 1
+          fi
+          dir="${RUNNER_TEMP}/sakura"
+          mkdir -p "$dir"
+          git -C "$dir" init -q
+          git -C "$dir" remote add origin https://github.com/sakura-editor/sakura.git
+          git -C "$dir" sparse-checkout set --no-cone help sakura_core/sakura_rc.rc
+          git -C "$dir" fetch -q --depth 1 --filter=blob:none origin "${HELP_SAKURA_COMMIT}"
+          git -C "$dir" checkout -q FETCH_HEAD
+          test "$(git -C "$dir" rev-parse HEAD)" = "${HELP_SAKURA_COMMIT}"
+          echo "SAKURA_DIR=${dir}" >> "${GITHUB_ENV}"
+      # Every step after the first runs even if an earlier one failed, so that one run shows every problem.
+      - name: Tests of the checks
+        if: needs.changes.outputs.help == 'true'
+        run: cargo test -p xtask --locked -- help_
+      - name: Links, and text shared with Sakura's help
+        if: needs.changes.outputs.help == 'true' && (success() || failure())
+        run: cargo xtask help-check --sakura "$SAKURA_DIR"
+      - name: Build the book
+        id: book
+        if: needs.changes.outputs.help == 'true' && (success() || failure())
+        run: |
+          mdbook build docs/help
+          site=target/help
+          if [ -f target/help/html/index.html ]; then site=target/help/html; fi
+          for page in index.html about.html print.html; do
+            test -f "${site}/${page}" || { echo "::error::${site}/${page} was not built"; exit 1; }
+          done
+          echo "site=${site}" >> "${GITHUB_OUTPUT}"
+      # Pagefind reads the built pages and writes its index into the folder. Only <main> (the page itself, not the
+      # sidebar) is indexed; the language is set so that the Japanese text is split into words for the index.
+      - name: Index the book with Pagefind
+        if: needs.changes.outputs.help == 'true' && steps.book.outcome == 'success'
+        run: |
+          pagefind --site "${{ steps.book.outputs.site }}" --root-selector main --force-language ja
+          python3 .github/scripts/help-check-index.py "${{ steps.book.outputs.site }}" 'このヘルプについて'
 
   # The matrix keeps its five jobs (and their names, which are required checks) for a docs-only
   # change too: a skipped matrix job would report under the unexpanded name and the required
