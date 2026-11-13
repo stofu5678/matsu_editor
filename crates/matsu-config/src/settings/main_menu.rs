@@ -51,6 +51,7 @@
 //! before it; `nMainMenuNum` of 0 or less leaves the default.
 
 use super::custom_menu::{parse_function, unreadable_text};
+use super::oneliner::{F_ONELINER_DIALOG, F_ONELINER_LIST, F_ONELINER_SETTINGS};
 use crate::profile::{Profile, ProfileError};
 use crate::value::parse_long;
 
@@ -71,7 +72,7 @@ pub const CURRENT_VERSION: i32 = 2;
 pub const MATSU_VERSION_KEY: &str = "nMatsuMainMenuVer";
 /// The current version of MATSU's own items. A saved menu with a smaller version (or with none) gets the
 /// items of the versions after it once.
-pub const MATSU_CURRENT_VERSION: i32 = 4;
+pub const MATSU_CURRENT_VERSION: i32 = 5;
 
 /// `F_NODE`: a node whose name is the name of the row.
 pub const F_NODE: u16 = 0;
@@ -80,6 +81,11 @@ pub const F_SEPARATOR: u16 = 1;
 /// `F_SPECIAL_FIRST` (`F_WINDOW_LIST`) and `F_SPECIAL_LAST` (`F_PLUGIN_LIST`): the lists filled in at run time.
 pub const F_SPECIAL_FIRST: u16 = 29001;
 pub const F_SPECIAL_LAST: u16 = 29006;
+
+/// A list that is filled in at run time: `F_SPECIAL_FIRST..=F_SPECIAL_LAST`, and MATSU's `F_ONELINER_LIST`.
+pub fn is_special_function(function: u16) -> bool {
+    (F_SPECIAL_FIRST..=F_SPECIAL_LAST).contains(&function) || function == F_ONELINER_LIST
+}
 /// `F_OPTION`: 共通設定, which the menu must keep.
 pub const F_OPTION: u16 = 31112;
 
@@ -280,6 +286,20 @@ struct Addition {
     separator_after: bool,
     /// The access key of the new row, used only when no sibling has it. Sakura's additions have none.
     key: Option<char>,
+    /// A group of rows put in instead of the one row (a submenu): `function` is then the row that tells whether the
+    /// menu has the group already, and `separator_before`, `separator_after` and `key` are not used.
+    block: &'static [BlockRow],
+}
+
+/// One row of the group that an [`Addition`] with a block puts in.
+struct BlockRow {
+    /// How much deeper than the row it follows.
+    depth: usize,
+    kind: RowKind,
+    function: u16,
+    key: Option<char>,
+    /// The name of a node (`F_NODE`).
+    name: &'static str,
 }
 
 impl Addition {
@@ -291,7 +311,12 @@ impl Addition {
             separator_before,
             separator_after: false,
             key: None,
+            block: &[],
         }
+    }
+
+    const fn with_block(self, block: &'static [BlockRow]) -> Self {
+        Self { block, ..self }
     }
 
     const fn with_separator_after(self) -> Self {
@@ -337,10 +362,10 @@ const ADDITIONS: [Addition; 21] = [
 /// The items that only MATSU has, which the menus saved before them lack (version 1: the copies with LF and
 /// with CR, and the preview in another tab; version 2: the chooser of the connection to run the database
 /// function on; version 3: the six encodings and decodings of the selection, a group of its own in the 変換 menu
-/// after 「空白→TAB」; version 4: the shell tab after the preview tab; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
+/// after 「空白→TAB」; version 4: the shell tab after the preview tab; version 5: the submenu 「ワンライナー」 after 「外部コマンド実行」; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
 /// Sakura's, they are added after the item they follow, with the access key of the default menu unless a
 /// sibling in the same submenu already has it.
-const MATSU_ADDITIONS: [Addition; 11] = [
+const MATSU_ADDITIONS: [Addition; 12] = [
     Addition::new(1, 32700, 30603, false).with_key('N'), // F_COPY_LF after F_COPY_CRLF
     Addition::new(1, 32701, 32700, false).with_key('M'), // F_COPY_CR after F_COPY_LF
     Addition::new(1, 32702, 31370, false).with_key('G'), // the preview in another tab after F_WIN_OUTPUT
@@ -354,6 +379,48 @@ const MATSU_ADDITIONS: [Addition; 11] = [
         .with_key('Y')
         .with_separator_after(), // F_BASE64_DECODE_TEXT, then a separator
     Addition::new(4, 32710, 32702, false).with_key('L'), // the shell tab after the preview tab
+    // The submenu of the one-liners after 「外部コマンド実行」 (ADR-0029), found by its list.
+    Addition::new(5, F_ONELINER_LIST, 31270, false).with_block(ONELINER_SUBMENU),
+];
+
+/// The submenu 「ワンライナー」 (version 5): the registered one-liners, a separator, the input dialog and the
+/// settings.
+const ONELINER_SUBMENU: &[BlockRow] = &[
+    BlockRow {
+        depth: 0,
+        kind: RowKind::Node,
+        function: F_NODE,
+        key: Some('O'),
+        name: "ワンライナー",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Special,
+        function: F_ONELINER_LIST,
+        key: None,
+        name: "",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Separator,
+        function: F_SEPARATOR,
+        key: None,
+        name: "",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Leaf,
+        function: F_ONELINER_DIALOG,
+        key: Some('I'),
+        name: "",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Leaf,
+        function: F_ONELINER_SETTINGS,
+        key: Some('S'),
+        name: "",
+    },
 ];
 
 impl MainMenu {
@@ -442,6 +509,28 @@ impl MainMenu {
                 continue;
             };
             let level = self.rows[at].level;
+            if !add.block.is_empty() {
+                let mut rows: Vec<MenuRow> = add
+                    .block
+                    .iter()
+                    .map(|b| MenuRow {
+                        level: level + b.depth,
+                        kind: b.kind,
+                        function: b.function,
+                        key: b.key,
+                        name: b.name.to_owned(),
+                        text: None,
+                    })
+                    .collect();
+                // the access key of the node is left out when a sibling has it, as for a row
+                if rows[0].key.is_some_and(|key| self.sibling_has_key(at, key)) {
+                    rows[0].key = None;
+                }
+                if self.rows.len() + rows.len() <= MAX_MAINMENU {
+                    self.rows.splice(at + 1..at + 1, rows);
+                }
+                continue;
+            }
             let mut added = Vec::new();
             if add.separator_before {
                 added.push(MenuRow::separator(level));
@@ -606,7 +695,7 @@ impl MainMenu {
                 F_NODE => (RowKind::Node, cut_name(&supplement_ampersand(&row.name))),
                 F_SEPARATOR => (RowKind::Separator, String::new()),
                 _ if row.kind == RowKind::Node => (RowKind::Node, String::new()),
-                F_SPECIAL_FIRST..=F_SPECIAL_LAST => (RowKind::Special, String::new()),
+                function if is_special_function(function) => (RowKind::Special, String::new()),
                 _ => {
                     option |= row.function == F_OPTION;
                     (RowKind::Leaf, String::new())

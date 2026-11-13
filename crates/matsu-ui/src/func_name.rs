@@ -208,8 +208,8 @@ mod tests {
         assert_eq!(name(&ones, 32712), "jq .");
         // The three others are named by the labels of the table.
         assert_eq!(name(&ones, 32761), "登録済みワンライナーリスト");
-        assert_eq!(name(&ones, 32762), "ワンライナーを入力して実行");
-        assert_eq!(name(&ones, 32763), "ワンライナーの設定");
+        assert_eq!(name(&ones, 32762), "ワンライナーを入力して実行...");
+        assert_eq!(name(&ones, 32763), "ワンライナーの設定...");
     }
 
     #[test]

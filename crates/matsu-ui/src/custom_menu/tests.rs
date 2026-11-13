@@ -43,6 +43,7 @@ fn build_with(
         &Context {
             menus,
             macros: &Default::default(),
+            oneliners: &Default::default(),
             keymap: &keymap(),
             available,
             lists,
@@ -94,7 +95,7 @@ fn function_codes_and_menu_numbers_agree() {
 #[test]
 fn the_default_right_click_menu_is_sakuras() {
     let rows = build(&CustomMenus::default(), 0, &all);
-    assert_eq!(rows.len(), 30 + 2 + 7);
+    assert_eq!(rows.len(), 30 + 2 + 7 + 1);
     let Entry::Item(undo) = &rows[0] else {
         panic!("{:?}", rows[0]);
     };
@@ -152,6 +153,7 @@ fn the_parentheses_setting_applies_to_custom_menus() {
             &Context {
                 menus: &all_menus,
                 macros: &Default::default(),
+                oneliners: &Default::default(),
                 keymap: &keymap(),
                 available: &all,
                 lists: &NoLists,
@@ -231,7 +233,7 @@ fn the_right_click_menu_can_be_a_submenu_too() {
     let all_menus = menus("[CustMenu]\nnCMIN[02]=1\nnCMIF[02][00]=RMenu\nnCMIK[02][00]=R\n");
     let rows = build(&all_menus, 2, &all);
     let inside = submenu(&rows, "右クリックメニュー(R)");
-    assert_eq!(inside.len(), 30 + 2 + 7); // Sakura's 30, MATSU's two copies and its six encodings with a separator
+    assert_eq!(inside.len(), 30 + 2 + 7 + 1); // Sakura's 30, MATSU's two copies and its six encodings with a separator
 }
 
 #[test]

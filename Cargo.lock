@@ -4176,6 +4176,7 @@ dependencies = [
  "matsu-config",
  "matsu-core",
  "matsu-layout",
+ "matsu-oneliner",
  "matsu-outline",
  "matsu-platform",
  "matsu-plugin",

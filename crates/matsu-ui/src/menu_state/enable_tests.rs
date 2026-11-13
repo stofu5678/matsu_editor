@@ -511,3 +511,47 @@ fn what_the_disk_said_is_kept_for_a_moment() {
     super::disk::forget();
     assert!(super::disk::exists(&path));
 }
+
+#[test]
+fn the_oneliners_are_grayed_for_an_unregistered_slot_a_view_mode_and_a_run() {
+    use matsu_config::Profile;
+    use matsu_config::settings::oneliner::{
+        F_ONELINER_DIALOG, F_ONELINER_SETTINGS, OneLiners, function_of_index,
+    };
+    let text = "[OneLiner]\r\nName[000]=r\r\nCommand[000]=cat\r\nOutput[000]=0\r\n\
+                Name[001]=o\r\nCommand[001]=cat\r\nOutput[001]=2\r\n";
+    let table = std::sync::Arc::new(OneLiners::from_profile(&Profile::from_bytes(
+        text.as_bytes(),
+    )));
+    let base = FuncStates {
+        oneliners: table,
+        ..base()
+    };
+    let f = |n| function_of_index(n).unwrap();
+    assert!(base.is_enabled(f(0)));
+    assert!(base.is_enabled(f(1)));
+    assert!(!base.is_enabled(f(2)), "no command");
+    let view = FuncStates {
+        view_mode: true,
+        ..base.clone()
+    };
+    assert!(
+        !view.is_enabled(f(0)),
+        "replace needs a document that can be edited"
+    );
+    assert!(view.is_enabled(f(1)), "the output window does not");
+    // a file that cannot be written, or the start of a big file: the same as view mode
+    let locked = FuncStates {
+        text_locked: true,
+        ..base.clone()
+    };
+    assert!(!locked.is_enabled(f(0)));
+    assert!(locked.is_enabled(f(1)));
+    let running = FuncStates {
+        command_running: true,
+        ..base
+    };
+    assert!(!running.is_enabled(f(0)));
+    assert!(!running.is_enabled(F_ONELINER_DIALOG));
+    assert!(running.is_enabled(F_ONELINER_SETTINGS));
+}

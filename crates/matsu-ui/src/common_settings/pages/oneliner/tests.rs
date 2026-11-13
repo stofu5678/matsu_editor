@@ -371,7 +371,7 @@ fn the_key_pages_names_are_the_registered_names(cx: &mut TestAppContext) {
     // No name: the command.
     assert_eq!(name(cx, 32713), "jq .");
     assert_eq!(name(cx, 32712), "ワンライナー 1 (未登録)");
-    assert_eq!(name(cx, 32763), "ワンライナーの設定");
+    assert_eq!(name(cx, 32763), "ワンライナーの設定...");
     cancel(cx);
 }
 
