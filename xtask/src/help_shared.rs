@@ -51,7 +51,7 @@ pub fn strip_markdown(source: &str) -> RawText {
             }
             continue;
         }
-        if let Some(open) = fence_open(trimmed) {
+        if !in_comment && let Some(open) = fence_open(trimmed) {
             fence = Some(open);
             continue;
         }
@@ -818,6 +818,13 @@ mod tests {
     #[test]
     fn a_longer_fence_is_not_closed_by_a_shorter_one() {
         let text = strip_markdown("前\n````md\n```\n中の文\n```\n中の文2\n````\n後\n");
+        let s: String = normalize(&text).iter().map(|n| n.c).collect();
+        assert_eq!(s, "前後");
+    }
+
+    #[test]
+    fn a_fence_inside_a_comment_opens_nothing() {
+        let text = strip_markdown("前\n<!--\n```\n-->\n後\n");
         let s: String = normalize(&text).iter().map(|n| n.c).collect();
         assert_eq!(s, "前後");
     }

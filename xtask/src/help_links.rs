@@ -85,10 +85,6 @@ fn prose_lines(source: &str) -> Vec<(u32, &str)> {
             }
             continue;
         }
-        if let Some(open) = fence_open(trimmed) {
-            fence = Some(open);
-            continue;
-        }
         // A comment that starts at the beginning of a line hides its lines (and any heading in them).
         if comment {
             comment = !line.contains("-->");
@@ -99,6 +95,10 @@ fn prose_lines(source: &str) -> Vec<(u32, &str)> {
             if comment || trimmed.trim_end().ends_with("-->") {
                 continue;
             }
+        }
+        if let Some(open) = fence_open(trimmed) {
+            fence = Some(open);
+            continue;
         }
         out.push((u32::try_from(index + 1).unwrap_or(u32::MAX), line));
     }
@@ -309,8 +309,12 @@ pub fn links(source: &str) -> Vec<(u32, String)> {
             let Some(end) = end else { break };
             let mut target = rest[..end].trim();
             // `[text](target "title")` and `[text](<target>)`.
-            if let Some((t, _)) = target.split_once(" \"") {
-                target = t.trim();
+            // The title may be in double quotes, single quotes or parentheses.
+            if let Some(at) = target.find([' ', '\t']) {
+                let title = target[at..].trim_start();
+                if title.starts_with(['"', '\'', '(']) {
+                    target = target[..at].trim();
+                }
             }
             let target = target.trim_start_matches('<').trim_end_matches('>');
             if !target.is_empty() {
@@ -600,6 +604,21 @@ mod tests {
     fn double_underscore_emphasis_is_not_in_the_anchor() {
         let ids = anchors("## __設定__\n");
         assert!(ids.contains("設定"), "{ids:?}");
+    }
+
+    #[test]
+    fn link_titles_and_fences_in_comments() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n- [b](b.md)\n"),
+            (
+                "a.md",
+                "# a\n\n<!--\n```\n-->\n\n[1](b.md 'タイトル') [2](b.md \"t\") [3](b.md (t)) [4](#missing)\n",
+            ),
+            ("b.md", "# b\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("#missing"));
     }
 
     #[test]
