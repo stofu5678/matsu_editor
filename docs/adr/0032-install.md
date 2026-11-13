@@ -210,6 +210,7 @@
 6. **ツール**: `wingetcreate`（MIT）を使い、`komac`（GPL-3.0）は使わない。`cargo-deb` と `cargo-generate-rpm` は、実装の PR で許諾を確かめる
 7. **自動更新**: 作らない
 8. **関連付け**: 既定でオフ。「プログラムから開く」は既定でオン。PATH への追加は選択で、既定はオフ
+9. **CI の道具のライセンス**: 配布物に入らない道具は、GPL 系でも使ってよい（2026-11-13 にユーザーが判断。#397 の `.deb`・`.rpm` を作る `dpkg-dev`・`rpm`・`desktop-file-utils` は GPL、`appstream` は LGPL）。`komac` を使わないのは、MIT の `wingetcreate` で足りるため
 
 段階 B・C の項目（「判断してほしいこと」の 4、5、6、8、11、12: 署名の置き場所と ADR-0027 の変更、Apple Developer Program、Windows の署名、トークン、Microsoft Store、Mac App Store と Flathub）は、まだ決めていない。ユーザーの準備ができたときに決める。
 
