@@ -20,19 +20,26 @@
 //!   written by the script itself to the standard error as plain text in UTF-8, and
 //!   `$ProgressPreference` is silent (a progress record is CLIXML too). Anything of the host's own
 //!   that is still written as CLIXML (a script that does not parse) is shown as it is.
+//! * PowerShell 7 puts ANSI colors into tables even when its output goes to a pipe;
+//!   `$PSStyle.OutputRendering` is set to `PlainText` (Windows PowerShell has no `$PSStyle`).
+//! * The output objects are handed to `Out-Default` before the script ends, so that a table or a
+//!   list is written whole (an `exit` right after the pipeline would cut it off).
 //! * The exit code: `-Command` rounds the code of a native program to 0 or 1, so the script
-//!   keeps the code of the last native program (`cmd /c exit 5` gives 5); else 1 when the last
-//!   command failed (`$?`); else 0. A native program that writes to its standard error leaves
-//!   `$?` false in Windows PowerShell 5.1 when the error stream is merged (as the script does)
-//!   even though it exited with 0; that alone is not a failure.
+//!   keeps the code of the last native program (`cmd /c exit 5` gives 5); else 1 when a command
+//!   wrote an error that is not the standard error of a native program (a failing cmdlet, a
+//!   `Write-Error`, a `throw`); else 0. `$?` is not used: it is false in Windows PowerShell 5.1 for
+//!   a native program that merely writes to its standard error when the error stream is merged
+//!   (as the script does), and a `return` in the line skips whatever the script puts after the
+//!   line. A mid-line failure is therefore a failure even when a later command succeeds: the
+//!   caller changes nothing and shows the error, which is the safe side for a filter.
 
 /// What comes before the line of the user.
 pub const PRELUDE: &str = r#"$ProgressPreference = 'SilentlyContinue'
+try { if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' } } catch {}
 try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $global:LASTEXITCODE = $null
-$global:__matsu_native = $false
 $global:__matsu_other = $false
 $__matsu_raw = [Console]::In.ReadToEnd().Replace("`r`n", "`n").Replace("`r", "`n")
 if ($__matsu_raw.Length -eq 0) {
@@ -47,16 +54,11 @@ $__matsu_lines | & {
 
 /// What comes after the line of the user.
 pub const EPILOGUE: &str = r#"
-$global:__matsu_ok = $?
-$global:__matsu_code = $LASTEXITCODE
-} *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { if ($_.FullyQualifiedErrorId -like 'NativeCommandError*') { $global:__matsu_native = $true } else { $global:__matsu_other = $true }; [Console]::Error.WriteLine($_.ToString()) } elseif ($_ -is [System.Management.Automation.WarningRecord]) { [Console]::Error.WriteLine('WARNING: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.VerboseRecord]) { [Console]::Error.WriteLine('VERBOSE: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.DebugRecord]) { [Console]::Error.WriteLine('DEBUG: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.InformationRecord]) { [Console]::Error.WriteLine([string]$_.MessageData) } else { $_ } }
+} *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { if ($_.FullyQualifiedErrorId -notlike 'NativeCommandError*') { $global:__matsu_other = $true }; [Console]::Error.WriteLine($_.ToString()) } elseif ($_ -is [System.Management.Automation.WarningRecord]) { [Console]::Error.WriteLine('WARNING: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.VerboseRecord]) { [Console]::Error.WriteLine('VERBOSE: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.DebugRecord]) { [Console]::Error.WriteLine('DEBUG: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.InformationRecord]) { [Console]::Error.WriteLine([string]$_.MessageData) } else { $_ } } | Out-Default
 } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }
-$__matsu_code = $global:__matsu_code
+$__matsu_code = $global:LASTEXITCODE
 if (($__matsu_code -is [int]) -and ($__matsu_code -ne 0)) { exit $__matsu_code }
-if (-not $global:__matsu_ok) {
-if ($global:__matsu_native -and -not $global:__matsu_other) { exit 0 }
-exit 1
-}
+if ($global:__matsu_other) { exit 1 }
 exit 0
 "#;
 

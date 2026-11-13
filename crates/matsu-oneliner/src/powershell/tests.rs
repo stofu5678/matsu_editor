@@ -77,6 +77,7 @@ fn the_prelude_sets_utf8_without_a_bom_and_reads_with_the_console() {
         "$OutputEncoding = New-Object System.Text.UTF8Encoding $false",
         "[Console]::In.ReadToEnd()",
         "$ProgressPreference = 'SilentlyContinue'",
+        "$PSStyle.OutputRendering = 'PlainText'",
     ] {
         assert!(PRELUDE.contains(needed), "{needed}");
     }
@@ -87,6 +88,9 @@ fn the_prelude_sets_utf8_without_a_bom_and_reads_with_the_console() {
 #[test]
 fn the_epilogue_keeps_the_code_of_a_native_program() {
     assert!(EPILOGUE.contains("exit $__matsu_code"));
-    assert!(EPILOGUE.contains("$LASTEXITCODE"));
+    assert!(EPILOGUE.contains("$global:LASTEXITCODE"));
     assert!(EPILOGUE.contains("exit 1"));
+    // `$?` is lost by a `return` in the line and wrong after a native program's standard error
+    assert!(!EPILOGUE.contains("$?"));
+    assert!(EPILOGUE.contains("Out-Default"));
 }

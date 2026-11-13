@@ -494,7 +494,10 @@ mod powershell {
             (&native_exit(5), 5),
             ("Get-Item C:\\no\\such\\path-qzx", 1),
             ("throw 'boom'", 1),
+            ("Write-Error 'x'; 'after'", 1),
             ("'fine'", 0),
+            ("return 'early'", 0),
+            ("if ($true) { return }", 0),
         ] {
             for (shell, done, _) in ps(line, "x", OutputKind::Window) {
                 assert_eq!(done.exit.code, Some(code), "{shell}: {line}");
@@ -552,6 +555,27 @@ mod powershell {
                 done.error
             );
             assert!(!done.error.contains("CLIXML"), "{shell}: {:?}", done.error);
+        }
+    }
+
+    #[test]
+    fn objects_are_formatted_whole_before_the_end_and_without_colors() {
+        for (shell, done, output) in ps(
+            "[pscustomobject]@{Name='abc';Value=3}",
+            "",
+            OutputKind::Window,
+        ) {
+            assert_eq!(done.exit.code, Some(0), "{shell}");
+            assert!(output.contains("abc"), "{shell}: {output:?}");
+            assert!(output.contains("Value"), "{shell}: {output:?}");
+            assert!(!output.contains('\u{1b}'), "{shell}: {output:?}");
+        }
+        for (shell, _, output) in ps(
+            "$input | Measure-Object -Line",
+            "a\nb\n",
+            OutputKind::Window,
+        ) {
+            assert!(output.contains("Lines"), "{shell}: {output:?}");
         }
     }
 
