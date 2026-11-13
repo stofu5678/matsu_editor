@@ -183,11 +183,15 @@ fn is_url_char(c: char) -> bool {
     c.is_ascii_graphic() && !matches!(c, '<' | '>' | '"' | '\'' | '`')
 }
 
+/// The longest address that is found, in characters. Longer ones are not links: the scan of a line made of
+/// addresses end to end would otherwise look at the rest of the line from every scheme in it.
+const MAX_URL_CHARS: usize = 2000;
+
 /// The range of the `http://` or `https://` address that has the character `at`, if there is one.
 fn url_around(chars: &[char], at: usize) -> Option<Range<usize>> {
     // Walk back to the start of the run of address characters, then try each start of a scheme in it.
     let mut run_start = at;
-    while run_start > 0 && is_url_char(chars[run_start - 1]) {
+    while run_start > 0 && at - run_start < MAX_URL_CHARS && is_url_char(chars[run_start - 1]) {
         run_start -= 1;
     }
     if !is_url_char(chars[at]) {
@@ -201,8 +205,9 @@ fn url_around(chars: &[char], at: usize) -> Option<Range<usize>> {
         if start > 0 && chars[start - 1].is_ascii_alphanumeric() {
             continue;
         }
+        let limit = chars.len().min(start + MAX_URL_CHARS);
         let mut end = start + scheme;
-        while end < chars.len() && is_url_char(chars[end]) {
+        while end < limit && is_url_char(chars[end]) {
             end += 1;
         }
         end = trim_end(chars, start + scheme, end);
@@ -593,6 +598,18 @@ mod tests {
         let rows = [row(&text, text.len(), false)];
         let started = std::time::Instant::now();
         assert_eq!(uri_at(&rows, 0, 3).as_deref(), Some("http://a.example/b"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_line_of_addresses_end_to_end_is_scanned_in_bounded_time() {
+        let text = format!("{}.", "http://a/".repeat(5_000));
+        let rows = [row(&text, text.chars().count(), false)];
+        let started = std::time::Instant::now();
+        // the last full stop is not part of an address
+        assert_eq!(uri_at(&rows, 0, text.len() - 1), None);
+        // one in the middle is found, as the one address that holds it
+        assert!(uri_at(&rows, 0, 20_000).is_some());
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
