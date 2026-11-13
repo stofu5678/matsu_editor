@@ -130,8 +130,8 @@ fn heading_text(raw: &str) -> String {
                 }
             }
             // An underscore at the edge of a word is an emphasis mark (`_設定_`); one inside a word stays.
-            '_' if before.is_none_or(char::is_whitespace)
-                || chars.peek().is_none_or(|n| n.is_whitespace()) => {}
+            '_' if before.is_none_or(|b| b.is_whitespace() || b == '_')
+                || chars.peek().is_none_or(|n| n.is_whitespace() || *n == '_') => {}
             ']' if chars.peek() == Some(&'[') => {
                 // The label of a reference link, `[text][label]`.
                 for n in chars.by_ref() {
@@ -278,6 +278,7 @@ pub fn links(source: &str) -> Vec<(u32, String)> {
         if let Some(definition) = line
             .trim_start()
             .strip_prefix('[')
+            .filter(|rest| !rest.starts_with('^'))
             .and_then(|rest| rest.split_once("]:"))
         {
             let target = definition.1.split_whitespace().next().unwrap_or("");
@@ -593,6 +594,24 @@ mod tests {
     fn character_references_are_decoded_in_the_anchor() {
         let ids = anchors("## &#x8A2D;定 &amp; `&amp;`\n");
         assert!(ids.contains("設定--amp"), "{ids:?}");
+    }
+
+    #[test]
+    fn double_underscore_emphasis_is_not_in_the_anchor() {
+        let ids = anchors("## __設定__\n");
+        assert!(ids.contains("設定"), "{ids:?}");
+    }
+
+    #[test]
+    fn a_footnote_is_not_a_link() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n"),
+            ("a.md", "# a\n\n文[^1]\n\n[^1]: 補足説明です。\n"),
+        ]);
+        assert_eq!(
+            check(&pages, Path::new("/nonexistent")),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

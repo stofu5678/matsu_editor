@@ -133,6 +133,7 @@ pub fn strip_markdown(source: &str) -> RawText {
 fn is_reference_definition(line: &str) -> bool {
     // `[label]: target`
     line.strip_prefix('[')
+        .filter(|rest| !rest.starts_with('^'))
         .and_then(|rest| rest.split_once("]:"))
         .is_some()
 }
@@ -819,6 +820,13 @@ mod tests {
         let text = strip_markdown("前\n````md\n```\n中の文\n```\n中の文2\n````\n後\n");
         let s: String = normalize(&text).iter().map(|n| n.c).collect();
         assert_eq!(s, "前後");
+    }
+
+    #[test]
+    fn footnote_text_is_prose() {
+        let text = strip_markdown("本文[^1]\n\n[^1]: 補足説明です\n");
+        let s: String = normalize(&text).iter().map(|n| n.c).collect();
+        assert!(s.contains("補足説明です"), "{s}");
     }
 
     #[test]
