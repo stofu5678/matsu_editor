@@ -170,7 +170,7 @@ impl TerminalView {
     }
 
     /// The program asked for bracketed paste (for the tests).
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     pub(crate) fn bracketed_paste(&self) -> bool {
         self.terminal.modes().bracketed_paste
     }

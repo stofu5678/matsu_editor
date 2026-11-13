@@ -357,7 +357,9 @@ fn a_paste_of_several_lines_is_written_when_the_answer_is_yes(cx: &mut TestAppCo
     if cfg!(windows) {
         wait_for_text(cx, &view, "hello");
     }
-    set_clipboard(cx, &format!("{}\n{}", typed("one"), typed("two")));
+    // A line break at the end: the driver echoes the second line, and without it the program's answer would
+    // start in the middle of that echo.
+    set_clipboard(cx, &format!("{}\n{}\n", typed("one"), typed("two")));
     keys(cx, handle, PASTE);
     assert!(has_prompt(cx, handle));
     // A second paste while the question is open does not ask again.

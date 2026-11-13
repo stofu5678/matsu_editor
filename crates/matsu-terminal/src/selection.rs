@@ -129,9 +129,9 @@ pub(crate) fn span<T>(term: &Term<T>) -> Option<SelectionSpan> {
 ///
 /// - A line that wraps (the program wrote past the last column) is joined to the next without a line end.
 /// - The blanks to the right of the last character of a line are not copied, as terminals do: those cells
-///   are empty, there are no spaces the user typed. (`alacritty_terminal` stops at the last cell that is not
-///   empty; a cell with a background color of its own is not empty, so its space is copied.) Spaces before a
-///   character are kept, also when the selection ends among them.
+///   are empty, there are no spaces the user typed. (`alacritty_terminal` stops at the last cell that holds a
+///   character, whatever the background color of the blanks after it; this is the rule followed.) Spaces
+///   before a character are kept, also when the selection ends among them.
 /// - A wide character is one character, and combining characters stay with their base.
 /// - Selecting lines (a triple click) gives the text of the lines without a line end after the last one.
 pub(crate) fn text<T>(term: &Term<T>) -> Option<String> {

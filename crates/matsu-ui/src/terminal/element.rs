@@ -18,6 +18,7 @@ use gpui::{
 };
 use matsu_terminal::{Cell, CursorShape, Row, SelectionSpan, Snapshot};
 
+use super::handler::TerminalInputHandler;
 use super::palette::{Packed, Palette, blend};
 use super::view::{TerminalView, preedit_cells, rows_up};
 
@@ -466,7 +467,7 @@ impl Element for TerminalElement {
         // The text the platform delivers (typed, committed by an IME, composed) goes to the view.
         window.handle_input(
             &focus,
-            ElementInputHandler::new(bounds, self.view.clone()),
+            TerminalInputHandler(ElementInputHandler::new(bounds, self.view.clone())),
             cx,
         );
         // A selection follows the pointer past the edge of the screen: an element's own move listener only

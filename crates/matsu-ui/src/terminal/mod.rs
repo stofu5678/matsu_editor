@@ -16,6 +16,7 @@
 //! starts the shell and sends nothing (point 3).
 
 mod element;
+mod handler;
 mod input;
 pub(crate) mod menus;
 mod palette;

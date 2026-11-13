@@ -96,11 +96,12 @@ fn blanks_after_the_last_character_are_not_copied() {
 }
 
 #[test]
-fn a_blank_with_a_background_of_its_own_is_copied() {
-    // "ab", two blanks, a red blank, then nothing
+fn a_blank_with_a_background_of_its_own_is_not_copied_either() {
+    // "ab", two blanks, a red blank, then nothing: only a cell with a character counts, as in
+    // `alacritty_terminal` (`Row::line_length`) and the terminals that trim the right of a line
     let (mut term, _) = term(10, 2, "ab  \x1b[41m \x1b[0m");
     select(&mut term, (0, 0), (0, 9));
-    assert_eq!(text(&term).as_deref(), Some("ab   "));
+    assert_eq!(text(&term).as_deref(), Some("ab"));
 }
 
 #[test]
