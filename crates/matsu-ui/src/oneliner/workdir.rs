@@ -37,6 +37,17 @@ impl WorkDir {
         Err(last.unwrap_or_else(|| std::io::Error::other("no free folder name")))
     }
 
+    /// Removes the folder now, trying again a few times for a process that is still ending (Windows). Blocks: call it
+    /// off the thread of the window.
+    pub(crate) fn remove(&self) {
+        for _ in 0..4 {
+            if !self.path.exists() || std::fs::remove_dir_all(&self.path).is_ok() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
@@ -44,7 +55,7 @@ impl WorkDir {
 
 impl Drop for WorkDir {
     fn drop(&mut self) {
-        if std::fs::remove_dir_all(&self.path).is_ok() {
+        if !self.path.exists() || std::fs::remove_dir_all(&self.path).is_ok() {
             return;
         }
         // A process that is still ending can hold the folder (Windows): try again from a thread, a few times. What

@@ -272,13 +272,15 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
     }
 
     // An AI one-liner: the confirmation, the record in the log and its own working folder (ADR-0030).
-    let began = Instant::now();
+    let mut began = Instant::now();
     let mut log = None;
     let mut workdir = None;
     if let Some(ai) = &job.ai {
         let Some(handle) = begin_ai(view, cx, &prepared, &job, ai, began).await else {
             return;
         };
+        // the time of the run starts when it is approved, not when the window was shown
+        began = Instant::now();
         match WorkDir::create() {
             Ok(dir) => workdir = Some(dir),
             Err(error) => {
@@ -396,7 +398,11 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
     };
 
     // The process is over: its working folder goes, and the log has the end, whatever it was.
-    drop(workdir);
+    if let Some(dir) = workdir {
+        cx.background_executor()
+            .spawn(async move { dir.remove() })
+            .await;
+    }
     if log.is_some() {
         end_log(cx, log.as_ref(), log_end(&event, began));
     }
