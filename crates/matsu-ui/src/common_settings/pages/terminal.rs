@@ -54,7 +54,7 @@ pub(in crate::common_settings) fn items_for(mac: bool) -> Vec<Item> {
                 Item::Custom(draw_shell_note),
                 Item::Label(EXAMPLE),
                 Item::Label(
-                    "プログラムと引数を、コマンドラインのとおりに書きます。\n空のときは、この環境の既定のシェルです\n(Windows は PowerShell、macOS と Linux はログインシェル)。",
+                    "プログラムと引数を、コマンドラインのとおりに書きます。\n空のときは、この環境の既定のシェルです\n(Windows は PowerShell、macOS と Linux はログインシェル)。\nmacOS と Linux では、~ や $HOME は展開されません。",
                 ),
             ],
         ),
