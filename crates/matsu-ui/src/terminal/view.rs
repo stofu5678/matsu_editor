@@ -369,6 +369,15 @@ impl TerminalView {
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let mac = cfg!(target_os = "macos");
+        // The window's keys stay with the window (also while the IME composes: one that comes here is one
+        // the IME let go).
+        if let Some(code) = window_function_of(&event.keystroke, event.prefer_character_input, cx) {
+            cx.stop_propagation();
+            self.in_workspace(window, cx, move |ws, window, cx| {
+                ws.run_after_event(code, window, cx);
+            });
+            return;
+        }
         if self.is_composing() {
             // The IME has the keys while it composes: Enter commits, Backspace and the arrows edit the
             // text. The platform gives the IME the keys first, so one that arrives here is one it let go;
@@ -381,14 +390,6 @@ impl TerminalView {
             ) {
                 cx.stop_propagation();
             }
-            return;
-        }
-        // The window's keys stay with the window.
-        if let Some(code) = window_function_of(&event.keystroke, event.prefer_character_input, cx) {
-            cx.stop_propagation();
-            self.in_workspace(window, cx, move |ws, window, cx| {
-                ws.run_after_event(code, window, cx);
-            });
             return;
         }
         match translate(&event.keystroke, event.prefer_character_input, mac) {
