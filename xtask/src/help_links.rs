@@ -217,6 +217,13 @@ pub fn scan(source: &str) -> Scan {
                     heading_text.push_str(&text);
                 }
             }
+            // A line break inside a heading (a multiline Setext heading) is whitespace in the rendered heading,
+            // which mdBook's id turns into `-`: `Hello\nworld\n=====` is `#hello-world`.
+            Event::SoftBreak | Event::HardBreak => {
+                if let Some((heading_text, _)) = &mut heading {
+                    heading_text.push(' ');
+                }
+            }
             Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
                 if !dest_url.is_empty() {
                     links.push((lines.of(range.start), dest_url.to_string()));
@@ -498,6 +505,13 @@ mod tests {
             assert!(ids.contains(id), "{id} is missing in {ids:?}");
         }
         assert!(!ids.contains("項目") && !ids.contains("本文"));
+    }
+
+    #[test]
+    fn a_multiline_setext_heading_has_a_hyphen_where_the_line_breaks() {
+        let ids = anchors("Hello\nworld\n=====\n");
+        assert!(ids.contains("hello-world"), "{ids:?}");
+        assert!(!ids.contains("helloworld"), "{ids:?}");
     }
 
     #[test]
