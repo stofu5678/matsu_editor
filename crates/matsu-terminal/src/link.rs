@@ -61,25 +61,28 @@ pub(crate) fn in_term<T>(term: &Term<T>, row: usize, column: usize) -> Option<Li
     };
     let at = row - offset;
     // A line that goes on past the rows that are looked at may hold an address that would be found cut short:
-    // there is no link then.
+    // an address in the text is not looked for then. (A link of OSC 8 has its address in its cells.)
+    let mut plain = true;
     let mut first = at;
     while first > top && wraps(first - 1) {
         if at - first >= MAX_WRAPPED_ROWS {
-            return None;
+            plain = false;
+            break;
         }
         first -= 1;
     }
     let mut last = at;
     while last + 1 < screen_lines && wraps(last) {
         if last - at >= MAX_WRAPPED_ROWS {
-            return None;
+            plain = false;
+            break;
         }
         last += 1;
     }
     let rows: Vec<Row> = (first..=last)
         .map(|line| Row::from_grid(&term.grid()[Line(line)]))
         .collect();
-    let mut link = link_at(&rows, usize::try_from(at - first).ok()?, column)?;
+    let mut link = find(&rows, usize::try_from(at - first).ok()?, column, plain)?;
     // From rows of the copy to rows of the view; the ones out of the view are not drawn.
     link.spans.retain_mut(|span| {
         let view_row = i32::try_from(span.row).unwrap_or(i32::MAX) + first + offset;
@@ -105,6 +108,11 @@ struct Item<'a> {
 /// The link at the cell (`row`, `column`) of the view `rows`, if the cell is in one. An OSC 8 link wins over
 /// an address that happens to be written in its text.
 pub fn link_at(rows: &[Row], row: usize, column: usize) -> Option<Link> {
+    find(rows, row, column, true)
+}
+
+/// [`link_at`]; an address that is only written in the text is looked for when `plain` is set.
+fn find(rows: &[Row], row: usize, column: usize, plain: bool) -> Option<Link> {
     if row >= rows.len() {
         return None;
     }
@@ -150,6 +158,9 @@ pub fn link_at(rows: &[Row], row: usize, column: usize) -> Option<Link> {
         });
     }
 
+    if !plain {
+        return None;
+    }
     // The text of the logical line, and the item each character comes from.
     let mut chars: Vec<char> = Vec::new();
     let mut owner: Vec<usize> = Vec::new();
@@ -623,7 +634,8 @@ mod tests {
     }
 
     #[test]
-    fn a_line_that_wraps_past_the_rows_that_are_looked_at_has_no_link() {
+    fn a_line_that_wraps_past_the_rows_that_are_looked_at_has_no_address_but_keeps_its_osc_8_links()
+    {
         // 200 rows of 20 columns: the line is longer than MAX_WRAPPED_ROWS rows on both sides of a cell in
         // the middle, and the address cannot be known whole there
         let mut output = String::from("http://a.example/");
@@ -639,6 +651,20 @@ mod tests {
         processor.advance(&mut term, output.as_bytes());
         // the view is the last three rows of 200: none of them is within reach of the start of the line
         assert_eq!(in_term(&term, 1, 3), None);
+        // an OSC 8 link on such a line has its address in its cells
+        let mut linked = String::from("\x1b]8;;https://osc.example/\x1b\\");
+        linked.push_str(&"c".repeat(20 * 200));
+        let mut term = Term::new(
+            alacritty_terminal::term::Config {
+                scrolling_history: 1000,
+                ..alacritty_terminal::term::Config::default()
+            },
+            &size,
+            alacritty_terminal::event::VoidListener,
+        );
+        processor.advance(&mut term, linked.as_bytes());
+        let link = in_term(&term, 1, 3).expect("the OSC 8 link");
+        assert_eq!(link.uri, "https://osc.example/");
     }
 
     #[test]
