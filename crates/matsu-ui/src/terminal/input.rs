@@ -19,10 +19,28 @@ pub(super) enum Translated {
     Copy,
     /// Ctrl+C: copy when there is a selection, else the key goes to the program (the interrupt).
     CopyOrKey(Key, Modifiers),
+    /// Scroll the view through the scrollback: a key of the terminal view, never the program's.
+    Scroll(ScrollKey),
     /// A key the terminal takes and does nothing with.
     Ignore,
     /// A key the terminal leaves to others: the menus and the window of macOS (Cmd).
     Pass,
+}
+
+/// The keys that scroll the view back and forward (Windows Terminal's: Ctrl+Shift with the arrow and page
+/// keys, and Home and End for the ends). They work on every platform, also while the program has the mouse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ScrollKey {
+    /// One line towards the older lines (Ctrl+Shift+Up).
+    LineUp,
+    LineDown,
+    /// A page towards the older lines (Ctrl+Shift+PageUp).
+    PageUp,
+    PageDown,
+    /// The oldest line (Ctrl+Shift+Home).
+    Top,
+    /// The live screen (Ctrl+Shift+End).
+    Bottom,
 }
 
 /// The text a key produced, if it is printable.
@@ -82,6 +100,20 @@ pub(super) fn translate(
         ctrl: m.control,
         alt: m.alt,
     };
+    if m.control && m.shift && !m.alt {
+        let scroll = match keystroke.key.as_str() {
+            "up" => Some(ScrollKey::LineUp),
+            "down" => Some(ScrollKey::LineDown),
+            "pageup" => Some(ScrollKey::PageUp),
+            "pagedown" => Some(ScrollKey::PageDown),
+            "home" => Some(ScrollKey::Top),
+            "end" => Some(ScrollKey::Bottom),
+            _ => None,
+        };
+        if let Some(key) = scroll {
+            return Translated::Scroll(key);
+        }
+    }
     // Windows and Linux, as in Windows Terminal (ADR-0028 point 9): Ctrl+V pastes, Ctrl+C copies when
     // something is selected and else is the program's, and Ctrl+Shift+C and Ctrl+Shift+V are the copy and
     // the paste that never are the program's. AltGr (Ctrl+Alt) types a character: AltGr+V stays one. On
@@ -378,6 +410,50 @@ mod tests {
             translate(&press("v", Some("@"), altgr), false, false),
             Translated::Text("@".into())
         );
+    }
+
+    #[test]
+    fn ctrl_shift_with_the_arrow_page_home_and_end_keys_scroll_the_view() {
+        let both = GpuiModifiers {
+            control: true,
+            shift: true,
+            ..plain()
+        };
+        for (key, want) in [
+            ("up", ScrollKey::LineUp),
+            ("down", ScrollKey::LineDown),
+            ("pageup", ScrollKey::PageUp),
+            ("pagedown", ScrollKey::PageDown),
+            ("home", ScrollKey::Top),
+            ("end", ScrollKey::Bottom),
+        ] {
+            // on every platform
+            for mac in [false, true] {
+                assert_eq!(
+                    translate(&press(key, None, both), false, mac),
+                    Translated::Scroll(want),
+                    "{key} mac={mac}"
+                );
+            }
+        }
+        // the same keys with another modifier are the program's
+        assert!(matches!(
+            translate(&press("pageup", None, ctrl()), false, false),
+            Translated::Key(Key::PageUp, _)
+        ));
+        let shift = GpuiModifiers {
+            shift: true,
+            ..plain()
+        };
+        assert!(matches!(
+            translate(&press("pageup", None, shift), false, false),
+            Translated::Key(Key::PageUp, _)
+        ));
+        let with_alt = GpuiModifiers { alt: true, ..both };
+        assert!(matches!(
+            translate(&press("up", None, with_alt), false, false),
+            Translated::Key(Key::Up, _)
+        ));
     }
 
     #[test]

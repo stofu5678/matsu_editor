@@ -87,8 +87,7 @@ impl TerminalView {
         }
         if !encoding.needs_confirmation {
             // The bytes that were checked are the ones written (the modes may change between two encodings).
-            self.clear_selection();
-            self.send(&encoding.bytes);
+            self.send_typed(&encoding.bytes);
             return;
         }
         // One question at a time: a second paste while it is open is dropped.
@@ -118,13 +117,12 @@ impl TerminalView {
         if encoding.bytes.is_empty() {
             return;
         }
-        self.clear_selection();
-        self.send(&encoding.bytes);
+        self.send_typed(&encoding.bytes);
     }
 
     /// The cell under a point of the window, and which half of it: a point outside the screen is pulled to
     /// the nearest cell (a drag goes on past the edge).
-    fn cell_at(&self, position: Point<Pixels>) -> Option<(i32, usize, CellSide)> {
+    pub(super) fn cell_at(&self, position: Point<Pixels>) -> Option<(i32, usize, CellSide)> {
         let layout = self.layout?;
         let x = f32::from(position.x - layout.bounds.left()).max(0.0);
         let y = f32::from(position.y - layout.bounds.top()).max(0.0);
@@ -163,6 +161,12 @@ impl TerminalView {
         (usize::try_from(row).unwrap_or(0), info.cursor.column)
     }
 
+    /// How many lines the view is scrolled back, 0 at the bottom (for the tests).
+    #[cfg(all(test, windows))]
+    pub(crate) fn display_offset(&self) -> usize {
+        self.terminal.info().display_offset
+    }
+
     /// The selected text (for the tests).
     #[cfg(test)]
     pub(crate) fn selected_text(&self) -> Option<String> {
@@ -181,13 +185,9 @@ impl TerminalView {
         self.paste_asking
     }
 
-    pub(super) fn on_mouse_down(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        window.focus(&self.focus, cx);
+    /// The left button went down: a selection starts (`view::mouse` decides whether the mouse is the
+    /// program's or the user's).
+    pub(super) fn select_press(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
         if event.button != MouseButton::Left {
             return;
         }
@@ -204,12 +204,8 @@ impl TerminalView {
         cx.notify();
     }
 
-    pub(in crate::terminal) fn on_mouse_move(
-        &mut self,
-        event: &MouseMoveEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// The pointer moved with a selection started: it follows the pointer.
+    pub(super) fn select_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
         if !self.dragging {
             return;
         }
@@ -224,12 +220,8 @@ impl TerminalView {
         }
     }
 
-    pub(super) fn on_mouse_up(
-        &mut self,
-        event: &MouseUpEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// The left button went up: the selection ends.
+    pub(super) fn select_release(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
         if !std::mem::take(&mut self.dragging) {
             return;
         }

@@ -20,6 +20,8 @@ use alacritty_terminal::tty::{self, Pty};
 use alacritty_terminal::vte::ansi::Rgb as VteRgb;
 
 use crate::keys::{Key, Modifiers, encode_key};
+use crate::link::{self, Link};
+use crate::mouse::{MouseAction, encode_mouse};
 use crate::paste::{PasteEncoding, encode_paste};
 #[cfg(test)]
 use crate::screen::Color;
@@ -481,6 +483,18 @@ impl Terminal {
         encode_paste(text, &self.modes())
     }
 
+    /// Encodes a mouse event with the terminal's current modes ([`encode_mouse`]); `None` when the program
+    /// does not want it (see there). `row` and `column` are cells of the view.
+    pub fn encode_mouse(
+        &self,
+        action: MouseAction,
+        mods: Modifiers,
+        row: usize,
+        column: usize,
+    ) -> Option<Vec<u8>> {
+        encode_mouse(action, mods, row, column, &self.modes())
+    }
+
     /// Changes the size of the screen and of the PTY (the program gets SIGWINCH or the ConPTY resize). The
     /// screen is resized even when the terminal is not running; the error then tells the PTY was not.
     pub fn resize(&self, size: TerminalSize) -> io::Result<()> {
@@ -564,6 +578,18 @@ impl Terminal {
     pub fn scroll_display(&self, lines: i32) {
         self.with_term(|term| term.scroll_display(Scroll::Delta(lines)));
         self.shared.request_redraw();
+    }
+
+    /// Scrolls the view to the oldest line of the scrollback.
+    pub fn scroll_to_top(&self) {
+        self.with_term(|term| term.scroll_display(Scroll::Top));
+        self.shared.request_redraw();
+    }
+
+    /// The link (OSC 8, or an `http://` or `https://` address in the text) at a cell of the view, see
+    /// [`crate::link_at`]. `row` 0 is the first line of the view.
+    pub fn link_at(&self, row: usize, column: usize) -> Option<Link> {
+        self.with_term(|term| link::in_term(term, row, column))
     }
 
     /// Scrolls the view to the live screen.

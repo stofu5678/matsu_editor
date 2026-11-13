@@ -421,3 +421,46 @@ fn encodings_follow_the_terminal_modes() {
     assert!(paste.needs_confirmation);
     assert_eq!(paste.bytes, b"a\rb");
 }
+
+#[cfg(unix)]
+#[test]
+fn links_are_found_by_osc_8_and_in_plain_text() {
+    let (terminal, events) = start(command(
+        "printf '\\033]8;;https://osc.example/a\\033\\\\label\\033]8;;\\033\\\\ and http://plain.example/b. done\\n'; exec cat",
+        &[],
+    ));
+    wait_for_screen(&terminal, &events, "the line", |text| text.contains("done"));
+    // "label" is columns 0..=4: the address of the OSC 8 link, which need not be shown
+    let osc = terminal.link_at(0, 2).expect("the OSC 8 link");
+    assert_eq!(osc.uri, "https://osc.example/a");
+    assert!(osc.contains(0, 0) && osc.contains(0, 4) && !osc.contains(0, 5));
+    // the address in the text, without the full stop of the sentence
+    let plain = terminal.link_at(0, 12).expect("the plain address");
+    assert_eq!(plain.uri, "http://plain.example/b");
+    // the blank between them, and rows below the text
+    assert_eq!(terminal.link_at(0, 5), None);
+    assert_eq!(terminal.link_at(5, 0), None);
+    assert_eq!(terminal.link_at(1000, 0), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_mouse_modes_the_program_sets_are_seen() {
+    use matsu_terminal::{Modifiers, MouseAction, MouseButton};
+    let (terminal, events) = start(command(
+        "printf '\\033[?1002h\\033[?1006h ready\\n'; exec cat",
+        &[],
+    ));
+    wait_for_screen(&terminal, &events, "the line", |text| {
+        text.contains("ready")
+    });
+    let modes = terminal.modes();
+    assert!(modes.mouse_drag && modes.sgr_mouse && !modes.mouse_motion);
+    let press = terminal.encode_mouse(MouseAction::Press(MouseButton::Left), Modifiers::NONE, 2, 3);
+    assert_eq!(press.expect("reported"), b"\x1b[<0;4;3M");
+    // the drag mode does not report motion with no button
+    assert_eq!(
+        terminal.encode_mouse(MouseAction::Move(None), Modifiers::NONE, 0, 0),
+        None
+    );
+}

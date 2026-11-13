@@ -15,13 +15,16 @@ pub fn clean_title(raw: &str) -> String {
         .collect()
 }
 
-fn is_unwanted(c: char) -> bool {
+/// Whether a character is taken out of what a program writes to be shown: the controls, the ones that reorder
+/// text, and the ones that show nothing (zero-width), which make two different strings look alike.
+pub(crate) fn is_unwanted(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
             '\u{061C}'
-                | '\u{200E}'
-                | '\u{200F}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2060}'
+                | '\u{FEFF}'
                 | '\u{2028}'
                 | '\u{2029}'
                 | '\u{202A}'..='\u{202E}'
@@ -32,6 +35,14 @@ fn is_unwanted(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_zero_width_characters() {
+        assert_eq!(
+            clean_title("a\u{200B}b\u{200D}c\u{2060}d\u{FEFF}e"),
+            "abcde"
+        );
+    }
 
     #[test]
     fn keeps_plain_text() {

@@ -1,7 +1,9 @@
 //! The shell tab (ADR-0028): a terminal in a tab, the second kind of tab that is not an editor.
 //!
 //! * [`view`]: the view, with the keys, the events of the shell and the size; `view/ime.rs` is its text input (the
-//!   IME, dead keys), `view/clipboard.rs` the paste, the mouse selection and the copy.
+//!   IME, dead keys), `view/clipboard.rs` the paste, the mouse selection and the copy, `view/mouse.rs` the mouse
+//!   (reports to the program, the wheel and the scrollback, links) and `view/program.rs` what the program tells
+//!   (its title, the bell, OSC 52).
 //! * `element`: the drawing of the screen (every cell on its column).
 //! * `input`: what a key press means to the terminal.
 //! * `palette`: the colors.
@@ -208,18 +210,24 @@ impl TerminalTab {
 }
 
 impl TabPanel for TerminalTab {
-    /// The shell's program name (`pwsh`, `zsh`); the program's own title is a later PR. A shell that ended
-    /// says so.
+    /// The title the program set (OSC 0 and 2), else the shell's program name (`pwsh`, `zsh`). A shell that
+    /// ended says so, and a bell that rang while the tab was in the background marks it.
     fn caption(&self, cx: &App) -> String {
         let view = self.view.read(cx);
-        match view.ended() {
-            Some(_) => format!("{} (終了)", view.program()),
-            None => view.program().to_owned(),
+        let name = view.title_text();
+        let caption = match view.ended() {
+            Some(_) => format!("{name} (終了)"),
+            None => name.to_owned(),
+        };
+        if view.bell_marked() {
+            format!("● {caption}")
+        } else {
+            caption
         }
     }
 
     fn tooltip(&self, cx: &App) -> String {
-        self.view.read(cx).tooltip().to_owned()
+        self.view.read(cx).tooltip()
     }
 
     fn icon(&self, _: &App) -> crate::tabs::icon::TabIcon {

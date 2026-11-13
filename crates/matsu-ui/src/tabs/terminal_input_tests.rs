@@ -71,7 +71,7 @@ fn wait_for_line(cx: &mut TestAppContext, view: &Entity<TerminalView>, line: &st
     });
 }
 
-fn with_view(
+pub(super) fn with_view(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,
     view: &Entity<TerminalView>,
@@ -108,22 +108,22 @@ fn composing(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> bool {
     view.read_with(cx, |view, _| view.is_composing())
 }
 
-fn set_clipboard(cx: &mut TestAppContext, text: &str) {
+pub(super) fn set_clipboard(cx: &mut TestAppContext, text: &str) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
 }
 
-fn clipboard(cx: &mut TestAppContext) -> Option<String> {
+pub(super) fn clipboard(cx: &mut TestAppContext) -> Option<String> {
     cx.read_from_clipboard().and_then(|item| item.text())
 }
 
-fn keys(cx: &mut TestAppContext, handle: AnyWindowHandle, keystrokes: &str) {
+pub(super) fn keys(cx: &mut TestAppContext, handle: AnyWindowHandle, keystrokes: &str) {
     visual(cx, handle).simulate_keystrokes(keystrokes);
     cx.run_until_parked();
 }
 
 /// The row of the screen that has exactly `line`, and the column its `needle` starts in; `None` while the
 /// screen does not show the line.
-fn find(
+pub(super) fn find(
     cx: &mut TestAppContext,
     view: &Entity<TerminalView>,
     line: &str,
@@ -151,7 +151,7 @@ fn until_it_holds(
 }
 
 /// Waits until the screen of the view is laid out (the mouse and the IME need its place).
-fn laid_out(cx: &mut TestAppContext, view: &Entity<TerminalView>) {
+pub(super) fn laid_out(cx: &mut TestAppContext, view: &Entity<TerminalView>) {
     let view = view.clone();
     wait_until(cx, "the screen to be laid out", move |cx| {
         view.read_with(cx, |view, _| view.cell_point(0, 0, 0.0).is_some())
@@ -159,7 +159,7 @@ fn laid_out(cx: &mut TestAppContext, view: &Entity<TerminalView>) {
 }
 
 /// Drags over `columns` of `row` (the first to the last, both included) with the left button.
-fn drag(
+pub(super) fn drag(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,
     view: &Entity<TerminalView>,
@@ -179,7 +179,7 @@ fn drag(
     cx.run_until_parked();
 }
 
-fn click(
+pub(super) fn click(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,
     view: &Entity<TerminalView>,
@@ -201,7 +201,7 @@ fn click(
     cx.run_until_parked();
 }
 
-fn selected(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> Option<String> {
+pub(super) fn selected(cx: &mut TestAppContext, view: &Entity<TerminalView>) -> Option<String> {
     view.read_with(cx, |view, _| view.selected_text())
 }
 
