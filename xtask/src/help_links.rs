@@ -207,11 +207,17 @@ pub fn anchors(source: &str) -> HashSet<String> {
             };
             ids.insert(id);
         }
-        for key in ["id=\"", "name=\""] {
+        // HTML anchors, with the value in double or single quotes (`<a id="x">`, `<a id='x'>`)
+        for (key, quote) in [
+            ("id=\"", '"'),
+            ("name=\"", '"'),
+            ("id='", '\''),
+            ("name='", '\''),
+        ] {
             let mut rest = line;
             while let Some(start) = rest.find(key) {
                 rest = &rest[start + key.len()..];
-                if let Some(end) = rest.find('"') {
+                if let Some(end) = rest.find(quote) {
                     ids.insert(rest[..end].to_string());
                 }
             }
@@ -612,6 +618,14 @@ mod tests {
     fn character_references_are_decoded_in_the_anchor() {
         let ids = anchors("## &#x8A2D;定 &amp; `&amp;`\n");
         assert!(ids.contains("設定--amp"), "{ids:?}");
+    }
+
+    #[test]
+    fn html_anchors_in_either_quote_are_anchors() {
+        let ids = anchors("<a id='details'></a>\n\n<a name=\"top\"></a>\n\n<a name='end'></a>\n");
+        for id in ["details", "top", "end"] {
+            assert!(ids.contains(id), "{id} in {ids:?}");
+        }
     }
 
     #[test]
