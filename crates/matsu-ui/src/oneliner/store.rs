@@ -133,10 +133,12 @@ pub(crate) fn register(
             return Ok(false);
         };
         let before = table.slots[index].clone();
+        // a one-liner registered from the input dialog is a plain one: no AI mark (ADR-0030), asking stays on
         table.slots[index] = OneLiner {
             name: name.clone(),
             command: command.clone(),
             output,
+            ..OneLiner::default()
         };
         slot = Some(index);
         // checks the values before anything is written; a table with a value that cannot be kept is not used
