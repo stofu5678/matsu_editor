@@ -186,6 +186,7 @@ pub(crate) fn run(
         crate::font_diagnostics::report(cx, &user);
         crate::view::EditorView::bind_keys(cx);
         crate::preview::bind_keys(cx);
+        crate::ai_log::bind_keys(cx);
         crate::terminal::bind_keys(cx);
         // the title of the confirmation boxes (Windows), as Sakura's: the name of the application
         matsu_platform::dialog_title::install();
@@ -374,6 +375,16 @@ fn menus_of(
         }
         MenuKind::Terminal => {
             for menu in crate::terminal::menus::menus() {
+                // No Sakura function, so no picture.
+                built.icons.push(matsu_platform::menu_icons::Menu {
+                    title: menu.name.to_string(),
+                    items: vec![matsu_platform::menu_icons::Node::Plain; menu.items.len()],
+                });
+                built.menus.push(menu);
+            }
+        }
+        MenuKind::AiLog => {
+            for menu in crate::ai_log::menus::menus(!cfg!(target_os = "macos")) {
                 // No Sakura function, so no picture.
                 built.icons.push(matsu_platform::menu_icons::Menu {
                     title: menu.name.to_string(),
@@ -684,7 +695,7 @@ impl Workspace {
     ) -> Option<crate::menu_state::FuncStates> {
         match self.menu_kind() {
             MenuKind::Editor => Some(self.func_states(topmost, this, cx)),
-            MenuKind::Preview | MenuKind::Terminal => None,
+            MenuKind::Preview | MenuKind::Terminal | MenuKind::AiLog => None,
             #[cfg(test)]
             MenuKind::Probe => None,
         }
@@ -705,6 +716,7 @@ impl Render for Workspace {
         // shown with them.
         let preview = self.content.preview().map(|p| p.view().clone());
         let terminal = self.content.terminal().map(|t| t.view().clone());
+        let ai_log = self.content.ai_log().map(|t| t.view().clone());
         let own = !self.content.is_editor();
         // The list of the tabs (the ▼ button of the bar) belongs to the view that runs its function:
         // with a preview that is the hidden view, which is not drawn, so the list is drawn here.
@@ -714,6 +726,8 @@ impl Render for Workspace {
             format!("プレビュー: {title}")
         } else if let Some(shell) = &terminal {
             format!("シェル: {}", shell.read(cx).title_text())
+        } else if ai_log.is_some() {
+            "AI ログ".to_owned()
         } else {
             title
         });
@@ -760,20 +774,26 @@ impl Render for Workspace {
                 self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx),
             )
         };
-        let body = match (preview, terminal) {
-            (Some(view), _) => div()
+        let body = match (preview, terminal, ai_log) {
+            (Some(view), _, _) => div()
                 .size_full()
                 .relative()
                 .child(view)
                 .children(tab_list)
                 .into_any_element(),
-            (None, Some(view)) => div()
+            (None, Some(view), _) => div()
                 .size_full()
                 .relative()
                 .child(view)
                 .children(tab_list)
                 .into_any_element(),
-            (None, None) => self.render_panes(cx).into_any_element(),
+            (None, None, Some(view)) => div()
+                .size_full()
+                .relative()
+                .child(view)
+                .children(tab_list)
+                .into_any_element(),
+            (None, None, None) => self.render_panes(cx).into_any_element(),
         };
         let outline = if own { None } else { self.outline.clone() };
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title

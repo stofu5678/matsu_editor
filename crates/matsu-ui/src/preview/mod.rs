@@ -24,7 +24,7 @@ use gpui::{App, Entity, FocusHandle, actions};
 use crate::panes::PaneSet;
 use crate::status::StatusInfo;
 use crate::tabs::content::{CloseCheck, MenuKind, TabPanel};
-pub(crate) use view::PreviewView;
+pub(crate) use view::{PreviewView, WINDOW_FUNCTIONS};
 
 actions!(
     matsu_preview,

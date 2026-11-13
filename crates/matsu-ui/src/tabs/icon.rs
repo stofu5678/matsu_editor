@@ -25,6 +25,8 @@ pub(crate) enum TabIcon {
     App,
     /// A shell tab (ADR-0028): the terminal icon of GPUI's set.
     Terminal,
+    /// The AI log tab (ADR-0030): the robot of GPUI's set.
+    AiLog,
 }
 
 impl TabIcon {
@@ -49,6 +51,7 @@ impl TabIcon {
             Self::Terminal => Icon::new(IconName::SquareTerminal)
                 .xsmall()
                 .into_any_element(),
+            Self::AiLog => Icon::new(IconName::Bot).xsmall().into_any_element(),
         };
         div().flex_none().child(picture).into_any_element()
     }

@@ -16,6 +16,9 @@
 //! belongs to the tab where it was started (Sakura records in one edit window), while the search
 //! pattern and the status bar follow the user from tab to tab.
 
+mod ai_log_tab;
+#[cfg(test)]
+mod ai_log_tests;
 pub(crate) mod bar;
 pub(crate) mod caption;
 pub(crate) mod content;
@@ -271,7 +274,9 @@ impl Workspace {
                 panes.forget_subscriptions();
                 panes.numbered()
             }
-            content::TabContent::Preview(_) | content::TabContent::Terminal(_) => Vec::new(),
+            content::TabContent::Preview(_)
+            | content::TabContent::Terminal(_)
+            | content::TabContent::AiLog(_) => Vec::new(),
         };
         let id = self.tabs.next_id;
         self.tabs.next_id += 1;
