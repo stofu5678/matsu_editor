@@ -9,6 +9,8 @@ on:
       - .cargo/config.toml
       - .github/scripts/pe_imports.py
       - scripts/package-mac-app.sh
+      - scripts/package-mac-dmg.sh
+      - scripts/check-mac-dmg.sh
       - assets/icons/**
       - .github/actions/mac-runner/**
       - .github/workflows/package.yml
