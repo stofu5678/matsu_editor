@@ -460,10 +460,7 @@ async fn begin_ai(
                 if answer.send && answer.dont_ask_again {
                     super::store::stop_asking(cx, ai.index, &job.line);
                 }
-                let shared = view.document().read(cx);
-                shared.generation() == prepared.generation
-                    && shared.version() == prepared.version
-                    && (job.output == OutputTo::OutputWindow || can_edit(view, cx))
+                still_the_same(view, prepared, job, cx)
             })
             .ok()?;
         if !answer.send {
@@ -504,6 +501,21 @@ async fn begin_ai(
         .background_executor()
         .spawn(async move { log_input(&input) })
         .await;
+    // The window was usable while a large input was read: the document is looked at once more.
+    let unchanged = view
+        .update_in(cx, |view, _window, cx| {
+            still_the_same(view, prepared, job, cx)
+        })
+        .ok()?;
+    if !unchanged {
+        release(view, cx);
+        say(
+            view,
+            cx,
+            "文書が変わったので、ワンライナーを実行しませんでした。",
+        );
+        return None;
+    }
     let handle = begin_log(view, cx, started_with(text, size)).await;
     if handle.is_none() {
         release(view, cx);
@@ -514,6 +526,19 @@ async fn begin_ai(
         );
     }
     handle
+}
+
+/// The document is the one that was read, and can still take the result.
+fn still_the_same(
+    view: &EditorView,
+    prepared: &Prepared,
+    job: &Job,
+    cx: &mut Context<EditorView>,
+) -> bool {
+    let shared = view.document().read(cx);
+    shared.generation() == prepared.generation
+        && shared.version() == prepared.version
+        && (job.output == OutputTo::OutputWindow || can_edit(view, cx))
 }
 
 /// What the confirmation window shows: the name, the command line and the same range that the input is read from
@@ -539,17 +564,20 @@ fn confirm_request(prepared: &Prepared, job: &Job, ai: &AiSlot) -> Result<Confir
 fn log_input(input: &Input) -> (String, Option<usize>) {
     let mut text = String::new();
     let mut total = 0usize;
+    let mut cut = false;
     // an input that cannot be read ends here: the log has what was read
     let _ = input(&mut |piece| {
         total += piece.len();
         // only the part that still fits, cut on a character boundary; the size of the whole is counted anyway
-        let room = ai_log::records::MAX_TEXT_BYTES.saturating_sub(text.len());
-        if room > 0 {
+        if !cut {
+            let room = ai_log::records::MAX_TEXT_BYTES - text.len();
             let mut end = piece.len().min(room);
             while !piece.is_char_boundary(end) {
                 end -= 1;
             }
             text.push_str(&piece[..end]);
+            // after the first cut nothing more is kept: the log has the head of the input and no gaps
+            cut = end < piece.len();
         }
         true
     });
