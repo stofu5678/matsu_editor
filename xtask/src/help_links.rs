@@ -143,11 +143,59 @@ pub fn anchors(source: &str) -> HashSet<String> {
     ids
 }
 
+/// The line without its inline code spans (`` `...` ``) and HTML comments; `in_comment` carries a comment that
+/// goes over several lines.
+fn without_code_and_comments(line: &str, in_comment: &mut bool) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    loop {
+        if *in_comment {
+            match rest.find("-->") {
+                Some(end) => {
+                    rest = &rest[end + 3..];
+                    *in_comment = false;
+                }
+                None => return out,
+            }
+        }
+        let comment = rest.find("<!--");
+        let code = rest.find('`');
+        match (comment, code) {
+            (Some(c), code) if code.is_none_or(|k| c < k) => {
+                out.push_str(&rest[..c]);
+                rest = &rest[c + 4..];
+                *in_comment = true;
+            }
+            (_, Some(k)) => {
+                out.push_str(&rest[..k]);
+                // The span ends at the next run of backticks (an unclosed one is plain text).
+                let ticks = rest[k..].chars().take_while(|c| *c == '`').count();
+                let marker = "`".repeat(ticks);
+                match rest[k + ticks..].find(&marker) {
+                    Some(end) => rest = &rest[k + ticks + end + ticks..],
+                    None => {
+                        out.push_str(&rest[k..]);
+                        return out;
+                    }
+                }
+            }
+            _ => {
+                out.push_str(rest);
+                return out;
+            }
+        }
+    }
+}
+
 /// Every link of a page: `(line, target)`. Links with an empty target (the draft chapters of `SUMMARY.md`) are
 /// left out.
 pub fn links(source: &str) -> Vec<(u32, String)> {
     let mut out = Vec::new();
+    let mut in_comment = false;
     for (number, line) in prose_lines(source) {
+        // What is not rendered as Markdown is not a link: inline code and HTML comments.
+        let line = without_code_and_comments(line, &mut in_comment);
+        let line = line.as_str();
         // A reference definition, `[label]: target "title"`: the target counts as a link whether or not
         // a reference uses it (a reference such as `[text][label]` is then checked through it).
         if let Some(definition) = line
@@ -374,6 +422,21 @@ mod tests {
         assert_eq!(problems.len(), 2, "{problems:?}");
         assert!(problems[0].contains("#無い"));
         assert!(problems[1].contains("#これも無い"));
+    }
+
+    #[test]
+    fn links_in_inline_code_and_comments_are_not_checked() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n"),
+            (
+                "a.md",
+                "# a\n\n`[x](nowhere.md)` と ``[y](nowhere.md)`` と <!-- [z](nowhere.md) --> と\n<!-- 複数行\n[w](nowhere.md)\n-->と [自分](#a)\n",
+            ),
+        ]);
+        assert_eq!(
+            check(&pages, Path::new("/nonexistent")),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

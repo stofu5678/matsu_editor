@@ -83,6 +83,14 @@ pub fn strip_markdown(source: &str) -> RawText {
                         }
                     }
                 }
+                ']' if chars.peek() == Some(&'[') => {
+                    // The label of a reference link, `[text][label]` (or `[text][]`): not text.
+                    for n in chars.by_ref() {
+                        if n == ']' {
+                            break;
+                        }
+                    }
+                }
                 ']' if chars.peek() == Some(&'(') => {
                     // The target of a link or an image: skip to the matching ')'.
                     chars.next();
@@ -790,6 +798,13 @@ mod tests {
         let found = find_shared(&matsu, &sakura, 20);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].sakura_file, "B.html");
+    }
+
+    #[test]
+    fn the_labels_of_reference_links_are_not_text() {
+        let text = strip_markdown("[検索][search]して[置換][]する [図][x]\n\n[search]: a.md\n");
+        let s: String = normalize(&text).iter().map(|n| n.c).collect();
+        assert_eq!(s, "検索して置換する図");
     }
 
     #[test]
