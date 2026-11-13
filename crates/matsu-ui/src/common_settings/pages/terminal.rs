@@ -122,9 +122,13 @@ pub(in crate::common_settings) fn problem_text(error: CommandLineError) -> &'sta
 
 fn draw_shell_note(
     dialog: &CommonSettingsDialog,
-    _cx: &mut Context<CommonSettingsDialog>,
+    cx: &mut Context<CommonSettingsDialog>,
 ) -> AnyElement {
-    match problem(dialog.values().text(SHELL)) {
+    // The text in the box now: the values hold it only once OK commits the boxes.
+    let line = dialog
+        .input_text(SHELL, cx)
+        .unwrap_or_else(|| dialog.values().text(SHELL).to_owned());
+    match problem(&line) {
         Some(error) => div()
             .text_color(rgb(WARNING))
             .child(problem_text(error))

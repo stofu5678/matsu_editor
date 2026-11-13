@@ -264,6 +264,9 @@ impl CommonSettingsDialog {
                 |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         this.ok(window, cx);
+                    } else if matches!(event, InputEvent::Change) {
+                        // What a page shows of the text (the note under the shell's command line) follows it.
+                        cx.notify();
                     }
                 },
             ));

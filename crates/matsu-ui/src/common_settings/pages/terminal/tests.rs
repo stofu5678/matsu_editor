@@ -209,6 +209,21 @@ fn clearing_the_shell_goes_back_to_the_default(cx: &mut TestAppContext) {
     assert_eq!(crate::terminal::settings::shell_of(&now(cx)), None);
 }
 
+/// The note under the box is made from the text in the box, not from the value of the last OK.
+#[gpui::test]
+fn the_note_follows_the_text_in_the_box(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "");
+    open(cx, handle);
+    let live = |cx: &mut TestAppContext| {
+        with_dialog(cx, |d, _, dcx| d.input_text(SHELL, dcx)).expect("the box")
+    };
+    type_in(cx, SHELL, "\"sh -c unclosed");
+    assert_eq!(problem(&live(cx)), Some(CommandLineError::UnclosedQuote));
+    type_in(cx, SHELL, "sh -l");
+    assert_eq!(problem(&live(cx)), None);
+    cancel(cx);
+}
+
 #[gpui::test]
 fn cancel_changes_nothing(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "[Terminal]\r\nShell=zsh\r\nScrollbackLines=42\r\n");
