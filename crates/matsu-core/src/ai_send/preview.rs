@@ -13,6 +13,11 @@
 //!   ([`TextPreview::secrets_complete`] is false). A single line longer than what is left of the
 //!   budget is read only up to the budget.
 //!
+//! Finding the two ends of the range costs what a cursor move to them costs ([`Document::clamp_pos`]
+//! and [`Document::raw_len_between`], the same as the editor does for any selection): very long
+//! lines of a big file are read by ranges and indexed (ADR-0020), so that is cheap there. The
+//! budget bounds what this module adds on top.
+//!
 //! A line ending counts as one character (two for CR LF).
 
 use super::secrets::{SecretKind, find_secrets, mask_line};
