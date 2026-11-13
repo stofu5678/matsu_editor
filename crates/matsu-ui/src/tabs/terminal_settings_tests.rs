@@ -60,7 +60,11 @@ fn a_new_tab_starts_the_shell_of_the_setting_with_its_command_line_as_written(
     wait_for_text(cx, &view, "configured");
     let text = screen(cx, &view);
     assert!(text.contains("two  spaces"), "the screen was:\n{text}");
-    assert!(!text.contains('\\'), "no backslash may be added:\n{text}");
+    // (A backslash can be in the prompt of cmd.exe: only the escaped quote would be the C runtime's.)
+    assert!(
+        !text.contains("\\\""),
+        "the quotes must not be escaped:\n{text}"
+    );
     close_all(cx, &[view]);
 }
 

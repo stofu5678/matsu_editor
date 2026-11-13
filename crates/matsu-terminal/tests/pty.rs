@@ -166,7 +166,11 @@ fn a_command_line_of_the_setting_starts_the_shell() {
     let text = wait_for_screen(&terminal, &events, "the two lines", |t| {
         t.contains("second") && t.contains("two  spaces")
     });
-    assert!(!text.contains('\\'), "no backslash may be added:\n{text}");
+    // (A backslash can be in the prompt of cmd.exe: only the escaped quote would be the C runtime's.)
+    assert!(
+        !text.contains("\\\""),
+        "the quotes must not be escaped:\n{text}"
+    );
 }
 
 #[test]

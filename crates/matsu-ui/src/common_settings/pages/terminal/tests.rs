@@ -127,7 +127,7 @@ fn a_command_line_that_cannot_be_read_is_said_so() {
     assert_eq!(problem("   "), None);
     assert_eq!(problem("sh -l"), None);
     assert_eq!(
-        problem("sh -c 'unclosed"),
+        problem("\"sh -c unclosed"),
         Some(CommandLineError::UnclosedQuote)
     );
     assert_eq!(problem("\"\""), Some(CommandLineError::Empty));
