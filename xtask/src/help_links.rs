@@ -3,8 +3,8 @@
 //!
 //! The anchors follow mdBook's rule (`mdbook-core` `utils::normalize_id`): a heading's text is lower-cased,
 //! letters, digits (of any script), `_` and `-` stay, white space becomes `-`, everything else is dropped; a
-//! second heading with the same id gets `-1`, the third `-2`. A heading may name its id with `{#id}`, and an
-//! HTML `id="..."` or `name="..."` in the page is an anchor too.
+//! second heading with the same id gets `-1`, the third `-2`. A heading may name its id with `{#id}`. Raw HTML
+//! anchors and links (`id`, `name`, `href` attributes) are not allowed in the help: they are an error.
 //!
 //! The pages are read with pulldown-cmark, the parser that mdBook uses (the 0.13 series that mdBook 0.5.4 asks for, ^0.13.4), so that
 //! headings, code, HTML and links mean what they mean in the built book.
@@ -91,9 +91,9 @@ impl Lines {
     }
 }
 
-/// The attributes of an HTML tag (`name="value"`, `name='value'`, `name=value` or `name` alone), with the
-/// names in lower case.
-fn tag_attributes(tag: &str) -> Vec<(String, String)> {
+/// The names of the attributes of an HTML tag (`name="value"`, `name='value'`, `name=value` or `name` alone),
+/// in lower case.
+fn tag_attribute_names(tag: &str) -> Vec<String> {
     let chars: Vec<char> = tag.chars().collect();
     let mut i = 0;
     // The tag name.
@@ -113,7 +113,6 @@ fn tag_attributes(tag: &str) -> Vec<(String, String)> {
         while i < chars.len() && chars[i].is_whitespace() {
             i += 1;
         }
-        let mut value = String::new();
         if chars.get(i) == Some(&'=') {
             i += 1;
             while i < chars.len() && chars[i].is_whitespace() {
@@ -123,31 +122,34 @@ fn tag_attributes(tag: &str) -> Vec<(String, String)> {
                 Some(&quote @ ('"' | '\'')) => {
                     i += 1;
                     while i < chars.len() && chars[i] != quote {
-                        value.push(chars[i]);
                         i += 1;
                     }
                     i += 1;
                 }
                 _ => {
                     while i < chars.len() && !chars[i].is_whitespace() {
-                        value.push(chars[i]);
                         i += 1;
                     }
                 }
             }
         }
         if !name.is_empty() {
-            out.push((name, value));
+            out.push(name);
         }
     }
     out
 }
 
-/// The anchors (`id`, `name`) and links (`<a href>`) of the real tags in a piece of raw HTML. Comments are
-/// not tags; a `<` that does not start a tag is text.
-fn html_targets(html: &str, ids: &mut Vec<String>, hrefs: &mut Vec<String>) {
+/// The raw HTML attributes that the help does not allow (`id`, `name`, `href`, in any case and any quoting) on
+/// the real tags of a piece of raw HTML: `(line, attribute name)`. `line` is the line of the start of `html`.
+/// Comments are not tags; a `<` that does not start a tag is text. Anchors are headings with `{#id}`, and links
+/// are Markdown links, so that the check reads one syntax (the HTML would need character references, quotes and
+/// attribute rules of its own).
+fn forbidden_html_attributes(html: &str, line: u32, found: &mut Vec<(u32, String)>) {
     let mut rest = html;
     while let Some(open) = rest.find('<') {
+        let before = &html[..html.len() - rest.len() + open];
+        let tag_line = line + u32::try_from(before.matches('\n').count()).unwrap_or(0);
         let after = &rest[open + 1..];
         if let Some(comment) = after.strip_prefix("!--") {
             rest = comment.find("-->").map_or("", |end| &comment[end + 3..]);
@@ -159,42 +161,30 @@ fn html_targets(html: &str, ids: &mut Vec<String>, hrefs: &mut Vec<String>) {
         if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
             continue;
         }
-        let name = tag
-            .split(|c: char| c.is_whitespace() || c == '/')
-            .next()
-            .unwrap_or("");
-        let is_link = name.eq_ignore_ascii_case("a");
-        for (name, value) in tag_attributes(tag) {
-            match name.as_str() {
-                "id" | "name" if !value.is_empty() => ids.push(value),
-                "href" if is_link && !value.is_empty() => hrefs.push(value),
-                _ => {}
+        for name in tag_attribute_names(tag) {
+            if matches!(name.as_str(), "id" | "name" | "href") {
+                found.push((tag_line, name));
             }
         }
     }
 }
 
-fn read_html(html: &str, line: u32, anchors: &mut HashSet<String>, links: &mut Vec<(u32, String)>) {
-    let (mut ids, mut hrefs) = (Vec::new(), Vec::new());
-    html_targets(html, &mut ids, &mut hrefs);
-    anchors.extend(ids);
-    links.extend(hrefs.into_iter().map(|href| (line, href)));
-}
-
-/// What a page offers and asks for: its anchors, and its links as `(line, target)`.
+/// What a page offers and asks for: its anchors, its links as `(line, target)`, and the raw HTML attributes
+/// that are not allowed, as `(line, attribute name)`.
 pub struct Scan {
     pub anchors: HashSet<String>,
     pub links: Vec<(u32, String)>,
+    pub raw_html: Vec<(u32, String)>,
 }
 
 /// Reads a page the way mdBook does (pulldown-cmark): headings with their ids (the rule above, `{#id}`),
-/// HTML `id` and `name` attributes, Markdown links and images (inline, reference, autolinks, over several
-/// lines, with any title form) and `<a href>`. Code, comments and text that only looks like a link are not
+/// Markdown links and images (inline, reference, autolinks, over several lines, with any title form). Code, comments and text that only looks like a link are not
 /// read as links. A link with an empty target (the draft chapters of `SUMMARY.md`) is left out.
 pub fn scan(source: &str) -> Scan {
     let lines = Lines::new(source);
     let mut anchors = HashSet::new();
     let mut links = Vec::new();
+    let mut raw_html = Vec::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
     // The text and explicit id of the heading being read.
     let mut heading: Option<(String, Option<String>)> = None;
@@ -235,7 +225,7 @@ pub fn scan(source: &str) -> Scan {
             Event::Start(Tag::HtmlBlock) => block = Some((lines.of(range.start), String::new())),
             Event::End(TagEnd::HtmlBlock) => {
                 if let Some((line, html)) = block.take() {
-                    read_html(&html, line, &mut anchors, &mut links);
+                    forbidden_html_attributes(&html, line, &mut raw_html);
                 }
             }
             Event::Html(html) if block.is_some() => {
@@ -244,12 +234,16 @@ pub fn scan(source: &str) -> Scan {
                 }
             }
             Event::Html(html) | Event::InlineHtml(html) => {
-                read_html(&html, lines.of(range.start), &mut anchors, &mut links);
+                forbidden_html_attributes(&html, lines.of(range.start), &mut raw_html);
             }
             _ => {}
         }
     }
-    Scan { anchors, links }
+    Scan {
+        anchors,
+        links,
+        raw_html,
+    }
 }
 
 /// Every anchor of a page.
@@ -328,7 +322,14 @@ pub fn check(pages: &[Page], dir: &Path) -> Vec<String> {
         .map(|p| (p.path.as_str(), anchors(&p.source)))
         .collect();
     for page in pages {
-        for (line, target) in links(&page.source) {
+        let scanned = scan(&page.source);
+        for (line, attribute) in &scanned.raw_html {
+            problems.push(format!(
+                "{}:{line}: raw HTML with the attribute `{attribute}` is not allowed. For an anchor, give a heading an id (`## Title {{#id}}`); for a link, use a Markdown link (`[text](target)`)",
+                page.path
+            ));
+        }
+        for (line, target) in scanned.links {
             if is_external(&target) {
                 continue;
             }
@@ -544,26 +545,58 @@ mod tests {
     }
 
     #[test]
-    fn html_anchors_in_either_quote_are_anchors() {
-        let ids = anchors("<a id='details'></a>\n\n<a name=\"top\"></a>\n\n<a name='end'></a>\n");
-        for id in ["details", "top", "end"] {
-            assert!(ids.contains(id), "{id} in {ids:?}");
+    fn raw_html_with_id_name_or_href_is_an_error() {
+        let cases = [
+            ("<a id=\"x\"></a>", "id"),
+            ("<a id='x'></a>", "id"),
+            ("<a name=\"x\"></a>", "name"),
+            ("<a NAME='x'></a>", "name"),
+            ("<a id=\"a&#45;b\"></a>", "id"),
+            ("<a href=\"#a&#45;b\">x</a>", "href"),
+            ("<a HREF='b.md'>x</a>", "href"),
+            ("<a href=b.md>x</a>", "href"),
+            ("<span\n  id=x>y</span>", "id"),
+            ("text <span id=\"x\">y</span> text", "id"),
+            ("<div>\n<a id=\"x\"></a>\n</div>", "id"),
+        ];
+        for (html, attribute) in cases {
+            let found = scan(&format!("# t\n\n{html}\n")).raw_html;
+            assert!(
+                found.iter().any(|(_, name)| name == attribute),
+                "{html:?} gave {found:?}"
+            );
+            let pages = book(&[
+                ("SUMMARY.md", "- [a](a.md)\n"),
+                ("a.md", &format!("# t\n\n{html}\n")),
+            ]);
+            let problems = check(&pages, Path::new("/nonexistent"));
+            assert!(
+                problems.iter().any(|p| p.starts_with("a.md:")
+                    && p.contains("{#id}")
+                    && p.contains("Markdown link")),
+                "{html:?} gave {problems:?}"
+            );
         }
     }
 
     #[test]
-    fn html_anchors_count_only_in_real_tags() {
-        let ids = anchors(concat!(
-            "<a id=\"real\"></a>\n\n",
-            "`<a id=\"in-code\">` は例\n\n",
+    fn raw_html_without_those_attributes_comments_and_code_are_fine() {
+        let source = concat!(
+            "# t\n\n",
+            "<div class=\"note\" data-id=\"1\">\n\n本文\n\n</div>\n\n",
             "<!-- <a id=\"in-comment\"> -->\n\n",
-            "本文の id=\"in-text\" は属性ではない\n\n",
-            "<span data-id=\"data\">x</span>\n",
-        ));
-        assert!(ids.contains("real"), "{ids:?}");
-        for id in ["in-code", "in-comment", "in-text", "data"] {
-            assert!(!ids.contains(id), "{id} in {ids:?}");
-        }
+            "<!--\n<a href=\"x\">\n-->\n\n",
+            "`<a id=\"in-code\">` と\n\n",
+            "```html\n<a id=\"in-fence\">\n```\n\n",
+            "本文の id=\"in-text\" と <b>太字</b>\n",
+        );
+        assert_eq!(scan(source).raw_html, Vec::new());
+    }
+
+    #[test]
+    fn the_line_of_a_raw_html_attribute_is_the_line_of_its_tag() {
+        let found = scan("# t\n\n<div>\n<p>\n<a id=\"x\"></a>\n</p>\n</div>\n").raw_html;
+        assert_eq!(found, vec![(5, "id".to_string())]);
     }
 
     #[test]
@@ -581,20 +614,6 @@ mod tests {
                 "# a\n\n<!--\n```\n-->\n\n[1](b.md 'タイトル') [2](b.md \"t\") [3](b.md (t)) [4](#missing)\n",
             ),
             ("b.md", "# b\n"),
-        ]);
-        let problems = check(&pages, Path::new("/nonexistent"));
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("#missing"));
-    }
-
-    #[test]
-    fn raw_html_links_are_checked() {
-        let pages = book(&[
-            ("SUMMARY.md", "- [a](a.md)\n"),
-            (
-                "a.md",
-                "# a\n\n<a href=\"#a\">ok</a> <a href='#missing'>x</a> <a href=\"https://example.com\">y</a>\n",
-            ),
         ]);
         let problems = check(&pages, Path::new("/nonexistent"));
         assert_eq!(problems.len(), 1, "{problems:?}");
@@ -625,20 +644,12 @@ mod tests {
     }
 
     #[test]
-    fn html_in_blocks_is_read_as_a_whole() {
-        let ids = anchors(
-            "# a\n\n<!--\n<a id=\"hidden\"></a>\n-->\n\n<div>\n<a\n  id=\"shown\"></a>\n</div>\n",
-        );
-        assert!(ids.contains("shown") && !ids.contains("hidden"), "{ids:?}");
-    }
-
-    #[test]
     fn a_link_to_a_built_chapter_is_a_link_to_its_source() {
         let pages = book(&[
             ("SUMMARY.md", "- [a](a.md)\n- [b](sub/b.md)\n"),
             (
                 "a.md",
-                "# a\n\n[1](sub/b.html#b) [2](sub/b.html#nope) <a href=\"sub/b.html\">3</a> [4](sub/c.html)\n",
+                "# a\n\n[1](sub/b.html#b) [2](sub/b.html#nope) [3](sub/b.html) [4](sub/c.html)\n",
             ),
             ("sub/b.md", "# b\n"),
         ]);
