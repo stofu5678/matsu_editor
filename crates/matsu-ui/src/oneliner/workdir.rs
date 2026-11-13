@@ -55,18 +55,20 @@ impl WorkDir {
 
 impl Drop for WorkDir {
     fn drop(&mut self) {
-        if !self.path.exists() || std::fs::remove_dir_all(&self.path).is_ok() {
+        // Normally [`WorkDir::remove`] has run and nothing is left. A run that ended early (the editor closed)
+        // leaves the removal to a thread, so that a large tree is not deleted on the thread of the window; it tries
+        // a few times for a process that is still ending (Windows). What still cannot be removed is left to the
+        // OS's temporary folder.
+        if !self.path.exists() {
             return;
         }
-        // A process that is still ending can hold the folder (Windows): try again from a thread, a few times. What
-        // still cannot be removed is left to the OS's temporary folder.
         let path = self.path.clone();
         std::thread::spawn(move || {
             for _ in 0..20 {
-                std::thread::sleep(std::time::Duration::from_millis(250));
                 if std::fs::remove_dir_all(&path).is_ok() || !path.exists() {
                     return;
                 }
+                std::thread::sleep(std::time::Duration::from_millis(250));
             }
         });
     }
