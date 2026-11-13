@@ -231,7 +231,7 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         );
         return;
     }
-    if busy(view, cx) {
+    if !reserve(view, cx) {
         tell_busy(cx).await;
         return;
     }
@@ -257,6 +257,7 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
     let mut run = match started {
         Ok(run) => run,
         Err(error) => {
+            release(view, cx);
             tell(
                 cx,
                 PromptLevel::Warning,
@@ -278,6 +279,7 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
             if view.support.exec_running.is_some() {
                 return false;
             }
+            view.support.oneliner_starting = false;
             view.open_exec_running(&line, stopper, true, window, cx);
             true
         }
@@ -285,6 +287,7 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
     match opened {
         Ok(true) => {}
         Ok(false) => {
+            release(view, cx);
             stop_in_background(cx, stopper);
             tell_busy(cx).await;
             return;
@@ -319,10 +322,27 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
     }
 }
 
-/// Another command has the box.
-fn busy(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
-    view.read_with(cx, |view, _| view.support.exec_running.is_some())
-        .unwrap_or(false)
+/// Takes the place of the one command that takes the window, before the process is started (which waits): `false`
+/// when a command has the box or another one-liner is starting. Released by [`release`], or by the box that takes
+/// over.
+fn reserve(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
+    view.update(cx, |view, cx| {
+        if view.support.exec_running.is_some() || view.support.oneliner_starting {
+            return false;
+        }
+        view.support.oneliner_starting = true;
+        cx.notify();
+        true
+    })
+    .unwrap_or(false)
+}
+
+fn release(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    view.update(cx, |view, cx| {
+        view.support.oneliner_starting = false;
+        cx.notify();
+    })
+    .ok();
 }
 
 async fn tell_busy(cx: &mut AsyncWindowContext) {
@@ -533,6 +553,10 @@ fn apply_in(
     pieces: &[String],
     to: OutputTo,
 ) -> CommandResult {
+    // no result for the next line: not even the line break that the last line lacks
+    if to == OutputTo::NextLine && pieces.iter().all(String::is_empty) {
+        return Ok(());
+    }
     let from = match to {
         OutputTo::NextLine => {
             let (at, prefix) = after_input(c, prepared)?;

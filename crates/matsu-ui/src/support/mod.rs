@@ -45,6 +45,8 @@ pub(crate) struct Support {
     pub oneliner_dialog: Option<Entity<crate::oneliner::dialog::OneLinerDialog>>,
     /// The dialog of 「ファイルツリー設定」, while it is open (`crate::outline::file_tree_dialog`).
     pub file_tree_dialog: Option<Entity<crate::outline::file_tree_dialog::FileTreeDialog>>,
+    /// A one-liner is starting its process and has not its box yet (`crate::oneliner::flow`): it holds the place.
+    pub oneliner_starting: bool,
     /// The box of a command that runs, with its 中断 button.
     pub exec_running: Option<Entity<crate::exec::running::ExecRunning>>,
     /// The keyword help: what was looked up and the tip (`crate::key_help`).

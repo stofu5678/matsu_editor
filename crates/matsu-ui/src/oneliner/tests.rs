@@ -287,6 +287,15 @@ fn next_line_in_a_crlf_document_uses_crlf(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn next_line_with_no_result_changes_nothing(cx: &mut TestAppContext) {
+    let nothing = if cfg!(windows) { "$null" } else { "true" };
+    let (_dir, w) = open(cx, &one(nothing, 1), "abc");
+    run(cx, &w, 0);
+    // not even the line break that the last line lacks
+    assert_eq!(w.text(cx), "abc");
+}
+
+#[gpui::test]
 fn the_output_window_shows_the_result_and_the_document_stays(cx: &mut TestAppContext) {
     let (_dir, w) = open(cx, &one(UPPER, 2), "abc\n");
     run(cx, &w, 0);

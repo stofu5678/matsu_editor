@@ -58,7 +58,9 @@ fn update(
 ) -> Result<Option<OneLiners>, OneLinerError> {
     let mut made: Option<OneLiners> = None;
     let mut problem: Option<OneLinerError> = None;
+    let mut read_file = false;
     crate::history::write_settings(cx, |profile| {
+        read_file = true;
         let mut table = OneLiners::from_profile(profile);
         match change(&mut table) {
             Ok(true) => {}
@@ -85,6 +87,9 @@ fn update(
     }
     let table = match made {
         Some(table) => table,
+        // the file was read and has nothing to change (all the slots are taken there, whatever this session
+        // thinks): the windows' table is not asked
+        None if read_file => return Ok(None),
         // no file to write: the change is for this session
         None => {
             let mut table = super::table(cx);

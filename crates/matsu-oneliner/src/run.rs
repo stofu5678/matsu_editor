@@ -425,6 +425,8 @@ impl Run {
                     self.exit = Some(exit);
                     self.input.abandon.store(true, Ordering::SeqCst);
                 }
+                // nothing is there: do not spin until the deadline, which is for a stream of output
+                None if Instant::now() >= wait_until => return None,
                 None => {}
             }
             if Instant::now() >= deadline {

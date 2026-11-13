@@ -250,7 +250,7 @@ impl FuncStates {
                 .try_global::<crate::settings::UserSettings>()
                 .map(crate::settings::UserSettings::shared_oneliners)
                 .unwrap_or_default(),
-            command_running: view.support.exec_running.is_some(),
+            command_running: view.support.exec_running.is_some() || view.support.oneliner_starting,
         }
     }
 
