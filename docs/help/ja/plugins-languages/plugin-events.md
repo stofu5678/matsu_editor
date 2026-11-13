@@ -36,7 +36,7 @@ DocumentAfterSave=after_save.js
 5. `DocumentAfterSave`
 6. 名前を付けて保存のときは、オープン後のマクロと、新しい文書について `DocumentOpen`
 
-3 から 6 までは、名前を付けて保存のときだけです。
+3 と 6 は、名前を付けて保存のときだけです。ふつうの上書き保存でも、4 でファイルを書き、5 で `DocumentAfterSave` が動きます。
 
 保存前のマクロや `DocumentBeforeSave` が文書を変えたときは、書く前の質問（改行コードの混在と、文字コードで書けない文字）を、もう一度出します。
 
