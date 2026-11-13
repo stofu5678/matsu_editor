@@ -1,0 +1,26 @@
+# グループを閉じる
+
+同じウィンドウにまとまっているタブを、すべて閉じます。
+
+- 機能名: `F_GROUPCLOSE`
+- メニュー: 「ファイル」の「グループを閉じる」
+- 既定のキー: なし
+- マクロ: `GroupClose()`
+
+## 動き
+
+タブバーを出していて、ウィンドウをグループにまとめているときだけ動きます。MATSU Editor では、グループは 1 つのウィンドウです。そのウィンドウの全部のタブを順に閉じます。
+
+- 変更のある文書は、1 つずつ「保存しますか」と聞きます（[章の初めの説明](index.md)を見てください）
+- 「キャンセル」を選ぶと、そこで止まります。それまでに閉じたタブは、閉じたままです
+
+タブを使っていないときや、ウィンドウをまとめない設定のときは、何もしません。
+
+## サクラエディタとの違い
+
+動きはサクラエディタと同じです。
+
+## 根拠
+
+- サクラのソース: `sakura_core/cmd/CViewCommander_Window.cpp` の `Command_GROUPCLOSE`
+- MATSU のコード: `crates/matsu-ui/src/ui_commands/window/groupclose.rs`、`crates/matsu-ui/src/tabs/settings.rs`（`bound`）、グループが 1 つのウィンドウである決定は `docs/adr/0015-tabs-and-groups.md`（ADR-0015）
