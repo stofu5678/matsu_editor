@@ -4064,6 +4064,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "matsu-oneliner"
+version = "0.13.0"
+dependencies = [
+ "matsu-core",
+ "matsu-platform",
+ "matsu-terminal",
+ "tempfile",
+]
+
+[[package]]
 name = "matsu-outline"
 version = "0.13.0"
 dependencies = [
