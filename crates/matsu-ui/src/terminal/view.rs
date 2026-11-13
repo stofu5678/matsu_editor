@@ -15,9 +15,9 @@ use matsu_commands::sakura::{FUNCTIONS, FunctionKind};
 use matsu_terminal::{EventReceiver, Snapshot, Terminal, TerminalEvent, TerminalSize};
 
 use super::element::{CellSize, TerminalElement};
-use super::input::{ScrollKey, Translated, translate};
+use super::input::{ScrollKey, Translated, translate_with};
 use super::palette::Palette;
-use super::{Close, Copy, Paste};
+use super::{Close, Copy, OpenSettings, Paste};
 use crate::app::Workspace;
 use crate::status::StatusInfo;
 use crate::view::RunFunction;
@@ -397,6 +397,12 @@ impl TerminalView {
         }
     }
 
+    /// How many lines the scrollback holds now (for the tests that read it; they run on Unix only).
+    #[cfg(all(test, unix))]
+    pub(crate) fn history_size(&self) -> usize {
+        self.terminal.snapshot().info.history_size
+    }
+
     /// The text of the screen, a line for each row without its trailing blanks (for the tests).
     #[cfg(test)]
     pub(crate) fn screen_text(&self) -> String {
@@ -426,6 +432,8 @@ impl TerminalView {
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let mac = cfg!(target_os = "macos");
+        // Read at every key: a change of the setting reaches the tabs that are open.
+        let option_as_meta = super::settings::current(cx).option_as_meta;
         // The window's keys stay with the window (also while the IME composes: one that comes here is one
         // the IME let go).
         if let Some(code) = window_function_of(&event.keystroke, event.prefer_character_input, cx) {
@@ -442,14 +450,24 @@ impl TerminalView {
             // dead key, a character the IME declined).
             // (The keys of the menus and the window that `translate` passes stay free.)
             if !matches!(
-                translate(&event.keystroke, event.prefer_character_input, mac),
+                translate_with(
+                    &event.keystroke,
+                    event.prefer_character_input,
+                    mac,
+                    option_as_meta,
+                ),
                 Translated::Text(_) | Translated::Pass
             ) {
                 cx.stop_propagation();
             }
             return;
         }
-        match translate(&event.keystroke, event.prefer_character_input, mac) {
+        match translate_with(
+            &event.keystroke,
+            event.prefer_character_input,
+            mac,
+            option_as_meta,
+        ) {
             // A character typed with Ctrl and Alt both down (AltGr on Windows, a layout's level on others):
             // the Linux backends of GPUI hand a key's text to the input handler only when no modifier but
             // Shift is down, so it is written here. (No `WM_CHAR` follows a handled key on Windows.)
@@ -573,6 +591,17 @@ impl Render for TerminalView {
                 }))
             })
             .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste(window, cx)))
+            .on_action(cx.listener(|_, _: &OpenSettings, window, cx| {
+                // After the action ends: the dialog looks at the window's view, which is being updated now.
+                let opener = window.window_handle();
+                window.defer(cx, move |_, app| {
+                    crate::common_settings::open(
+                        app,
+                        Some(crate::common_settings::Page::Terminal),
+                        Some(opener),
+                    );
+                });
+            }))
             .on_action(cx.listener(|this, action: &RunFunction, window, cx| {
                 let code = action.code;
                 this.in_workspace(window, cx, move |ws, window, cx| {

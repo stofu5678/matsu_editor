@@ -22,6 +22,7 @@ mod handler;
 mod input;
 pub(crate) mod menus;
 mod palette;
+pub(crate) mod settings;
 mod view;
 
 use std::io;
@@ -53,7 +54,9 @@ actions!(
         /// Copies the selected text of the shell tab.
         Copy,
         /// Pastes the clipboard into the shell tab.
-        Paste
+        Paste,
+        /// Opens the common settings at the page シェル.
+        OpenSettings
     ]
 );
 
@@ -72,7 +75,8 @@ const START_SIZE: TerminalSize = TerminalSize::new(80, 24);
 
 /// What a new shell tab needs to know about the window it opens in.
 pub(crate) struct Start {
-    /// `None` is the default shell (`matsu_terminal::shell::default_shell`); only the tests give another.
+    /// `None` is the shell of the settings (`settings::shell_of`), else the default shell
+    /// (`matsu_terminal::shell::default_shell`); only the tests give another.
     pub shell: Option<ShellCommand>,
     /// The file of the active document: the shell starts in its folder.
     pub document_path: Option<PathBuf>,
@@ -99,15 +103,22 @@ pub(crate) fn start(
     window: &Window,
     cx: &mut Context<Workspace>,
 ) -> io::Result<Entity<TerminalView>> {
-    let shell = resolve_shell(start.shell.clone());
+    let settings = settings::current(cx);
+    // A shell that is given is the tests'; else the one of the settings (new tabs read them now).
+    let shell = resolve_shell(
+        start
+            .shell
+            .clone()
+            .or_else(|| settings::shell_of(&settings)),
+    );
     let mut directory = start_directory(start.document_path.as_deref());
     let mut options = Options {
         size: START_SIZE,
         working_directory: directory.clone(),
         shell: shell.clone(),
+        scrollback_lines: settings.scrollback_lines,
         foreground: rgb_of(start.foreground),
         background: rgb_of(start.background),
-        ..Options::default()
     };
     let (terminal, events) = match Terminal::spawn(options.clone()) {
         Err(error)

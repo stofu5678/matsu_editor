@@ -247,6 +247,8 @@ fn the_pages_are_in_sakuras_order() {
             "支援",
             "マクロ",
             "プラグイン",
+            // MATSU Editor's own, after the pages of Sakura.
+            "シェル",
         ]
     );
     // The pages that are built; the others are added one by one, each by its own module.
@@ -1260,7 +1262,8 @@ fn the_keys_of_a_property_sheet(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(window, "ctrl-shift-tab");
     assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::General);
     cx.simulate_keystrokes(window, "ctrl-shift-tab");
-    assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::Plugin);
+    // The last page is MATSU Editor's own, シェル.
+    assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::Terminal);
     cx.simulate_keystrokes(window, "ctrl-tab");
     assert_eq!(with_dialog(cx, |d, _, _| d.page()), Page::General);
 

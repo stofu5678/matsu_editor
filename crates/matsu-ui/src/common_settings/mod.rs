@@ -89,11 +89,12 @@ pub(crate) enum Page {
     Support,
     Macro,
     Plugin,
+    Terminal,
 }
 
 impl Page {
     /// Every page, in the order of the sheet.
-    pub(crate) const ALL: [Page; 18] = [
+    pub(crate) const ALL: [Page; 19] = [
         Page::General,
         Page::Window,
         Page::MainMenu,
@@ -112,6 +113,7 @@ impl Page {
         Page::Support,
         Page::Macro,
         Page::Plugin,
+        Page::Terminal,
     ];
 
     /// The name on the tab (`STR_PROPCOMMON_*`).
@@ -135,6 +137,7 @@ impl Page {
             Page::Support => "支援",
             Page::Macro => "マクロ",
             Page::Plugin => "プラグイン",
+            Page::Terminal => "シェル",
         }
     }
 
@@ -163,6 +166,7 @@ impl Page {
             Page::Support => Some(pages::support::items()),
             Page::Macro => pages::macros::items(),
             Page::Plugin => pages::plugin::items(),
+            Page::Terminal => Some(pages::terminal::items()),
         }
     }
 
@@ -187,6 +191,7 @@ impl Page {
             Page::Support => pages::support::apply(env, after, before),
             Page::Macro => pages::macros::apply(env, after, before),
             Page::Plugin => pages::plugin::apply(env, after, before),
+            Page::Terminal => pages::terminal::apply(env, after, before),
         }
     }
 }
