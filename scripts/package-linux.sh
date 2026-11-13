@@ -93,8 +93,8 @@ Version: $version
 Architecture: $deb_arch
 Maintainer: stofu5678 <stofu5678@users.noreply.github.com>
 Installed-Size: $size
-Depends: $depends
-Recommends: libvulkan1, libwayland-client0, fonts-noto-cjk
+Depends: $depends, libvulkan1
+Recommends: libwayland-client0, mesa-vulkan-drivers, fonts-noto-cjk
 Section: editors
 Priority: optional
 Homepage: https://github.com/stofu5678/matsu_editor
@@ -106,7 +106,8 @@ dpkg-deb --root-owner-group -Zxz --build "$root" "$out/matsu-$target.deb"
 rm -rf "$root/DEBIAN"
 
 # --- .rpm ---
-# rpm finds Requires: itself, from the sonames of the programs (Fedora and others resolve them by capability).
+# rpm finds the Requires: of the linked libraries itself (sonames; Fedora resolves them by capability). The Vulkan
+# loader is opened at run time (GPUI), so it is named by hand in the spec and in Depends: above.
 mkdir -p "$work/rpm"
 sed -e "s|@VERSION@|$version|" -e "s|@ROOT@|$root|" packaging/linux/matsu-editor.spec.in > "$work/matsu-editor.spec"
 rpmbuild -bb --define "_topdir $work/rpm" --define "_rpmdir $work/rpms" "$work/matsu-editor.spec"

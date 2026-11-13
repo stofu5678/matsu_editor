@@ -6,7 +6,8 @@ Release:        1
 Summary:        A text editor that feels like SAKURA Editor
 License:        MIT OR Apache-2.0
 URL:            https://github.com/stofu5678/matsu_editor
-Recommends:     vulkan-loader, libwayland-client
+Requires:       vulkan-loader
+Recommends:     libwayland-client, mesa-vulkan-drivers
 
 %global debug_package %{nil}
 %global __strip /bin/true
