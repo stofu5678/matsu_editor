@@ -20,7 +20,9 @@ use gpui::{
 use matsu_terminal::ShellCommand;
 
 use super::terminal_input_tests::{clipboard, find, laid_out, set_clipboard};
-use super::terminal_tests::{has_prompt, open, screen, terminal_window, wait_for_text, wait_until};
+#[cfg(unix)]
+use super::terminal_tests::screen;
+use super::terminal_tests::{has_prompt, open, terminal_window, wait_for_text, wait_until};
 use super::tests::{answer, visual, workspace};
 use crate::terminal::TerminalView;
 
