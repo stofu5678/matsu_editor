@@ -10,6 +10,8 @@
 //! Name[000]=重複を除いて並べ替え
 //! Command[000]=sort -u
 //! Output[000]=0
+//! AI[001]=1
+//! AskBeforeSend[001]=0
 //! Recent[00]=tr a-z A-Z
 //! ```
 //!
@@ -17,6 +19,11 @@
 //!   `Command` is empty, only spaces or absent is not registered: it reads as an empty slot, and writing it removes its keys.
 //! * `Output`: 0 replace, 1 next line, 2 output window ([`OutputTo`]). Absent, not a number or any other number
 //!   reads as 0.
+//! * `AI[nnn]` (ADR-0030, decision 7): 1 marks a one-liner that sends the text to a generative AI (it gets a
+//!   confirmation window and a log tab). 0 is the default; absent, not a number or any other number reads as 0.
+//! * `AskBeforeSend[nnn]`: 0 sends an AI one-liner without the confirmation window ("次から聞かない"). 1 is the
+//!   default; absent, not a number or any other number reads as 1. Both keys are written only when they differ
+//!   from the default (or from what the file has), so a file that never used them does not get them.
 //! * `Recent[00]`..`Recent[19]` ([`MAX_ONELINER_RECENT`]): the history of the input dialog, most recent first.
 //! * Keys of the section that this program does not know stay in the file when it is written back
 //!   ([`Profile`] keeps every line it does not set).
@@ -106,13 +113,29 @@ impl OutputTo {
 }
 
 /// One slot.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OneLiner {
     /// The name shown in menus and on the toolbar.
     pub name: String,
     /// The shell command line: one line.
     pub command: String,
     pub output: OutputTo,
+    /// `AI`: the text goes to a generative AI (ADR-0030).
+    pub ai: bool,
+    /// `AskBeforeSend`: an AI one-liner shows the confirmation window first. Only meant with [`ai`](Self::ai).
+    pub ask_before_send: bool,
+}
+
+impl Default for OneLiner {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: String::new(),
+            output: OutputTo::default(),
+            ai: false,
+            ask_before_send: true,
+        }
+    }
 }
 
 impl OneLiner {
@@ -213,6 +236,15 @@ fn fits_recent(line: &str) -> bool {
     !line.is_empty() && !has_break(line) && units(line) < COMMAND_MAX_UNITS
 }
 
+/// A 0/1 key; anything else (absent, not a number, another number) is `default`.
+fn flag(profile: &Profile, name: &str, default: bool) -> bool {
+    match profile.get_i32(SECTION, name) {
+        Some(0) => false,
+        Some(1) => true,
+        _ => default,
+    }
+}
+
 fn check(key: &str, value: &str, limit: usize) -> Result<(), OneLinerError> {
     if has_break(value) {
         return Err(OneLinerError::LineBreak {
@@ -248,6 +280,8 @@ impl OneLiners {
                     .get_i32(SECTION, &key("Output", i))
                     .unwrap_or_default(),
             );
+            slot.ai = flag(profile, &key("AI", i), false);
+            slot.ask_before_send = flag(profile, &key("AskBeforeSend", i), true);
         }
         // The file is in order, most recent first.
         for i in 0..MAX_ONELINER_RECENT {
@@ -329,8 +363,24 @@ impl OneLiners {
                         &key("Output", i),
                         &slot.output.number().to_string(),
                     )?;
+                    for (name, value, default) in [
+                        ("AI", slot.ai, false),
+                        ("AskBeforeSend", slot.ask_before_send, true),
+                    ] {
+                        let name = key(name, i);
+                        if flag(profile, &name, default) == value {
+                            continue;
+                        }
+                        if value == default {
+                            gone.push(name);
+                        } else {
+                            set(profile, &name, if value { "1" } else { "0" })?;
+                        }
+                    }
                 }
-                None => gone.extend(["Name", "Command", "Output"].map(|p| key(p, i))),
+                None => gone.extend(
+                    ["Name", "Command", "Output", "AI", "AskBeforeSend"].map(|p| key(p, i)),
+                ),
             }
         }
         for i in 0..MAX_ONELINER_RECENT {

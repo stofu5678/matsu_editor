@@ -12,6 +12,7 @@ fn one(name: &str, command: &str, output: OutputTo) -> OneLiner {
         name: name.to_owned(),
         command: command.to_owned(),
         output,
+        ..OneLiner::default()
     }
 }
 
@@ -252,4 +253,96 @@ fn spaces_of_a_command_are_kept_but_a_command_of_spaces_is_not_registered() {
     let read = OneLiners::from_profile(&Profile::from_bytes(&p.to_bytes()));
     assert_eq!(read.slots[0].command, "printf '%s' foo\\ ");
     assert!(!read.slots[1].is_registered());
+}
+
+// ---- AI and AskBeforeSend (ADR-0030, decision 7) ----
+
+#[test]
+fn ai_defaults_to_off_and_asking_to_on() {
+    let table = OneLiners::from_profile(&profile("[OneLiner]\nCommand[000]=cat\n"));
+    assert!(!table.slots[0].ai);
+    assert!(table.slots[0].ask_before_send);
+    assert!(!OneLiner::default().ai);
+    assert!(OneLiner::default().ask_before_send);
+}
+
+#[test]
+fn ai_and_ask_are_read_and_a_value_that_is_not_0_or_1_is_the_default() {
+    let table = OneLiners::from_profile(&profile(
+        "[OneLiner]\nCommand[000]=a\nAI[000]=1\nAskBeforeSend[000]=0\n\
+         Command[001]=b\nAI[001]=2\nAskBeforeSend[001]=2\n\
+         Command[002]=c\nAI[002]=yes\nAskBeforeSend[002]=\n\
+         Command[003]=d\nAI[003]=-1\nAskBeforeSend[003]=x\n",
+    ));
+    assert!(table.slots[0].ai && !table.slots[0].ask_before_send);
+    for i in 1..=3 {
+        assert!(!table.slots[i].ai, "{i}");
+        assert!(table.slots[i].ask_before_send, "{i}");
+    }
+}
+
+#[test]
+fn ai_and_ask_round_trip_and_are_written_only_when_they_differ_from_the_default() {
+    let mut table = OneLiners::default();
+    table.slots[0] = OneLiner {
+        ai: true,
+        ask_before_send: false,
+        ..one("claude", "claude -p", OutputTo::NextLine)
+    };
+    table.slots[1] = OneLiner {
+        ai: true,
+        ..one("ask", "codex exec -", OutputTo::NextLine)
+    };
+    // Not asking with no AI mark is kept too.
+    table.slots[2] = OneLiner {
+        ask_before_send: false,
+        ..one("", "cat", OutputTo::Replace)
+    };
+    table.slots[3] = one("", "sort", OutputTo::Replace);
+    let mut p = profile("");
+    assert_eq!(table.store(&mut p), Ok(true));
+    assert_eq!(p.get(SECTION, "AI[000]"), Some("1"));
+    assert_eq!(p.get(SECTION, "AskBeforeSend[000]"), Some("0"));
+    assert_eq!(p.get(SECTION, "AI[001]"), Some("1"));
+    assert_eq!(p.get(SECTION, "AskBeforeSend[001]"), None);
+    assert_eq!(p.get(SECTION, "AI[002]"), None);
+    assert_eq!(p.get(SECTION, "AskBeforeSend[002]"), Some("0"));
+    assert_eq!(p.get(SECTION, "AI[003]"), None);
+    assert_eq!(p.get(SECTION, "AskBeforeSend[003]"), None);
+    assert_eq!(OneLiners::from_profile(&p), table);
+    assert_eq!(table.store(&mut p), Ok(false));
+    // Back to the defaults: the keys go.
+    table.slots[0].ai = false;
+    table.slots[0].ask_before_send = true;
+    assert_eq!(table.store(&mut p), Ok(true));
+    assert_eq!(p.get(SECTION, "AI[000]"), None);
+    assert_eq!(p.get(SECTION, "AskBeforeSend[000]"), None);
+}
+
+#[test]
+fn a_key_written_by_hand_is_left_when_it_reads_as_the_same_value() {
+    let mut p = profile(
+        "[OneLiner]\nName[000]=\nCommand[000]=a\nOutput[000]=0\nAI[000]=0\nAskBeforeSend[000]=1\n\
+         Name[001]=\nCommand[001]=b\nOutput[001]=0\nAI[001]=junk\n",
+    );
+    let table = OneLiners::from_profile(&p);
+    assert_eq!(table.store(&mut p), Ok(false));
+    assert_eq!(p.get(SECTION, "AI[000]"), Some("0"));
+    assert_eq!(p.get(SECTION, "AskBeforeSend[000]"), Some("1"));
+    assert_eq!(p.get(SECTION, "AI[001]"), Some("junk"));
+}
+
+#[test]
+fn emptying_a_slot_removes_its_ai_keys_and_unknown_keys_stay() {
+    let mut p = profile(
+        "[OneLiner]\nCommand[000]=a\nAI[000]=1\nAskBeforeSend[000]=0\nFuture=keep\nAI[049]=1\n",
+    );
+    let mut table = OneLiners::from_profile(&p);
+    table.slots[0] = OneLiner::default();
+    assert_eq!(table.store(&mut p), Ok(true));
+    assert_eq!(p.get(SECTION, "AI[000]"), None);
+    assert_eq!(p.get(SECTION, "AskBeforeSend[000]"), None);
+    // A slot with no command is not registered, so its stray key goes too.
+    assert_eq!(p.get(SECTION, "AI[049]"), None);
+    assert_eq!(p.get(SECTION, "Future"), Some("keep"));
 }
