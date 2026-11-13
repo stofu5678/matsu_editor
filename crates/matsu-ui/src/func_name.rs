@@ -200,6 +200,7 @@ mod tests {
             name: "並べ替え".to_owned(),
             command: "sort".to_owned(),
             output: OutputTo::Replace,
+            ..OneLiner::default()
         };
         ones.slots[1].command = "jq .".to_owned();
         assert_eq!(name(&ones, 32711), "並べ替え");

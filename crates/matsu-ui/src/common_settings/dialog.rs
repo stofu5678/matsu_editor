@@ -454,6 +454,15 @@ impl CommonSettingsDialog {
         }
     }
 
+    /// Sets a check box even while it is greyed out, for a page that fills its fields from a row (a box
+    /// that only another box enables still shows the value the row has).
+    pub(crate) fn set_bool_greyed(&mut self, id: &'static str, on: bool, cx: &mut Context<Self>) {
+        if self.control(id).is_some() {
+            self.values.set(id, Value::Bool(on));
+            cx.notify();
+        }
+    }
+
     /// A radio group, a drop-down list or a list box.
     pub(crate) fn set_int(&mut self, id: &'static str, value: i32, cx: &mut Context<Self>) {
         if let Some(control) = self.control(id).filter(|c| self.is_usable(c)) {

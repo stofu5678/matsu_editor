@@ -19,7 +19,7 @@ use crate::document::SharedDocument;
 
 /// The functions the preview runs for a key: they need no editor on screen. The editor runs the
 /// same ones for the same keys.
-const WINDOW_FUNCTIONS: &[&str] = &[
+pub(crate) const WINDOW_FUNCTIONS: &[&str] = &[
     "F_NEXTWINDOW",
     "F_PREVWINDOW",
     "F_NEXTGROUP",

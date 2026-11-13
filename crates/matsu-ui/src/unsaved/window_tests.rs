@@ -738,3 +738,64 @@ fn losing_the_focus_does_not_bring_back_a_revision_the_user_threw_away(cx: &mut 
     deactivate(cx, &f, t0 + Duration::from_secs(10));
     assert!(doc_files(&f.dir).is_empty());
 }
+
+/// The AI log tab (ADR-0030) holds prompts and answers in memory only: the keeper walks the editors of the
+/// window, and the log tab is not one, so nothing of it is written to the folder of the copies or to the session.
+#[gpui::test]
+fn the_ai_log_tab_is_not_kept(cx: &mut TestAppContext) {
+    use chrono::TimeZone as _;
+
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "document text");
+    let ws = workspace(cx, f.handle);
+    let record = f
+        .handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| {
+                crate::ai_log::begin(
+                    ws,
+                    crate::ai_log::Started {
+                        name: "secret run".to_owned(),
+                        command_line: "claude -p".to_owned(),
+                        input: "PROMPT-NOT-TO-BE-KEPT".to_owned(),
+                        started_at: chrono::Local
+                            .with_ymd_and_hms(2026, 11, 13, 10, 0, 0)
+                            .unwrap(),
+                    },
+                    window,
+                    cx,
+                )
+            })
+        })
+        .unwrap();
+    cx.update(|app| {
+        record.finish(
+            crate::ai_log::Finished {
+                output: "ANSWER-NOT-TO-BE-KEPT".to_owned(),
+                ..Default::default()
+            },
+            app,
+        )
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        ws.read_with(cx, |ws, _| ws.tab_count()),
+        2,
+        "the log tab is open"
+    );
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(4));
+    deactivate(cx, &f, t0 + Duration::from_secs(40));
+    // One copy: the document's.
+    let files = doc_files(&f.dir);
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert_eq!(read_session(&f).windows[0].docs.len(), 1);
+    // Nothing in the folder holds the log, whatever the file.
+    for entry in std::fs::read_dir(&f.dir).unwrap().flatten() {
+        let bytes = std::fs::read(entry.path()).unwrap_or_default();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("NOT-TO-BE-KEPT"), "{:?}", entry.path());
+        assert!(!text.contains("secret run"), "{:?}", entry.path());
+    }
+}

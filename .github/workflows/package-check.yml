@@ -11,6 +11,11 @@ on:
       - scripts/package-mac-app.sh
       - scripts/package-mac-dmg.sh
       - scripts/check-mac-dmg.sh
+      - scripts/package-linux.sh
+      - packaging/linux/**
+      - .github/scripts/test-linux-install.sh
+      - .github/scripts/test-rpm-in-fedora.sh
+      - .github/scripts/apt-install.sh
       - assets/icons/**
       - .github/actions/mac-runner/**
       - .github/workflows/package.yml
