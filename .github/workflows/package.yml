@@ -3,7 +3,7 @@ name: Package
 # Reusable workflow: build `matsu` and `matsu-script` in release mode on the five targets and package them.
 # It publishes nothing. The caller decides what to do with the artifacts
 # (docs/release.md). Archive names are `matsu-<target>.zip` (Windows) or
-# `matsu-<target>.tar.gz`; the caller adds the nightly or version label.
+# `matsu-<target>.tar.gz` (macOS also has `matsu-<target>.dmg`); the caller adds the nightly or version label.
 
 on:
   workflow_call:
@@ -162,6 +162,13 @@ jobs:
           test -f "$app/Contents/Resources/matsu_editor.icns"
           codesign --verify --deep --strict --verbose=2 "$app"
           file "$app/Contents/MacOS/matsu" "$app/Contents/Resources/matsu_editor.icns"
+      # A .dmg (ADR-0032): the app and a link to /Applications. Needs no secret, and runs the same on the VM and on
+      # GitHub's runner. The check mounts it read-only, so a broken image fails here and not on a user's Mac.
+      - name: Make the .dmg
+        if: runner.os == 'macOS'
+        run: |
+          scripts/package-mac-dmg.sh dist/matsu-macos-arm64 dist/matsu-macos-arm64.dmg
+          scripts/check-mac-dmg.sh dist/matsu-macos-arm64.dmg
       - name: Archive (zip)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -177,5 +184,6 @@ jobs:
           path: |
             dist/*.zip
             dist/*.tar.gz
+            dist/*.dmg
           if-no-files-found: error
           retention-days: 7
