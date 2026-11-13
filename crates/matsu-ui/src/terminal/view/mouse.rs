@@ -20,6 +20,17 @@ use matsu_terminal::{
 use super::TerminalView;
 use crate::file_ops::ask::{confirm, tell};
 
+/// Where a turn of the wheel goes (see `TerminalView::on_wheel`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WheelDest {
+    /// Reports to the program that has the mouse.
+    Report,
+    /// Arrow keys on the alternate screen.
+    Arrows,
+    /// The scrollback.
+    Scroll,
+}
+
 /// The cell of a button the program is told about, or `None` for the buttons that are not reported (back and
 /// forward).
 fn report_button(button: MouseButton) -> Option<matsu_terminal::MouseButton> {
@@ -64,10 +75,11 @@ fn open_message(uri: &str) -> String {
     )
 }
 
-/// What is said about a link that is not opened: only `http` and `https` are.
+/// What is said about a link that is not opened: only `http` and `https` are, and not with a user name in the
+/// address (`is_openable`).
 fn refuse_message(uri: &str) -> String {
     format!(
-        "このリンクは開けません。開けるのは http と https のリンクだけです。\n{}",
+        "このリンクは開けません。開けるのは http と https のリンクだけです（ユーザー名つきのアドレスも開きません）。\n{}",
         display_uri(uri, 300)
     )
 }
@@ -124,6 +136,11 @@ impl TerminalView {
             let Some(button) = report_button(event.button) else {
                 return;
             };
+            // A second button pressed while one is down is not reported: the release that the program
+            // waits for is the first button's.
+            if self.reported.is_some() {
+                return;
+            }
             if let Some((row, column)) = self.cell(event.position)
                 && self.report(MouseAction::Press(button), event.modifiers, row, column)
             {
@@ -162,9 +179,12 @@ impl TerminalView {
     fn report_motion(&mut self, event: &MouseMoveEvent) -> bool {
         if let Some(button) = self.reported {
             if event.pressed_button != Some(gpui_button(button)) {
-                // The button went up where the window did not see it.
+                // The button went up where the window did not see it: the program is told now, at the cell of
+                // the last report, so that it does not stay in the drag.
                 self.reported = None;
-                self.last_cell = None;
+                if let Some((row, column)) = self.last_cell.take() {
+                    self.report(MouseAction::Release(button), event.modifiers, row, column);
+                }
                 return false;
             }
             if let Some((row, column)) = self.cell(event.position) {
@@ -240,6 +260,20 @@ impl TerminalView {
         // Positive is the wheel turned away from the user: earlier lines. Windows' "one screen at a time"
         // setting arrives as a huge number of lines: at most a screen per event. Pixels (a trackpad) are
         // gathered until they make a whole line.
+        let modes = self.terminal.modes();
+        let shift = event.modifiers.shift;
+        let dest = if !shift && modes.mouse_reporting() {
+            WheelDest::Report
+        } else if !shift && modes.alt_screen && modes.alternate_scroll {
+            WheelDest::Arrows
+        } else {
+            WheelDest::Scroll
+        };
+        if dest != std::mem::replace(&mut self.wheel_dest, dest) {
+            // Part of a line that was meant for another place (Shift was let go, a program turned the mouse on)
+            // is not carried over to this one.
+            self.wheel_rest = 0.0;
+        }
         let screen = f32::from(self.size.rows);
         self.wheel_rest += (dy / line).clamp(-screen, screen);
         let lines = self.wheel_rest.trunc();
@@ -248,9 +282,7 @@ impl TerminalView {
         if lines == 0 {
             return;
         }
-        let modes = self.terminal.modes();
-        let shift = event.modifiers.shift;
-        if !shift && modes.mouse_reporting() {
+        if dest == WheelDest::Report {
             let direction = if lines > 0 {
                 WheelDirection::Up
             } else {
@@ -266,7 +298,7 @@ impl TerminalView {
                     }
                 }
             }
-        } else if !shift && modes.alt_screen && modes.alternate_scroll {
+        } else if dest == WheelDest::Arrows {
             self.send(&encode_wheel_as_arrows(lines, &modes));
         } else {
             self.terminal.scroll_display(lines);

@@ -129,6 +129,7 @@ pub(crate) struct TerminalView {
     last_cell: Option<(usize, usize)>,
     /// Lines of the wheel not yet turned into a whole line (a trackpad sends pixels).
     wheel_rest: f32,
+    wheel_dest: mouse::WheelDest,
     /// The pointer and the modifiers as of the last mouse or modifier event, for the link under it.
     pointer: Option<gpui::Point<Pixels>>,
     last_modifiers: Modifiers,
@@ -186,6 +187,7 @@ impl TerminalView {
             reported: None,
             last_cell: None,
             wheel_rest: 0.0,
+            wheel_dest: mouse::WheelDest::Scroll,
             pointer: None,
             last_modifiers: Modifiers::default(),
             link: None,

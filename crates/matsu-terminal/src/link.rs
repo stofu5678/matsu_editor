@@ -42,37 +42,47 @@ impl Link {
     }
 }
 
-/// The link at a cell of the view of `term`: only the rows of the logical line of that row are copied.
+/// How many rows of a line that wraps are looked at on each side of the row of the cell: an address is not
+/// longer than that, and a very long line of output must not be copied for every hover.
+const MAX_WRAPPED_ROWS: i32 = 100;
+
+/// The link at a cell of the view of `term`. The rows of the logical line of that row are copied, also the ones
+/// above or below the view when the view is scrolled back (an address may wrap out of it); the spans that
+/// come back are the ones in the view.
 pub(crate) fn in_term<T>(term: &Term<T>, row: usize, column: usize) -> Option<Link> {
-    let screen_lines = term.screen_lines();
-    if row >= screen_lines {
-        return None;
-    }
+    let screen_lines = i32::try_from(term.screen_lines()).ok()?;
+    let row = i32::try_from(row).ok().filter(|&row| row < screen_lines)?;
     let offset = i32::try_from(term.grid().display_offset()).unwrap_or(0);
-    let grid_row = |view_row: usize| {
-        let line = i32::try_from(view_row).unwrap_or(0) - offset;
-        &term.grid()[Line(line)]
-    };
-    let wraps = |view_row: usize| {
-        grid_row(view_row)
+    let top = -i32::try_from(term.history_size()).unwrap_or(0);
+    let wraps = |line: i32| {
+        term.grid()[Line(line)]
             .last()
             .is_some_and(|cell| cell.flags.contains(Flags::WRAPLINE))
     };
-    let mut first = row;
-    while first > 0 && wraps(first - 1) {
+    let at = row - offset;
+    let mut first = at;
+    while first > top && at - first < MAX_WRAPPED_ROWS && wraps(first - 1) {
         first -= 1;
     }
-    let mut last = row;
-    while last + 1 < screen_lines && wraps(last) {
+    let mut last = at;
+    while last + 1 < screen_lines && last - at < MAX_WRAPPED_ROWS && wraps(last) {
         last += 1;
     }
     let rows: Vec<Row> = (first..=last)
-        .map(|view_row| Row::from_grid(grid_row(view_row)))
+        .map(|line| Row::from_grid(&term.grid()[Line(line)]))
         .collect();
-    let mut link = link_at(&rows, row - first, column)?;
-    for span in &mut link.spans {
-        span.row += first;
-    }
+    let mut link = link_at(&rows, usize::try_from(at - first).ok()?, column)?;
+    // From rows of the copy to rows of the view; the ones out of the view are not drawn.
+    link.spans.retain_mut(|span| {
+        let view_row = i32::try_from(span.row).unwrap_or(i32::MAX) + first + offset;
+        match usize::try_from(view_row) {
+            Ok(view_row) if view_row < term.screen_lines() => {
+                span.row = view_row;
+                true
+            }
+            _ => false,
+        }
+    });
     Some(link)
 }
 
@@ -224,36 +234,55 @@ fn scheme_at(chars: &[char], start: usize) -> Option<usize> {
 /// Where an address ends once the punctuation that belongs to the sentence is taken off: `. , ; : ! ?`, and a
 /// closing bracket that has no opening one in the address (`(see http://a.example/b)`).
 fn trim_end(chars: &[char], body_start: usize, mut end: usize) -> usize {
+    // Open and close brackets of the address, kept as `end` moves so that the work stays linear: `(` `)`,
+    // `[` `]`, `{` `}`.
+    let mut count = [0usize; 6];
+    let slot = |c: char| "()[]{}".find(c);
+    for &c in &chars[body_start..end] {
+        if let Some(slot) = slot(c) {
+            count[slot] += 1;
+        }
+    }
     while end > body_start {
         let last = chars[end - 1];
-        let unbalanced = |open: char, close: char| {
-            let text = &chars[body_start..end];
-            text.iter().filter(|&&c| c == close).count()
-                > text.iter().filter(|&&c| c == open).count()
-        };
         let trim = match last {
             '.' | ',' | ';' | ':' | '!' | '?' => true,
-            ')' => unbalanced('(', ')'),
-            ']' => unbalanced('[', ']'),
-            '}' => unbalanced('{', '}'),
+            ')' => count[1] > count[0],
+            ']' => count[3] > count[2],
+            '}' => count[5] > count[4],
             _ => false,
         };
         if !trim {
             break;
+        }
+        if let Some(slot) = slot(last) {
+            count[slot] -= 1;
         }
         end -= 1;
     }
     end
 }
 
-/// Whether the address may be opened: `http` or `https` (any case), something after `://`, and neither
-/// control characters nor blanks (a program can write anything into an OSC 8 address).
+/// The longest host (with its port) that an address may have to be opened: a host name is at most 253
+/// characters, and the question shows the first [`display_uri`] characters, so the whole host is always shown.
+const MAX_AUTHORITY: usize = 255;
+
+/// Whether the address may be opened: `http` or `https` (any case), a host after `://` that has no user
+/// information (`user@`, which makes `https://trusted.example@evil.example` look like another host) and is not
+/// longer than [`MAX_AUTHORITY`], and neither control characters nor blanks (a program can write anything into
+/// an OSC 8 address).
 pub fn is_openable(uri: &str) -> bool {
     let lower = uri.to_ascii_lowercase();
-    let rest = lower
+    let Some(rest) = lower
         .strip_prefix("https://")
-        .or_else(|| lower.strip_prefix("http://"));
-    rest.is_some_and(|rest| !rest.is_empty())
+        .or_else(|| lower.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    !authority.is_empty()
+        && authority.len() <= MAX_AUTHORITY
+        && !authority.contains('@')
         && !uri.chars().any(|c| c.is_control() || c.is_whitespace())
 }
 
@@ -476,6 +505,16 @@ mod tests {
         assert!(is_openable("https://example.com/a?b#c"));
         assert!(is_openable("HTTPS://EXAMPLE.COM"));
         assert!(!is_openable("http://"));
+        assert!(!is_openable("http:///x"));
+        assert!(!is_openable("http://?x"));
+        // user information makes the host look like another one
+        assert!(!is_openable("https://trusted.example@evil.example/"));
+        assert!(!is_openable("https://trusted.example:pw@evil.example/"));
+        assert!(is_openable("https://example.com/a@b"));
+        assert!(is_openable("https://example.com?x=a@b"));
+        assert!(is_openable("https://example.com:8080/x"));
+        assert!(is_openable(&format!("https://{}/x", "a".repeat(255))));
+        assert!(!is_openable(&format!("https://{}/x", "a".repeat(256))));
         assert!(!is_openable("ftp://example.com"));
         assert!(!is_openable("file:///etc/passwd"));
         assert!(!is_openable("javascript:alert(1)"));
@@ -485,6 +524,76 @@ mod tests {
         assert!(!is_openable("https://example.com/\u{1b}[31m"));
         assert!(!is_openable("https://example.com/\n"));
         assert!(!is_openable(""));
+    }
+
+    /// A terminal of 20 columns and 3 rows, with 100 lines of scrollback, fed with `output`.
+    fn term_of(output: &str) -> Term<alacritty_terminal::event::VoidListener> {
+        use alacritty_terminal::term::Config;
+        let config = Config {
+            scrolling_history: 100,
+            ..Config::default()
+        };
+        let size = crate::terminal::TerminalSize::new(20, 3);
+        let mut term = Term::new(config, &size, alacritty_terminal::event::VoidListener);
+        let mut processor: alacritty_terminal::vte::ansi::Processor =
+            alacritty_terminal::vte::ansi::Processor::new();
+        processor.advance(&mut term, output.as_bytes());
+        term
+    }
+
+    #[test]
+    fn an_address_that_wraps_out_of_the_view_is_found_whole() {
+        // "see http://a.example" / "/" and 19 b / 11 b and " end": the first row is in the scrollback after
+        // one more line
+        let url = format!("http://a.example/{}", "b".repeat(30));
+        let term = term_of(&format!("see {url} end\r\nx"));
+        // the view is [row 1, row 2, "x"]: row 0 of the view continues an address that starts above it
+        assert_eq!(term.grid().display_offset(), 0);
+        let link = in_term(&term, 0, 3).expect("the address, though its start is out of the view");
+        assert_eq!(link.uri, url);
+        assert_eq!(
+            link.spans,
+            vec![
+                LinkSpan {
+                    row: 0,
+                    first: 0,
+                    last: 19
+                },
+                LinkSpan {
+                    row: 1,
+                    first: 0,
+                    last: 10
+                }
+            ]
+        );
+        assert_eq!(in_term(&term, 1, 5), Some(link));
+        assert_eq!(in_term(&term, 2, 0), None);
+        assert_eq!(in_term(&term, 3, 0), None);
+    }
+
+    #[test]
+    fn an_address_that_wraps_below_the_view_is_found_whole_when_scrolled_back() {
+        // four rows of address: "see http://a.example" / "/" and 19 b / 20 b / 11 b and " end"; then three
+        // lines, so that the four rows are in the scrollback
+        let url = format!("http://a.example/{}", "b".repeat(50));
+        let mut term = term_of(&format!("see {url} end\r\nx\r\ny\r\nz"));
+        term.scroll_display(alacritty_terminal::grid::Scroll::Delta(4));
+        assert_eq!(term.grid().display_offset(), 4);
+        // the view is the first three rows: the last of them continues below the view
+        let link = in_term(&term, 0, 5).expect("the address");
+        assert_eq!(link.uri, url);
+        let rows: Vec<usize> = link.spans.iter().map(|span| span.row).collect();
+        assert_eq!(rows, vec![0, 1, 2], "the row below the view is not drawn");
+        assert_eq!(in_term(&term, 2, 19), Some(link));
+    }
+
+    #[test]
+    fn closing_brackets_are_trimmed_in_linear_time() {
+        let text = format!("http://a.example/b{}", ")".repeat(20_000));
+        let rows = [row(&text, text.len(), false)];
+        let started = std::time::Instant::now();
+        assert_eq!(uri_at(&rows, 0, 3).as_deref(), Some("http://a.example/b"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]
