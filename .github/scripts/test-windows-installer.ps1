@@ -160,6 +160,11 @@ Check (Test-PathHas 'User' $userDir) 'PATH has the install folder'
 # Updating with the same options does not add it twice.
 Invoke-Installer 'update-options' @('/CURRENTUSER', '/TASKS="openwith,associatetxt,addtopath"')
 Check (@((Get-RawPath 'User').Split(';') | Where-Object { $_ -eq $userDir }).Count -eq 1) 'PATH has the install folder once after an update'
+# An update with the PATH option unchecked takes the entry away again (the other options stay as they were).
+Invoke-Installer 'update-without-path' @('/CURRENTUSER', '/TASKS="openwith,associatetxt"')
+Check ((Get-RawPath 'User') -eq $userPathBefore) 'an update without the PATH option removes the entry and restores PATH'
+Check (-not (Get-ItemProperty 'HKCU:\Software\MATSU Editor' -ErrorAction SilentlyContinue).PathEntryAdded) 'the record of the PATH entry is gone'
+Check ($null -ne (Get-ItemProperty 'HKCU:\Software\Classes\.txt\OpenWithProgids').'MATSU.Editor.txt') 'the other options are still registered'
 # A portable matsu.ini the user put next to matsu.exe is not the installer's: the uninstall leaves it.
 $portable = Join-Path $userDir 'matsu.ini'
 [IO.File]::WriteAllText($portable, "[Portable]`r`nvalue=1`r`n", (New-Object Text.UTF8Encoding $false))
