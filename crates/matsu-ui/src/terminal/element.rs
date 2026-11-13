@@ -367,7 +367,7 @@ pub(super) struct Prepaint {
     palette: Palette,
     focused: bool,
     /// The text the IME is composing, drawn at the cursor.
-    preedit: Option<String>,
+    preedit: Option<(String, std::ops::Range<usize>)>,
 }
 
 impl Element for TerminalElement {
@@ -424,7 +424,7 @@ impl Element for TerminalElement {
         });
         let (snapshot, preedit) = {
             let view = self.view.read(cx);
-            (view.screen(), view.preedit().map(str::to_owned))
+            (view.screen(), view.preedit_with_selection())
         };
         let mut palette = look.palette;
         palette.set_overrides(&snapshot.color_overrides);
@@ -584,10 +584,11 @@ impl Element for TerminalElement {
                 );
             }
 
-            if let Some(text) = preedit.as_deref()
+            if let Some((text, selection)) = preedit.as_ref()
                 && on_screen(viewport_row, snapshot.rows.len())
             {
                 let cells = preedit_cells(text, cursor.column, snapshot.info.columns);
+                let text_len = text.encode_utf16().count();
                 // A preedit that wraps below the last row is drawn higher, over the rows above.
                 let up = rows_up(&cells, viewport_row as usize, snapshot.rows.len());
                 for piece in &cells {
@@ -599,10 +600,31 @@ impl Element for TerminalElement {
                     let width = width_of(piece.span);
                     let foreground = palette.default_foreground();
                     // Over the grid: the cells of the program under it are covered, the text is underlined.
+                    // The part the IME has selected (the segment it converts) has the selection's color.
+                    let chosen = !selection.is_empty()
+                        && piece.utf16 >= selection.start
+                        && piece.utf16 < selection.end;
                     window.paint_quad(fill(
                         Bounds::new(at, size(width, line)),
-                        rgb(palette.default_background()),
+                        rgb(if chosen {
+                            palette.selection()
+                        } else {
+                            palette.default_background()
+                        }),
                     ));
+                    // The IME's caret: a bar before the cell it is in front of, or at the end of the text.
+                    if selection.is_empty() {
+                        let before = selection.start == piece.utf16;
+                        let at_end = selection.start >= text_len
+                            && cells.last().is_some_and(|last| std::ptr::eq(last, piece));
+                        if before || at_end {
+                            let bar_x = if before { at.x } else { at.x + width - px(2.) };
+                            window.paint_quad(fill(
+                                Bounds::new(point(bar_x, at.y), size(px(2.), line)),
+                                rgb(foreground),
+                            ));
+                        }
+                    }
                     let mut shaped =
                         shape(window, &piece.text, size_px, &fonts.regular, foreground);
                     let squeezed =

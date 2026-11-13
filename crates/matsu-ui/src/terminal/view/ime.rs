@@ -131,6 +131,13 @@ impl TerminalView {
         self.marked.as_ref().map(|marked| marked.text.as_str())
     }
 
+    /// The text being composed and the IME's selection in it (UTF-16 units), for drawing.
+    pub(crate) fn preedit_with_selection(&self) -> Option<(String, Range<usize>)> {
+        self.marked
+            .as_ref()
+            .map(|marked| (marked.text.clone(), marked.selection.clone()))
+    }
+
     /// Whether the IME is composing: the keys are its.
     pub(crate) fn is_composing(&self) -> bool {
         self.marked.is_some()
