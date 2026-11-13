@@ -41,7 +41,7 @@ matsu -PROF=work
 
 ## ファイルの形
 
-- 文字コードは UTF-8（BOM 付き）で書きます。BOM のないファイルは、Shift_JIS として読みます
+- 文字コードは、新しく作るファイルでは UTF-8（BOM 付き）です。BOM のないファイルは、Shift_JIS として読みます。すでにあるファイルは、今の文字コードのまま書き戻します。Shift_JIS で表せない文字を書くときだけ、UTF-8（BOM 付き）に変わります
 - `[節の名前]` の下に `キー=値` を並べます
 - `;` か `//` で始まる行は、コメントです
 - 同じキーが 2 つあれば、先のものが使われます
@@ -51,13 +51,13 @@ MATSU Editor は、読んだだけで使わなかった行（コメント、知�
 
 ## MATSU Editor だけの項目
 
-サクラエディタにない項目は、サクラエディタが使わない節 `[MATSU]` などに置きます。サクラエディタで `matsu.ini` を開いても、壊れません。
+サクラエディタにない項目は、サクラエディタが使わない節 `[MATSU]` やキーに置きます。サクラエディタで `matsu.ini` を開いても、壊れません。
 
 | 節 | キー | 内容 |
 |---|---|---|
 | `[MATSU]` | `nMacKeyLayout` | macOS でキー割り当てをどう読むか。`0` は標準、`1` はすべて Control、`2` は Cmd を Ctrl として扱う |
 | `[MATSU]` | `KeepUnsaved`、`KeepUnsavedNoAsk`、`KeepUnsavedMaxMB` | 保存していない文書の控え。残すか、終了時に確認しないか、1 つの文書の上限（MB。`0` は上限なし。既定は 64） |
-| `[MATSU]` | `nMatsuMainMenuVer` | メインメニューに MATSU だけの項目を足すための版 |
+| `[MainMenu]` | `nMatsuMainMenuVer` | メインメニューに MATSU だけの項目を足すための版 |
 | `[CustMenu]` | `nMatsuCustomMenuVer` | 右クリックのメニューに MATSU だけの項目を足すための版 |
 | `[Terminal]` | `Shell`、`ScrollbackLines`、`OptionAsMeta` | シェルのタブの設定 |
 
