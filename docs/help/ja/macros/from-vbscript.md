@@ -44,7 +44,7 @@
 | `Do While 条件 ... Loop` | `while 条件 do ... end` | `while (条件) { ... }` | `while 条件:` |
 | `Chr(10)`、`vbLf` | `"\n"` | `"\n"` | `"\n"` |
 | `Len(s)` | `utf8.len(s)` | `s.length` | `len(s)` |
-| `Mid(s, 2, 3)`（2 文字目から 3 文字） | `s:sub(utf8.offset(s, 2), utf8.offset(s, 5) - 1)` | `s.substr(1, 3)` | `s[1:4]` |
+| `Mid(s, 2, 3)`（2 文字目から 3 文字） | 下の関数 `mid(s, 2, 3)` | `s.substr(1, 3)` | `s[1:4]` |
 | `InStr(s, "a")`（見つけた位置。1 から数える。なければ 0） | `s:find("a", 1, true)`（見つからないと `nil`。位置はバイト数） | `s.indexOf("a")`（0 から数える。なければ -1） | `s.find("a")`（0 から数える。なければ -1） |
 | `UCase(s)` | `s:upper()` | `s.toUpperCase()` | `s.upper()` |
 | `Trim(s)` | （`s:match("^%s*(.-)%s*$")`） | `s.trim()` | `s.strip()` |
@@ -53,6 +53,17 @@
 | `On Error Resume Next` | `pcall(...)` | `try { ... } catch (e) { ... }` | `try: ... except EditorError as e:` |
 
 - Lua の文字列は UTF-8 のバイト列です。`#s`、`s:sub`、`s:find` は、日本語の文字を数えず、バイトを数えます。文字で数える `utf8.len` と `utf8.offset` を使ってください。バイトの途中で切った文字列は、`Editor.InsText` が受け付けません
+- Lua で `Mid` の代わりをするときは、文字列の終わりを越える場合を考えた関数を使います。`utf8.offset` は、範囲の外を指すと `nil` を返すので、そのまま引き算するとエラーになります。
+
+```lua
+local function mid(s, start, len)
+  local n = utf8.len(s)
+  if start > n then return "" end
+  local last = math.min(start + len - 1, n)
+  return s:sub(utf8.offset(s, start), utf8.offset(s, last + 1) - 1)
+end
+```
+
 - VBScript の文字の位置は 1 から数えます。JavaScript と Python は、0 から数えます。Lua は 1 から数えます。`Editor` の関数の行番号と桁は、どの言語でも 1 から数えます
 - コメントの `'` は、`--`（Lua）、`//`（JavaScript）、`#`（Python、Ruby）に変えます
 - `WScript.Echo` は、MATSU Editor にはありません。出力パネルに出すには、言語の `print` か `console.log` を使います
