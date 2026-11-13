@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.0](https://github.com/stofu5678/matsu_editor/compare/v0.11.0...v0.12.0) (2026-11-13)
+
+
+### Features
+
+* **terminal:** mouse reports, scrollback, links, bell and title in the shell tab (ADR-0028) ([#389](https://github.com/stofu5678/matsu_editor/issues/389)) ([853add7](https://github.com/stofu5678/matsu_editor/commit/853add7ca3725845aee0f9ec384b6e6c0a17bb51))
+* **terminal:** open a shell in a tab (ADR-0028) ([#386](https://github.com/stofu5678/matsu_editor/issues/386)) ([0c4c191](https://github.com/stofu5678/matsu_editor/commit/0c4c191167e815c648cc90efd32321078ccbee35))
+* **terminal:** type with the IME, paste, select and copy in the shell tab (ADR-0028) ([#388](https://github.com/stofu5678/matsu_editor/issues/388)) ([c118947](https://github.com/stofu5678/matsu_editor/commit/c118947887cba9ed75c0b0e38a84547f0345e893))
+
 ## [0.11.0](https://github.com/stofu5678/matsu_editor/compare/v0.10.0...v0.11.0) (2026-11-12)
 
 
