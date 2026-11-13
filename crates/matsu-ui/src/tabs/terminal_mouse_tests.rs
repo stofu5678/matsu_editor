@@ -198,6 +198,23 @@ fn the_wheel_is_reported_while_the_program_has_the_mouse(cx: &mut TestAppContext
     wait_for_text(cx, &view, "^[[<64;4;3M^[[<65;4;3M^[[<65;4;3M");
 }
 
+#[gpui::test]
+fn a_sideways_wheel_is_reported_as_buttons_66_and_67(cx: &mut TestAppContext) {
+    let (handle, view) = started(cx, CLICKS);
+    let position = at(cx, &view, (2, 3));
+    for sideways in [1.0, -1.0] {
+        visual(cx, handle).simulate_event(ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Lines(point(sideways, 0.0)),
+            modifiers: Modifiers::default(),
+            touch_phase: TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+    }
+    // positive is the wheel turned left (66)
+    wait_for_text(cx, &view, "^[[<66;4;3M^[[<67;4;3M");
+}
+
 // ---- scrolling back ----
 
 /// 500 numbered lines, then `cat`.

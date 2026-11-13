@@ -129,6 +129,7 @@ pub(crate) struct TerminalView {
     last_cell: Option<(usize, usize)>,
     /// Lines of the wheel not yet turned into a whole line (a trackpad sends pixels).
     wheel_rest: f32,
+    wheel_rest_x: f32,
     wheel_dest: mouse::WheelDest,
     /// The pointer and the modifiers as of the last mouse or modifier event, for the link under it.
     pointer: Option<gpui::Point<Pixels>>,
@@ -187,6 +188,7 @@ impl TerminalView {
             reported: None,
             last_cell: None,
             wheel_rest: 0.0,
+            wheel_rest_x: 0.0,
             wheel_dest: mouse::WheelDest::Scroll,
             pointer: None,
             last_modifiers: Modifiers::default(),
@@ -236,8 +238,8 @@ impl TerminalView {
                 // Cleared before the screen is read, so a change after the read sends another one.
                 self.redraw_waiting.store(false, Ordering::Release);
                 cx.notify();
-                if self.link.is_some() {
-                    // The lines moved under the pointer: is it still on the link?
+                if self.link.is_some() || mouse::link_modifier(self.last_modifiers) {
+                    // The lines moved under the pointer: is it on a link now, or still?
                     self.refresh_link(cx);
                 }
                 if std::mem::take(&mut self.size_told) {

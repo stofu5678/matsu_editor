@@ -13,7 +13,7 @@ use gpui::{
     MouseUpEvent, Pixels, Point, PromptLevel, ScrollWheelEvent, Window, px,
 };
 use matsu_terminal::{
-    Link, MouseAction, WheelDirection, display_uri, encode_mouse, encode_wheel_as_arrows,
+    Link, Modes, MouseAction, WheelDirection, display_uri, encode_mouse, encode_wheel_as_arrows,
     is_openable,
 };
 
@@ -232,7 +232,10 @@ impl TerminalView {
             }
             return;
         }
-        self.select_release(event, cx);
+        // The selection is the left button's: another button let go in the middle of a drag leaves it alone.
+        if event.button == MouseButton::Left {
+            self.select_release(event, cx);
+        }
     }
 
     /// The wheel: reports to the program, arrow keys on the alternate screen, or the scrollback.
@@ -253,7 +256,7 @@ impl TerminalView {
         {
             dy = dx;
         }
-        if dy == 0.0 {
+        if dy == 0.0 && dx == 0.0 {
             return;
         }
         cx.stop_propagation();
@@ -273,8 +276,22 @@ impl TerminalView {
             // Part of a line that was meant for another place (Shift was let go, a program turned the mouse on)
             // is not carried over to this one.
             self.wheel_rest = 0.0;
+            self.wheel_rest_x = 0.0;
         }
         let screen = f32::from(self.size.rows);
+        // Sideways turns (a tilt wheel, a trackpad) are only the program's: the scrollback has no sideways.
+        if dest == WheelDest::Report && dx != 0.0 {
+            self.wheel_rest_x += (dx / line).clamp(-screen, screen);
+            let columns = self.wheel_rest_x.trunc();
+            self.wheel_rest_x -= columns;
+            // Positive is the wheel turned left (`view/paging.rs`: WheelLeft).
+            self.report_wheel(
+                event,
+                &modes,
+                columns as i32,
+                (WheelDirection::Left, WheelDirection::Right),
+            );
+        }
         self.wheel_rest += (dy / line).clamp(-screen, screen);
         let lines = self.wheel_rest.trunc();
         self.wheel_rest -= lines;
@@ -283,27 +300,44 @@ impl TerminalView {
             return;
         }
         if dest == WheelDest::Report {
-            let direction = if lines > 0 {
-                WheelDirection::Up
-            } else {
-                WheelDirection::Down
-            };
-            if let Some((row, column)) = self.cell(event.position) {
-                let mods = terminal_modifiers(event.modifiers);
-                for _ in 0..lines.unsigned_abs() {
-                    if let Some(bytes) =
-                        encode_mouse(MouseAction::Wheel(direction), mods, row, column, &modes)
-                    {
-                        self.send(&bytes);
-                    }
-                }
-            }
+            self.report_wheel(
+                event,
+                &modes,
+                lines,
+                (WheelDirection::Up, WheelDirection::Down),
+            );
         } else if dest == WheelDest::Arrows {
             self.send(&encode_wheel_as_arrows(lines, &modes));
         } else {
             self.terminal.scroll_display(lines);
             self.refresh_link(cx);
             cx.notify();
+        }
+    }
+
+    /// Reports `steps` turns of the wheel to the program: `positive` for a positive count, `negative` for a
+    /// negative one.
+    fn report_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        modes: &Modes,
+        steps: i32,
+        (positive, negative): (WheelDirection, WheelDirection),
+    ) {
+        if steps == 0 {
+            return;
+        }
+        let direction = if steps > 0 { positive } else { negative };
+        let Some((row, column)) = self.cell(event.position) else {
+            return;
+        };
+        let mods = terminal_modifiers(event.modifiers);
+        for _ in 0..steps.unsigned_abs() {
+            if let Some(bytes) =
+                encode_mouse(MouseAction::Wheel(direction), mods, row, column, modes)
+            {
+                self.send(&bytes);
+            }
         }
     }
 
