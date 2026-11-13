@@ -68,23 +68,46 @@ fn a_new_tab_starts_the_shell_of_the_setting_with_its_command_line_as_written(
     close_all(cx, &[view]);
 }
 
+/// Waits until the tab has the size its window gives it, then lets the program print.
+/// (A tab starts as 80x24 and is laid out afterwards; a screen that grows takes lines back from the
+/// scrollback, so output that came before the layout would leave the scrollback shorter than its limit.)
+#[cfg(unix)]
+fn print_after_layout(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+    view: &Entity<TerminalView>,
+) {
+    use super::tests::visual;
+    wait_for_text(cx, view, "ready");
+    visual(cx, handle).simulate_resize(gpui::size(gpui::px(1000.), gpui::px(700.)));
+    cx.run_until_parked();
+    let waiting = view.clone();
+    super::terminal_tests::wait_until(cx, "the tab to be laid out", move |cx| {
+        waiting.read_with(cx, |view, _| view.size().rows != 24)
+    });
+    visual(cx, handle).simulate_keystrokes("enter");
+    cx.run_until_parked();
+}
+
 /// The scrollback of the setting is the one the tab starts with, and a tab that is open keeps its own when the
-/// setting changes. The output is longer than any screen the test window can give (a taller tab takes lines
-/// back from the scrollback, so a short output would leave it empty). (Unix: ConPTY repaints the screen and puts lines into the scrollback by itself.)
+/// setting changes. The program prints 1000 lines only after the tab has its size. (Unix: ConPTY repaints the
+/// screen and puts lines into the scrollback by itself.)
 #[cfg(unix)]
 #[gpui::test]
 fn a_new_tab_takes_the_scrollback_of_the_setting_and_an_open_tab_keeps_its_own(
     cx: &mut TestAppContext,
 ) {
     let handle = terminal_window(cx);
-    let line = "/bin/sh -c 'i=0; while [ $i -lt 1000 ]; do echo line$i; i=$((i+1)); done; echo done-printing; exec cat'";
+    let line = "/bin/sh -c 'echo ready; read go; i=0; while [ $i -lt 1000 ]; do echo line$i; i=$((i+1)); done; echo done-printing; exec cat'";
     configure(cx, line, 7);
     let first = open_configured(cx, handle);
+    print_after_layout(cx, handle, &first);
     wait_for_text(cx, &first, "done-printing");
     assert_eq!(first.read_with(cx, |view, _| view.history_size()), 7);
 
     configure(cx, line, 12);
     let second = open_configured(cx, handle);
+    print_after_layout(cx, handle, &second);
     wait_for_text(cx, &second, "done-printing");
     assert_eq!(second.read_with(cx, |view, _| view.history_size()), 12);
     assert_eq!(
