@@ -30,9 +30,10 @@ fn now(cx: &mut TestAppContext) -> TerminalSettings {
 // ---- the controls ----
 
 #[test]
-fn the_page_is_called_shell_and_comes_last() {
+fn the_page_is_called_shell_and_comes_before_the_one_liners() {
     assert_eq!(Page::Terminal.title(), "シェル");
-    assert_eq!(Page::ALL.last(), Some(&Page::Terminal));
+    assert_eq!(Page::ALL[Page::ALL.len() - 2], Page::Terminal);
+    assert_eq!(Page::ALL.last(), Some(&Page::OneLiner));
     assert!(Page::Terminal.items().is_some());
 }
 
