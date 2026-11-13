@@ -210,6 +210,11 @@ fn url_around(chars: &[char], at: usize) -> Option<Range<usize>> {
         while end < limit && is_url_char(chars[end]) {
             end += 1;
         }
+        // An address that goes on past the limit is not one that is found: its first 2000 characters would be
+        // another address.
+        if end == limit && end < chars.len() && is_url_char(chars[end]) {
+            continue;
+        }
         end = trim_end(chars, start + scheme, end);
         if end > start + scheme && (start..end).contains(&at) {
             return Some(start..end);
@@ -608,9 +613,28 @@ mod tests {
         let started = std::time::Instant::now();
         // the last full stop is not part of an address
         assert_eq!(uri_at(&rows, 0, text.len() - 1), None);
-        // one in the middle is found, as the one address that holds it
-        assert!(uri_at(&rows, 0, 20_000).is_some());
+        // the whole line is one run of address characters, longer than any address that is found
+        assert_eq!(uri_at(&rows, 0, 20_000), None);
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn an_address_longer_than_the_limit_is_not_a_link_and_one_at_the_limit_is() {
+        let long = |extra: usize| {
+            format!(
+                "http://a.example/{} end",
+                "b".repeat(MAX_URL_CHARS - "http://a.example/".len() + extra)
+            )
+        };
+        let text = long(0);
+        let rows = [row(&text, text.chars().count(), false)];
+        assert_eq!(
+            uri_at(&rows, 0, 3).map(|uri| uri.chars().count()),
+            Some(MAX_URL_CHARS)
+        );
+        let text = long(1);
+        let rows = [row(&text, text.chars().count(), false)];
+        assert_eq!(uri_at(&rows, 0, 3), None, "not its first 2000 characters");
     }
 
     #[test]

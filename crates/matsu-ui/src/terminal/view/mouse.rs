@@ -212,9 +212,11 @@ impl TerminalView {
         row: usize,
         column: usize,
     ) {
-        if self.last_cell != Some((row, column)) {
+        if self.last_cell != Some((row, column))
+            && self.report(action, event.modifiers, row, column)
+        {
+            // Kept only when the program was told: the release goes there if it cannot be told another.
             self.last_cell = Some((row, column));
-            self.report(action, event.modifiers, row, column);
         }
     }
 
@@ -225,9 +227,14 @@ impl TerminalView {
             && report_button(event.button) == Some(button)
         {
             self.reported = None;
-            self.last_cell = None;
-            // The program may have turned reporting off since the press: nothing is written then.
-            if let Some((row, column)) = self.cell(event.position) {
+            let last_cell = self.last_cell.take();
+            // The program may have turned reporting off since the press: nothing is written then. A release
+            // where the old encoding cannot say the cell (past column 223) goes to the last cell that was
+            // reported, so that the program does not wait for it.
+            let released = self.cell(event.position).is_some_and(|(row, column)| {
+                self.report(MouseAction::Release(button), event.modifiers, row, column)
+            });
+            if !released && let Some((row, column)) = last_cell {
                 self.report(MouseAction::Release(button), event.modifiers, row, column);
             }
             return;
