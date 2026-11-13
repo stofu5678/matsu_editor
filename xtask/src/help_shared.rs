@@ -108,6 +108,19 @@ pub fn strip_markdown(source: &str) -> RawText {
                         }
                     }
                 }
+                '&' => {
+                    // A character reference (`&nbsp;`, `&#12354;`), as the HTML side decodes it.
+                    let ahead: Vec<char> =
+                        std::iter::once('&').chain(chars.clone().take(12)).collect();
+                    if let Some((decoded, used)) = decode_entity(&ahead) {
+                        for _ in 1..used {
+                            chars.next();
+                        }
+                        out.push((decoded, number));
+                    } else {
+                        out.push((c, number));
+                    }
+                }
                 _ => out.push((c, number)),
             }
         }
@@ -805,6 +818,13 @@ mod tests {
         let text = strip_markdown("[検索][search]して[置換][]する [図][x]\n\n[search]: a.md\n");
         let s: String = normalize(&text).iter().map(|n| n.c).collect();
         assert_eq!(s, "検索して置換する図");
+    }
+
+    #[test]
+    fn markdown_character_references_are_decoded() {
+        let text = strip_markdown("a&nbsp;b&#12354;&amp;c &unknown; d");
+        let s: String = text.iter().map(|(c, _)| *c).collect();
+        assert_eq!(s, "a b\u{3042}&c &unknown; d\n");
     }
 
     #[test]

@@ -83,8 +83,13 @@ fn prose_lines(source: &str) -> Vec<(u32, &str)> {
 fn heading_text(raw: &str) -> String {
     let mut out = String::new();
     let mut chars = raw.chars().peekable();
+    let mut previous: Option<char> = None;
     while let Some(c) = chars.next() {
+        let before = previous.replace(c);
         match c {
+            // An underscore at the edge of a word is an emphasis mark (`_設定_`); one inside a word stays.
+            '_' if before.is_none_or(char::is_whitespace)
+                || chars.peek().is_none_or(|n| n.is_whitespace()) => {}
             ']' if chars.peek() == Some(&'(') => {
                 for n in chars.by_ref() {
                     if n == ')' {
@@ -469,6 +474,12 @@ mod tests {
             assert!(ids.contains(id), "{id} is missing in {ids:?}");
         }
         assert!(!ids.contains("項目") && !ids.contains("本文"));
+    }
+
+    #[test]
+    fn emphasis_underscores_are_not_in_the_anchor() {
+        let ids = anchors("## _設定_\n\n## my_name\n");
+        assert!(ids.contains("設定") && ids.contains("my_name"), "{ids:?}");
     }
 
     #[test]
