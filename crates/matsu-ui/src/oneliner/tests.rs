@@ -296,6 +296,41 @@ fn next_line_with_no_result_changes_nothing(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn an_external_command_waits_while_a_one_liner_is_starting(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, "", "abc\n");
+    w.view
+        .update(cx, |view, _| view.support.oneliner_starting = true);
+    // 外部コマンド実行 with the output taken (0x01 and 0x02): refused as for a second external command
+    let view = w.view.clone();
+    w.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.run_function(
+                    matsu_commands::sakura::FUNCTIONS
+                        .iter()
+                        .find(|f| f.name == "F_EXECMD")
+                        .unwrap()
+                        .code,
+                    &[
+                        matsu_commands::command::Arg::Text("echo hi".into()),
+                        matsu_commands::command::Arg::Int(3),
+                    ],
+                    window,
+                    cx,
+                )
+            })
+        })
+        .unwrap();
+    wait_until(cx, "the box", |cx| w.prompt(cx).is_some());
+    let message = w.prompt(cx).unwrap();
+    assert!(message.contains("別のコマンドを実行中です"), "{message}");
+    w.cx(cx).simulate_prompt_answer("OK");
+    cx.run_until_parked();
+    assert!(!w.running(cx));
+    assert_eq!(w.text(cx), "abc\n");
+}
+
+#[gpui::test]
 fn the_output_window_shows_the_result_and_the_document_stays(cx: &mut TestAppContext) {
     let (_dir, w) = open(cx, &one(UPPER, 2), "abc\n");
     run(cx, &w, 0);

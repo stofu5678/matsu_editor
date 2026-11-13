@@ -231,7 +231,9 @@ pub(crate) async fn run_command(
     // awaits between this check and the box below, so no other command gets in between.
     if capture
         && view
-            .read_with(cx, |view, _| view.support.exec_running.is_some())
+            .read_with(cx, |view, _| {
+                view.support.exec_running.is_some() || view.support.oneliner_starting
+            })
             .unwrap_or(false)
     {
         tell(
