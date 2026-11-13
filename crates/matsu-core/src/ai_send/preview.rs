@@ -263,23 +263,33 @@ impl Selection<'_> {
         // here too and masked (the shown part is cut after masking).
         let texts = lines
             .clone()
-            .map(|i| self.read(i, SHOWN_READ_BYTES).map(|(text, _)| text))
+            .map(|i| self.read(i, SHOWN_READ_BYTES))
             .collect::<Result<Vec<_>>>()?;
         // Inside a private key block the whole line is the secret. The scan knows the blocks it
         // reached (`key_payload`). For the lines it did not reach (the tail of a huge range) the
         // block is found from the shown lines themselves, from its BEGIN or back from its END,
         // and a line that looks like a line of a key (base64, 60 characters or more) is masked
         // too.
-        let in_block = private_key_lines(&texts);
+        let in_block = private_key_lines(&texts.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>());
         Ok(lines
             .zip(texts)
             .zip(in_block)
-            .map(|((i, text), in_block)| {
+            .map(|((i, (text, cut)), in_block)| {
                 let masked = if in_block
                     || key_payload.iter().any(|r| r.contains(&i))
                     || looks_like_key_payload(&text)
                 {
                     text.chars().map(|_| '*').collect()
+                } else if cut {
+                    // The read stopped inside the line: a secret that goes past the stop (a JWT
+                    // whose last part was cut off) no longer has its shape, so the last word is
+                    // masked whole.
+                    let word = text.rfind(char::is_whitespace).map_or(0, |at| {
+                        at + text[at..].chars().next().map_or(1, char::len_utf8)
+                    });
+                    let mut masked = mask_line(&text[..word], &find_secrets(&text[..word]));
+                    masked.extend(text[word..].chars().map(|_| '*'));
+                    masked
                 } else {
                     mask_line(&text, &find_secrets(&text))
                 };

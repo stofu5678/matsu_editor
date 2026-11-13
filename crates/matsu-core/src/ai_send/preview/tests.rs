@@ -299,3 +299,18 @@ fn a_certificate_block_is_not_masked() {
     let p = all(&d, &PreviewLimits::default());
     assert_eq!(p.head[1].text, "AbC+/=");
 }
+
+#[test]
+fn a_secret_that_goes_past_the_display_read_is_masked() {
+    // A JWT whose payload is longer than what is read of a line to show: the cut text no longer
+    // has the shape of a JWT, and its start must not show.
+    let jwt = format!(
+        "eyJhbGciOiJIUzI1NiJ9.eyJ{}.dBjftJeZ4CVPmB92K27uhbUJU1p1r",
+        "a".repeat(70_000)
+    );
+    let d = doc(&format!("token {jwt} end"));
+    let p = all(&d, &PreviewLimits::default());
+    assert_eq!(p.secret_lines_total, 1);
+    assert!(!p.head[0].text.contains("eyJhb"), "{}", p.head[0].text);
+    assert!(p.head[0].text.starts_with("token "));
+}
