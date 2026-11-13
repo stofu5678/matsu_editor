@@ -396,7 +396,12 @@ pub fn start(spec: Spec) -> Result<Run, StartError> {
                 sys::direct_command(&spec.command)
             };
             let Some(mut command) = command else { continue };
-            match launch(&mut command, &spec, pipe.as_ref().map(|(_, w)| w), None) {
+            match launch(
+                &mut command,
+                &spec,
+                pipe.as_ref().map(|(_, w)| w),
+                error_pipe.as_ref().map(|(_, w)| w),
+            ) {
                 Ok(child) => {
                     spawned = Some(child);
                     break;

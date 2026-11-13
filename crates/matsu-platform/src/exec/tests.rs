@@ -601,3 +601,16 @@ fn the_login_shell_is_the_environment_one_when_it_is_absolute() {
         assert!(shell.is_absolute());
     }
 }
+
+#[test]
+fn a_command_line_gets_its_error_apart_too_when_asked() {
+    let mut spec = Spec::new(if cfg!(windows) {
+        "cmd /C \"echo out& echo err 1>&2\""
+    } else {
+        "echo out; echo err 1>&2"
+    });
+    spec.separate_error = true;
+    let done = finish_apart(start(spec).unwrap());
+    assert_eq!(String::from_utf8_lossy(&done.output).trim(), "out");
+    assert_eq!(String::from_utf8_lossy(&done.error).trim(), "err");
+}

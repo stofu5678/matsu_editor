@@ -400,30 +400,45 @@ mod unix {
 // Windows
 // ---------------------------------------------------------------------------------------------
 
-#[cfg(windows)]
-mod windows {
+// PowerShell: Windows PowerShell 5.1 and 7 on Windows, 7 elsewhere ------------------------------
+
+mod powershell {
     use super::*;
 
-    /// Windows PowerShell 5.1 and, when it is installed, PowerShell 7.
-    fn powershells() -> Vec<&'static str> {
+    /// Windows: Windows PowerShell 5.1 and, when it is installed, PowerShell 7. Elsewhere:
+    /// PowerShell 7 when it is installed (the runners of GitHub have it).
+    fn powershells() -> Vec<String> {
         let path = std::env::var_os("PATH").unwrap_or_default();
-        let mut shells = vec!["powershell.exe"];
-        if matsu_terminal::shell::find_on_path("pwsh.exe", &path).is_some() {
-            shells.push("pwsh.exe");
+        let pwsh = if cfg!(windows) { "pwsh.exe" } else { "pwsh" };
+        let mut shells = Vec::new();
+        if cfg!(windows) {
+            shells.push("powershell.exe".to_owned());
+        }
+        if matsu_terminal::shell::find_on_path(pwsh, &path).is_some() {
+            shells.push(pwsh.to_owned());
         } else {
-            eprintln!("pwsh.exe is not on the PATH: PowerShell 7 is not tested");
+            eprintln!("{pwsh} is not on the PATH: PowerShell 7 is not tested");
         }
         shells
     }
 
-    fn ps(line: &str, text: &str, output: OutputKind) -> Vec<(&'static str, Finished, String)> {
+    fn ps(line: &str, text: &str, output: OutputKind) -> Vec<(String, Finished, String)> {
         powershells()
             .into_iter()
             .map(|shell| {
-                let (done, output) = run(shell, line, text, output);
+                let (done, output) = run(&shell, line, text, output);
                 (shell, done, output)
             })
             .collect()
+    }
+
+    /// A native program that exits with `code`.
+    fn native_exit(code: i32) -> String {
+        if cfg!(windows) {
+            format!("cmd /c exit {code}")
+        } else {
+            format!("/bin/sh -c 'exit {code}'")
+        }
     }
 
     #[test]
@@ -476,7 +491,7 @@ mod windows {
     fn powershell_exit_codes() {
         for (line, code) in [
             ("exit 3", 3),
-            ("cmd /c exit 5", 5),
+            (&native_exit(5), 5),
             ("Get-Item C:\\no\\such\\path-qzx", 1),
             ("throw 'boom'", 1),
             ("'fine'", 0),
@@ -489,11 +504,12 @@ mod windows {
 
     #[test]
     fn a_native_program_that_writes_to_its_error_is_not_a_failure() {
-        for (shell, done, output) in ps(
-            "cmd /c \"echo native-err 1>&2 & echo native-out\"",
-            "",
-            OutputKind::Window,
-        ) {
+        let line = if cfg!(windows) {
+            "cmd /c \"echo native-err 1>&2 & echo native-out\""
+        } else {
+            "/bin/sh -c 'echo native-err 1>&2; echo native-out'"
+        };
+        for (shell, done, output) in ps(line, "", OutputKind::Window) {
             assert_eq!(done.exit.code, Some(0), "{shell}");
             assert_eq!(output.trim(), "native-out", "{shell}");
             assert_eq!(done.error.trim(), "native-err", "{shell}");
@@ -516,16 +532,50 @@ mod windows {
     }
 
     #[test]
+    fn the_other_streams_come_apart_as_plain_text_too() {
+        for (shell, done, output) in ps(
+            "Write-Warning 'warn'; Write-Host 'hosted'; Write-Verbose 'v' -Verbose; 'ok'",
+            "",
+            OutputKind::Window,
+        ) {
+            assert_eq!(output, "ok\n", "{shell}");
+            assert_eq!(done.exit.code, Some(0), "{shell}");
+            assert!(
+                done.error.contains("WARNING: warn"),
+                "{shell}: {:?}",
+                done.error
+            );
+            assert!(done.error.contains("hosted"), "{shell}: {:?}", done.error);
+            assert!(
+                done.error.contains("VERBOSE: v"),
+                "{shell}: {:?}",
+                done.error
+            );
+            assert!(!done.error.contains("CLIXML"), "{shell}: {:?}", done.error);
+        }
+    }
+
+    #[test]
     fn a_large_input_goes_through_console_out() {
         let text = format!("{}\n", "x".repeat(99)).repeat(100_000);
         for (shell, done, output) in ps(
-            "[Console]::Out.Write(($input -join \"`n\"))",
+            "[Console]::Out.Write((@($input) -join \"`n\"))",
             &text,
             OutputKind::Window,
         ) {
             assert_eq!(done.exit.code, Some(0), "{shell}");
             assert_eq!(output.len(), text.len() - 1, "{shell}");
-            assert!(output == text[..text.len() - 1], "{shell}: not the input");
+            let want = &text[..text.len() - 1];
+            if output != want {
+                let at = output.bytes().zip(want.bytes()).position(|(a, b)| a != b);
+                panic!(
+                    "{shell}: not the input, first difference at {at:?}: {:?} / {:?}",
+                    &output[at.unwrap_or(0).saturating_sub(5)
+                        ..(at.unwrap_or(0) + 20).min(output.len())],
+                    &want
+                        [at.unwrap_or(0).saturating_sub(5)..(at.unwrap_or(0) + 20).min(want.len())]
+                );
+            }
         }
     }
 
@@ -534,20 +584,18 @@ mod windows {
         let line = "0123456789".repeat(9);
         let text = format!("{line}\n").repeat(100_000);
         for (shell, done, output) in ps("'hi'", &text, OutputKind::Replace) {
-            assert_eq!(output, "hi", "{shell}");
+            // the text ends with a line break, so the break of the output stays
+            assert_eq!(output, "hi\n", "{shell}");
             assert_eq!(done.exit.code, Some(0), "{shell}");
         }
     }
 
     #[test]
     fn a_command_that_never_ends_is_stopped() {
-        let mut run = start(request(
-            "powershell.exe",
-            "Start-Sleep 1000",
-            "",
-            OutputKind::Replace,
-        ))
-        .unwrap();
+        let Some(shell) = powershells().into_iter().next() else {
+            return;
+        };
+        let mut run = start(request(&shell, "Start-Sleep 1000", "", OutputKind::Replace)).unwrap();
         let stopper = run.stopper();
         assert!(run.poll(Duration::from_millis(500)).is_none());
         stopper.stop();
@@ -560,6 +608,11 @@ mod windows {
             assert!(begun.elapsed() < LIMIT, "a stopped command did not end");
         }
     }
+}
+
+#[cfg(windows)]
+mod windows {
+    use super::*;
 
     // cmd -------------------------------------------------------------------------------------
 

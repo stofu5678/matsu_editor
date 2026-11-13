@@ -27,6 +27,12 @@ use matsu_platform::exec::{self, Exit, Program, Spec, StdinSender, Stopper};
 
 use crate::shell::{self, ShellError, TextEncoding};
 
+/// The least time one [`Run::poll`] spends taking in output, even when it is asked not to wait.
+const WORK_SLICE: Duration = Duration::from_millis(20);
+
+/// How long [`Run::poll`] sleeps between looks at the thread that sends the input.
+const POLL_SLEEP: Duration = Duration::from_millis(2);
+
 /// Where the output goes (ADR-0029, 結果の置き場所). It only decides how the output is finished
 /// off ([`matsu_core::oneliner::for_replace`] and
 /// [`matsu_core::oneliner::for_next_line`]); what is done with the document is for the caller.
@@ -347,30 +353,37 @@ impl Run {
 
     /// The result, waiting at most `wait` for it; `None` when it is not there yet, and after it
     /// has been given. Output is kept inside until the process has ended.
+    ///
+    /// The call takes in output for the time of `wait`, but at least [`WORK_SLICE`]: a caller
+    /// that polls with a zero wait still gets the output through. It returns within about that
+    /// time, however fast the command writes.
     pub fn poll(&mut self, wait: Duration) -> Option<Event> {
         if self.over {
             return None;
         }
-        let deadline = Instant::now() + wait;
+        let deadline = Instant::now() + wait.max(WORK_SLICE);
+        let wait_until = Instant::now() + wait;
         loop {
+            // `done` first: an error that the thread records is stored before it says it is done
+            let input_done = self.input.done.load(Ordering::SeqCst);
             if let Some(message) = self.input_error() {
                 return Some(self.fail(RunError::Input(message)));
             }
             if let Some(exit) = self.exit
-                && self.input.done.load(Ordering::SeqCst)
+                && input_done
             {
                 return Some(self.finished(exit));
             }
-            let left = deadline.saturating_duration_since(Instant::now());
+            let now = Instant::now();
             if self.exit.is_some() {
                 // only the thread that reads the text is left: a moment
-                if left.is_zero() {
+                if now >= wait_until {
                     return None;
                 }
-                thread::sleep(left.min(Duration::from_millis(2)));
+                thread::sleep(wait_until.saturating_duration_since(now).min(POLL_SLEEP));
                 continue;
             }
-            match self.inner.poll(left) {
+            match self.inner.poll(wait_until.saturating_duration_since(now)) {
                 Some(exec::Event::Output(bytes)) => {
                     let pushed = self.output.as_mut().map(|c| c.push(&bytes));
                     if matches!(pushed, Some(Err(_))) {
@@ -384,11 +397,10 @@ impl Run {
                     }
                 }
                 Some(exec::Event::Exited(exit)) => self.exit = Some(exit),
-                None => {
-                    if Instant::now() >= deadline {
-                        return None;
-                    }
-                }
+                None => {}
+            }
+            if Instant::now() >= deadline {
+                return None;
             }
         }
     }

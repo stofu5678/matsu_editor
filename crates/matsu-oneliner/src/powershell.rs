@@ -15,9 +15,11 @@
 //!   empty lines inside stay; no text is no line.
 //! * `-EncodedCommand` makes PowerShell write its standard error as CLIXML (the `#< CLIXML`
 //!   header and XML around every message), in the code page of the console, whatever
-//!   `-OutputFormat` says. The error stream of the line is therefore written by the script itself,
-//!   as plain text in UTF-8, and `$ProgressPreference` is silent (a progress record is CLIXML
-//!   too).
+//!   `-OutputFormat` says. The streams of the line other than the output (error, warning,
+//!   verbose, debug and information, which is what `Write-Host` writes) are therefore merged and
+//!   written by the script itself to the standard error as plain text in UTF-8, and
+//!   `$ProgressPreference` is silent (a progress record is CLIXML too). Anything of the host's own
+//!   that is still written as CLIXML (a script that does not parse) is shown as it is.
 //! * The exit code: `-Command` rounds the code of a native program to 0 or 1, so the script
 //!   keeps the code of the last native program (`cmd /c exit 5` gives 5); else 1 when the last
 //!   command failed (`$?`); else 0. A native program that writes to its standard error leaves
@@ -47,7 +49,7 @@ $__matsu_lines | & {
 pub const EPILOGUE: &str = r#"
 $global:__matsu_ok = $?
 $global:__matsu_code = $LASTEXITCODE
-} 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { if ($_.FullyQualifiedErrorId -like 'NativeCommandError*') { $global:__matsu_native = $true } else { $global:__matsu_other = $true }; [Console]::Error.WriteLine($_.ToString()) } else { $_ } }
+} *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { if ($_.FullyQualifiedErrorId -like 'NativeCommandError*') { $global:__matsu_native = $true } else { $global:__matsu_other = $true }; [Console]::Error.WriteLine($_.ToString()) } elseif ($_ -is [System.Management.Automation.WarningRecord]) { [Console]::Error.WriteLine('WARNING: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.VerboseRecord]) { [Console]::Error.WriteLine('VERBOSE: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.DebugRecord]) { [Console]::Error.WriteLine('DEBUG: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.InformationRecord]) { [Console]::Error.WriteLine([string]$_.MessageData) } else { $_ } }
 } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }
 $__matsu_code = $global:__matsu_code
 if (($__matsu_code -is [int]) -and ($__matsu_code -ne 0)) { exit $__matsu_code }
