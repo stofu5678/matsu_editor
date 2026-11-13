@@ -128,11 +128,15 @@ impl MenuBar {
         let Some(workspace) = workspace.as_ref().and_then(WeakEntity::upgrade) else {
             return;
         };
-        // A kind of tab that has no state of the editor leaves the items as they are made.
+        // A kind of tab that has no state of the editor leaves the items as they are made, except that the
+        // shell grays its copy item while nothing is selected.
         let Some(states) = workspace
             .read(cx)
             .menu_states(topmost, workspace.entity_id(), cx)
         else {
+            if workspace.read(cx).menu_kind() == MenuKind::Terminal {
+                crate::terminal::menus::mark_items(items, workspace.read(cx), cx);
+            }
             return;
         };
         crate::menu_state::apply(items, &states);

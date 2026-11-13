@@ -52,6 +52,8 @@ mod preview_tab;
 mod preview_tests;
 mod semantics;
 pub(crate) mod settings;
+#[cfg(test)]
+mod terminal_input_tests;
 mod terminal_tab;
 #[cfg(test)]
 mod terminal_tests;

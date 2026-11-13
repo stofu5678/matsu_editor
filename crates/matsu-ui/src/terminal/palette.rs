@@ -21,6 +21,9 @@ const DARK: [Packed; 16] = [
     0xf14c4c, 0x23d18b, 0xf5f543, 0x3b8eea, 0xd670d6, 0x29b8db, 0xe5e5e5,
 ];
 
+/// How far the selection's color is from the background towards the foreground, of 256.
+const SELECTION_PART: u32 = 88;
+
 pub(super) fn pack(rgb: Rgb) -> Packed {
     (u32::from(rgb.r) << 16) | (u32::from(rgb.g) << 8) | u32::from(rgb.b)
 }
@@ -99,6 +102,16 @@ impl Palette {
         self.overridden(257).unwrap_or(self.background)
     }
 
+    /// The background of the selected cells: the default background a third of the way to the default
+    /// foreground, so that text of every color stays readable on it, on a light page and on a dark one.
+    pub(super) fn selection(&self) -> Packed {
+        blend(
+            self.default_background(),
+            self.default_foreground(),
+            SELECTION_PART,
+        )
+    }
+
     pub(super) fn foreground_of(&self, color: Color) -> Packed {
         match color {
             Color::Default => self.default_foreground(),
@@ -163,6 +176,22 @@ mod tests {
         assert_eq!(
             palette.background_of(Color::Rgb(Rgb { r: 255, g: 0, b: 0 })),
             0xff0000
+        );
+    }
+
+    #[test]
+    fn the_selection_is_between_the_background_and_the_foreground() {
+        let dark = Palette::new(0xffffff, 0x000000);
+        let color = dark.selection();
+        assert!(
+            brightness(color) > 0 && brightness(color) < 127,
+            "{color:06x}"
+        );
+        let light = Palette::new(0x000000, 0xffffff);
+        let color = light.selection();
+        assert!(
+            brightness(color) > 128 && brightness(color) < 255,
+            "{color:06x}"
         );
     }
 

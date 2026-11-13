@@ -9,9 +9,17 @@ use matsu_terminal::{Key, Modifiers};
 pub(super) enum Translated {
     /// A key to encode and write to the program.
     Key(Key, Modifiers),
-    /// Typed text to write as UTF-8 (no IME: the composition is a later PR).
+    /// Typed text. The key does not write it: the platform delivers the text to the input handler
+    /// (`view::input`), which writes it as UTF-8. That path also carries the IME and the dead keys (a
+    /// dead key's accent must wait for the next key), so a key with text is left unhandled.
     Text(String),
-    /// A key the terminal takes and does nothing with (paste, until there is one).
+    /// Paste the clipboard (Ctrl+V and Ctrl+Shift+V; Cmd+V on macOS).
+    Paste,
+    /// Copy the selection and leave the key unsent (Ctrl+Shift+C; Cmd+C on macOS).
+    Copy,
+    /// Ctrl+C: copy when there is a selection, else the key goes to the program (the interrupt).
+    CopyOrKey(Key, Modifiers),
+    /// A key the terminal takes and does nothing with.
     Ignore,
     /// A key the terminal leaves to others: the menus and the window of macOS (Cmd).
     Pass,
@@ -58,18 +66,34 @@ pub(super) fn translate(
 ) -> Translated {
     let m = keystroke.modifiers;
     if m.platform {
+        // Cmd+C and Cmd+V on macOS (ADR-0028 point 9); the other Cmd keys belong to the menus. Elsewhere the
+        // platform key is the Windows or Super key.
+        if mac && !m.control && !m.alt && !m.shift {
+            match keystroke.key.as_str() {
+                "c" => return Translated::Copy,
+                "v" => return Translated::Paste,
+                _ => {}
+            }
+        }
         return Translated::Pass;
-    }
-    // Paste is kept free (ADR-0028 point 9: Ctrl+V on Windows and Linux): nothing is sent yet. Cmd+V on macOS
-    // is passed above.
-    if keystroke.key == "v" && m.control && !m.alt && !mac {
-        return Translated::Ignore;
     }
     let mods = Modifiers {
         shift: m.shift,
         ctrl: m.control,
         alt: m.alt,
     };
+    // Windows and Linux, as in Windows Terminal (ADR-0028 point 9): Ctrl+V pastes, Ctrl+C copies when
+    // something is selected and else is the program's, and Ctrl+Shift+C and Ctrl+Shift+V are the copy and
+    // the paste that never are the program's. AltGr (Ctrl+Alt) types a character: AltGr+V stays one. On
+    // macOS Ctrl+C and Ctrl+V are the program's.
+    if !mac && m.control && !m.alt {
+        match keystroke.key.as_str() {
+            "v" => return Translated::Paste,
+            "c" if m.shift => return Translated::Copy,
+            "c" => return Translated::CopyOrKey(Key::Char('c'), mods),
+            _ => {}
+        }
+    }
     if let Some(key) = named_key(&keystroke.key) {
         return Translated::Key(key, mods);
     }
@@ -173,11 +197,11 @@ mod tests {
 
     #[test]
     fn control_letters_are_keys_with_the_modifier() {
-        let c = press("c", Some("c"), ctrl());
+        let c = press("a", Some("a"), ctrl());
         assert_eq!(
             translate(&c, false, false),
             Translated::Key(
-                Key::Char('c'),
+                Key::Char('a'),
                 Modifiers {
                     ctrl: true,
                     ..Modifiers::NONE
@@ -288,26 +312,72 @@ mod tests {
     }
 
     #[test]
-    fn paste_is_kept_free_and_cmd_is_left_to_the_menus() {
-        let paste = press("v", Some("v"), ctrl());
-        assert_eq!(translate(&paste, false, false), Translated::Ignore);
+    fn copy_and_paste_are_ctrl_c_and_v_on_windows_and_linux_and_cmd_on_macos() {
+        let ctrl_key = |c: &str| press(c, Some(c), ctrl());
+        let ctrl_shift = GpuiModifiers {
+            control: true,
+            shift: true,
+            ..plain()
+        };
         let cmd = GpuiModifiers {
             platform: true,
             ..plain()
         };
+        // Windows and Linux
+        assert_eq!(translate(&ctrl_key("v"), false, false), Translated::Paste);
+        assert_eq!(
+            translate(&press("v", Some("V"), ctrl_shift), false, false),
+            Translated::Paste
+        );
+        assert_eq!(
+            translate(&ctrl_key("c"), false, false),
+            Translated::CopyOrKey(
+                Key::Char('c'),
+                Modifiers {
+                    ctrl: true,
+                    ..Modifiers::NONE
+                }
+            )
+        );
+        assert_eq!(
+            translate(&press("c", Some("C"), ctrl_shift), false, false),
+            Translated::Copy
+        );
+        // Cmd+V and Cmd+C are the keys of the menus elsewhere: the Windows or Super key
+        assert_eq!(
+            translate(&press("v", Some("v"), cmd), false, false),
+            Translated::Pass
+        );
+        // macOS
         assert_eq!(
             translate(&press("v", Some("v"), cmd), false, true),
-            Translated::Pass
+            Translated::Paste
+        );
+        assert_eq!(
+            translate(&press("c", Some("c"), cmd), false, true),
+            Translated::Copy
         );
         assert_eq!(
             translate(&press("w", Some("w"), cmd), false, true),
             Translated::Pass
         );
-        // Ctrl+V on macOS is the program's (a literal next character in shells)
-        assert!(matches!(
-            translate(&paste, false, true),
-            Translated::Key(Key::Char('v'), _)
-        ));
+        // Ctrl+C and Ctrl+V on macOS are the program's (the interrupt; a literal next character in shells)
+        for letter in ["c", "v"] {
+            assert!(matches!(
+                translate(&ctrl_key(letter), false, true),
+                Translated::Key(Key::Char(_), _)
+            ));
+        }
+        // AltGr+V is a character of the layout, not paste
+        let altgr = GpuiModifiers {
+            control: true,
+            alt: true,
+            ..plain()
+        };
+        assert_eq!(
+            translate(&press("v", Some("@"), altgr), false, false),
+            Translated::Text("@".into())
+        );
     }
 
     #[test]

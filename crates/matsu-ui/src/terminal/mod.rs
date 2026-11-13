@@ -1,6 +1,7 @@
 //! The shell tab (ADR-0028): a terminal in a tab, the second kind of tab that is not an editor.
 //!
-//! * [`view`]: the view, with the keys, the events of the shell and the size.
+//! * [`view`]: the view, with the keys, the events of the shell and the size; `view/ime.rs` is its text input (the
+//!   IME, dead keys), `view/clipboard.rs` the paste, the mouse selection and the copy.
 //! * `element`: the drawing of the screen (every cell on its column).
 //! * `input`: what a key press means to the terminal.
 //! * `palette`: the colors.
@@ -11,7 +12,7 @@
 //!
 //! Like the preview, the tab keeps a view of an empty document out of sight, so that the window always has a
 //! view to ask (`TabContent::panes`); it is not one of the window's editors. Nothing can be sent to a terminal
-//! except the user's keys: no macro or plugin function writes to it (ADR-0028 point 2), and opening the tab
+//! except the user's keys, text and pastes: no macro or plugin function writes to it (ADR-0028 point 2), and opening the tab
 //! starts the shell and sends nothing (point 3).
 
 mod element;
@@ -45,7 +46,11 @@ actions!(
     matsu_terminal_tab,
     [
         /// Closes the shell tab (asking first when the shell is running).
-        Close
+        Close,
+        /// Copies the selected text of the shell tab.
+        Copy,
+        /// Pastes the clipboard into the shell tab.
+        Paste
     ]
 );
 

@@ -4,23 +4,29 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, Context, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyDownEvent,
-    Keystroke, MouseButton, ParentElement as _, Render, Styled as _, Task, WeakEntity, Window, div,
-    rgb,
+    App, Bounds, Context, FocusHandle, Focusable, InteractiveElement as _, IntoElement,
+    KeyDownEvent, Keystroke, MouseButton, ParentElement as _, Pixels, Render, Styled as _, Task,
+    WeakEntity, Window, div, rgb,
 };
 use matsu_commands::keymap::Lookup;
 use matsu_commands::sakura::{FUNCTIONS, FunctionKind};
 use matsu_terminal::{EventReceiver, Snapshot, Terminal, TerminalEvent, TerminalSize};
 
-use super::Close;
 use super::element::{CellSize, TerminalElement};
 use super::input::{Translated, translate};
 use super::palette::Palette;
+use super::{Close, Copy, Paste};
 use crate::app::Workspace;
 use crate::status::StatusInfo;
 use crate::view::RunFunction;
 use crate::view::text_font::TextFont;
+
+mod clipboard;
+mod ime;
+
+pub(super) use ime::preedit_cells;
 
 /// The group of the functions of the window (`FUNCTION_GROUPS`: ウィンドウ系). The keys of its functions stay
 /// with the window while a terminal has the focus (ADR-0028 point 9).
@@ -97,7 +103,22 @@ pub(crate) struct TerminalView {
     ended: Option<Ended>,
     /// A `Redraw` is on its way to this view (see [`should_forward`]).
     redraw_waiting: Arc<AtomicBool>,
+    /// The text the IME is composing, drawn at the cursor and not yet written (`view::ime`).
+    marked: Option<ime::Marked>,
+    /// Where the screen was drawn last, for the mouse and the IME's windows.
+    layout: Option<Layout>,
+    /// The left button is down after a press on the screen: the selection follows the pointer.
+    dragging: bool,
+    /// A question about a paste of several lines is open.
+    paste_asking: bool,
     _events: Option<Task<()>>,
+}
+
+/// Where the screen of a terminal was drawn: its place in the window and the size of its cells.
+#[derive(Clone, Copy, Debug)]
+struct Layout {
+    bounds: Bounds<Pixels>,
+    cell: CellSize,
 }
 
 /// Whether the bridge hands `event` to the UI. The core reports one `Redraw` until the receiver has read it,
@@ -128,6 +149,10 @@ impl TerminalView {
             size_told: true,
             ended: None,
             redraw_waiting: Arc::new(AtomicBool::new(false)),
+            marked: None,
+            layout: None,
+            dragging: false,
+            paste_asking: false,
             _events: None,
         }
     }
@@ -178,6 +203,8 @@ impl TerminalView {
             }
             TerminalEvent::ChildExit { code } => {
                 self.ended = Some(Ended { code });
+                // Nothing can be written any more: the text being composed has no place to go.
+                self.end_composition();
                 cx.notify();
                 if code == Some(0) {
                     // Like Windows Terminal's default: a shell that ends well takes its tab with it.
@@ -252,6 +279,11 @@ impl TerminalView {
         self.size_told = true;
         // An error means the shell has ended: the screen is resized all the same.
         let _ = self.terminal.resize(size);
+    }
+
+    /// The screen was laid out in `bounds` with cells of `cell`: the mouse and the IME's windows go by it.
+    pub(super) fn set_layout(&mut self, bounds: Bounds<Pixels>, cell: CellSize) {
+        self.layout = Some(Layout { bounds, cell });
     }
 
     /// Whether the shell is still running: closing the tab would end it.
@@ -336,6 +368,20 @@ impl TerminalView {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let mac = cfg!(target_os = "macos");
+        if self.is_composing() {
+            // The IME has the keys while it composes: Enter commits, Backspace and the arrows edit the
+            // text. The platform gives the IME the keys first, so one that arrives here is one it let go;
+            // it is not the program's. A key with text goes on to the input handler (the second key of a
+            // dead key, a character the IME declined).
+            if !matches!(
+                translate(&event.keystroke, event.prefer_character_input, mac),
+                Translated::Text(_)
+            ) {
+                cx.stop_propagation();
+            }
+            return;
+        }
         // The window's keys stay with the window.
         if let Some(code) = window_function_of(&event.keystroke, event.prefer_character_input, cx) {
             cx.stop_propagation();
@@ -344,23 +390,38 @@ impl TerminalView {
             });
             return;
         }
-        match translate(
-            &event.keystroke,
-            event.prefer_character_input,
-            cfg!(target_os = "macos"),
-        ) {
-            Translated::Pass => {}
+        match translate(&event.keystroke, event.prefer_character_input, mac) {
+            // Text is the input handler's (`view::ime`), whatever the platform does with the key.
+            Translated::Pass | Translated::Text(_) => {}
             Translated::Ignore => cx.stop_propagation(),
             Translated::Key(key, mods) => {
                 cx.stop_propagation();
-                if let Some(bytes) = self.terminal.encode_key(key, mods) {
-                    self.send(&bytes);
-                }
+                self.send_key(key, mods);
             }
-            Translated::Text(text) => {
+            Translated::CopyOrKey(key, mods) => {
                 cx.stop_propagation();
-                self.send(text.as_bytes());
+                if !self.copy_selection(cx) {
+                    self.send_key(key, mods);
+                }
+                cx.notify();
             }
+            Translated::Copy => {
+                cx.stop_propagation();
+                self.copy_selection(cx);
+                cx.notify();
+            }
+            Translated::Paste => {
+                cx.stop_propagation();
+                self.paste(window, cx);
+            }
+        }
+    }
+
+    /// Writes a key to the program. A key that is sent clears the selection, as typing does.
+    fn send_key(&mut self, key: matsu_terminal::Key, mods: matsu_terminal::Modifiers) {
+        if let Some(bytes) = self.terminal.encode_key(key, mods) {
+            self.clear_selection();
+            self.send(&bytes);
         }
     }
 
@@ -389,14 +450,24 @@ impl Focusable for TerminalView {
 impl Render for TerminalView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let name = format!("シェル: {}", self.program);
+        // The copy item of the menu is gray while nothing is selected: the native menu of macOS grays an
+        // item whose action nobody handles.
+        let selected = self.has_selection();
         crate::a11y::terminal_region(div().id("terminal"), &name)
             .key_context("Terminal")
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(Self::on_key_down))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| window.focus(&this.focus, cx)),
-            )
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .when(selected, |el| {
+                el.on_action(cx.listener(|this, _: &Copy, _, cx| {
+                    this.copy_selection(cx);
+                    cx.notify();
+                }))
+            })
+            .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste(window, cx)))
             .on_action(cx.listener(|this, action: &RunFunction, window, cx| {
                 let code = action.code;
                 this.in_workspace(window, cx, move |ws, window, cx| {

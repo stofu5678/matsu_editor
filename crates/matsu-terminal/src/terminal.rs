@@ -21,10 +21,10 @@ use alacritty_terminal::vte::ansi::Rgb as VteRgb;
 
 use crate::keys::{Key, Modifiers, encode_key};
 use crate::paste::{PasteEncoding, encode_paste};
-use crate::selection::{self, CellSide, SelectionMode, SelectionSpan};
 #[cfg(test)]
 use crate::screen::Color;
 use crate::screen::{ClipboardKind, Cursor, CursorShape, Modes, Rgb, Row, ScreenInfo};
+use crate::selection::{self, CellSide, SelectionMode, SelectionSpan};
 use crate::shell::{self, ShellCommand};
 use crate::title::clean_title;
 
