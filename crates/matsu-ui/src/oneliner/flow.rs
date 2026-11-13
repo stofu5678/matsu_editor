@@ -541,8 +541,14 @@ fn log_input(input: &Input) -> (String, Option<usize>) {
     // an input that cannot be read ends here: the log has what was read
     let _ = input(&mut |piece| {
         total += piece.len();
-        if text.len() <= ai_log::records::MAX_TEXT_BYTES {
-            text.push_str(piece);
+        // only the part that still fits, cut on a character boundary; the size of the whole is counted anyway
+        let room = ai_log::records::MAX_TEXT_BYTES.saturating_sub(text.len());
+        if room > 0 {
+            let mut end = piece.len().min(room);
+            while !piece.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.push_str(&piece[..end]);
         }
         true
     });
