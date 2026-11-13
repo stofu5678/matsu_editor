@@ -1,0 +1,29 @@
+# Spec file for scripts/package-linux.sh. It only packs the tree that the script staged (@ROOT@); the
+# programs are built by cargo. Requires: are found by rpm from the shared libraries the programs link.
+Name:           matsu-editor
+Version:        @VERSION@
+Release:        1
+Summary:        A text editor that feels like SAKURA Editor
+License:        MIT OR Apache-2.0
+URL:            https://github.com/stofu5678/matsu_editor
+Recommends:     vulkan-loader, libwayland-client
+
+%global debug_package %{nil}
+%global __strip /bin/true
+%global _build_id_links none
+
+%description
+MATSU Editor is a text editor written in Rust. It brings the key bindings and the behavior of SAKURA Editor to
+macOS, Windows and Linux.
+
+%install
+mkdir -p %{buildroot}
+cp -a @ROOT@/. %{buildroot}/
+
+%files
+/usr/bin/matsu
+/usr/lib/matsu-editor
+/usr/share/applications/io.github.stofu5678.matsu-editor.desktop
+/usr/share/metainfo/io.github.stofu5678.matsu-editor.metainfo.xml
+/usr/share/icons/hicolor/*/apps/io.github.stofu5678.matsu-editor.*
+/usr/share/doc/matsu-editor

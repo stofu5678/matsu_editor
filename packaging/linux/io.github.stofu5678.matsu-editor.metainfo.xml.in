@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.stofu5678.matsu-editor</id>
+  <name>MATSU Editor</name>
+  <summary>A text editor that feels like SAKURA Editor</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <description>
+    <p>
+      MATSU Editor is a text editor written in Rust. It brings the key bindings and the behavior of SAKURA
+      Editor to macOS, Windows and Linux.
+    </p>
+  </description>
+  <developer id="io.github.stofu5678">
+    <name>stofu5678</name>
+  </developer>
+  <launchable type="desktop-id">io.github.stofu5678.matsu-editor.desktop</launchable>
+  <url type="homepage">https://github.com/stofu5678/matsu_editor</url>
+  <url type="bugtracker">https://github.com/stofu5678/matsu_editor/issues</url>
+  <provides>
+    <binary>matsu</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="@VERSION@" date="@DATE@" />
+  </releases>
+</component>

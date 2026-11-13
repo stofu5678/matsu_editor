@@ -25,8 +25,12 @@
 | macOS ARM64 | `matsu-<版>-macos-arm64.tar.gz`、`matsu-<版>-macos-arm64.dmg` |
 | Linux x64 | `matsu-<版>-linux-x64.tar.gz` |
 | Linux ARM64 | `matsu-<版>-linux-arm64.tar.gz` |
+| Linux x64（パッケージ） | `matsu-<版>-linux-x64.deb`、`matsu-<版>-linux-x64.rpm` |
+| Linux ARM64（パッケージ） | `matsu-<版>-linux-arm64.deb`、`matsu-<版>-linux-arm64.rpm` |
 
 `<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `matsu-<対象>/` のディレクトリで、実行ファイル（`matsu` / `matsu.exe`）、同梱のマクロのエンジンを動かす `matsu-script`（`matsu-script.exe`。`matsu` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、アイコンの絵（`icons/`。`assets/icons` の SVG・PNG・ICO。ライセンスはコードと同じ）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
+
+Linux には、tar.gz のほかに `.deb` と `.rpm` を付ける（ADR-0032 の段階 A。`scripts/package-linux.sh`）。`matsu` と `matsu-script` は `/usr/lib/matsu-editor/` に並べ、`/usr/bin/matsu` はそこへのシンボリックリンク（`matsu` は `current_exe`、つまり実体のパスの隣の `matsu-script` を使う）。`.desktop`（`MimeType=text/plain;` だけで、関連付けは奪わない）、AppStream の metainfo、`hicolor` のアイコン、ライセンス類（`/usr/share/doc/matsu-editor/`）も入る。依存する共有ライブラリは、`.deb` は `dpkg-shlibdeps`、`.rpm` は rpm が実行ファイルから求める。インストール・削除のスクリプトは持たず、設定のフォルダー（`~/.config/matsu-editor`）に触れない。`.deb` は作った環境（Ubuntu 24.04）の glibc などを要求するので、それより古い配布版には入らない。CI（`package.yml`）が `.deb` を入れて外し、利用者のファイルが残ることを確かめ、`.rpm` は Fedora のコンテナで同じことを確かめる（`.github/scripts/test-linux-install.sh`）。署名はない。
 
 macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `MATSU Editor.app` に入れる（`scripts/package-mac-app.sh`）。裸の実行ファイルを Finder で開くと Terminal.app が起動して黒い画面が出るため（ユーザーの依頼、2026-10-22）。`matsu` と `matsu-script` は `MATSU Editor.app/Contents/MacOS/` に並べる（`matsu` が自分の隣の `matsu-script` を使うので変わらない）。`.dmg`（ADR-0032 の段階 A。`scripts/package-mac-dmg.sh`）は、ボリューム名「MATSU Editor」で、`MATSU Editor.app` と `/Applications` へのリンクだけを入れる（UDZO。arm64 の macOS ならどれでも読め、他の OS の展開ツールも読める。ULFO は小さいが 10.11 以降だけ）。アプリはアドホック署名のまま、`.dmg` には署名しない。`.dmg` は何もインストールしないので、`~/Library/Application Support/matsu-editor` には触れない。ほかは同じで、`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`、`icons/`、`README.txt`（初回の開き方つき）は `MATSU Editor.app` と同じ階層に置く。`Contents/Info.plist` の識別子は `io.github.stofu5678.matsu-editor`、最低の macOS は 11.0（arm64 が動く最も古い版）、アイコンは `assets/icons` の Mac 用の PNG（`matsu_editor_mac_*.png`）から作った `.icns`。ライセンス類（`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`）は `Contents/Resources/` にも入れる（アプリだけを Applications に移しても、第三者のコードの表示が離れないように）。ターミナルからは `MATSU Editor.app/Contents/MacOS/matsu ファイル` で使える。`matsu.ini` の場所と多重起動の判定は、実行ファイルの場所に依らない（macOS は `~/Library/Application Support/matsu-editor/matsu.ini` だけ）ので変わらない。ファイルの種類の関連づけ（`CFBundleDocumentTypes`）は、テキストとソースコードを「別の選択肢」（`LSHandlerRank` が `Alternate`）として入れた。「このアプリで開く」に出るだけで、既定のアプリは奪わない。Finder から開く処理（`on_open_urls`）は `crates/matsu-ui/src/app.rs` にあるが、バンドルからの動作は Mac で確かめていない。
 
@@ -102,10 +106,10 @@ release-please の Rust 向けの種類（`rust`）は、クレートごとの `
 
    ```sh
    gh release create vX.Y.Z --target <SHA> --title vX.Y.Z --generate-notes
-   gh release upload vX.Y.Z matsu-vX.Y.Z-*.zip matsu-vX.Y.Z-*.tar.gz matsu-vX.Y.Z-*.dmg
+   gh release upload vX.Y.Z matsu-vX.Y.Z-*.zip matsu-vX.Y.Z-*.tar.gz matsu-vX.Y.Z-*.dmg matsu-vX.Y.Z-*.deb matsu-vX.Y.Z-*.rpm
    ```
 
-   ファイル名は上の表のとおり（artifact の中の名前は `matsu-<対象>.zip` / `.tar.gz` / `.dmg` なので、`matsu-vX.Y.Z-<対象>` に付け替える）
+   ファイル名は上の表のとおり（artifact の中の名前は `matsu-<対象>.zip` / `.tar.gz` / `.dmg` / `.deb` / `.rpm` なので、`matsu-vX.Y.Z-<対象>` に付け替える）
 4. release-please が混乱したら、`.release-please-manifest.json` を最後のリリースの版に合わせる
 
 毎日版だけが壊れたときは、`nightly` のリリースを消してから main に push し直すと作り直される。
