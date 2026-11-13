@@ -51,6 +51,7 @@ fn each_function_of_a_page_opens_the_sheet_at_that_page(cx: &mut TestAppContext)
         ("F_OPTION_MACRO", Page::Macro),
         ("F_OPTION_PLUGIN", Page::Plugin),
         ("F_OPTION_MAINMENU", Page::MainMenu),
+        ("F_ONELINER_SETTINGS", Page::OneLiner),
     ] {
         run(cx, handle, function);
         assert_eq!(with_dialog(cx, |d, _, _| d.page()), page, "{function}");
