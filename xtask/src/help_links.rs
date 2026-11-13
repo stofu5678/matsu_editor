@@ -117,6 +117,18 @@ fn heading_text(raw: &str) -> String {
             '`' => in_code = !in_code,
             // Inside a code span everything is literal text.
             _ if in_code => out.push(c),
+            // A character reference (`&#x8A2D;`, `&amp;`) is the character it stands for.
+            '&' => {
+                let ahead: Vec<char> = std::iter::once('&').chain(chars.clone().take(12)).collect();
+                if let Some((decoded, used)) = crate::help_shared::decode_entity(&ahead) {
+                    for _ in 1..used {
+                        chars.next();
+                    }
+                    out.push(decoded);
+                } else {
+                    out.push(c);
+                }
+            }
             // An underscore at the edge of a word is an emphasis mark (`_設定_`); one inside a word stays.
             '_' if before.is_none_or(char::is_whitespace)
                 || chars.peek().is_none_or(|n| n.is_whitespace()) => {}
@@ -575,6 +587,12 @@ mod tests {
         ]);
         let problems = check(&pages, Path::new("/nonexistent"));
         assert_eq!(problems.len(), 2, "{problems:?}");
+    }
+
+    #[test]
+    fn character_references_are_decoded_in_the_anchor() {
+        let ids = anchors("## &#x8A2D;定 &amp; `&amp;`\n");
+        assert!(ids.contains("設定--amp"), "{ids:?}");
     }
 
     #[test]

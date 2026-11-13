@@ -201,7 +201,7 @@ fn find_ci(chars: &[char], from: usize, needle: &str) -> Option<usize> {
 
 /// Decodes `&name;`, `&#123;` or `&#x1F;` at the start of `chars`. Returns the character and the number of
 /// characters used.
-fn decode_entity(chars: &[char]) -> Option<(char, usize)> {
+pub fn decode_entity(chars: &[char]) -> Option<(char, usize)> {
     let end = chars.iter().take(12).position(|c| *c == ';')?;
     let body: String = chars[1..end].iter().collect();
     let decoded = if let Some(hex) = body.strip_prefix("#x").or_else(|| body.strip_prefix("#X")) {
