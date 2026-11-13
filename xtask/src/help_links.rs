@@ -348,6 +348,13 @@ pub fn check(pages: &[Page], dir: &Path) -> Vec<String> {
                 ));
                 continue;
             };
+            // A link to a built chapter (`about.html`) is a link to its source (`about.md`).
+            let resolved = match resolved.strip_suffix(".html") {
+                Some(stem) if anchor_sets.contains_key(format!("{stem}.md").as_str()) => {
+                    format!("{stem}.md")
+                }
+                _ => resolved,
+            };
             if let Some(anchors) = anchor_sets.get(resolved.as_str()) {
                 if let Some(anchor) = anchor
                     && !anchor.is_empty()
@@ -623,6 +630,24 @@ mod tests {
             "# a\n\n<!--\n<a id=\"hidden\"></a>\n-->\n\n<div>\n<a\n  id=\"shown\"></a>\n</div>\n",
         );
         assert!(ids.contains("shown") && !ids.contains("hidden"), "{ids:?}");
+    }
+
+    #[test]
+    fn a_link_to_a_built_chapter_is_a_link_to_its_source() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n- [b](sub/b.md)\n"),
+            (
+                "a.md",
+                "# a\n\n[1](sub/b.html#b) [2](sub/b.html#nope) <a href=\"sub/b.html\">3</a> [4](sub/c.html)\n",
+            ),
+            ("sub/b.md", "# b\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems[0].contains("#nope") && problems[1].contains("sub/c.html"),
+            "{problems:?}"
+        );
     }
 
     #[test]
