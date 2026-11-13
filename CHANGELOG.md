@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/stofu5678/matsu_editor/compare/v0.12.0...v0.13.0) (2026-11-13)
+
+
+### Features
+
+* **terminal:** settings for the shell tab and their page (ADR-0028) ([#390](https://github.com/stofu5678/matsu_editor/issues/390)) ([db74e40](https://github.com/stofu5678/matsu_editor/commit/db74e40179f4e7f8c160279a44dee93ae8b1bb55))
+
 ## [0.12.0](https://github.com/stofu5678/matsu_editor/compare/v0.11.0...v0.12.0) (2026-11-13)
 
 
