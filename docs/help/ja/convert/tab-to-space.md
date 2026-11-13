@@ -8,7 +8,7 @@
 |---|---|
 | メニュー | 「変換」の「TAB→空白」 |
 | 機能名 | `F_TABTOSPACE` |
-| マクロ | `TABToSpace` |
+| マクロ | `TABToSPACE` |
 | 既定のキー | `Ctrl+Alt+F5` |
 | キーマクロ | 記録される |
 

@@ -40,7 +40,7 @@
 
 | メニュー | 機能名 | マクロ | 既定のキー | ページ |
 |---|---|---|---|---|
-| TAB→空白 | `F_TABTOSPACE` | `TABToSpace` | `Ctrl+Alt+F5` | [TAB→空白](tab-to-space.md) |
+| TAB→空白 | `F_TABTOSPACE` | `TABToSPACE` | `Ctrl+Alt+F5` | [TAB→空白](tab-to-space.md) |
 | 空白→TAB | `F_SPACETOTAB` | `SPACEToTAB` | `Ctrl+Alt+Shift+F5` | [空白→TAB](space-to-tab.md) |
 
 ### URL、HTML、Base64（MATSU Editor だけの機能）
