@@ -156,12 +156,19 @@ fn a_printed_address_is_underlined_with_the_key_and_opened_after_the_question(
     link_click(cx, handle, &view, at_url, Modifiers::default());
     assert!(!has_prompt(cx, handle));
 
-    // the address is underlined while the key is held over it, and not otherwise
+    // the address is underlined while the key is held over it, and not otherwise. The cell is looked for again
+    // just before each move: ConPTY may paint the screen again after the click, and an old cell can miss the
+    // address (a Windows CI run hovered beside it).
     let hovered = |cx: &mut TestAppContext| view.read_with(cx, |view, _| view.hovered_uri());
-    let position = at(cx, &view, at_url);
-    visual(cx, handle).simulate_mouse_move(position, None, link_key());
-    cx.run_until_parked();
-    assert_eq!(hovered(cx).as_deref(), Some(URL));
+    wait_until(cx, "the underline under the key", |cx| {
+        let url_cell = cell(cx);
+        let position = at(cx, &view, url_cell);
+        visual(cx, handle).simulate_mouse_move(position, None, link_key());
+        cx.run_until_parked();
+        hovered(cx).as_deref() == Some(URL)
+    });
+    let url_cell = cell(cx);
+    let position = at(cx, &view, url_cell);
     visual(cx, handle).simulate_mouse_move(position, None, Modifiers::default());
     cx.run_until_parked();
     assert_eq!(hovered(cx), None);
