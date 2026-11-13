@@ -72,8 +72,8 @@
 
 | 操作 | 機能 |
 |---|---|
-| ホイールを上へ | `F_WHEELUP`。ただし `Ctrl` を押しているときは `F_SETFONTSIZEUP`（[設定まわりのメニューにない機能](settings-others.md)） |
-| ホイールを下へ | `F_WHEELDOWN`。ただし `Ctrl` を押しているときは `F_SETFONTSIZEDOWN` |
+| ホイールを上へ | `F_WHEELUP`。ただし `Ctrl` だけを押しているときは `F_SETFONTSIZEUP`（`Ctrl+Shift`、`Ctrl+Alt` などの組み合わせは `F_WHEELUP` のまま。[フォントサイズ](settings-others.md)） |
+| ホイールを下へ | `F_WHEELDOWN`。ただし `Ctrl` だけを押しているときは `F_SETFONTSIZEDOWN`（組み合わせは `F_WHEELDOWN` のまま） |
 | 横ホイール | `F_WHEELLEFT` `F_WHEELRIGHT`（どの修飾キーでも） |
 
 - ページ単位の 4 つの機能は、既定では、どの操作にも割り当てられていません。
