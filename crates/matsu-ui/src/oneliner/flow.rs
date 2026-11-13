@@ -369,6 +369,11 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         }
         Err(_) => {
             stop_in_background(cx, stopper);
+            end_log(
+                cx,
+                log.as_ref(),
+                failed_log("文書が閉じられたので、実行しませんでした。", began),
+            );
             return;
         }
     }
@@ -378,8 +383,13 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
             break event;
         }
         if view.read_with(cx, |_, _| ()).is_err() {
-            // the window is gone
+            // the editor is gone (the log may still be open): the run is ended and so is its record
             stop_in_background(cx, stopper);
+            end_log(
+                cx,
+                log.as_ref(),
+                failed_log("文書が閉じられたので、中断しました。", began),
+            );
             return;
         }
         cx.background_executor().timer(POLL).await;
@@ -387,7 +397,9 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
 
     // The process is over: its working folder goes, and the log has the end, whatever it was.
     drop(workdir);
-    end_log(cx, log.as_ref(), log_end(&event, began));
+    if log.is_some() {
+        end_log(cx, log.as_ref(), log_end(&event, began));
+    }
 
     // The state is looked at again, in the same step that puts the result in.
     let message = view
