@@ -1,4 +1,39 @@
-// The icon of matsu.exe. GPUI's Windows backend loads the icon resource with ID 1 from the
-// executable for its windows (gpui-pre-windows, platform.rs `load_icon`), so ID 1 is what makes
-// the icon show in Explorer, the title bar, the taskbar and Alt+Tab.
-1 ICON "../../assets/icons/matsu_editor.ico"
+// The resources of matsu.exe. build.rs fills in the @...@ placeholders and compiles the result.
+//
+// The icon: GPUI's Windows backend loads the icon resource with ID 1 from the executable for its
+// windows (gpui-pre-windows, platform.rs `load_icon`), so ID 1 is what makes the icon show in
+// Explorer, the title bar, the taskbar and Alt+Tab.
+1 ICON "@ICON@"
+
+// The version information that Explorer's Properties dialog, the installer and the "Apps" list
+// read. The numbers are the constants of winver.h (written out so that this file needs no include):
+// VOS_NT_WINDOWS32 = 0x40004, VFT_APP = 1, language 0x0409 (English, United States), code page
+// 0x04B0 (Unicode).
+1 VERSIONINFO
+FILEVERSION @VERSION_COMMA@
+PRODUCTVERSION @VERSION_COMMA@
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "stofu5678"
+            VALUE "FileDescription", "MATSU Editor"
+            VALUE "FileVersion", "@VERSION@"
+            VALUE "InternalName", "matsu"
+            VALUE "LegalCopyright", "Copyright (c) 2026 stofu5678. MIT OR Apache-2.0"
+            VALUE "OriginalFilename", "matsu.exe"
+            VALUE "ProductName", "MATSU Editor"
+            VALUE "ProductVersion", "@VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END
