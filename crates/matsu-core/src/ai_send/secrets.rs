@@ -191,12 +191,13 @@ fn find_jwt(line: &str) -> Vec<SecretMatch> {
                     ok = false;
                     break;
                 }
-                parts += 1;
-                part_len = 0;
-                if parts > 3 {
-                    ok = false;
+                if parts == 3 {
+                    // The match ends after the third component: a period after a token, or a
+                    // fourth part, is not part of it.
                     break;
                 }
+                parts += 1;
+                part_len = 0;
             } else {
                 part_len += 1;
             }

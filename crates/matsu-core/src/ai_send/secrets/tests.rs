@@ -152,3 +152,14 @@ fn a_long_line_of_candidates_is_scanned_in_linear_time() {
     }
     assert!(start.elapsed().as_secs() < 5, "{:?}", start.elapsed());
 }
+
+#[test]
+fn a_jwt_before_a_period_is_found_without_it() {
+    let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r";
+    for suffix in [".", ".)", ".. And", ", next"] {
+        let line = format!("The token is {jwt}{suffix}");
+        let found = find_secrets(&line);
+        assert_eq!(found.len(), 1, "{line}");
+        assert_eq!(&line[found[0].range.clone()], jwt, "{line}");
+    }
+}

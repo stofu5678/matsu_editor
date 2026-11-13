@@ -258,3 +258,44 @@ fn a_key_payload_in_the_tail_is_masked_even_when_the_block_start_is_far() {
         p.tail
     );
 }
+
+#[test]
+fn a_short_last_payload_line_in_the_tail_is_masked_from_the_end_marker() {
+    let key = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj";
+    let limits = PreviewLimits {
+        scan_bytes: 100,
+        ..PreviewLimits::default()
+    };
+    // The block starts past the budget and before the tail: only the END is in the tail.
+    let d = doc(&format!(
+        "{}-----BEGIN PRIVATE KEY-----\n{key}\n{key}\nAbC+/=\n-----END PRIVATE KEY-----\n",
+        "行\n".repeat(200)
+    ));
+    let p = all(&d, &limits);
+    let tail: String = p.tail.iter().map(|l| l.text.clone() + "\n").collect();
+    assert!(!tail.contains("AbC"), "{tail}");
+    assert!(!tail.contains("MIIEv"), "{tail}");
+    assert!(tail.contains("-----END PRIVATE KEY-----"), "{tail}");
+}
+
+#[test]
+fn a_short_payload_line_after_a_begin_in_the_tail_is_masked() {
+    let limits = PreviewLimits {
+        scan_bytes: 100,
+        ..PreviewLimits::default()
+    };
+    let d = doc(&format!(
+        "{}-----BEGIN PRIVATE KEY-----\nAbC+/=\n",
+        "行\n".repeat(200)
+    ));
+    let p = all(&d, &limits);
+    let tail: String = p.tail.iter().map(|l| l.text.clone() + "\n").collect();
+    assert!(!tail.contains("AbC"), "{tail}");
+}
+
+#[test]
+fn a_certificate_block_is_not_masked() {
+    let d = doc("-----BEGIN CERTIFICATE-----\nAbC+/=\n-----END CERTIFICATE-----\n");
+    let p = all(&d, &PreviewLimits::default());
+    assert_eq!(p.head[1].text, "AbC+/=");
+}

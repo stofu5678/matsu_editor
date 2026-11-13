@@ -196,22 +196,15 @@ pub fn preview_range(
     }
     let shown = limits.head_lines + limits.tail_lines;
     if preview.lines <= shown {
-        for i in from.line..=last {
-            preview
-                .head
-                .push(range.shown_line(i, limits, &key_payload)?);
-        }
+        preview.head = range.shown_lines(from.line..last + 1, limits, &key_payload)?;
     } else {
-        for i in from.line..from.line + limits.head_lines {
-            preview
-                .head
-                .push(range.shown_line(i, limits, &key_payload)?);
-        }
-        for i in last + 1 - limits.tail_lines..=last {
-            preview
-                .tail
-                .push(range.shown_line(i, limits, &key_payload)?);
-        }
+        preview.head = range.shown_lines(
+            from.line..from.line + limits.head_lines,
+            limits,
+            &key_payload,
+        )?;
+        preview.tail =
+            range.shown_lines(last + 1 - limits.tail_lines..last + 1, limits, &key_payload)?;
         preview.omitted_lines = preview.lines - shown;
     }
 
@@ -259,30 +252,72 @@ impl Selection<'_> {
         Ok((text, cut))
     }
 
-    /// Line `i` as the window shows it: masked, and cut to `limits.line_chars`.
-    fn shown_line(
+    /// The lines `lines` as the window shows them: masked, and cut to `limits.line_chars`.
+    fn shown_lines(
         &self,
-        i: usize,
+        lines: std::ops::Range<usize>,
         limits: &PreviewLimits,
         key_payload: &[std::ops::Range<usize>],
-    ) -> Result<PreviewLine> {
+    ) -> Result<Vec<PreviewLine>> {
         // Read as much as the scan does of a line, so that a secret that the scan finds is found
         // here too and masked (the shown part is cut after masking).
-        let (text, _) = self.read(i, SHOWN_READ_BYTES)?;
-        // Inside a private key block the whole line is the secret. The block is not known for a
-        // line the scan did not reach (a tail line of a huge range), so a line that looks like a
-        // line of a key (base64, 60 characters or more, no spaces) is masked too.
-        let masked = if key_payload.iter().any(|r| r.contains(&i)) || looks_like_key_payload(&text)
-        {
-            text.chars().map(|_| '*').collect()
-        } else {
-            mask_line(&text, &find_secrets(&text))
-        };
-        Ok(PreviewLine {
-            number: i + 1,
-            text: window_around(&masked, 0, limits.line_chars),
-        })
+        let texts = lines
+            .clone()
+            .map(|i| self.read(i, SHOWN_READ_BYTES).map(|(text, _)| text))
+            .collect::<Result<Vec<_>>>()?;
+        // Inside a private key block the whole line is the secret. The scan knows the blocks it
+        // reached (`key_payload`). For the lines it did not reach (the tail of a huge range) the
+        // block is found from the shown lines themselves, from its BEGIN or back from its END,
+        // and a line that looks like a line of a key (base64, 60 characters or more) is masked
+        // too.
+        let in_block = private_key_lines(&texts);
+        Ok(lines
+            .zip(texts)
+            .zip(in_block)
+            .map(|((i, text), in_block)| {
+                let masked = if in_block
+                    || key_payload.iter().any(|r| r.contains(&i))
+                    || looks_like_key_payload(&text)
+                {
+                    text.chars().map(|_| '*').collect()
+                } else {
+                    mask_line(&text, &find_secrets(&text))
+                };
+                PreviewLine {
+                    number: i + 1,
+                    text: window_around(&masked, 0, limits.line_chars),
+                }
+            })
+            .collect())
     }
+}
+
+/// Which of `lines` (consecutive lines) are the payload of a private key: the lines after a
+/// `-----BEGIN ... PRIVATE KEY-----` line up to the `-----END ... PRIVATE KEY-----` line, or to
+/// the last line when no END is among them; and, when the END is there but no BEGIN, the lines
+/// before it back to the start (or to the end of an earlier block). Short last lines count.
+fn private_key_lines(lines: &[String]) -> Vec<bool> {
+    let mut mask = vec![false; lines.len()];
+    // The first line that may belong to a block that is open.
+    let mut from = 0;
+    let mut begun = false;
+    for (i, line) in lines.iter().enumerate() {
+        let private = line.contains("PRIVATE KEY");
+        if line.contains("-----END ") {
+            if private {
+                mask[from..i].fill(true);
+            }
+            from = i + 1;
+            begun = false;
+        } else if line.contains("-----BEGIN ") {
+            from = i + 1;
+            begun = private;
+        }
+    }
+    if begun {
+        mask[from..].fill(true);
+    }
+    mask
 }
 
 /// A line of base64 of 60 characters or more without a space: what the lines of a PEM key look
