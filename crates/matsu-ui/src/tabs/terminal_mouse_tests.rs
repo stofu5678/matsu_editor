@@ -20,9 +20,7 @@ use gpui::{
 use matsu_terminal::ShellCommand;
 
 use super::terminal_input_tests::{clipboard, find, laid_out, set_clipboard};
-#[cfg(unix)]
-use super::terminal_tests::screen;
-use super::terminal_tests::{has_prompt, open, terminal_window, wait_for_text, wait_until};
+use super::terminal_tests::{has_prompt, open, screen, terminal_window, wait_for_text, wait_until};
 use super::tests::{answer, visual, workspace};
 use crate::terminal::TerminalView;
 
@@ -184,7 +182,7 @@ fn a_printed_address_is_underlined_with_the_key_and_opened_after_the_question(
     assert!(!view.read_with(cx, |view, _| view.asking_about_a_link()));
 }
 
-/// The title and OSC 52 on Windows: `cmd.exe` sets a title with `title`, and PowerShell writes the sequence. The
+/// The title and OSC 52 on Windows: PowerShell sets a title and writes the sequence. The
 /// shell stays, or stays for a while (output right before the end of a program can be lost by ConPTY).
 #[cfg(windows)]
 mod windows_programs {
@@ -195,15 +193,41 @@ mod windows_programs {
         cx: &mut TestAppContext,
     ) {
         let handle = terminal_window(cx);
+        // PowerShell sets the console's title, which ConPTY tells the terminal, and stays a while.
         let view = open(
             cx,
             handle,
-            ShellCommand::new("cmd.exe", ["/Q", "/K", "title hello"]),
+            ShellCommand::new(
+                "powershell.exe",
+                [
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "$Host.UI.RawUI.WindowTitle = 'hello'; Write-Host ready; Start-Sleep -Seconds 30",
+                ],
+            ),
         );
         let caption = |cx: &mut TestAppContext| {
             workspace(cx, handle).read_with(cx, |ws, cx| ws.tab_panel(1).unwrap().caption(cx))
         };
-        wait_until(cx, "the title", |cx| caption(cx) == "hello");
+        // Waited for by hand, so that a timeout tells what the tab had.
+        cx.executor().allow_parking();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            cx.run_until_parked();
+            if caption(cx) == "hello" {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                let title = view.read_with(cx, |view, _| view.program_title().map(str::to_owned));
+                panic!(
+                    "timed out waiting for the title: caption {:?}, program title {title:?}, screen:\n{}",
+                    caption(cx),
+                    screen(cx, &view)
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert_eq!(
             view.read_with(cx, |view, _| view.program_title().map(str::to_owned))
                 .as_deref(),
