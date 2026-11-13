@@ -127,10 +127,12 @@ end;
 const
   OwnKey = 'Software\{#AppName}';
   OwnValue = 'PathEntryAdded';
+  // The exact text appended to PATH (with or without a ';' in front), so that the uninstall can restore the old value.
+  OwnTextValue = 'PathTextAppended';
 
 procedure AddToPath(Dir: String);
 var
-  Paths: String;
+  Paths, Appended: String;
 begin
   // Raw (unexpanded) value: PATH is usually REG_EXPAND_SZ with %USERPROFILE% and the like in it.
   if not RegQueryStringValue(EnvRoot(), EnvSubKey(), 'Path', Paths) then
@@ -138,25 +140,38 @@ begin
   // Already there (an update, or the user added it): leave it as it is, and the record as it is.
   if Pos(';' + Lowercase(Dir) + ';', ';' + Lowercase(Paths) + ';') > 0 then
     Exit;
+  Appended := Dir;
   if (Paths <> '') and (Paths[Length(Paths)] <> ';') then
-    Paths := Paths + ';';
-  RegWriteExpandStringValue(EnvRoot(), EnvSubKey(), 'Path', Paths + Dir);
+    Appended := ';' + Dir;
+  RegWriteExpandStringValue(EnvRoot(), EnvSubKey(), 'Path', Paths + Appended);
   RegWriteStringValue(EnvRoot(), OwnKey, OwnValue, Dir);
+  RegWriteStringValue(EnvRoot(), OwnKey, OwnTextValue, Appended);
 end;
 
 procedure RemoveFromPath(Dir: String);
 var
-  Paths, Wrapped, Added: String;
+  Paths, Wrapped, Added, Appended: String;
   P: Integer;
 begin
   if not RegQueryStringValue(EnvRoot(), OwnKey, OwnValue, Added) then
     Exit;
+  if not RegQueryStringValue(EnvRoot(), OwnKey, OwnTextValue, Appended) then
+    Appended := '';
   RegDeleteValue(EnvRoot(), OwnKey, OwnValue);
+  RegDeleteValue(EnvRoot(), OwnKey, OwnTextValue);
   RegDeleteKeyIfEmpty(EnvRoot(), OwnKey);
   if CompareText(Added, Dir) <> 0 then
     Exit;
   if not RegQueryStringValue(EnvRoot(), EnvSubKey(), 'Path', Paths) then
     Exit;
+  // The usual case: what was appended is still at the end. Cut it off, and the old value is back as it was.
+  if (Appended <> '') and (Length(Paths) >= Length(Appended)) and
+     (CompareText(Copy(Paths, Length(Paths) - Length(Appended) + 1, Length(Appended)), Appended) = 0) then
+  begin
+    RegWriteExpandStringValue(EnvRoot(), EnvSubKey(), 'Path', Copy(Paths, 1, Length(Paths) - Length(Appended)));
+    Exit;
+  end;
+  // The user changed PATH since: take the entry out wherever it is.
   Wrapped := ';' + Paths + ';';
   P := Pos(';' + Lowercase(Dir) + ';', Lowercase(Wrapped));
   if P = 0 then
