@@ -37,4 +37,4 @@
 ## 根拠
 
 - サクラのソース: `sakura_core/prop/CPropComFormat.cpp`、`IDD_PROP_FORMAT`
-- MATSU のコード: `crates/matsu-ui/src/common_settings/pages/format.rs`、`crates/matsu-commands/src/convert/datetime.rs`（`DEFAULT_DATE_PICTURE`、`DEFAULT_TIME_PICTURE`）、`crates/matsu-outline/src/text.rs`（`DEFAULT_HEADING_MARKS`）、`crates/matsu-ui/src/clipboard/`（`QuoteString`）、`crates/matsu-ui/src/common_settings/mod.rs`
+- MATSU のコード: `crates/matsu-ui/src/common_settings/pages/format.rs`、`crates/matsu-commands/src/convert/datetime.rs`（`DEFAULT_DATE_PICTURE`、`DEFAULT_TIME_PICTURE`）、`crates/matsu-outline/src/text.rs`（`DEFAULT_HEADING_MARKS`）、`crates/matsu-ui/src/clipboard.rs`（`QuoteString`）、`crates/matsu-ui/src/common_settings/mod.rs`

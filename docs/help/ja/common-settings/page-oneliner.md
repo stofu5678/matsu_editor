@@ -35,4 +35,4 @@
 ## 根拠
 
 - MATSU のコード: `crates/matsu-ui/src/common_settings/pages/oneliner.rs` と `oneliner/` の下のファイル、`crates/matsu-ui/src/ui_commands/settings/oneliner_settings.rs`、`crates/matsu-config/src/settings/oneliner.rs`
-- 決めたこと: `docs/adr/0029-*.md`（決めたこと 7）、`docs/adr/0030-*.md`（生成 AI への送信）
+- 決めたこと: `docs/adr/0029-*.md`（決めたこと 7）、ADR-0030（生成 AI への送信）
