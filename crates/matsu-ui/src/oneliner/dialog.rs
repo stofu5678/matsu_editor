@@ -345,7 +345,7 @@ impl Render for OneLinerDialog {
                 )
                 .child(
                     Button::new("oneliner-register")
-                        .labelled("登録...(R)")
+                        .labelled("登録...(T)")
                         .on_click(
                             cx.listener(|this, _, window, cx| this.start_registering(window, cx)),
                         ),
@@ -388,7 +388,7 @@ impl Render for OneLinerDialog {
             .child(
                 div()
                     .text_color(rgb(0x666666))
-                    .child("[Note] 選んだ文字列 (なければ文書全体) が標準入力に渡されます"),
+                    .child("選んだ文字列 (なければ文書全体) が標準入力に渡されます。"),
             )
             .child(places)
             .when_some(self.message.clone(), |this, message| {
