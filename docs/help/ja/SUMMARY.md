@@ -2,11 +2,11 @@
 
 [このヘルプについて](about.md)
 
-- [はじめに]()
-  - [概要]()
-  - [インストールと起動]()
-  - [設定ファイル matsu.ini]()
-  - [サクラエディタとの違い]()
+- [はじめに](intro/index.md)
+  - [概要](intro/overview.md)
+  - [インストールと起動](intro/install.md)
+  - [設定ファイル matsu.ini](intro/settings-file.md)
+  - [サクラエディタとの違い](intro/differences.md)
 - [基本的な使い方](basics/index.md)
   - [ウィンドウの各部](basics/window.md)
   - [テキスト領域：行番号・ルーラー・ミニマップ](basics/text-area.md)
