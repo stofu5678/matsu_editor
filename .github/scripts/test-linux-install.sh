@@ -19,8 +19,9 @@ fail() { echo "::error::$*"; exit 1; }
 # --- the .deb ---
 dpkg-deb --info "$dist/matsu-$target.deb"
 dpkg-deb --contents "$dist/matsu-$target.deb"
-# The helper retries a slow mirror (see the script).
-.github/scripts/apt-install.sh "$dist/matsu-$target.deb"
+# Not apt-install.sh: its second step (--no-download) rejects the path of a local .deb. The libraries are mostly
+# there already (the build installed their -dev packages); a time limit keeps a slow mirror from stalling the job.
+sudo timeout --kill-after=10s 20m apt-get install -y --no-install-recommends "$dist/matsu-$target.deb"
 
 echo "--- the installed files"
 test -x /usr/lib/matsu-editor/matsu || fail "matsu is missing"
