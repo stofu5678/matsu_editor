@@ -18,6 +18,9 @@ pub(super) const ID: &str = "oneliner_id";
 pub(super) const NAME: &str = "oneliner_name";
 pub(super) const COMMAND: &str = "oneliner_command";
 pub(super) const OUTPUT: &str = "oneliner_output";
+pub(super) const AI: &str = "oneliner_ai";
+pub(super) const ASK: &str = "oneliner_ask";
+pub(super) const TEMPLATE: &str = "oneliner_template";
 
 const SELECTED_BG: u32 = 0x2f6fd0;
 const BORDER: u32 = 0xaaaaaa;
@@ -110,6 +113,36 @@ pub(super) fn select(
     dialog.set_input(NAME, &fields.name, window, cx);
     dialog.set_input(COMMAND, &fields.command, window, cx);
     dialog.set_int(OUTPUT, fields.output.number(), cx);
+    dialog.set_bool(AI, fields.ai, cx);
+    dialog.set_bool_greyed(ASK, fields.ask, cx);
+}
+
+/// ひな形を入れる: puts the chosen template in the command, the place of the result 次の行に入れる and the mark
+/// of an AI. Nothing is chosen: nothing changes. It is 設定 that puts the fields in the list.
+pub(super) fn put_template(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut Window,
+    cx: &mut Context<CommonSettingsDialog>,
+) {
+    let Some(template) = rows::template_of(dialog.values().int(TEMPLATE)) else {
+        return;
+    };
+    let fields = rows::apply_template(&current_fields(dialog, cx), template);
+    dialog.set_input(NAME, &fields.name, window, cx);
+    dialog.set_input(COMMAND, &fields.command, window, cx);
+    dialog.set_int(OUTPUT, fields.output.number(), cx);
+    dialog.set_bool(AI, fields.ai, cx);
+}
+
+/// The fields as they are now.
+fn current_fields(dialog: &CommonSettingsDialog, cx: &gpui::App) -> Fields {
+    Fields {
+        name: typed(dialog, NAME, cx),
+        command: typed(dialog, COMMAND, cx),
+        output: OutputTo::from_number(dialog.values().int(OUTPUT)),
+        ai: dialog.values().bool(AI),
+        ask: dialog.values().bool(ASK),
+    }
 }
 
 /// What the box says now: the values hold the text only once OK commits the boxes.
@@ -125,11 +158,7 @@ pub(super) fn register(
     cx: &mut Context<CommonSettingsDialog>,
 ) {
     let index = rows::index_of(&typed(dialog, ID, cx));
-    let fields = Fields {
-        name: typed(dialog, NAME, cx),
-        command: typed(dialog, COMMAND, cx),
-        output: OutputTo::from_number(dialog.values().int(OUTPUT)),
-    };
+    let fields = current_fields(dialog, cx);
     let mut list = dialog.values().rows(LIST).to_vec();
     match rows::register(&mut list, index, &fields) {
         Ok(()) => dialog.set_rows(LIST, list, cx),

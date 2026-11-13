@@ -1047,6 +1047,7 @@ fn a_registered_one_liner_has_its_name_not_unknown() {
         name: "整列".into(),
         command: "sort".into(),
         output: OutputTo::Replace,
+        ..OneLiner::default()
     };
     ones.slots[1].command = "jq .".into();
     assert_eq!(function_name(32711, &menus, &macros, &ones), "整列");

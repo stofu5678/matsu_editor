@@ -47,6 +47,29 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             )
             .into(),
         ]),
+        Item::Row(vec![
+            Control::check(list::AI, "生成 AI に送る(&G)", "", false).into(),
+        ]),
+        Item::Label(
+            "生成 AI に送るワンライナーは、実行の前に確認の窓を出し、送った内容と答えを読み取り専用のログのタブに残します。\n本文が外のサービスに出ることがあります。コマンドで AI のツールが切られているかは、MATSU Editor には分かりません。",
+        ),
+        Item::Row(vec![
+            Control::check(list::ASK, "送る前に確認する(&K)", "", true)
+                .when(ai_is_on)
+                .into(),
+        ]),
+        Item::Row(vec![
+            Control::choice(list::TEMPLATE, "ひな形(&T)", "", 0, &rows::TEMPLATE_OPTIONS).into(),
+            Control::button(
+                "oneliner_put_template",
+                "ひな形を入れる(&I)",
+                list::put_template,
+            )
+            .into(),
+        ]),
+        Item::Label(
+            "ひな形は、コマンドに例を入れ、結果の置き場所を「次の行に入れる」にして、生成 AI に送るにします。\n「ここに指示を書く」を自分の指示に書き換えてください。文書の本文は標準入力で渡ります。\nひな形の内容は、AI ツールの版で変わることがあります。",
+        ),
         Item::Custom(list::draw_note),
         Item::Label(
             "選んだ文字列(選んでいないときは文書全体)を標準入力に渡し、出力を結果の置き場所に入れます。\nコマンドは 1 行で書きます。シェルは「シェル」のページのものです。\nコマンドのない番号は、登録されていません。",
@@ -58,6 +81,11 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             Control::table(list::LIST, "", rows::spec()).named("登録ワンライナー"),
         ]),
     ]
+}
+
+/// 送る前に確認する can be set only for a one-liner that sends to a generative AI.
+fn ai_is_on(values: &Values) -> bool {
+    values.bool(list::AI)
 }
 
 /// What OK does to the windows: nothing besides the file. The windows read `[OneLiner]` from the settings
