@@ -63,7 +63,7 @@ JavaScript、TypeScript、JSON、CSS、Markdown、Rust、Go、Ruby、シェル�
 
 ## 設定ファイルでの置き場所
 
-タイプの設定は、`matsu.ini` の `[Types(N)]` に、サクラエディタと同じキーの名前で保存します。`N` は、タイプの一覧での番号（0 が基本）です。タイプの数は `[Other]` の `nTypesCount` です。ページごとのキーは、各ページの表にあります。
+タイプの設定は、[設定ファイル matsu.ini](../intro/settings-file.md) の `[Types(N)]` に、サクラエディタと同じキーの名前で保存します。`N` は、タイプの一覧での番号（0 が基本）です。タイプの数は `[Other]` の `nTypesCount` です。ページごとのキーは、各ページの表にあります。
 
 次の数の組は、`nInts` という 1 つのキーに、この順で入っています。
 
