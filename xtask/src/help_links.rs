@@ -58,21 +58,35 @@ pub fn normalize_id(text: &str) -> String {
         .collect()
 }
 
+/// The opening of a fenced code block: the fence character (`` ` `` or `~`) and its length (3 or more).
+pub fn fence_open(trimmed: &str) -> Option<(char, usize)> {
+    let mark = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let len = trimmed.chars().take_while(|c| *c == mark).count();
+    (len >= 3).then_some((mark, len))
+}
+
+/// Whether a line closes a block opened with `len` fence characters `mark`: the same character, at least as
+/// many, and nothing else on the line.
+pub fn fence_closes(trimmed: &str, (mark, len): (char, usize)) -> bool {
+    let count = trimmed.chars().take_while(|c| *c == mark).count();
+    count >= len && trimmed[count * mark.len_utf8()..].trim().is_empty()
+}
+
 /// The lines of a page outside its fenced code blocks, with their numbers (from 1).
 fn prose_lines(source: &str) -> Vec<(u32, &str)> {
-    let mut fence: Option<char> = None;
+    let mut fence: Option<(char, usize)> = None;
     let mut comment = false;
     let mut out = Vec::new();
     for (index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
-        if let Some(mark) = fence {
-            if trimmed.starts_with(&mark.to_string().repeat(3)) {
+        if let Some(open) = fence {
+            if fence_closes(trimmed, open) {
                 fence = None;
             }
             continue;
         }
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            fence = trimmed.chars().next();
+        if let Some(open) = fence_open(trimmed) {
+            fence = Some(open);
             continue;
         }
         // A comment that starts at the beginning of a line hides its lines (and any heading in them).
@@ -295,6 +309,30 @@ pub fn links(source: &str) -> Vec<(u32, String)> {
     out
 }
 
+/// Decodes `%XX` escapes (UTF-8) in a URL fragment: `#%E8%A8%AD%E5%AE%9A` is `#設定`.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (bytes[i], hex) {
+            (b'%', Some(byte)) => {
+                out.push(byte);
+                i += 3;
+            }
+            (byte, _) => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn is_external(target: &str) -> bool {
     // `http:`, `https:`, `mailto:` and any other scheme.
     target.split_once(':').is_some_and(|(scheme, _)| {
@@ -361,6 +399,7 @@ pub fn check(pages: &[Page], dir: &Path) -> Vec<String> {
                 if let Some(anchor) = anchor
                     && !anchor.is_empty()
                     && !anchors.contains(anchor)
+                    && !anchors.contains(&percent_decode(anchor))
                 {
                     problems.push(format!(
                         "{}:{line}: `{target}` points at the anchor `#{anchor}`, which `{resolved}` does not have",
@@ -507,6 +546,35 @@ mod tests {
             ids.contains("見せる") && !ids.contains("隠す") && !ids.contains("一行"),
             "{ids:?}"
         );
+    }
+
+    #[test]
+    fn a_longer_fence_is_not_closed_by_a_shorter_one() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n"),
+            (
+                "a.md",
+                "# a\n\n````md\n```\n[x](nowhere.md)\n## 隠す\n```\n[y](nowhere.md)\n````\n\n~~~\n```\n~~~\n\n[自分](#a)\n",
+            ),
+        ]);
+        assert_eq!(
+            check(&pages, Path::new("/nonexistent")),
+            Vec::<String>::new()
+        );
+        assert!(!anchors(&pages[1].source).contains("隠す"));
+    }
+
+    #[test]
+    fn a_percent_encoded_fragment_matches_the_heading() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n"),
+            (
+                "a.md",
+                "# a\n\n## 設定\n\n[x](#%E8%A8%AD%E5%AE%9A) [y](#%E7%84%A1%E3%81%84) [z](#100%)\n",
+            ),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 2, "{problems:?}");
     }
 
     #[test]

@@ -17,6 +17,7 @@
 //! 4. A run of the same text counts when it holds at least [`MIN_SHARED_CHARS`] characters that are neither the
 //!    placeholder nor ASCII letters or digits (see [`counts`]).
 
+use crate::help_links::{fence_closes, fence_open};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -39,19 +40,19 @@ pub type RawText = Vec<(char, u32)>;
 /// backticks) are punctuation, which [`normalize`] drops. Inline code keeps its text.
 pub fn strip_markdown(source: &str) -> RawText {
     let mut out = RawText::new();
-    let mut fence: Option<char> = None;
+    let mut fence: Option<(char, usize)> = None;
     let mut in_comment = false;
     for (index, line) in source.lines().enumerate() {
         let number = u32::try_from(index + 1).unwrap_or(u32::MAX);
         let trimmed = line.trim_start();
-        if let Some(mark) = fence {
-            if trimmed.starts_with(&mark.to_string().repeat(3)) {
+        if let Some(open) = fence {
+            if fence_closes(trimmed, open) {
                 fence = None;
             }
             continue;
         }
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            fence = trimmed.chars().next();
+        if let Some(open) = fence_open(trimmed) {
+            fence = Some(open);
             continue;
         }
         if !in_comment && (trimmed.starts_with("{{#") || is_reference_definition(trimmed)) {
@@ -811,6 +812,13 @@ mod tests {
         let found = find_shared(&matsu, &sakura, 20);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].sakura_file, "B.html");
+    }
+
+    #[test]
+    fn a_longer_fence_is_not_closed_by_a_shorter_one() {
+        let text = strip_markdown("前\n````md\n```\n中の文\n```\n中の文2\n````\n後\n");
+        let s: String = normalize(&text).iter().map(|n| n.c).collect();
+        assert_eq!(s, "前後");
     }
 
     #[test]
