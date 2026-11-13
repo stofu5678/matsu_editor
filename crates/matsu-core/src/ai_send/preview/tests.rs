@@ -314,3 +314,20 @@ fn a_secret_that_goes_past_the_display_read_is_masked() {
     assert!(!p.head[0].text.contains("eyJhb"), "{}", p.head[0].text);
     assert!(p.head[0].text.starts_with("token "));
 }
+
+#[test]
+fn a_cut_line_in_the_warning_masks_the_secret_it_cut_through() {
+    let limits = PreviewLimits {
+        scan_bytes: 38,
+        ..PreviewLimits::default()
+    };
+    let d = doc("AKIAIOSFODNN7EXAMPLE https://u:hunter2@host\n");
+    let p = all(&d, &limits);
+    assert_eq!(p.secrets.len(), 1);
+    assert!(
+        !p.secrets[0].text.contains("hunter2"),
+        "{}",
+        p.secrets[0].text
+    );
+    assert!(!p.secrets[0].text.contains("OSFODNN7"));
+}

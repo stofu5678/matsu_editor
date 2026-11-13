@@ -169,7 +169,7 @@ pub fn preview_range(
         if !matches.is_empty() {
             preview.secret_lines_total += 1;
             if preview.secrets.len() < limits.max_secret_lines {
-                let masked = mask_line(&text, &matches);
+                let masked = masked_text(&text, cut);
                 let at = text[..matches[0].range.start].chars().count();
                 let mut kinds: Vec<SecretKind> = Vec::new();
                 for m in &matches {
@@ -280,18 +280,8 @@ impl Selection<'_> {
                     || looks_like_key_payload(&text)
                 {
                     text.chars().map(|_| '*').collect()
-                } else if cut {
-                    // The read stopped inside the line: a secret that goes past the stop (a JWT
-                    // whose last part was cut off) no longer has its shape, so the last word is
-                    // masked whole.
-                    let word = text.rfind(char::is_whitespace).map_or(0, |at| {
-                        at + text[at..].chars().next().map_or(1, char::len_utf8)
-                    });
-                    let mut masked = mask_line(&text[..word], &find_secrets(&text[..word]));
-                    masked.extend(text[word..].chars().map(|_| '*'));
-                    masked
                 } else {
-                    mask_line(&text, &find_secrets(&text))
+                    masked_text(&text, cut)
                 };
                 PreviewLine {
                     number: i + 1,
@@ -300,6 +290,22 @@ impl Selection<'_> {
             })
             .collect())
     }
+}
+
+/// `text` with its secrets masked. `cut` is true when the read stopped inside the line: a secret
+/// that goes past the stop (a JWT whose last part was cut off, a URL without its `@`) no longer has
+/// its shape, so the last word is masked whole.
+fn masked_text(text: &str, cut: bool) -> String {
+    if !cut {
+        return mask_line(text, &find_secrets(text));
+    }
+    let word = text.rfind(char::is_whitespace).map_or(0, |at| {
+        at + text[at..].chars().next().map_or(1, char::len_utf8)
+    });
+    let (head, last) = text.split_at(word);
+    let mut masked = mask_line(head, &find_secrets(head));
+    masked.extend(last.chars().map(|_| '*'));
+    masked
 }
 
 /// Which of `lines` (consecutive lines) are the payload of a private key: the lines after a
