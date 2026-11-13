@@ -155,9 +155,9 @@ fn output_reaches_the_grid() {
 #[test]
 fn a_command_line_of_the_setting_starts_the_shell() {
     let line = if cfg!(windows) {
-        // cmd.exe reads its own rules: the quotes and the `&` reach it as they are written. (Through the C
+        // /K keeps cmd.exe running (ConPTY loses what a program wrote right before it ended). cmd.exe reads its own rules: the quotes and the `&` reach it as they are written. (Through the C
         // runtime's quoting `"a  b"` would arrive as `\"a  b\"` and cmd.exe would print the backslashes.)
-        r#"cmd.exe /C echo "two  spaces" & echo second"#
+        r#"cmd.exe /Q /K echo "two  spaces" & echo second"#
     } else {
         r#"/bin/sh -c 'printf "two  spaces\nsecond\n"'"#
     };

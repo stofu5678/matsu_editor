@@ -54,7 +54,9 @@ actions!(
         /// Copies the selected text of the shell tab.
         Copy,
         /// Pastes the clipboard into the shell tab.
-        Paste
+        Paste,
+        /// Opens the common settings at the page シェル.
+        OpenSettings
     ]
 );
 

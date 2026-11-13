@@ -69,14 +69,15 @@ fn a_new_tab_starts_the_shell_of_the_setting_with_its_command_line_as_written(
 }
 
 /// The scrollback of the setting is the one the tab starts with, and a tab that is open keeps its own when the
-/// setting changes. (Unix: ConPTY repaints the screen and puts lines into the scrollback by itself.)
+/// setting changes. The output is longer than any screen the test window can give (a taller tab takes lines
+/// back from the scrollback, so a short output would leave it empty). (Unix: ConPTY repaints the screen and puts lines into the scrollback by itself.)
 #[cfg(unix)]
 #[gpui::test]
 fn a_new_tab_takes_the_scrollback_of_the_setting_and_an_open_tab_keeps_its_own(
     cx: &mut TestAppContext,
 ) {
     let handle = terminal_window(cx);
-    let line = "/bin/sh -c 'i=0; while [ $i -lt 100 ]; do echo line$i; i=$((i+1)); done; echo done-printing; exec cat'";
+    let line = "/bin/sh -c 'i=0; while [ $i -lt 1000 ]; do echo line$i; i=$((i+1)); done; echo done-printing; exec cat'";
     configure(cx, line, 7);
     let first = open_configured(cx, handle);
     wait_for_text(cx, &first, "done-printing");

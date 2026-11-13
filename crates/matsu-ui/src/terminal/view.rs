@@ -17,7 +17,7 @@ use matsu_terminal::{EventReceiver, Snapshot, Terminal, TerminalEvent, TerminalS
 use super::element::{CellSize, TerminalElement};
 use super::input::{ScrollKey, Translated, translate_with};
 use super::palette::Palette;
-use super::{Close, Copy, Paste};
+use super::{Close, Copy, OpenSettings, Paste};
 use crate::app::Workspace;
 use crate::status::StatusInfo;
 use crate::view::RunFunction;
@@ -397,8 +397,8 @@ impl TerminalView {
         }
     }
 
-    /// How many lines the scrollback holds now (for the tests).
-    #[cfg(test)]
+    /// How many lines the scrollback holds now (for the tests that read it; they run on Unix only).
+    #[cfg(all(test, unix))]
     pub(crate) fn history_size(&self) -> usize {
         self.terminal.snapshot().info.history_size
     }
@@ -591,6 +591,17 @@ impl Render for TerminalView {
                 }))
             })
             .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste(window, cx)))
+            .on_action(cx.listener(|_, _: &OpenSettings, window, cx| {
+                // After the action ends: the dialog looks at the window's view, which is being updated now.
+                let opener = window.window_handle();
+                window.defer(cx, move |_, app| {
+                    crate::common_settings::open(
+                        app,
+                        Some(crate::common_settings::Page::Terminal),
+                        Some(opener),
+                    );
+                });
+            }))
             .on_action(cx.listener(|this, action: &RunFunction, window, cx| {
                 let code = action.code;
                 this.in_workspace(window, cx, move |ws, window, cx| {

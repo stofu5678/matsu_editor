@@ -807,3 +807,35 @@ fn the_windows_to_arrange_include_a_window_that_holds_only_a_shell(cx: &mut Test
     view.update(cx, |view, _| view.shutdown());
     assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
 }
+
+/// Alt+letter goes to the program in a shell tab, so the menu of the tab is the way to the settings: it
+/// opens the common settings at the page シェル.
+#[gpui::test]
+fn the_menu_of_the_shell_opens_the_settings_at_the_shell_page(cx: &mut TestAppContext) {
+    use gpui::Focusable as _;
+    let handle = terminal_window(cx);
+    let view = open(cx, handle, staying());
+    wait_for_text(cx, &view, "hello");
+    handle
+        .update(cx, |_, window, app| {
+            let focus = view.focus_handle(app);
+            window.focus(&focus, app);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(
+        cx.update(|app| crate::common_settings::current_dialog(app))
+            .is_none()
+    );
+    visual(cx, handle).dispatch_action(crate::terminal::OpenSettings);
+    cx.run_until_parked();
+    let dialog = cx
+        .update(|app| crate::common_settings::current_dialog(app))
+        .expect("the settings are open");
+    assert_eq!(
+        dialog.read_with(cx, |dialog, _| dialog.page()),
+        crate::common_settings::Page::Terminal
+    );
+    view.update(cx, |view, _| view.shutdown());
+    assert!(matsu_terminal::wait_for_closing(Duration::from_secs(60)));
+}

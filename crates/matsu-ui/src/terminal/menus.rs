@@ -6,7 +6,7 @@
 use gpui::{Menu, MenuItem, OwnedMenuItem};
 use matsu_commands::sakura::FUNCTIONS;
 
-use super::{Close, Copy, Paste};
+use super::{Close, Copy, OpenSettings, Paste};
 use crate::app::Workspace;
 use crate::tabs::content::TabContent;
 use crate::view::RunFunction;
@@ -30,6 +30,8 @@ pub(crate) fn menus() -> Vec<Menu> {
         MenuItem::action("コピー(O)", Copy),
         MenuItem::action("貼り付け(V)", Paste),
         MenuItem::separator(),
+        // Alt+letter goes to the program in a shell tab, so the menu is the way to the settings from here.
+        MenuItem::action("シェルの設定(T)...", OpenSettings),
         MenuItem::action("シェルのタブを開く(S)", function("F_SHELL_TAB")),
         MenuItem::action("新規作成(N)", function("F_FILENEW")),
         MenuItem::separator(),
@@ -96,6 +98,32 @@ mod tests {
             )
         });
         assert!(!paste_disabled);
+    }
+
+    #[test]
+    fn the_menu_has_the_settings_item_and_no_access_key_twice() {
+        let names: Vec<String> = items()
+            .iter()
+            .filter_map(|item| match item {
+                OwnedMenuItem::Action { name, action, .. } => {
+                    action.as_any().downcast_ref::<OpenSettings>()?;
+                    Some(name.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, ["シェルの設定(T)..."]);
+        let mut keys: Vec<char> = items()
+            .iter()
+            .filter_map(|item| match item {
+                OwnedMenuItem::Action { name, .. } => name.rsplit_once('(')?.1.chars().next(),
+                _ => None,
+            })
+            .collect();
+        let all = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), all, "an access key is used twice: {keys:?}");
     }
 
     #[test]
