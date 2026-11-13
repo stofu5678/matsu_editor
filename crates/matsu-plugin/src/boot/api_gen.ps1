@@ -1721,6 +1721,210 @@ $global:MatsuApiNames = @(
     # MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the menu and
     # a key macro run.
     'ShellTab'
+    # OneLiner0() -> null
+    # MATSU Editor's own F_ONELINER_0 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner0'
+    # OneLiner1() -> null
+    # MATSU Editor's own F_ONELINER_1 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner1'
+    # OneLiner2() -> null
+    # MATSU Editor's own F_ONELINER_2 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner2'
+    # OneLiner3() -> null
+    # MATSU Editor's own F_ONELINER_3 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner3'
+    # OneLiner4() -> null
+    # MATSU Editor's own F_ONELINER_4 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner4'
+    # OneLiner5() -> null
+    # MATSU Editor's own F_ONELINER_5 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner5'
+    # OneLiner6() -> null
+    # MATSU Editor's own F_ONELINER_6 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner6'
+    # OneLiner7() -> null
+    # MATSU Editor's own F_ONELINER_7 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner7'
+    # OneLiner8() -> null
+    # MATSU Editor's own F_ONELINER_8 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner8'
+    # OneLiner9() -> null
+    # MATSU Editor's own F_ONELINER_9 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    'OneLiner9'
+    # OneLiner10() -> null
+    # MATSU Editor's own F_ONELINER_10 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner10'
+    # OneLiner11() -> null
+    # MATSU Editor's own F_ONELINER_11 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner11'
+    # OneLiner12() -> null
+    # MATSU Editor's own F_ONELINER_12 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner12'
+    # OneLiner13() -> null
+    # MATSU Editor's own F_ONELINER_13 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner13'
+    # OneLiner14() -> null
+    # MATSU Editor's own F_ONELINER_14 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner14'
+    # OneLiner15() -> null
+    # MATSU Editor's own F_ONELINER_15 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner15'
+    # OneLiner16() -> null
+    # MATSU Editor's own F_ONELINER_16 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner16'
+    # OneLiner17() -> null
+    # MATSU Editor's own F_ONELINER_17 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner17'
+    # OneLiner18() -> null
+    # MATSU Editor's own F_ONELINER_18 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner18'
+    # OneLiner19() -> null
+    # MATSU Editor's own F_ONELINER_19 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner19'
+    # OneLiner20() -> null
+    # MATSU Editor's own F_ONELINER_20 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner20'
+    # OneLiner21() -> null
+    # MATSU Editor's own F_ONELINER_21 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner21'
+    # OneLiner22() -> null
+    # MATSU Editor's own F_ONELINER_22 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner22'
+    # OneLiner23() -> null
+    # MATSU Editor's own F_ONELINER_23 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner23'
+    # OneLiner24() -> null
+    # MATSU Editor's own F_ONELINER_24 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner24'
+    # OneLiner25() -> null
+    # MATSU Editor's own F_ONELINER_25 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner25'
+    # OneLiner26() -> null
+    # MATSU Editor's own F_ONELINER_26 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner26'
+    # OneLiner27() -> null
+    # MATSU Editor's own F_ONELINER_27 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner27'
+    # OneLiner28() -> null
+    # MATSU Editor's own F_ONELINER_28 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner28'
+    # OneLiner29() -> null
+    # MATSU Editor's own F_ONELINER_29 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner29'
+    # OneLiner30() -> null
+    # MATSU Editor's own F_ONELINER_30 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner30'
+    # OneLiner31() -> null
+    # MATSU Editor's own F_ONELINER_31 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner31'
+    # OneLiner32() -> null
+    # MATSU Editor's own F_ONELINER_32 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner32'
+    # OneLiner33() -> null
+    # MATSU Editor's own F_ONELINER_33 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner33'
+    # OneLiner34() -> null
+    # MATSU Editor's own F_ONELINER_34 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner34'
+    # OneLiner35() -> null
+    # MATSU Editor's own F_ONELINER_35 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner35'
+    # OneLiner36() -> null
+    # MATSU Editor's own F_ONELINER_36 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner36'
+    # OneLiner37() -> null
+    # MATSU Editor's own F_ONELINER_37 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner37'
+    # OneLiner38() -> null
+    # MATSU Editor's own F_ONELINER_38 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner38'
+    # OneLiner39() -> null
+    # MATSU Editor's own F_ONELINER_39 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner39'
+    # OneLiner40() -> null
+    # MATSU Editor's own F_ONELINER_40 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner40'
+    # OneLiner41() -> null
+    # MATSU Editor's own F_ONELINER_41 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner41'
+    # OneLiner42() -> null
+    # MATSU Editor's own F_ONELINER_42 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner42'
+    # OneLiner43() -> null
+    # MATSU Editor's own F_ONELINER_43 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner43'
+    # OneLiner44() -> null
+    # MATSU Editor's own F_ONELINER_44 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner44'
+    # OneLiner45() -> null
+    # MATSU Editor's own F_ONELINER_45 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner45'
+    # OneLiner46() -> null
+    # MATSU Editor's own F_ONELINER_46 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner46'
+    # OneLiner47() -> null
+    # MATSU Editor's own F_ONELINER_47 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner47'
+    # OneLiner48() -> null
+    # MATSU Editor's own F_ONELINER_48 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner48'
+    # OneLiner49() -> null
+    # MATSU Editor's own F_ONELINER_49 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    'OneLiner49'
+    # OneLinerDialog() -> null
+    # MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
+    'OneLinerDialog'
     # TraceOut(arg1: string?, arg2: int?) -> null
     # MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a
     # key macro run.
