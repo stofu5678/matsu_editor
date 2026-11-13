@@ -228,3 +228,33 @@ fn a_secret_whose_end_lies_past_the_display_cut_is_still_masked() {
     assert_eq!(p.secret_lines_total, 1);
     assert!(!p.head[0].text.contains("ppppp"));
 }
+
+#[test]
+fn the_lines_of_a_private_key_are_masked_whole() {
+    let key = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj";
+    let d = doc(&format!(
+        "前\n-----BEGIN PRIVATE KEY-----\n{key}\nshort+/=\n-----END PRIVATE KEY-----\n後\n"
+    ));
+    let p = all(&d, &PreviewLimits::default());
+    let shown: String = p.head.iter().map(|l| l.text.clone() + "\n").collect();
+    assert!(!shown.contains("MIIEv"), "{shown}");
+    assert!(!shown.contains("short"), "{shown}");
+    assert!(shown.contains("前") && shown.contains("後"));
+    assert_eq!(p.secret_lines_total, 1, "only the marker line is listed");
+}
+
+#[test]
+fn a_key_payload_in_the_tail_is_masked_even_when_the_block_start_is_far() {
+    let key = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj";
+    let limits = PreviewLimits {
+        scan_bytes: 100,
+        ..PreviewLimits::default()
+    };
+    let d = doc(&format!("{}{key}\n{key}\n", "行\n".repeat(200)));
+    let p = all(&d, &limits);
+    assert!(
+        p.tail.iter().all(|l| !l.text.contains("MIIEv")),
+        "{:?}",
+        p.tail
+    );
+}

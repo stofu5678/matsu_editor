@@ -166,7 +166,6 @@ impl AiConfirmDialog {
         let on_dont = self.dont_send_focus.is_focused(window);
         match event.keystroke.key.as_str() {
             "escape" => self.finish(false, window, cx),
-            "tab" => self.move_focus(!event.keystroke.modifiers.shift, window, cx),
             "space" if on_check => self.toggle_check(cx),
             "enter" | "space" if on_send => self.finish(true, window, cx),
             "enter" | "space" if on_dont => self.finish(false, window, cx),
@@ -384,6 +383,19 @@ impl Render for AiConfirmDialog {
         let panel = crate::a11y::dialog(div().id("ai-confirm-dialog"), &title)
             .key_context("AiConfirmDialog")
             .on_key_down(cx.listener(Self::on_key_down))
+            // Tab is taken before the window's own bindings (`gpui_component::Root` moves the
+            // focus with it) and stays among the three controls.
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let modifiers = event.keystroke.modifiers;
+                if event.keystroke.key == "tab"
+                    && !modifiers.control
+                    && !modifiers.alt
+                    && !modifiers.platform
+                {
+                    this.move_focus(!modifiers.shift, window, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .w(px(640.))
             .max_w_full()
             .p_4()

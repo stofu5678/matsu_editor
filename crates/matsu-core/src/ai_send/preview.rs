@@ -130,21 +130,10 @@ pub fn preview_range(
     let range = Selection { doc, from, to };
     preview.lines = last - from.line + 1;
 
-    let shown = limits.head_lines + limits.tail_lines;
-    if preview.lines <= shown {
-        for i in from.line..=last {
-            preview.head.push(range.shown_line(i, limits)?);
-        }
-    } else {
-        for i in from.line..from.line + limits.head_lines {
-            preview.head.push(range.shown_line(i, limits)?);
-        }
-        for i in last + 1 - limits.tail_lines..=last {
-            preview.tail.push(range.shown_line(i, limits)?);
-        }
-        preview.omitted_lines = preview.lines - shown;
-    }
-
+    // The lines inside `-----BEGIN ... PRIVATE KEY-----` blocks (after the marker, up to the
+    // `-----END` line): their text is the secret and is shown masked whole, line by line.
+    let mut key_payload: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut key_from: Option<usize> = None;
     let mut budget = limits.scan_bytes;
     let mut scanned_bytes = 0;
     for i in from.line..=last {
@@ -164,7 +153,19 @@ pub fn preview_range(
                 scanned_bytes += eol.as_str().len();
             }
         }
+        if let Some(start) = key_from
+            && text.contains("-----END")
+        {
+            key_payload.push(start..i);
+            key_from = None;
+        }
         let matches = find_secrets(&text);
+        if key_from.is_none()
+            && matches.iter().any(|m| m.kind == SecretKind::PrivateKey)
+            && !text.contains("-----END")
+        {
+            key_from = Some(i + 1);
+        }
         if !matches.is_empty() {
             preview.secret_lines_total += 1;
             if preview.secrets.len() < limits.max_secret_lines {
@@ -189,6 +190,31 @@ pub fn preview_range(
             break;
         }
     }
+    if let Some(start) = key_from {
+        // No end marker in what was scanned: the rest of the range is the key.
+        key_payload.push(start..last + 1);
+    }
+    let shown = limits.head_lines + limits.tail_lines;
+    if preview.lines <= shown {
+        for i in from.line..=last {
+            preview
+                .head
+                .push(range.shown_line(i, limits, &key_payload)?);
+        }
+    } else {
+        for i in from.line..from.line + limits.head_lines {
+            preview
+                .head
+                .push(range.shown_line(i, limits, &key_payload)?);
+        }
+        for i in last + 1 - limits.tail_lines..=last {
+            preview
+                .tail
+                .push(range.shown_line(i, limits, &key_payload)?);
+        }
+        preview.omitted_lines = preview.lines - shown;
+    }
+
     preview.bytes = raw_len.max(scanned_bytes);
     preview.large = preview.bytes > LARGE_TEXT_BYTES;
     Ok(preview)
@@ -234,16 +260,38 @@ impl Selection<'_> {
     }
 
     /// Line `i` as the window shows it: masked, and cut to `limits.line_chars`.
-    fn shown_line(&self, i: usize, limits: &PreviewLimits) -> Result<PreviewLine> {
+    fn shown_line(
+        &self,
+        i: usize,
+        limits: &PreviewLimits,
+        key_payload: &[std::ops::Range<usize>],
+    ) -> Result<PreviewLine> {
         // Read as much as the scan does of a line, so that a secret that the scan finds is found
         // here too and masked (the shown part is cut after masking).
         let (text, _) = self.read(i, SHOWN_READ_BYTES)?;
-        let masked = mask_line(&text, &find_secrets(&text));
+        // Inside a private key block the whole line is the secret. The block is not known for a
+        // line the scan did not reach (a tail line of a huge range), so a line that looks like a
+        // line of a key (base64, 60 characters or more, no spaces) is masked too.
+        let masked = if key_payload.iter().any(|r| r.contains(&i)) || looks_like_key_payload(&text)
+        {
+            text.chars().map(|_| '*').collect()
+        } else {
+            mask_line(&text, &find_secrets(&text))
+        };
         Ok(PreviewLine {
             number: i + 1,
             text: window_around(&masked, 0, limits.line_chars),
         })
     }
+}
+
+/// A line of base64 of 60 characters or more without a space: what the lines of a PEM key look
+/// like (they have 64 to 76).
+fn looks_like_key_payload(line: &str) -> bool {
+    line.len() >= 60
+        && line
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
 }
 
 /// At most `max` characters of `text`, around the character index `at` (20 characters before it),
