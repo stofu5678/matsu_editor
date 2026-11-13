@@ -535,7 +535,7 @@ pub fn find_shared(
 ) -> Vec<Shared> {
     // Every window of `min_real` characters of Sakura's help. A run with `min_real` real characters is at least
     // that long. The positions per window are capped: a window that occurs very often is made of names.
-    const MAX_POSITIONS: usize = 256;
+    const MAX_POSITIONS: usize = 4096;
     let mut index: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
     for (file, (_, page)) in sakura.iter().enumerate() {
         for (start, hash) in window_hashes(&page.chars, min_real) {

@@ -106,6 +106,14 @@ fn heading_text(raw: &str) -> String {
             // An underscore at the edge of a word is an emphasis mark (`_設定_`); one inside a word stays.
             '_' if before.is_none_or(char::is_whitespace)
                 || chars.peek().is_none_or(|n| n.is_whitespace()) => {}
+            ']' if chars.peek() == Some(&'[') => {
+                // The label of a reference link, `[text][label]`.
+                for n in chars.by_ref() {
+                    if n == ']' {
+                        break;
+                    }
+                }
+            }
             ']' if chars.peek() == Some(&'(') => {
                 for n in chars.by_ref() {
                     if n == ')' {
@@ -497,6 +505,15 @@ mod tests {
         let ids = anchors("# a\n\n<!--\n## 隠す\n-->\n\n<!-- ## 一行 -->\n\n## 見せる\n");
         assert!(
             ids.contains("見せる") && !ids.contains("隠す") && !ids.contains("一行"),
+            "{ids:?}"
+        );
+    }
+
+    #[test]
+    fn reference_link_labels_are_not_in_the_anchor() {
+        let ids = anchors("## [設定][settings]\n\n[settings]: a.md\n");
+        assert!(
+            ids.contains("設定") && !ids.contains("設定settings"),
             "{ids:?}"
         );
     }
