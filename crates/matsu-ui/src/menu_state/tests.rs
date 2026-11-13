@@ -70,6 +70,7 @@ pub(super) fn base() -> FuncStates {
         key_search: false,
         oneliners: Default::default(),
         command_running: false,
+        text_locked: false,
     }
 }
 

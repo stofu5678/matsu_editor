@@ -141,6 +141,10 @@ pub(crate) struct FuncStates {
     /// A command that takes the output runs in the window (the box of 外部コマンド実行 and of the one-liners is
     /// shown): the one-liners and their dialog wait.
     pub command_running: bool,
+    /// The text cannot be changed: view mode, a file that cannot be written (`uneditable_if_unwritable`), or only
+    /// the start of a big file (`oneliner::flow::can_edit`, what the commands refuse). The one-liners that put their
+    /// result into the document wait for it.
+    pub text_locked: bool,
 }
 
 /// The name of the function with this code (`F_UNDO`), if it is in Sakura's table.
@@ -251,6 +255,7 @@ impl FuncStates {
                 .map(crate::settings::UserSettings::shared_oneliners)
                 .unwrap_or_default(),
             command_running: view.support.exec_running.is_some() || view.support.oneliner_starting,
+            text_locked: !crate::oneliner::flow::can_edit(view, cx),
         }
     }
 
@@ -427,7 +432,7 @@ impl FuncStates {
         Some(
             one.is_registered()
                 && !self.command_running
-                && (one.output == OutputTo::OutputWindow || !self.view_mode),
+                && (one.output == OutputTo::OutputWindow || !(self.view_mode || self.text_locked)),
         )
     }
 }

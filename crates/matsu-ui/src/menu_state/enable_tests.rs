@@ -540,6 +540,13 @@ fn the_oneliners_are_grayed_for_an_unregistered_slot_a_view_mode_and_a_run() {
         "replace needs a document that can be edited"
     );
     assert!(view.is_enabled(f(1)), "the output window does not");
+    // a file that cannot be written, or the start of a big file: the same as view mode
+    let locked = FuncStates {
+        text_locked: true,
+        ..base.clone()
+    };
+    assert!(!locked.is_enabled(f(0)));
+    assert!(locked.is_enabled(f(1)));
     let running = FuncStates {
         command_running: true,
         ..base
