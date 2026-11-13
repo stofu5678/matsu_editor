@@ -577,11 +577,9 @@ fn a_character_of_the_layout_is_typed_and_not_taken_as_a_key_of_the_window(
         prefer_character_input: true,
     });
     cx.run_until_parked();
-    // The terminal does not take the key, and the window does not either: the platform goes on to deliver
-    // the character as text, to the input handler (the test does what the platform does).
+    // The terminal writes the character itself (a key with Ctrl and Alt is not delivered as text on every
+    // platform), and the window does not run the key.
     assert_eq!(active_tab(cx, handle), 1, "the window did not run the key");
-    visual(cx, handle).simulate_input("\u{20ac}");
-    cx.run_until_parked();
     wait_for_text(cx, &view, "\u{20ac}");
 }
 

@@ -86,7 +86,9 @@ impl TerminalView {
             return;
         }
         if !encoding.needs_confirmation {
-            self.write_paste(&text);
+            // The bytes that were checked are the ones written (the modes may change between two encodings).
+            self.clear_selection();
+            self.send(&encoding.bytes);
             return;
         }
         // One question at a time: a second paste while it is open is dropped.

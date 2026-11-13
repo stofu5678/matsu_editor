@@ -393,7 +393,16 @@ impl TerminalView {
             return;
         }
         match translate(&event.keystroke, event.prefer_character_input, mac) {
-            // Text is the input handler's (`view::ime`), whatever the platform does with the key.
+            // A character typed with Ctrl and Alt both down (AltGr on Windows, a layout's level on others):
+            // the Linux backends of GPUI hand a key's text to the input handler only when no modifier but
+            // Shift is down, so it is written here. (No `WM_CHAR` follows a handled key on Windows.)
+            Translated::Text(text)
+                if event.keystroke.modifiers.control && event.keystroke.modifiers.alt =>
+            {
+                cx.stop_propagation();
+                self.send_text(&text);
+            }
+            // Other text is the input handler's (`view::ime`), whatever the platform does with the key.
             Translated::Pass | Translated::Text(_) => {}
             Translated::Ignore => cx.stop_propagation(),
             Translated::Key(key, mods) => {
