@@ -14,7 +14,7 @@
 //! ```
 //!
 //! * `Name[nnn]`, `Command[nnn]`, `Output[nnn]` for `nnn` in `000..=049` ([`MAX_ONELINER`]). A slot whose
-//!   `Command` is empty or absent is not registered: it reads as an empty slot, and writing it removes its keys.
+//!   `Command` is empty, only spaces or absent is not registered: it reads as an empty slot, and writing it removes its keys.
 //! * `Output`: 0 replace, 1 next line, 2 output window ([`OutputTo`]). Absent, not a number or any other number
 //!   reads as 0.
 //! * `Recent[00]`..`Recent[19]` ([`MAX_ONELINER_RECENT`]): the history of the input dialog, most recent first.
@@ -118,7 +118,7 @@ pub struct OneLiner {
 impl OneLiner {
     /// A one-liner with a command can run.
     pub fn is_registered(&self) -> bool {
-        !self.command.is_empty()
+        !self.command.trim().is_empty()
     }
 
     /// The name, or the command when there is no name.
@@ -235,8 +235,10 @@ impl OneLiners {
             let Some(command) = profile.get(SECTION, &key("Command", i)) else {
                 continue;
             };
-            let command = command.trim();
-            if command.is_empty() || has_break(command) || units(command) >= COMMAND_MAX_UNITS {
+            if command.trim().is_empty()
+                || has_break(command)
+                || units(command) >= COMMAND_MAX_UNITS
+            {
                 continue;
             }
             slot.command = command.to_owned();

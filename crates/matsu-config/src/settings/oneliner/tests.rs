@@ -239,3 +239,17 @@ fn the_functions_and_the_numbers_go_both_ways() {
     assert_eq!(F_ONELINER_DIALOG + 1, F_ONELINER_SETTINGS);
     assert_eq!(index_of_function(F_ONELINER_LIST), None);
 }
+
+#[test]
+fn spaces_of_a_command_are_kept_but_a_command_of_spaces_is_not_registered() {
+    // `printf '%s' foo\ ` ends with an escaped space that is part of the argument.
+    let mut table = OneLiners::default();
+    table.slots[0] = one("n", "printf '%s' foo\\ ", OutputTo::Replace);
+    table.slots[1] = one("blank", "   ", OutputTo::Replace);
+    let mut p = profile("");
+    assert_eq!(table.store(&mut p), Ok(true));
+    assert_eq!(p.get(SECTION, "Command[001]"), None);
+    let read = OneLiners::from_profile(&Profile::from_bytes(&p.to_bytes()));
+    assert_eq!(read.slots[0].command, "printf '%s' foo\\ ");
+    assert!(!read.slots[1].is_registered());
+}
