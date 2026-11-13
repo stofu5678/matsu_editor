@@ -26,7 +26,7 @@ use crate::view::text_font::TextFont;
 mod clipboard;
 mod ime;
 
-pub(super) use ime::preedit_cells;
+pub(super) use ime::{preedit_cells, rows_up};
 
 /// The group of the functions of the window (`FUNCTION_GROUPS`: ウィンドウ系). The keys of its functions stay
 /// with the window while a terminal has the focus (ADR-0028 point 9).
@@ -374,9 +374,10 @@ impl TerminalView {
             // text. The platform gives the IME the keys first, so one that arrives here is one it let go;
             // it is not the program's. A key with text goes on to the input handler (the second key of a
             // dead key, a character the IME declined).
+            // (The keys of the menus and the window that `translate` passes stay free.)
             if !matches!(
                 translate(&event.keystroke, event.prefer_character_input, mac),
-                Translated::Text(_)
+                Translated::Text(_) | Translated::Pass
             ) {
                 cx.stop_propagation();
             }
@@ -458,7 +459,6 @@ impl Render for TerminalView {
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
-            .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .when(selected, |el| {

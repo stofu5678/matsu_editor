@@ -83,6 +83,24 @@ fn spaces_inside_a_line_stay() {
     let (mut term, _) = term(20, 2, "a   b");
     select(&mut term, (0, 0), (0, 10));
     assert_eq!(text(&term).as_deref(), Some("a   b"));
+    // also when the selection ends among them: they come before a character, they are not padding
+    select(&mut term, (0, 0), (0, 2));
+    assert_eq!(text(&term).as_deref(), Some("a  "));
+}
+
+#[test]
+fn blanks_after_the_last_character_are_not_copied() {
+    let (mut term, _) = term(10, 2, "ab    ");
+    select(&mut term, (0, 0), (0, 9));
+    assert_eq!(text(&term).as_deref(), Some("ab"));
+}
+
+#[test]
+fn a_blank_with_a_background_of_its_own_is_copied() {
+    // "ab", two blanks, a red blank, then nothing
+    let (mut term, _) = term(10, 2, "ab  \x1b[41m \x1b[0m");
+    select(&mut term, (0, 0), (0, 9));
+    assert_eq!(text(&term).as_deref(), Some("ab   "));
 }
 
 #[test]

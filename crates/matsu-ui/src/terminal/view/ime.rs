@@ -27,8 +27,8 @@ use super::TerminalView;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Marked {
     pub text: String,
-    /// Where the IME's caret is in `text`, in UTF-16 units.
-    pub caret: usize,
+    /// The IME's selection (a caret when it is empty) in `text`, in UTF-16 units.
+    pub selection: Range<usize>,
 }
 
 /// A character of the preedit on the grid: a grapheme cluster, the columns it covers and where it is, as a
@@ -72,6 +72,13 @@ pub(crate) fn preedit_cells(text: &str, column: usize, columns: usize) -> Vec<Pr
     cells
 }
 
+/// How many rows the preedit is moved up so that its last row is on the screen: a preedit that begins near the
+/// right end of the bottom row wraps below the screen, and it is drawn over the rows above instead.
+pub(crate) fn rows_up(cells: &[PreeditCell], cursor_row: usize, rows: usize) -> usize {
+    let last = cells.last().map_or(0, |cell| cell.row);
+    (cursor_row + last + 1).saturating_sub(rows)
+}
+
 fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
@@ -99,6 +106,18 @@ fn slice_utf16(text: &str, range: &Range<usize>) -> (String, Range<usize>) {
     let start = start.unwrap_or(total);
     let end = end.unwrap_or(total).max(start);
     (slice, start..end)
+}
+
+/// The preedit after `text` takes the place of `range` (UTF-16 units) of the preedit there is, and where `text`
+/// starts in it (UTF-16 units). Without a preedit, or without a range, `text` is all of it.
+fn replaced(old: Option<&str>, range: Option<&Range<usize>>, text: &str) -> (String, usize) {
+    let (Some(old), Some(range)) = (old, range) else {
+        return (text.to_owned(), 0);
+    };
+    let (_, actual) = slice_utf16(old, range);
+    let (before, _) = slice_utf16(old, &(0..actual.start));
+    let (after, _) = slice_utf16(old, &(actual.end..usize::MAX));
+    (format!("{before}{text}{after}"), actual.start)
 }
 
 /// The text of a composition as the terminal keeps it: a line break would run a command, so none.
@@ -163,9 +182,12 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        let caret = self.marked.as_ref().map_or(0, |marked| marked.caret);
+        let range = self
+            .marked
+            .as_ref()
+            .map_or(0..0, |marked| marked.selection.clone());
         Some(UTF16Selection {
-            range: caret..caret,
+            range,
             reversed: false,
         })
     }
@@ -187,31 +209,38 @@ impl EntityInputHandler for TerminalView {
 
     fn replace_text_in_range(
         &mut self,
-        _: Option<Range<usize>>,
+        range_utf16: Option<Range<usize>>,
         text: &str,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // The terminal has no text for a range to point into: the text is what is typed next, and it ends
-        // the preedit.
+        // The terminal has no text for a range to point into but the preedit: what is committed takes the
+        // place of the range of it (all of it without a range) and ends it. Without a preedit the text is
+        // what is typed next.
+        let (text, _) = replaced(self.preedit(), range_utf16.as_ref(), text);
         self.end_composition();
-        self.send_text(text);
+        self.send_text(&text);
         cx.notify();
     }
 
     fn replace_and_mark_text_in_range(
         &mut self,
-        _: Option<Range<usize>>,
+        range_utf16: Option<Range<usize>>,
         text: &str,
         new_selected_range_utf16: Option<Range<usize>>,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let text = composition_text(text);
+        let added = utf16_len(&text);
+        let (text, base) = replaced(self.preedit(), range_utf16.as_ref(), &text);
         self.marked = (!text.is_empty()).then(|| {
             let len = utf16_len(&text);
-            let caret = new_selected_range_utf16.map_or(len, |range| range.end.min(len));
-            Marked { text, caret }
+            // The IME's selection is relative to the text it gave, which starts at `base` in the preedit.
+            let selection = new_selected_range_utf16.map_or(base + added..base + added, |range| {
+                (base + range.start).min(len)..(base + range.end).min(len)
+            });
+            Marked { text, selection }
         });
         cx.notify();
     }
@@ -249,9 +278,17 @@ impl EntityInputHandler for TerminalView {
                 .unwrap_or((0, info.cursor.column))
         };
         let (row, column) = at(range_utf16.start);
+        // A preedit that wraps below the last row is drawn higher (`rows_up`): the window opens there too.
+        let screen_rows = usize::from(self.size.rows);
+        let cursor_row =
+            usize::try_from(i64::from(info.cursor.row) + info.display_offset as i64).unwrap_or(0);
+        let up = rows_up(&cells, cursor_row, screen_rows);
+        let shown = (cursor_row + row)
+            .saturating_sub(up)
+            .min(screen_rows.saturating_sub(1));
         let origin = Point {
             x: origin.x + px((column as f32 - info.cursor.column as f32) * width),
-            y: origin.y + px(row as f32 * height),
+            y: origin.y + px((shown as f32 - cursor_row as f32) * height),
         };
         // A range on one row is as wide as its cells; one over several rows is one cell (the candidate
         // window opens at the start).
@@ -300,6 +337,17 @@ mod tests {
     }
 
     #[test]
+    fn a_preedit_that_wraps_below_the_screen_is_moved_up() {
+        let cells = preedit_cells("aあい", 3, 5);
+        // it takes two rows (0 and 1): from the last row of 24 it needs one row more than there is
+        assert_eq!(rows_up(&cells, 23, 24), 1);
+        assert_eq!(rows_up(&cells, 22, 24), 0);
+        // one row only: nothing to move
+        assert_eq!(rows_up(&preedit_cells("a", 0, 5), 23, 24), 0);
+        assert_eq!(rows_up(&[], 23, 24), 0);
+    }
+
+    #[test]
     fn a_wide_character_that_does_not_fit_goes_to_the_next_row() {
         // 5 columns, starting at column 3: "a" at 3, "あ" needs 2 and 4+2 > 5
         let cells = preedit_cells("aあい", 3, 5);
@@ -329,6 +377,32 @@ mod tests {
         assert_eq!((slice.as_str(), actual), ("", 1..1));
         let (slice, actual) = slice_utf16("abc", &(0..99));
         assert_eq!((slice.as_str(), actual), ("abc", 0..3));
+    }
+
+    #[test]
+    fn a_range_of_the_preedit_is_replaced_and_the_rest_stays() {
+        // no preedit, or no range: the text is all of it
+        assert_eq!(replaced(None, Some(&(0..2)), "xy"), ("xy".to_owned(), 0));
+        assert_eq!(replaced(Some("abcd"), None, "xy"), ("xy".to_owned(), 0));
+        // a range of it
+        assert_eq!(
+            replaced(Some("abcd"), Some(&(1..3)), "X"),
+            ("aXd".to_owned(), 1)
+        );
+        // an empty range inserts; a range past the end appends
+        assert_eq!(
+            replaced(Some("abcd"), Some(&(2..2)), "X"),
+            ("abXcd".to_owned(), 2)
+        );
+        assert_eq!(
+            replaced(Some("abcd"), Some(&(9..12)), "X"),
+            ("abcdX".to_owned(), 4)
+        );
+        // UTF-16 units: the emoji is two
+        assert_eq!(
+            replaced(Some("a😀b"), Some(&(1..3)), "-"),
+            ("a-b".to_owned(), 1)
+        );
     }
 
     #[test]

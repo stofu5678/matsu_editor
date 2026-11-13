@@ -128,8 +128,10 @@ pub(crate) fn span<T>(term: &Term<T>) -> Option<SelectionSpan> {
 /// The selected text, with `\n` between lines (the UI turns that into the platform's line end).
 ///
 /// - A line that wraps (the program wrote past the last column) is joined to the next without a line end.
-/// - The blanks at the end of a line are cut, as terminals do: the cells to the right of the last character
-///   are empty, not spaces the user typed. A line of only blanks becomes an empty line.
+/// - The blanks to the right of the last character of a line are not copied, as terminals do: those cells
+///   are empty, there are no spaces the user typed. (`alacritty_terminal` stops at the last cell that is not
+///   empty; a cell with a background color of its own is not empty, so its space is copied.) Spaces before a
+///   character are kept, also when the selection ends among them.
 /// - A wide character is one character, and combining characters stay with their base.
 /// - Selecting lines (a triple click) gives the text of the lines without a line end after the last one.
 pub(crate) fn text<T>(term: &Term<T>) -> Option<String> {
@@ -138,16 +140,11 @@ pub(crate) fn text<T>(term: &Term<T>) -> Option<String> {
         .selection
         .as_ref()
         .is_some_and(|selection| selection.ty == SelectionType::Lines);
-    let selected = if by_lines {
-        selected.strip_suffix('\n').unwrap_or(&selected)
+    Some(if by_lines {
+        selected.strip_suffix('\n').unwrap_or(&selected).to_owned()
     } else {
-        &selected
-    };
-    let lines: Vec<&str> = selected
-        .split('\n')
-        .map(|line| line.trim_end_matches(' '))
-        .collect();
-    Some(lines.join("\n"))
+        selected
+    })
 }
 
 #[cfg(test)]

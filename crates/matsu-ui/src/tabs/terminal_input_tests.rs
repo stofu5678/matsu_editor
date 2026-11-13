@@ -492,6 +492,33 @@ fn ctrl_c_is_the_programs_on_macos_even_with_a_selection(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn a_drag_goes_on_past_the_edge_of_the_screen(cx: &mut TestAppContext) {
+    let handle = terminal_window(cx);
+    let view = open(cx, handle, words());
+    wait_for_line(cx, &view, "alpha beta gamma");
+    let (row, column) = find(cx, &view, "alpha beta gamma", "beta");
+    let from = view.read_with(cx, |view, _| {
+        view.cell_point(row, column, 0.25).expect("laid out")
+    });
+    // far to the right of the window, on the same row
+    let far = gpui::point(gpui::px(5000.), from.y);
+    let vcx = visual(cx, handle);
+    vcx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+    vcx.simulate_mouse_move(far, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    // the selection followed the pointer out of the screen: to the end of the row
+    assert_eq!(selected(cx, &view).as_deref(), Some("beta gamma"));
+    visual(cx, handle).simulate_mouse_up(far, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(selected(cx, &view).as_deref(), Some("beta gamma"));
+    // the button is up: moving the pointer changes nothing
+    let back = view.read_with(cx, |view, _| view.cell_point(row, 0, 0.25).unwrap());
+    visual(cx, handle).simulate_mouse_move(back, None, Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(selected(cx, &view).as_deref(), Some("beta gamma"));
+}
+
+#[gpui::test]
 fn double_click_selects_a_word_and_triple_click_the_line(cx: &mut TestAppContext) {
     let handle = terminal_window(cx);
     let view = open(cx, handle, words());

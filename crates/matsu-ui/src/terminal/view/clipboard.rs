@@ -202,7 +202,7 @@ impl TerminalView {
         cx.notify();
     }
 
-    pub(super) fn on_mouse_move(
+    pub(in crate::terminal) fn on_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
         _: &mut Window,
@@ -222,9 +222,18 @@ impl TerminalView {
         }
     }
 
-    pub(super) fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn on_mouse_up(
+        &mut self,
+        event: &MouseUpEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !std::mem::take(&mut self.dragging) {
             return;
+        }
+        // The button may go up where the pointer was not seen to move to (outside the window).
+        if let Some((row, column, side)) = self.cell_at(event.position) {
+            self.terminal.update_selection(row, column, side);
         }
         // A click that did not drag selects nothing, and clears what was selected before.
         if !self.terminal.has_selection() {

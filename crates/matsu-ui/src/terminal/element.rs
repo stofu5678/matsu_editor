@@ -12,14 +12,14 @@
 //! The screen is copied once per frame, under one short lock ([`matsu_terminal::Terminal::snapshot`]).
 
 use gpui::{
-    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, GlobalElementId,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign,
-    TextRun, Window, fill, point, px, relative, rgb, size,
+    App, Bounds, ContentMask, DispatchPhase, Element, ElementId, ElementInputHandler, Entity,
+    GlobalElementId, InspectorElementId, IntoElement, LayoutId, MouseMoveEvent, Pixels, ShapedLine,
+    SharedString, Style, TextAlign, TextRun, Window, fill, point, px, relative, rgb, size,
 };
 use matsu_terminal::{Cell, CursorShape, Row, SelectionSpan, Snapshot};
 
 use super::palette::{Packed, Palette, blend};
-use super::view::{TerminalView, preedit_cells};
+use super::view::{TerminalView, preedit_cells, rows_up};
 
 /// The height of a row, in pixels: the font's size and a little more, so that the box drawing of two rows
 /// meets without the gap of the editor's 1.5 lines.
@@ -122,6 +122,10 @@ fn resolve(cell: &Cell, palette: &Palette, block_cursor: bool, selected: bool) -
     let mut background = palette.background_of(cell.bg);
     if selected {
         background = palette.selection();
+        // Text of the very color of the selection would vanish in it.
+        if foreground == background {
+            foreground = palette.default_foreground();
+        }
     } else if cell.inverse != block_cursor {
         std::mem::swap(&mut foreground, &mut background);
     }
@@ -465,6 +469,14 @@ impl Element for TerminalElement {
             ElementInputHandler::new(bounds, self.view.clone()),
             cx,
         );
+        // A selection follows the pointer past the edge of the screen: an element's own move listener only
+        // hears the pointer while it is over the element, so the view listens on the window.
+        let view = self.view.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+            if phase == DispatchPhase::Bubble {
+                view.update(cx, |view, cx| view.on_mouse_move(event, window, cx));
+            }
+        });
         let fonts = Fonts::new(font);
         let size_px = px(font_size);
         let x_of = |column: usize| bounds.left() + px(column as f32 * cell.width);
@@ -576,8 +588,10 @@ impl Element for TerminalElement {
                 && on_screen(viewport_row, snapshot.rows.len())
             {
                 let cells = preedit_cells(text, cursor.column, snapshot.info.columns);
+                // A preedit that wraps below the last row is drawn higher, over the rows above.
+                let up = rows_up(&cells, viewport_row as usize, snapshot.rows.len());
                 for piece in &cells {
-                    let row = viewport_row as usize + piece.row;
+                    let row = (viewport_row as usize + piece.row).saturating_sub(up);
                     let at = point(
                         x_of(piece.column),
                         bounds.top() + px(row as f32 * cell.height),
@@ -891,6 +905,14 @@ mod tests {
             resolve(&inverse, &palette, false, true),
             (0x000000, selection)
         );
+        // text of the selection's own color is drawn in the default foreground
+        let mut same = cell('a');
+        same.fg = Color::Rgb(Rgb {
+            r: (selection >> 16) as u8,
+            g: (selection >> 8) as u8,
+            b: selection as u8,
+        });
+        assert_eq!(resolve(&same, &palette, false, true).0, 0x000000);
         let cells = vec![cell('a'), cell('b'), cell('c')];
         let marks = RowMarks {
             cursor: None,
