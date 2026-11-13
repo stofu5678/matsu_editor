@@ -195,7 +195,8 @@ def main():
         return 1
 
     for rel, new in results.items():
-        (root / rel).write_text(new, encoding="utf-8", newline="\n")
+        with open(root / rel, "w", encoding="utf-8", newline="\n") as f:
+            f.write(new)
         print(f"updated {rel}")
     for name, digest in sorted(hashes.items()):
         print(f"  {digest}  {name}")
