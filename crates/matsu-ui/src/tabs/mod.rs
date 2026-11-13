@@ -56,6 +56,8 @@ pub(crate) mod settings;
 mod terminal_input_tests;
 #[cfg(test)]
 mod terminal_mouse_tests;
+#[cfg(test)]
+mod terminal_settings_tests;
 mod terminal_tab;
 #[cfg(test)]
 mod terminal_tests;

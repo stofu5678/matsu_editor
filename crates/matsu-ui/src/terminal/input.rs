@@ -74,13 +74,32 @@ fn named_key(name: &str) -> Option<Key> {
     })
 }
 
+/// The capital of `c` when it has one letter for it; `c` itself otherwise (a digit, a symbol, `ß`).
+fn upper(c: char) -> char {
+    let mut capitals = c.to_uppercase();
+    match (capitals.next(), capitals.next()) {
+        (Some(capital), None) => capital,
+        _ => c,
+    }
+}
+
 /// Turns a key press into what the terminal does with it. `mac`: the platform key is Cmd, which belongs to
 /// the menus and the window; elsewhere it is the Windows or Super key, which the OS keeps.
 /// `prefer_character_input` is GPUI's hint that the character is wanted, not the key (AltGr and the like).
-pub(super) fn translate(
+/// [`translate_with`] without the setting "Option as Meta".
+#[cfg(test)]
+fn translate(keystroke: &Keystroke, prefer_character_input: bool, mac: bool) -> Translated {
+    translate_with(keystroke, prefer_character_input, mac, false)
+}
+
+/// [`translate`] with the setting "Option as Meta" (`[Terminal]` `OptionAsMeta`): on macOS, Option+key sends ESC
+/// and the key as it is on the keyboard, not the character that Option makes of it (Terminal.app's "Use Option
+/// as Meta key" and iTerm2's "Esc+"). It does nothing elsewhere: `option_as_meta` counts only with `mac`.
+pub(super) fn translate_with(
     keystroke: &Keystroke,
     prefer_character_input: bool,
     mac: bool,
+    option_as_meta: bool,
 ) -> Translated {
     let m = keystroke.modifiers;
     if m.platform {
@@ -130,18 +149,29 @@ pub(super) fn translate(
         return Translated::Key(key, mods);
     }
     let text = printable(keystroke);
-    // AltGr is Ctrl+Alt on Windows: it types a character, which is sent as it is.
-    if (prefer_character_input || (m.control && m.alt))
-        && let Some(text) = text
-    {
-        return Translated::Text(text.to_owned());
-    }
     let mut chars = keystroke.key.chars();
     let base = match (chars.next(), chars.next()) {
         (Some(c), None) => Some(c),
         _ if keystroke.key == "space" => Some(' '),
         _ => None,
     };
+    // Option as Meta: ESC and the key under the finger (`keystroke.key` is the key without Option, uppercased
+    // for Shift). A dead key (Option+E makes an accent that waits for a letter) has no text, but is a key too.
+    if mac
+        && option_as_meta
+        && m.alt
+        && !m.control
+        && let Some(c) = base
+    {
+        let c = if m.shift { upper(c) } else { c };
+        return Translated::Key(Key::Char(c), mods);
+    }
+    // AltGr is Ctrl+Alt on Windows: it types a character, which is sent as it is.
+    if (prefer_character_input || (m.control && m.alt))
+        && let Some(text) = text
+    {
+        return Translated::Text(text.to_owned());
+    }
     if m.control {
         // Ctrl+letter is the control code of the letter, whatever the layout writes with Shift.
         return match base {
@@ -151,7 +181,7 @@ pub(super) fn translate(
     }
     match (text, base) {
         // On macOS Option types the character it gives (Option+B is a letter of its own): Terminal.app's and
-        // iTerm2's default. A setting to use it as Meta is for the settings PR.
+        // iTerm2's default. The setting `OptionAsMeta` makes it Meta (above).
         (Some(text), _) if m.alt && mac => Translated::Text(text.to_owned()),
         // Alt+character is Meta elsewhere, as in Windows Terminal and xterm: ESC and the character.
         (Some(text), _) if m.alt => {
@@ -293,6 +323,88 @@ mod tests {
             ),
             Some(b"\x1bb".to_vec())
         );
+    }
+
+    #[test]
+    fn option_as_meta_sends_escape_and_the_key_on_macos() {
+        let meta = |key: &str, key_char: Option<&str>, modifiers| {
+            translate_with(&press(key, key_char, modifiers), false, true, true)
+        };
+        let escape_and = |c: char, shift: bool| {
+            Translated::Key(
+                Key::Char(c),
+                Modifiers {
+                    alt: true,
+                    shift,
+                    ..Modifiers::NONE
+                },
+            )
+        };
+        // Option+B types an integral sign without the setting, ESC b with it.
+        assert_eq!(meta("b", Some("\u{222b}"), alt()), escape_and('b', false));
+        // A dead key (Option+E waits for a letter, so it has no text) is Meta too.
+        assert_eq!(meta("e", None, alt()), escape_and('e', false));
+        // Shift gives the capital; a digit and a symbol stay as the key is.
+        let shifted = GpuiModifiers {
+            alt: true,
+            shift: true,
+            ..plain()
+        };
+        assert_eq!(meta("b", Some("\u{ec}"), shifted), escape_and('B', true));
+        assert_eq!(meta("1", Some("\u{2044}"), shifted), escape_and('1', true));
+        // The space bar.
+        assert_eq!(meta("space", Some("\u{a0}"), alt()), escape_and(' ', false));
+        // The bytes: ESC and the key.
+        let bytes = |t: Translated| match t {
+            Translated::Key(key, mods) => {
+                matsu_terminal::encode_key(key, mods, &matsu_terminal::Modes::default())
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            bytes(meta("b", Some("\u{222b}"), alt())),
+            Some(b"\x1bb".to_vec())
+        );
+        assert_eq!(
+            bytes(meta("b", Some("\u{ec}"), shifted)),
+            Some(b"\x1bB".to_vec())
+        );
+        // A key without Option is not changed, and neither is Cmd.
+        assert_eq!(meta("b", Some("b"), plain()), Translated::Text("b".into()));
+        // Named keys already carry Alt.
+        assert!(matches!(
+            meta("left", None, alt()),
+            Translated::Key(Key::Left, Modifiers { alt: true, .. })
+        ));
+    }
+
+    #[test]
+    fn option_as_meta_does_nothing_without_the_setting_or_off_macos() {
+        let option_b = press("b", Some("\u{222b}"), alt());
+        // The setting is off: Option types its character (the default of the setting).
+        assert_eq!(
+            translate_with(&option_b, false, true, false),
+            Translated::Text("\u{222b}".into())
+        );
+        // Not macOS: Alt is Meta already, and the setting does not change how.
+        let alt_b = press("b", Some("b"), alt());
+        assert_eq!(
+            translate_with(&alt_b, false, false, true),
+            translate_with(&alt_b, false, false, false)
+        );
+        // Not macOS and a character the layout makes with Alt is still its text when asked for it.
+        assert_eq!(
+            translate_with(&option_b, true, false, true),
+            Translated::Text("\u{222b}".into())
+        );
+    }
+
+    #[test]
+    fn upper_is_one_capital_or_the_character() {
+        assert_eq!(upper('b'), 'B');
+        assert_eq!(upper('1'), '1');
+        assert_eq!(upper('\u{df}'), '\u{df}');
+        assert_eq!(upper('\u{e9}'), '\u{c9}');
     }
 
     #[test]

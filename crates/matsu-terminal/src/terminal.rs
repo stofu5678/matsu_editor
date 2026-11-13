@@ -413,8 +413,18 @@ impl Terminal {
         )));
 
         let shell = options.shell.or_else(shell::default_shell);
+        // A command line that is given as it is (Windows: cmd.exe reads its own rules) is not quoted again.
+        #[cfg(windows)]
+        let escape_args = !shell.as_ref().is_some_and(|s| s.raw_arguments.is_some());
         let pty_options = tty::Options {
-            shell: shell.map(|s| tty::Shell::new(shell::program_for_launch(&s.program), s.args)),
+            shell: shell.map(|s| {
+                let args = match s.raw_arguments {
+                    Some(raw) if raw.is_empty() => Vec::new(),
+                    Some(raw) => vec![raw],
+                    None => s.args,
+                };
+                tty::Shell::new(shell::program_for_launch(&s.program), args)
+            }),
             working_directory: options.working_directory,
             // Read what the child wrote before it ended, so a short command's output is not lost. (One read of
             // at most about 64 KiB: `alacritty_terminal` 0.26.0 stops draining there, so the tail of a huge
@@ -424,7 +434,7 @@ impl Terminal {
             // Escape arguments by the C runtime's rules: an argument with spaces stays one argument.
             // (Not compiled on Linux and macOS: Windows only.)
             #[cfg(windows)]
-            escape_args: true,
+            escape_args,
         };
         let pty = tty::new(&pty_options, size.window_size(), 0)?;
 

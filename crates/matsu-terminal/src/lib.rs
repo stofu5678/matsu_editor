@@ -34,7 +34,7 @@ pub use mouse::{MouseAction, MouseButton, WheelDirection, encode_mouse, encode_w
 pub use paste::{PasteEncoding, encode_paste};
 pub use screen::{Cell, ClipboardKind, Color, Cursor, CursorShape, Modes, Rgb, Row, ScreenInfo};
 pub use selection::{CellSide, SelectionMode, SelectionSpan, WORD_DELIMITERS};
-pub use shell::ShellCommand;
+pub use shell::{CommandLineError, ShellCommand};
 pub use terminal::{
     DEFAULT_SCROLLBACK_LINES, EventReceiver, Options, Snapshot, Terminal, TerminalEvent,
     TerminalSize, wait_for_closing,

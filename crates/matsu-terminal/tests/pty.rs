@@ -151,6 +151,62 @@ fn output_reaches_the_grid() {
     });
 }
 
+/// The shell of the setting `Shell`: a command line as the user writes it (ADR-0028, the fifth PR).
+#[test]
+fn a_command_line_of_the_setting_starts_the_shell() {
+    let line = if cfg!(windows) {
+        // cmd.exe reads its own rules: the quotes and the `&` reach it as they are written. (Through the C
+        // runtime's quoting `"a  b"` would arrive as `\"a  b\"` and cmd.exe would print the backslashes.)
+        r#"cmd.exe /C echo "two  spaces" & echo second"#
+    } else {
+        r#"/bin/sh -c 'printf "two  spaces\nsecond\n"'"#
+    };
+    let shell = ShellCommand::from_command_line(line).expect("parse the command line");
+    let (terminal, events) = start(shell);
+    let text = wait_for_screen(&terminal, &events, "the two lines", |t| {
+        t.contains("second") && t.contains("two  spaces")
+    });
+    assert!(!text.contains('\\'), "no backslash may be added:\n{text}");
+}
+
+#[test]
+fn the_scrollback_length_is_the_options() {
+    let (terminal, events) = start_with(Options {
+        shell: Some(command(
+            "i=0; while [ $i -lt 100 ]; do echo line$i; i=$((i+1)); done; echo finished",
+            &[
+                "/c",
+                "(for",
+                "/L",
+                "%i",
+                "in",
+                "(1,1,100)",
+                "do",
+                "@echo",
+                "line%i)",
+                "&",
+                "echo",
+                "finished",
+            ],
+        )),
+        size: TerminalSize::new(40, 10),
+        scrollback_lines: 7,
+        ..Options::default()
+    });
+    wait_for_screen(&terminal, &events, "the end of the output", |t| {
+        t.contains("finished")
+    });
+    let history = terminal.snapshot().info.history_size;
+    assert!(
+        history <= 7,
+        "the scrollback has {history} lines, the option allows 7"
+    );
+    if cfg!(unix) {
+        // 100 lines went by on a screen of 10: the scrollback is full.
+        assert_eq!(history, 7);
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn japanese_output_uses_wide_cells() {

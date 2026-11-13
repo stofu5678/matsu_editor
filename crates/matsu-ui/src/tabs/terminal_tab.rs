@@ -55,6 +55,17 @@ impl Workspace {
         self.open_terminal(Some(shell), window, cx)
     }
 
+    /// [`open_shell`](Self::open_shell) with the shell and the scrollback of the settings, whatever shell a
+    /// test asked for with [`use_shell_in_tests`].
+    #[cfg(test)]
+    pub(crate) fn open_shell_from_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<TerminalView>> {
+        self.open_terminal(None, window, cx)
+    }
+
     fn open_terminal(
         &mut self,
         shell: Option<matsu_terminal::ShellCommand>,
