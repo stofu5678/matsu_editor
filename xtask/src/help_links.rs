@@ -96,9 +96,13 @@ fn heading_text(raw: &str) -> String {
     let mut out = String::new();
     let mut chars = raw.chars().peekable();
     let mut previous: Option<char> = None;
+    let mut in_code = false;
     while let Some(c) = chars.next() {
         let before = previous.replace(c);
         match c {
+            '`' => in_code = !in_code,
+            // Inside a code span everything is literal text.
+            _ if in_code => out.push(c),
             // An underscore at the edge of a word is an emphasis mark (`_設定_`); one inside a word stays.
             '_' if before.is_none_or(char::is_whitespace)
                 || chars.peek().is_none_or(|n| n.is_whitespace()) => {}
@@ -109,7 +113,7 @@ fn heading_text(raw: &str) -> String {
                     }
                 }
             }
-            '[' | ']' | '*' | '`' => {}
+            '[' | ']' | '*' => {}
             '<' => {
                 for n in chars.by_ref() {
                     if n == '>' {
@@ -495,6 +499,12 @@ mod tests {
             ids.contains("見せる") && !ids.contains("隠す") && !ids.contains("一行"),
             "{ids:?}"
         );
+    }
+
+    #[test]
+    fn code_spans_keep_their_text_in_the_anchor() {
+        let ids = anchors("## `<検索文字列>` と `a_b_`\n");
+        assert!(ids.contains("検索文字列-と-a_b_"), "{ids:?}");
     }
 
     #[test]

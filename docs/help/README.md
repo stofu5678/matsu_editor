@@ -61,7 +61,7 @@ cargo xtask help-check --sakura <サクラの clone>   # 検査（下の「検�
 
 - メニューの名前、機能の名前（`F_FILEOPEN` など）、マクロの関数の名前（`FileOpen` など）、設定の項目の名前は、サクラと同じに書く。表は `crates/matsu-commands/src/sakura/`（`functions.rs`、`main_menu.rs`、`macro_functions.rs`）にある
 - MATSU だけの名前（MATSU の機能・設定）は、MATSU の画面と同じ文字にする
-- 製品名は [ADR-0021](../adr/0021-rename-to-matsu.md) の表に従う。英字で書く場所は「MATSU Editor」、カタカナで書く場所は「マツエディタ」。小文字のもの（`matsu.ini`、`matsu-*`、アプリの識別子）はそのまま。「UME」など古い名前は使わない（`crates/matsu/tests/leftover_names.rs` が見つける）
+- 製品名は [ADR-0021](../adr/0021-rename-to-matsu.md) の表に従う。英字で書く場所は「MATSU Editor」、カタカナで書く場所は「マツエディタ」。小文字のもの（`matsu.ini`、`matsu-*`、アプリの識別子）はそのまま。改名前の古い製品名は使わない（`crates/matsu/tests/leftover_names.rs` が見つける）
 - サクラエディタを指すときは「サクラエディタ」と書く
 
 ### 文体
