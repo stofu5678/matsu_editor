@@ -166,6 +166,7 @@ pub fn anchors(source: &str) -> HashSet<String> {
     let mut ids = HashSet::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
     let lines = prose_lines(source);
+    let mut in_comment = false;
     for (index, &(number, line)) in lines.iter().enumerate() {
         // An ATX heading may be indented by up to 3 spaces. A Setext heading is a line of text followed by a
         // line of `=` or `-`.
@@ -207,18 +208,33 @@ pub fn anchors(source: &str) -> HashSet<String> {
             };
             ids.insert(id);
         }
-        // HTML anchors, with the value in double or single quotes (`<a id="x">`, `<a id='x'>`)
-        for (key, quote) in [
-            ("id=\"", '"'),
-            ("name=\"", '"'),
-            ("id='", '\''),
-            ("name='", '\''),
-        ] {
-            let mut rest = line;
-            while let Some(start) = rest.find(key) {
-                rest = &rest[start + key.len()..];
-                if let Some(end) = rest.find(quote) {
-                    ids.insert(rest[..end].to_string());
+        // HTML anchors from real tags only, not from code spans, comments or plain text: `<a id="x">`,
+        // `<a id='x'>`, `<span name="y">`, but not `data-id="z"`.
+        let visible = without_code_and_comments(line, &mut in_comment);
+        let mut rest = visible.as_str();
+        while let Some(open) = rest.find('<') {
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('>') else {
+                break;
+            };
+            let tag = &after[..close];
+            rest = &after[close + 1..];
+            if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            for (key, quote) in [
+                ("id=\"", '"'),
+                ("name=\"", '"'),
+                ("id='", '\''),
+                ("name='", '\''),
+            ] {
+                let mut attrs = tag;
+                while let Some(start) = attrs.find(key) {
+                    let after_space = matches!(attrs[..start].chars().last(), Some(' ' | '\t'));
+                    attrs = &attrs[start + key.len()..];
+                    if let (true, Some(end)) = (after_space, attrs.find(quote)) {
+                        ids.insert(attrs[..end].to_string());
+                    }
                 }
             }
         }
@@ -625,6 +641,21 @@ mod tests {
         let ids = anchors("<a id='details'></a>\n\n<a name=\"top\"></a>\n\n<a name='end'></a>\n");
         for id in ["details", "top", "end"] {
             assert!(ids.contains(id), "{id} in {ids:?}");
+        }
+    }
+
+    #[test]
+    fn html_anchors_count_only_in_real_tags() {
+        let ids = anchors(concat!(
+            "<a id=\"real\"></a>\n\n",
+            "`<a id=\"in-code\">` は例\n\n",
+            "<!-- <a id=\"in-comment\"> -->\n\n",
+            "本文の id=\"in-text\" は属性ではない\n\n",
+            "<span data-id=\"data\">x</span>\n",
+        ));
+        assert!(ids.contains("real"), "{ids:?}");
+        for id in ["in-code", "in-comment", "in-text", "data"] {
+            assert!(!ids.contains(id), "{id} in {ids:?}");
         }
     }
 
