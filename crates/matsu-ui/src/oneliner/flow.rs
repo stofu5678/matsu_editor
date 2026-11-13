@@ -424,17 +424,11 @@ async fn begin_ai(
     ai: &AiSlot,
     began: Instant,
 ) -> Option<RecordHandle> {
-    // The text for the log is read before the window is shown, from the snapshot that the input is read from.
-    let input = input_of(prepared);
-    let (text, size) = cx
-        .background_executor()
-        .spawn(async move { log_input(&input) })
-        .await;
-    let started = ai_log::Started {
+    let started_with = |input: String, input_size: Option<usize>| ai_log::Started {
         name: ai.name.clone(),
         command_line: job.line.clone(),
-        input: text,
-        input_size: size,
+        input,
+        input_size,
         started_at: Local::now(),
     };
 
@@ -474,7 +468,7 @@ async fn begin_ai(
             .ok()?;
         if !answer.send {
             // nothing runs; the log says that nothing was sent
-            if let Some(handle) = begin_log(view, cx, started).await {
+            if let Some(handle) = begin_log(view, cx, started_with(String::new(), None)).await {
                 end_log(
                     cx,
                     Some(&handle),
@@ -503,7 +497,14 @@ async fn begin_ai(
         }
     }
 
-    let handle = begin_log(view, cx, started).await;
+    // Approved: the text for the log is read now (not before the window, which must not wait for a large input),
+    // from the snapshot that the input is read from.
+    let input = input_of(prepared);
+    let (text, size) = cx
+        .background_executor()
+        .spawn(async move { log_input(&input) })
+        .await;
+    let handle = begin_log(view, cx, started_with(text, size)).await;
     if handle.is_none() {
         release(view, cx);
         say(

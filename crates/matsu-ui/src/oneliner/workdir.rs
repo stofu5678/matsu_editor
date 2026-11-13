@@ -44,8 +44,20 @@ impl WorkDir {
 
 impl Drop for WorkDir {
     fn drop(&mut self) {
-        // best effort: a folder that cannot be removed (a process still in it) is left to the OS's temporary folder
-        let _ = std::fs::remove_dir_all(&self.path);
+        if std::fs::remove_dir_all(&self.path).is_ok() {
+            return;
+        }
+        // A process that is still ending can hold the folder (Windows): try again from a thread, a few times. What
+        // still cannot be removed is left to the OS's temporary folder.
+        let path = self.path.clone();
+        std::thread::spawn(move || {
+            for _ in 0..20 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                if std::fs::remove_dir_all(&path).is_ok() || !path.exists() {
+                    return;
+                }
+            }
+        });
     }
 }
 
