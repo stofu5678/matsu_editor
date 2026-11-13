@@ -22,7 +22,7 @@ use crate::settings::UserSettings;
 
 pub(crate) mod dialog;
 pub(crate) mod flow;
-mod list;
+pub(crate) mod list;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;

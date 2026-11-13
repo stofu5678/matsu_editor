@@ -423,14 +423,15 @@ fn the_log_has_the_output_as_the_command_wrote_it_for_every_place(cx: &mut TestA
 }
 
 #[gpui::test]
-fn the_status_bar_says_where_the_run_is_recorded(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(LONG, OutputTo::NextLine, false), "abc\n");
-    w.slot(cx, 0);
-    wait_until(cx, "the box", |cx| w.running(cx));
+fn the_status_bar_says_where_the_run_is_recorded_after_the_result_is_placed(
+    cx: &mut TestAppContext,
+) {
+    let (_dir, w) = open(cx, &ai_ini(COPY, OutputTo::NextLine, false), "abc\n");
+    run(cx, &w, 0);
+    // the new text is selected, and the message is still the status
+    assert!(w.selection(cx).is_some());
     let notice = w.notice(cx).unwrap_or_default();
     assert!(notice.contains("AI ログを表示"), "{notice}");
-    w.cx(cx).simulate_keystrokes("escape");
-    wait_idle(&w, cx);
 }
 
 #[gpui::test]
@@ -453,7 +454,7 @@ fn the_oneliner_submenu_always_ends_with_the_ai_log_item() {
     let none = crate::oneliner::OneLinerList(std::sync::Arc::new(OneLiners::default()));
     let items = none.items(F_ONELINER_LIST);
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].label, "AI ログを表示");
+    assert_eq!(items[0].label, crate::oneliner::list::AI_LOG_LABEL);
     assert_eq!(items[0].action, MenuAction::Function(F_AI_LOG_SHOW));
     assert!(items[0].enabled);
 }

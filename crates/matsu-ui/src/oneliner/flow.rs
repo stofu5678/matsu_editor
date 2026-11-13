@@ -400,6 +400,8 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         end_log(cx, log.as_ref(), log_end(&event, began));
     }
 
+    let stopped = matches!(&event, Event::Finished(f) if f.exit.stopped);
+
     // The state is looked at again, in the same step that puts the result in.
     let message = view
         .update_in(cx, |view, window, cx| {
@@ -413,6 +415,15 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         cx.background_executor()
             .spawn(async move { dir.remove() })
             .await;
+    }
+    // Last of all, so that the status of the new selection does not hide it: where the run was recorded. A run that
+    // was cancelled or has a message box to tell has its own words.
+    if log.is_some() && !stopped && message.is_none() {
+        say(
+            view,
+            cx,
+            "AI に送った内容と答えを、AI ログのタブに記録しました（メニューの「ワンライナー」の「AI ログを表示」で見られます）。",
+        );
     }
     if let Some(message) = message {
         tell(cx, PromptLevel::Warning, &message, None).await;
@@ -523,13 +534,6 @@ async fn begin_ai(
         return None;
     }
     let handle = begin_log(view, cx, started_with(text, size)).await;
-    if handle.is_some() {
-        say(
-            view,
-            cx,
-            "AI に送る内容と答えを、AI ログのタブに記録します（メニューの「ワンライナー」の「AI ログを表示」で見られます）。",
-        );
-    }
     if handle.is_none() {
         release(view, cx);
         say(
