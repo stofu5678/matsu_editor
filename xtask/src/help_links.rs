@@ -5,7 +5,11 @@
 //! letters, digits (of any script), `_` and `-` stay, white space becomes `-`, everything else is dropped; a
 //! second heading with the same id gets `-1`, the third `-2`. A heading may name its id with `{#id}`, and an
 //! HTML `id="..."` or `name="..."` in the page is an anchor too.
+//!
+//! The pages are read with pulldown-cmark, the parser that mdBook uses (the 0.13 series that mdBook 0.5.4 asks for, ^0.13.4), so that
+//! headings, code, HTML and links mean what they mean in the built book.
 
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
@@ -58,308 +62,204 @@ pub fn normalize_id(text: &str) -> String {
         .collect()
 }
 
-/// The opening of a fenced code block: the fence character (`` ` `` or `~`) and its length (3 or more).
-pub fn fence_open(trimmed: &str) -> Option<(char, usize)> {
-    let mark = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
-    let len = trimmed.chars().take_while(|c| *c == mark).count();
-    (len >= 3).then_some((mark, len))
+/// The options mdBook 0.5.4 reads Markdown with (`mdbook-markdown`, pulldown-cmark 0.13): tables, footnotes,
+/// strikethrough, task lists and heading attributes (`{#id}`). Smart punctuation only changes quotes and
+/// dashes, which no id keeps.
+pub fn options() -> Options {
+    Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_HEADING_ATTRIBUTES
 }
 
-/// Whether a line closes a block opened with `len` fence characters `mark`: the same character, at least as
-/// many, and nothing else on the line.
-pub fn fence_closes(trimmed: &str, (mark, len): (char, usize)) -> bool {
-    let count = trimmed.chars().take_while(|c| *c == mark).count();
-    count >= len && trimmed[count * mark.len_utf8()..].trim().is_empty()
+/// The line number (from 1) of each byte offset of a text.
+pub struct Lines {
+    starts: Vec<usize>,
 }
 
-/// The lines of a page outside its fenced code blocks, with their numbers (from 1).
-fn prose_lines(source: &str) -> Vec<(u32, &str)> {
-    let mut fence: Option<(char, usize)> = None;
-    let mut comment = false;
+impl Lines {
+    pub fn new(source: &str) -> Self {
+        let mut starts = vec![0];
+        starts.extend(source.match_indices('\n').map(|(i, _)| i + 1));
+        Self { starts }
+    }
+
+    pub fn of(&self, offset: usize) -> u32 {
+        let line = self.starts.partition_point(|start| *start <= offset);
+        u32::try_from(line).unwrap_or(u32::MAX)
+    }
+}
+
+/// The attributes of an HTML tag (`name="value"`, `name='value'`, `name=value` or `name` alone), with the
+/// names in lower case.
+fn tag_attributes(tag: &str) -> Vec<(String, String)> {
+    let chars: Vec<char> = tag.chars().collect();
+    let mut i = 0;
+    // The tag name.
+    while i < chars.len() && !chars[i].is_whitespace() {
+        i += 1;
+    }
     let mut out = Vec::new();
-    for (index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if let Some(open) = fence {
-            if fence_closes(trimmed, open) {
-                fence = None;
+    while i < chars.len() {
+        while i < chars.len() && (chars[i].is_whitespace() || chars[i] == '/') {
+            i += 1;
+        }
+        let start = i;
+        while i < chars.len() && !chars[i].is_whitespace() && !matches!(chars[i], '=' | '/') {
+            i += 1;
+        }
+        let name: String = chars[start..i].iter().collect::<String>().to_lowercase();
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        let mut value = String::new();
+        if chars.get(i) == Some(&'=') {
+            i += 1;
+            while i < chars.len() && chars[i].is_whitespace() {
+                i += 1;
             }
-            continue;
-        }
-        // A comment that starts at the beginning of a line hides its lines (and any heading in them).
-        if comment {
-            comment = !line.contains("-->");
-            continue;
-        }
-        if trimmed.starts_with("<!--") {
-            comment = !trimmed.contains("-->");
-            if comment || trimmed.trim_end().ends_with("-->") {
-                continue;
+            match chars.get(i) {
+                Some(&quote @ ('"' | '\'')) => {
+                    i += 1;
+                    while i < chars.len() && chars[i] != quote {
+                        value.push(chars[i]);
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                _ => {
+                    while i < chars.len() && !chars[i].is_whitespace() {
+                        value.push(chars[i]);
+                        i += 1;
+                    }
+                }
             }
         }
-        if let Some(open) = fence_open(trimmed) {
-            fence = Some(open);
-            continue;
+        if !name.is_empty() {
+            out.push((name, value));
         }
-        out.push((u32::try_from(index + 1).unwrap_or(u32::MAX), line));
     }
     out
 }
 
-/// The text of a heading as the reader sees it: no link targets, emphasis marks, code marks or tags.
-fn heading_text(raw: &str) -> String {
-    let mut out = String::new();
-    let mut chars = raw.chars().peekable();
-    let mut previous: Option<char> = None;
-    let mut in_code = false;
-    while let Some(c) = chars.next() {
-        let before = previous.replace(c);
-        match c {
-            '`' => in_code = !in_code,
-            // Inside a code span everything is literal text.
-            _ if in_code => out.push(c),
-            // A character reference (`&#x8A2D;`, `&amp;`) is the character it stands for.
-            '&' => {
-                let ahead: Vec<char> = std::iter::once('&').chain(chars.clone().take(12)).collect();
-                if let Some((decoded, used)) = crate::help_shared::decode_entity(&ahead) {
-                    for _ in 1..used {
-                        chars.next();
-                    }
-                    out.push(decoded);
-                } else {
-                    out.push(c);
-                }
+/// The anchors (`id`, `name`) and links (`<a href>`) of the real tags in a piece of raw HTML. Comments are
+/// not tags; a `<` that does not start a tag is text.
+fn html_targets(html: &str, ids: &mut Vec<String>, hrefs: &mut Vec<String>) {
+    let mut rest = html;
+    while let Some(open) = rest.find('<') {
+        let after = &rest[open + 1..];
+        if let Some(comment) = after.strip_prefix("!--") {
+            rest = comment.find("-->").map_or("", |end| &comment[end + 3..]);
+            continue;
+        }
+        let Some(close) = after.find('>') else { break };
+        let tag = &after[..close];
+        rest = &after[close + 1..];
+        if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            continue;
+        }
+        let name = tag
+            .split(|c: char| c.is_whitespace() || c == '/')
+            .next()
+            .unwrap_or("");
+        let is_link = name.eq_ignore_ascii_case("a");
+        for (name, value) in tag_attributes(tag) {
+            match name.as_str() {
+                "id" | "name" if !value.is_empty() => ids.push(value),
+                "href" if is_link && !value.is_empty() => hrefs.push(value),
+                _ => {}
             }
-            // An underscore at the edge of a word is an emphasis mark (`_設定_`); one inside a word stays.
-            '_' if before.is_none_or(|b| b.is_whitespace() || b == '_')
-                || chars.peek().is_none_or(|n| n.is_whitespace() || *n == '_') => {}
-            ']' if chars.peek() == Some(&'[') => {
-                // The label of a reference link, `[text][label]`.
-                for n in chars.by_ref() {
-                    if n == ']' {
-                        break;
-                    }
-                }
-            }
-            ']' if chars.peek() == Some(&'(') => {
-                for n in chars.by_ref() {
-                    if n == ')' {
-                        break;
-                    }
-                }
-            }
-            '[' | ']' | '*' => {}
-            '<' => {
-                for n in chars.by_ref() {
-                    if n == '>' {
-                        break;
-                    }
-                }
-            }
-            _ => out.push(c),
         }
     }
-    out
+}
+
+fn read_html(html: &str, line: u32, anchors: &mut HashSet<String>, links: &mut Vec<(u32, String)>) {
+    let (mut ids, mut hrefs) = (Vec::new(), Vec::new());
+    html_targets(html, &mut ids, &mut hrefs);
+    anchors.extend(ids);
+    links.extend(hrefs.into_iter().map(|href| (line, href)));
+}
+
+/// What a page offers and asks for: its anchors, and its links as `(line, target)`.
+pub struct Scan {
+    pub anchors: HashSet<String>,
+    pub links: Vec<(u32, String)>,
+}
+
+/// Reads a page the way mdBook does (pulldown-cmark): headings with their ids (the rule above, `{#id}`),
+/// HTML `id` and `name` attributes, Markdown links and images (inline, reference, autolinks, over several
+/// lines, with any title form) and `<a href>`. Code, comments and text that only looks like a link are not
+/// read as links. A link with an empty target (the draft chapters of `SUMMARY.md`) is left out.
+pub fn scan(source: &str) -> Scan {
+    let lines = Lines::new(source);
+    let mut anchors = HashSet::new();
+    let mut links = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    // The text and explicit id of the heading being read.
+    let mut heading: Option<(String, Option<String>)> = None;
+    // A block of raw HTML arrives line by line; it is read as a whole, so that a comment over several lines
+    // is one comment.
+    let mut block: Option<(u32, String)> = None;
+    for (event, range) in Parser::new_ext(source, options()).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Heading { id, .. }) => {
+                heading = Some((String::new(), id.map(|id| id.to_string())));
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some((text, explicit)) = heading.take() {
+                    let id = explicit.unwrap_or_else(|| {
+                        let id = normalize_id(&text);
+                        let count = seen.entry(id.clone()).or_insert(0);
+                        let unique = if *count == 0 {
+                            id
+                        } else {
+                            format!("{id}-{count}")
+                        };
+                        *count += 1;
+                        unique
+                    });
+                    anchors.insert(id);
+                }
+            }
+            Event::Text(text) | Event::Code(text) => {
+                if let Some((heading_text, _)) = &mut heading {
+                    heading_text.push_str(&text);
+                }
+            }
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                if !dest_url.is_empty() {
+                    links.push((lines.of(range.start), dest_url.to_string()));
+                }
+            }
+            Event::Start(Tag::HtmlBlock) => block = Some((lines.of(range.start), String::new())),
+            Event::End(TagEnd::HtmlBlock) => {
+                if let Some((line, html)) = block.take() {
+                    read_html(&html, line, &mut anchors, &mut links);
+                }
+            }
+            Event::Html(html) if block.is_some() => {
+                if let Some((_, text)) = &mut block {
+                    text.push_str(&html);
+                }
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                read_html(&html, lines.of(range.start), &mut anchors, &mut links);
+            }
+            _ => {}
+        }
+    }
+    Scan { anchors, links }
 }
 
 /// Every anchor of a page.
 pub fn anchors(source: &str) -> HashSet<String> {
-    let mut ids = HashSet::new();
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    let lines = prose_lines(source);
-    let mut in_comment = false;
-    for (index, &(number, line)) in lines.iter().enumerate() {
-        // An ATX heading may be indented by up to 3 spaces. A Setext heading is a line of text followed by a
-        // line of `=` or `-`.
-        let indent = line.len() - line.trim_start_matches(' ').len();
-        let atx = line.trim_start_matches(' ');
-        let hashes = atx.chars().take_while(|c| *c == '#').count();
-        let underline = lines.get(index + 1).is_some_and(|&(next, below)| {
-            let below = below.trim();
-            next == number + 1
-                && !below.is_empty()
-                && (below.chars().all(|c| c == '=') || below.chars().all(|c| c == '-'))
-        });
-        let plain = !atx.is_empty()
-            && !atx.starts_with(['#', '-', '*', '+', '>', '|', '<', '['])
-            && !atx.starts_with(|c: char| c.is_ascii_digit());
-        let heading = if indent <= 3 && (1..=6).contains(&hashes) && atx[hashes..].starts_with(' ')
-        {
-            Some(&atx[hashes..])
-        } else if indent <= 3 && underline && plain {
-            Some(atx)
-        } else {
-            None
-        };
-        if let Some(text) = heading {
-            let text = text.trim().trim_end_matches('#').trim_end();
-            let id = match text.rsplit_once("{#") {
-                Some((_, rest)) if rest.ends_with('}') => rest[..rest.len() - 1].to_string(),
-                _ => {
-                    let id = normalize_id(&heading_text(text));
-                    let count = seen.entry(id.clone()).or_insert(0);
-                    let unique = if *count == 0 {
-                        id
-                    } else {
-                        format!("{id}-{count}")
-                    };
-                    *count += 1;
-                    unique
-                }
-            };
-            ids.insert(id);
-        }
-        // HTML anchors from real tags only, not from code spans, comments or plain text: `<a id="x">`,
-        // `<a id='x'>`, `<span name="y">`, but not `data-id="z"`.
-        let visible = without_code_and_comments(line, &mut in_comment);
-        let mut rest = visible.as_str();
-        while let Some(open) = rest.find('<') {
-            let after = &rest[open + 1..];
-            let Some(close) = after.find('>') else {
-                break;
-            };
-            let tag = &after[..close];
-            rest = &after[close + 1..];
-            if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
-                continue;
-            }
-            for (key, quote) in [
-                ("id=\"", '"'),
-                ("name=\"", '"'),
-                ("id='", '\''),
-                ("name='", '\''),
-            ] {
-                let mut attrs = tag;
-                while let Some(start) = attrs.find(key) {
-                    let after_space = matches!(attrs[..start].chars().last(), Some(' ' | '\t'));
-                    attrs = &attrs[start + key.len()..];
-                    if let (true, Some(end)) = (after_space, attrs.find(quote)) {
-                        ids.insert(attrs[..end].to_string());
-                    }
-                }
-            }
-        }
-    }
-    ids
+    scan(source).anchors
 }
 
-/// The line without its inline code spans (`` `...` ``) and HTML comments; `in_comment` carries a comment that
-/// goes over several lines.
-fn without_code_and_comments(line: &str, in_comment: &mut bool) -> String {
-    let mut out = String::new();
-    let mut rest = line;
-    loop {
-        if *in_comment {
-            match rest.find("-->") {
-                Some(end) => {
-                    rest = &rest[end + 3..];
-                    *in_comment = false;
-                }
-                None => return out,
-            }
-        }
-        let comment = rest.find("<!--");
-        let code = rest.find('`');
-        match (comment, code) {
-            (Some(c), code) if code.is_none_or(|k| c < k) => {
-                out.push_str(&rest[..c]);
-                rest = &rest[c + 4..];
-                *in_comment = true;
-            }
-            (_, Some(k)) => {
-                out.push_str(&rest[..k]);
-                // The span ends at the next run of backticks (an unclosed one is plain text).
-                let ticks = rest[k..].chars().take_while(|c| *c == '`').count();
-                let marker = "`".repeat(ticks);
-                match rest[k + ticks..].find(&marker) {
-                    Some(end) => rest = &rest[k + ticks + end + ticks..],
-                    None => {
-                        out.push_str(&rest[k..]);
-                        return out;
-                    }
-                }
-            }
-            _ => {
-                out.push_str(rest);
-                return out;
-            }
-        }
-    }
-}
-
-/// Every link of a page: `(line, target)`. Links with an empty target (the draft chapters of `SUMMARY.md`) are
-/// left out.
+/// Every link of a page: `(line, target)`.
 pub fn links(source: &str) -> Vec<(u32, String)> {
-    let mut out = Vec::new();
-    let mut in_comment = false;
-    for (number, line) in prose_lines(source) {
-        // What is not rendered as Markdown is not a link: inline code and HTML comments.
-        let line = without_code_and_comments(line, &mut in_comment);
-        let line = line.as_str();
-        // A reference definition, `[label]: target "title"`: the target counts as a link whether or not
-        // a reference uses it (a reference such as `[text][label]` is then checked through it).
-        if let Some(definition) = line
-            .trim_start()
-            .strip_prefix('[')
-            .filter(|rest| !rest.starts_with('^'))
-            .and_then(|rest| rest.split_once("]:"))
-        {
-            let target = definition.1.split_whitespace().next().unwrap_or("");
-            let target = target.trim_start_matches('<').trim_end_matches('>');
-            if !target.is_empty() {
-                out.push((number, target.to_string()));
-            }
-            continue;
-        }
-        // Raw HTML links: `<a href="target">`.
-        for quote in ['"', '\''] {
-            let key = format!("href={quote}");
-            let mut html = line;
-            while let Some(start) = html.find(&key) {
-                html = &html[start + key.len()..];
-                if let Some(end) = html.find(quote) {
-                    if !html[..end].is_empty() {
-                        out.push((number, html[..end].to_string()));
-                    }
-                    html = &html[end..];
-                }
-            }
-        }
-        let mut rest = line;
-        while let Some(start) = rest.find("](") {
-            rest = &rest[start + 2..];
-            let mut depth = 1;
-            let mut end = None;
-            for (i, c) in rest.char_indices() {
-                match c {
-                    '(' => depth += 1,
-                    ')' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            end = Some(i);
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            let Some(end) = end else { break };
-            let mut target = rest[..end].trim();
-            // `[text](target "title")` and `[text](<target>)`.
-            // The title may be in double quotes, single quotes or parentheses.
-            if let Some(at) = target.find([' ', '\t']) {
-                let title = target[at..].trim_start();
-                if title.starts_with(['"', '\'', '(']) {
-                    target = target[..at].trim();
-                }
-            }
-            let target = target.trim_start_matches('<').trim_end_matches('>');
-            if !target.is_empty() {
-                out.push((number, target.to_string()));
-            }
-            rest = &rest[end..];
-        }
-    }
-    out
+    scan(source).links
 }
 
 /// Decodes `%XX` escapes (UTF-8) in a URL fragment: `#%E8%A8%AD%E5%AE%9A` is `#設定`.
@@ -695,6 +595,37 @@ mod tests {
     }
 
     #[test]
+    fn links_over_several_lines_are_checked() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [a](a.md)\n- [b](b.md)\n"),
+            (
+                "a.md",
+                "# a\n\n[ok\nover two lines](b.md)\n\n[broken\ntext](\n  missing.md\n)\n\n[title](b.md\n  \"a title\non two lines\")\n\n[x](b.md#nope\n)\n",
+            ),
+            ("b.md", "# b\n"),
+        ]);
+        let problems = check(&pages, Path::new("/nonexistent"));
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        // The line is the one where the link starts.
+        assert!(
+            problems[0].starts_with("a.md:6:") && problems[0].contains("missing.md"),
+            "{problems:?}"
+        );
+        assert!(
+            problems[1].starts_with("a.md:15:") && problems[1].contains("#nope"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn html_in_blocks_is_read_as_a_whole() {
+        let ids = anchors(
+            "# a\n\n<!--\n<a id=\"hidden\"></a>\n-->\n\n<div>\n<a\n  id=\"shown\"></a>\n</div>\n",
+        );
+        assert!(ids.contains("shown") && !ids.contains("hidden"), "{ids:?}");
+    }
+
+    #[test]
     fn a_footnote_is_not_a_link() {
         let pages = book(&[
             ("SUMMARY.md", "- [a](a.md)\n"),
@@ -739,7 +670,7 @@ mod tests {
         ]);
         let problems = check(&pages, Path::new("/nonexistent"));
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].starts_with("a.md:5:") && problems[0].contains("#missing"));
+        assert!(problems[0].starts_with("a.md:3:") && problems[0].contains("#missing"));
     }
 
     #[test]

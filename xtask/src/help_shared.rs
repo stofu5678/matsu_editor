@@ -17,7 +17,8 @@
 //! 4. A run of the same text counts when it holds at least [`MIN_SHARED_CHARS`] characters that are neither the
 //!    placeholder nor ASCII letters or digits (see [`counts`]).
 
-use crate::help_links::{fence_closes, fence_open};
+use crate::help_links::{Lines, options};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -35,107 +36,63 @@ pub type RawText = Vec<(char, u32)>;
 // ---------------------------------------------------------------------------------------------------------
 // Stripping
 
-/// The text of a Markdown page: without fenced code blocks, HTML tags and comments, link targets, link
-/// reference definitions and mdBook's `{{#include}}` lines. The syntax characters that remain (`#`, `*`, `|`,
-/// backticks) are punctuation, which [`normalize`] drops. Inline code keeps its text.
+/// The text of a Markdown page, read with pulldown-cmark as mdBook reads it: the text of paragraphs, headings,
+/// lists, tables and link texts, and inline code; not fenced or indented code blocks, link targets, reference
+/// definitions or comments. The text of raw HTML is kept without its tags. mdBook's `{{#include}}` lines are
+/// left out.
 pub fn strip_markdown(source: &str) -> RawText {
+    // The lines stay in place (empty), so that the line numbers still fit the file.
+    let prepared = source
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("{{#") {
+                ""
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let lines = Lines::new(&prepared);
     let mut out = RawText::new();
-    let mut fence: Option<(char, usize)> = None;
-    let mut in_comment = false;
-    for (index, line) in source.lines().enumerate() {
-        let number = u32::try_from(index + 1).unwrap_or(u32::MAX);
-        let trimmed = line.trim_start();
-        if let Some(open) = fence {
-            if fence_closes(trimmed, open) {
-                fence = None;
+    let mut in_code_block = false;
+    // A block of raw HTML arrives line by line; it is stripped as a whole, so that a comment over several lines
+    // is one comment.
+    let mut block: Option<(u32, String)> = None;
+    for (event, range) in Parser::new_ext(&prepared, options()).into_offset_iter() {
+        let line = lines.of(range.start);
+        match event {
+            Event::Start(Tag::HtmlBlock) => block = Some((line, String::new())),
+            Event::End(TagEnd::HtmlBlock) => {
+                if let Some((first, html)) = block.take() {
+                    out.extend(
+                        strip_html(&html)
+                            .into_iter()
+                            .map(|(c, l)| (c, first + l - 1)),
+                    );
+                }
             }
-            continue;
-        }
-        if !in_comment && let Some(open) = fence_open(trimmed) {
-            fence = Some(open);
-            continue;
-        }
-        if !in_comment && (trimmed.starts_with("{{#") || is_reference_definition(trimmed)) {
-            continue;
-        }
-        let mut chars = line.chars().peekable();
-        while let Some(c) = chars.next() {
-            if in_comment {
-                // Looking for "-->".
-                if c == '-' && chars.clone().take(2).collect::<String>() == "->" {
-                    chars.next();
-                    chars.next();
-                    in_comment = false;
+            Event::Html(html) if block.is_some() => {
+                if let Some((_, text)) = &mut block {
+                    text.push_str(&html);
                 }
-                continue;
             }
-            match c {
-                '<' if chars.clone().take(3).collect::<String>() == "!--" => {
-                    in_comment = true;
-                }
-                '<' if chars
-                    .peek()
-                    .is_some_and(|n| n.is_ascii_alphabetic() || *n == '/') =>
-                {
-                    // A tag or an autolink: skip to '>'.
-                    for n in chars.by_ref() {
-                        if n == '>' {
-                            break;
-                        }
-                    }
-                }
-                ']' if chars.peek() == Some(&'[') => {
-                    // The label of a reference link, `[text][label]` (or `[text][]`): not text.
-                    for n in chars.by_ref() {
-                        if n == ']' {
-                            break;
-                        }
-                    }
-                }
-                ']' if chars.peek() == Some(&'(') => {
-                    // The target of a link or an image: skip to the matching ')'.
-                    chars.next();
-                    let mut depth = 1;
-                    for n in chars.by_ref() {
-                        match n {
-                            '(' => depth += 1,
-                            ')' => {
-                                depth -= 1;
-                                if depth == 0 {
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                '&' => {
-                    // A character reference (`&nbsp;`, `&#12354;`), as the HTML side decodes it.
-                    let ahead: Vec<char> =
-                        std::iter::once('&').chain(chars.clone().take(12)).collect();
-                    if let Some((decoded, used)) = decode_entity(&ahead) {
-                        for _ in 1..used {
-                            chars.next();
-                        }
-                        out.push((decoded, number));
-                    } else {
-                        out.push((c, number));
-                    }
-                }
-                _ => out.push((c, number)),
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::Text(text) if !in_code_block => out.extend(text.chars().map(|c| (c, line))),
+            Event::Code(text) => out.extend(text.chars().map(|c| (c, line))),
+            Event::Html(html) | Event::InlineHtml(html) => {
+                out.extend(
+                    strip_html(&html)
+                        .into_iter()
+                        .map(|(c, l)| (c, line + l - 1)),
+                );
             }
+            Event::SoftBreak | Event::HardBreak | Event::End(_) => out.push(('\n', line)),
+            _ => {}
         }
-        out.push(('\n', number));
     }
     out
-}
-
-fn is_reference_definition(line: &str) -> bool {
-    // `[label]: target`
-    line.strip_prefix('[')
-        .filter(|rest| !rest.starts_with('^'))
-        .and_then(|rest| rest.split_once("]:"))
-        .is_some()
 }
 
 /// The text of one of Sakura's HTML pages: without tags, comments, scripts and styles; entities decoded.
@@ -838,7 +795,9 @@ mod tests {
 
     #[test]
     fn the_labels_of_reference_links_are_not_text() {
-        let text = strip_markdown("[検索][search]して[置換][]する [図][x]\n\n[search]: a.md\n");
+        let text = strip_markdown(
+            "[検索][search]して[置換][]する [図][x]\n\n[search]: a.md\n[置換]: a.md\n[x]: a.md\n",
+        );
         let s: String = normalize(&text).iter().map(|n| n.c).collect();
         assert_eq!(s, "検索して置換する図");
     }
@@ -847,7 +806,7 @@ mod tests {
     fn markdown_character_references_are_decoded() {
         let text = strip_markdown("a&nbsp;b&#12354;&amp;c &unknown; d");
         let s: String = text.iter().map(|(c, _)| *c).collect();
-        assert_eq!(s, "a b\u{3042}&c &unknown; d\n");
+        assert_eq!(s, "a\u{a0}b\u{3042}&c &unknown; d\n");
     }
 
     #[test]
