@@ -8,7 +8,7 @@
 |---|---|
 | 起動する名前 | `emacs`（`PATH` から探します） |
 | 版 | Emacs 30 以降。JSON の関数が、30 から本体に入ったためです。29 でも、JSON に対応してビルドしたものなら動きます。足りないときは、「Emacs Lisp macros need Emacs 30 or later」と出て、終わります |
-| プラグイン | 動かせません（今は QuickJS だけです） |
+| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python です） |
 
 ## 動き方
 

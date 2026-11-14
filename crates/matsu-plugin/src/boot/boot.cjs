@@ -175,3 +175,200 @@ const Editor = require('./api.gen.cjs')(call);
 Editor.info = info;
 globalThis.Editor = Editor;
 globalThis.EditorError = EditorError;
+
+// A plugin host (ADR-0026): `initialize` says kind "plugin", and there is no script. The editor
+// sends `plugin/invoke` (the jack, the file of the handler, its text, the arguments) and waits for
+// the answer; the process stays for the next call when the plugin is resident. The QuickJS host has
+// the same objects (crates/matsu-script/src/quickjs.js): `Plugin`, `Outline`, `Complement` and, for
+// the jack SmartIndent, `Indent`.
+// The calls that the editor answers itself; each takes the arguments of Sakura's plugin object.
+const PLUGIN_CALLS = [
+  'GetPluginDir',
+  'GetDef',
+  'GetOption',
+  'SetOption',
+  'GetString',
+  'GetCommandNo',
+  'AddCommand',
+];
+const OUTLINE_CALLS = [
+  'AddFuncInfo',
+  'AddFuncInfo2',
+  'AddFuncInfo3',
+  'AddFuncInfo4',
+  'SetTitle',
+  'SetListType',
+  'SetLabel',
+];
+
+function bindCalls(target, prefix, names) {
+  for (const name of names) {
+    target[name] = function (...args) {
+      // A trailing undefined is a missing argument, not a null.
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call(prefix + name, args);
+    };
+  }
+}
+
+function respond(id, error) {
+  const message =
+    error === undefined
+      ? { jsonrpc: '2.0', id, result: { ok: true } }
+      : { jsonrpc: '2.0', id, error: { code: -32000, message: error } };
+  writeAll(1, Buffer.from(RS + toAscii(JSON.stringify(message)) + '\n', 'latin1'));
+}
+
+// The text of a failure for the editor: the error with the frames of the handler. The frames of
+// this boot and of Node.js itself are left out.
+function describeError(err) {
+  const clean = (text) =>
+    text
+      .split('\n')
+      .filter((line) => !/boot\.cjs:\d+|\(node:internal\//.test(line) && !/^\s+at node:internal\//.test(line))
+      .join('\n');
+  if (err instanceof EditorError) {
+    const frames = clean(String(err.stack || '').split('\n').slice(1).join('\n'));
+    return 'EditorError ' + err.code + ': ' + err.message + (frames ? '\n' + frames : '');
+  }
+  return clean(String((err && err.stack) || err));
+}
+
+async function servePlugin(identity) {
+  const path = require('path');
+  const Module = require('module');
+
+  const Plugin = { id: identity.id, dir: identity.dir, jack: '', args: null };
+  bindCalls(Plugin, 'Plugin.', PLUGIN_CALLS);
+  const Outline = {};
+  bindCalls(Outline, 'Outline.', OUTLINE_CALLS);
+  const Complement = {
+    // The word to complete, and the options, come with the call.
+    GetCurrentWord: () => (Plugin.args && typeof Plugin.args.word === 'string' ? Plugin.args.word : ''),
+    GetOption: () => (Plugin.args && Number.isInteger(Plugin.args.option) ? Plugin.args.option : 0),
+    AddList(word) {
+      return call('Complement.AddList', word === undefined ? [] : [String(word)]);
+    },
+  };
+  globalThis.Plugin = Plugin;
+  globalThis.Outline = Outline;
+  globalThis.Complement = Complement;
+
+  // The timers that the handler starts are known, so that a failed call can cancel them. The
+  // boot's own waiting uses the real functions.
+  const realSetImmediate = setImmediate;
+  const realSetTimeout = setTimeout;
+  const pending = new Set();
+  const track = (start, release) =>
+    function (callback, ...rest) {
+      let handle;
+      // A `function`, so that the receiver (Node.js hands the timer to a callback as `this`) and
+      // the arguments reach the handler's callback as they would without the wrapper.
+      const wrapped = function (...args) {
+        if (release === 'once') pending.delete(handle);
+        return callback.apply(this, args);
+      };
+      handle = start(wrapped, ...rest);
+      pending.add(handle);
+      return handle;
+    };
+  const realClearTimeout = clearTimeout;
+  const realClearImmediate = clearImmediate;
+  globalThis.setTimeout = track(realSetTimeout, 'once');
+  globalThis.setInterval = track(setInterval, 'repeat');
+  globalThis.setImmediate = track(realSetImmediate, 'once');
+  function cancelPending() {
+    for (const handle of pending) {
+      realClearTimeout(handle);
+      realClearImmediate(handle);
+    }
+    pending.clear();
+  }
+
+  // A promise that is rejected and that nobody handles fails the call (as in the QuickJS host).
+  let unhandled = null;
+  process.on('unhandledRejection', (reason) => {
+    if (unhandled === null) unhandled = { reason };
+  });
+  // An error thrown in a callback of a timer is the failure of the call that started the timer.
+  process.on('uncaughtException', (reason) => {
+    if (unhandled === null) unhandled = { reason };
+  });
+
+  async function run(invoke) {
+    Plugin.jack = invoke.jack;
+    Plugin.args = invoke.args === undefined ? null : invoke.args;
+    if (invoke.jack === 'SmartIndent') {
+      const typed = Plugin.args && typeof Plugin.args.char === 'string' ? Plugin.args.char : '';
+      globalThis.Indent = { GetChar: () => typed };
+    } else {
+      delete globalThis.Indent;
+    }
+    const name = invoke.name;
+    // Only CommonJS (`.cjs`) is served for now: an ES module or a TypeScript file would have
+    // Node.js read the file again after the editor checked what the user agreed to.
+    if (!/\.cjs$/i.test(name)) {
+      throw new Error(name + ' は動かせません。Node.js のプラグインは .cjs だけです');
+    }
+    // The text the editor read (the one that the user agreed to) is what runs. A fresh module for
+    // each call, so that it runs again; what it keeps goes in `globalThis`.
+    const mod = new Module(name, null);
+    mod.filename = name;
+    mod.paths = Module._nodeModulePaths(path.dirname(name));
+    mod._compile(invoke.source, name);
+    // The call ends when the handler's own work is done: the timers that it started (a callback of
+    // `setTimeout` may call `Editor`) run first, within the time limit that the editor holds (a
+    // timer that never ends, a `setInterval`, makes the call time out). Otherwise the callback would
+    // wait while this loop blocks for the next call, and then run in that call, on its document.
+    // An error (a rejection that nobody handles, an exception in a callback) ends the call at once,
+    // and the callbacks that are still waiting are cancelled.
+    for (;;) {
+      await new Promise((resolve) => realSetImmediate(resolve));
+      if (unhandled !== null) break;
+      const timers = process
+        .getActiveResourcesInfo()
+        .some((type) => type === 'Timeout' || type === 'Immediate');
+      if (!timers) break;
+      await new Promise((resolve) => realSetTimeout(resolve, 1));
+      if (unhandled !== null) break;
+    }
+    cancelPending();
+    if (unhandled !== null) {
+      const { reason } = unhandled;
+      unhandled = null;
+      throw reason;
+    }
+  }
+
+  for (;;) {
+    const text = nextLine();
+    if (text === null) break;
+    if (text === '') continue;
+    let message;
+    try {
+      message = JSON.parse(text);
+    } catch (err) {
+      continue;
+    }
+    if (message.method === 'plugin/shutdown') break;
+    if (message.method !== 'plugin/invoke') continue;
+    let failure;
+    try {
+      await run(message.params || {});
+    } catch (err) {
+      failure = describeError(err);
+    }
+    unhandled = null;
+    respond(message.id, failure);
+  }
+  process.exit(0);
+}
+
+if (info && info.kind === 'plugin') {
+  const identity = info.plugin || {};
+  delete info.plugin;
+  servePlugin(identity).catch((err) => {
+    process.stderr.write(String((err && err.stack) || err) + '\n');
+    process.exit(1);
+  });
+}

@@ -36,6 +36,8 @@ pub mod session;
 #[cfg(test)]
 mod codegen;
 #[cfg(test)]
+mod external_plugin_tests;
+#[cfg(test)]
 mod tests;
 
 /// The JSON value of a call's argument and result, for a host that answers a call itself.

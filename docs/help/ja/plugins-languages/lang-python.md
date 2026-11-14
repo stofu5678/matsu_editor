@@ -8,7 +8,7 @@
 |---|---|
 | 起動する名前 | Windows は `python`、そのほかは `python3`（`PATH` から探します） |
 | 版 | 下限を確かめません。試した版は 3.13 と 3.15 |
-| プラグイン | 動かせません（今は QuickJS だけです） |
+| プラグイン | 動かせます。下の「プラグインとして動かすとき」 |
 
 Windows で `python` が Microsoft Store の案内だけのときは、終了コード 9009 で終わります。このとき、「Python が見つかりません。インストールを確かめてください」と出ます。
 
@@ -35,10 +35,23 @@ Windows で `python` が Microsoft Store の案内だけのときは、終了コ
 
 受けなかった例外は、Python のトレースバックとして、標準エラーに出ます。スクリプトは、終了コード 1 で終わります。
 
+## プラグインとして動かすとき
+
+ハンドラの拡張子が `.py` のとき、利用者の Python が動かします。
+
+- ハンドラの文面は、ファイルごとの名前空間（グローバルの辞書）の中で、`__main__` として動きます。名前空間は、`__main__` という名前のモジュールオブジェクトが持っていて、ハンドラが動いている間は、`sys.modules['__main__']` がそれです。ハンドラで定義したクラスの `pickle` や、`from __future__ import annotations` つきの `dataclass` が使えます。`Editor`、`EditorError`、`Plugin`、`Outline`、`Complement`（と、`SmartIndent` のとき `Indent`）が、その中にあります。`import` は要りません（[ハンドラの中で使えるもの](plugin-api.md)）。
+- 名前空間は、プロセスが残っている（`UseCache=1` か `Resident=1`）間、同じファイルの次の呼び出しに引き継ぎます。文面は呼び出しのたびに最初から動くので、前の呼び出しの値は、`globals().get('名前', 初めの値)` のようにして読みます。別のファイルの名前空間は、見えません。
+- モジュールを探す場所の先頭は、プラグインのフォルダーです。隣のファイルを `import` できます。同じ名前のモジュールは、一度読むと、次の呼び出しでも読み直しません。
+- `sys.exit()` は、そのハンドラを終えるだけで、失敗ではありません。
+- 例外が出ると、その呼び出しは失敗になります。トレースバックは、ハンドラのファイルの行番号つきです。
+- `Plugin.GetOption('節', 'キー')` などの、オブジェクトの関数は、同じ綴りの関数です。引数の最後の `None` は、省略として扱います。
+
+
 ## 根拠
 
 - 起動の引数と環境変数: `crates/matsu-plugin/src/session.rs` の `start`、`Language::default_interpreter`
 - `runpy`、`sys.path`、`EditorError`: `crates/matsu-plugin/src/boot/boot.py`
 - 9009 の案内: `crates/matsu-ui/src/macros/mod.rs` の `on_host_event`
 - 文字コードと試した版: `docs/poc/json-rpc.md`（「基本 API」の前の節と「確かめたこと」）
+- プラグインの待ち受け: `crates/matsu-plugin/src/boot/boot.py` の `_serve_plugin`。試験は `crates/matsu-plugin/src/external_plugin_tests.rs`、サンプルは `crates/matsu-plugin/samples/plugins/HelloPython`
 - 試験: `crates/matsu-plugin/src/tests.rs`

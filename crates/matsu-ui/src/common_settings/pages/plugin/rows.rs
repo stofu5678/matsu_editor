@@ -133,6 +133,9 @@ pub(in crate::common_settings) fn unsupported_text(why: &Unsupported) -> String 
         Unsupported::VbScript => "VBScript は使えません".to_owned(),
         Unsupported::UnknownType(kind) if kind.is_empty() => "種別がありません".to_owned(),
         Unsupported::UnknownType(kind) => format!("種別「{kind}」は使えません"),
+        Unsupported::EsModule(file) => format!(
+            "{file} は使えません（.mjs と .ts のプラグインは、まだ動かせません。.cjs にしてください）"
+        ),
     }
 }
 
