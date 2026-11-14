@@ -33,6 +33,7 @@ use gpui::{Context, Window};
 use matsu_config::settings::CustomMenus;
 use matsu_config::settings::custom_menu::MAX_CUSTOM_MENU;
 use matsu_config::settings::macros::RegisteredMacros;
+use matsu_config::settings::oneliner::OneLiners;
 
 use super::super::Env;
 use super::super::dialog::CommonSettingsDialog;
@@ -51,15 +52,17 @@ const KEY: &str = "custmenu_key";
 
 /// `STR_SPECIAL_FUNC`: the kind that `CPropCustmenu::SetData` adds after the kinds of `CFuncLookup`.
 const SPECIAL_KIND: i32 = 18;
-/// The kinds the page offers: those of `CFuncLookup` and 特別機能.
-static PAGE_KINDS: [(&str, i32); 19] = {
-    let mut kinds = [("", 0); 19];
+/// The kinds the page offers: those of `CFuncLookup`, 特別機能, then MATSU's ワンライナー (the last of
+/// `KINDS`, whose value is 19).
+static PAGE_KINDS: [(&str, i32); 20] = {
+    let mut kinds = [("", 0); 20];
     let mut i = 0;
-    while i < KINDS.len() {
+    while i < KINDS.len() - 1 {
         kinds[i] = KINDS[i];
         i += 1;
     }
     kinds[SPECIAL_KIND as usize] = ("特別機能", SPECIAL_KIND);
+    kinds[SPECIAL_KIND as usize + 1] = KINDS[KINDS.len() - 1];
     kinds
 };
 /// The special function list of `sakura_core/func/Funccode.cpp` (`F_WINDOW_LIST` to `F_PLUGIN_LIST`).
@@ -82,8 +85,13 @@ fn functions_of_kind(kind: i32) -> Vec<u16> {
 }
 
 /// `CFuncLookup::Funccode2Name`: the name of function `code`; a custom menu has its own name.
-fn function_name(code: u16, menus: &CustomMenus, macros: &RegisteredMacros) -> String {
-    crate::func_name::funccode_to_name(code, menus, macros)
+fn function_name(
+    code: u16,
+    menus: &CustomMenus,
+    macros: &RegisteredMacros,
+    oneliners: &OneLiners,
+) -> String {
+    crate::func_name::funccode_to_name_with(code, menus, macros, oneliners)
 }
 
 /// The text of a row of the menu's list (`SetDataMenuList`): the name, then the access key in
@@ -92,13 +100,14 @@ fn row_text(
     item: &matsu_config::settings::CustomMenuItem,
     menus: &CustomMenus,
     macros: &RegisteredMacros,
+    oneliners: &OneLiners,
 ) -> String {
     let name = if let Some(text) = item.text.as_deref().filter(|_| item.is_unknown()) {
         format!("{UNKNOWN_LABEL}{text}")
     } else if item.is_separator() {
         SEPARATOR_TEXT.to_owned()
     } else {
-        function_name(item.function, menus, macros)
+        function_name(item.function, menus, macros, oneliners)
     };
     match item.key {
         Some(key) => format!("{name}({key})"),

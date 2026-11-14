@@ -35,13 +35,20 @@ fn key(name: &str) -> &'static KeyBinding {
 /// main menu, where the six have two separator lines of their own (`MATSU_MENU_SEPARATORS`). The counts in
 /// the comments above are Sakura's.
 const MATSU_ONLY: usize = 11;
+/// The 54 functions of the one-liners (ADR-0029, 0030): `F_ONELINER_0` ... `F_ONELINER_49`, `F_ONELINER_LIST` (a
+/// `MenuSpecial`), `F_ONELINER_DIALOG`, `F_ONELINER_SETTINGS` and `F_AI_LOG_SHOW`. The main menu has a submenu for them (5 rows).
+const ONELINER_MENU_ITEMS: usize = 5;
+const ONELINER_FUNCTIONS: usize = 54;
 const MATSU_MENU_SEPARATORS: usize = 2;
 
 #[test]
 fn counts_match_sakura() {
-    assert_eq!(FUNCTIONS.len(), 524 + MATSU_ONLY);
+    assert_eq!(FUNCTIONS.len(), 524 + MATSU_ONLY + ONELINER_FUNCTIONS);
     assert_eq!(KEY_BINDINGS.len(), 100);
-    assert_eq!(MAIN_MENU.len(), 336 + MATSU_ONLY + MATSU_MENU_SEPARATORS);
+    assert_eq!(
+        MAIN_MENU.len(),
+        336 + MATSU_ONLY + MATSU_MENU_SEPARATORS + ONELINER_MENU_ITEMS
+    );
     assert_eq!(FUNCTION_GROUPS.len(), 15);
 }
 
@@ -49,14 +56,14 @@ fn counts_match_sakura() {
 fn kinds_match_sakura_ranges() {
     let count = |kind| FUNCTIONS.iter().filter(|f| f.kind == kind).count();
     assert_eq!(count(FunctionKind::Reserved), 9);
-    assert_eq!(count(FunctionKind::MenuSpecial), 6);
+    assert_eq!(count(FunctionKind::MenuSpecial), 6 + 1);
     assert_eq!(count(FunctionKind::MenuLabel), 63);
     assert_eq!(count(FunctionKind::MacroFunction), 59);
     assert_eq!(count(FunctionKind::Internal), 3);
     assert_eq!(count(FunctionKind::MacroOnly), 23);
     assert_eq!(
         count(FunctionKind::Command),
-        524 - 9 - 6 - 63 - 59 - 3 - 23 + MATSU_ONLY
+        524 - 9 - 6 - 63 - 59 - 3 - 23 + MATSU_ONLY + ONELINER_FUNCTIONS - 1
     );
 }
 
@@ -385,4 +392,29 @@ fn the_encodings_have_macro_names_that_are_not_sakuras() {
         .find(|m| m.name == "Base64Decode")
         .unwrap();
     assert_eq!(save.function, "F_BASE64DECODE");
+}
+
+#[test]
+fn the_oneliner_functions_are_in_a_row_and_have_no_group_or_menu_item() {
+    // `matsu_config::settings::oneliner` has the same codes (a test of matsu-ui checks it).
+    for n in 0..50u16 {
+        let f = function(&format!("F_ONELINER_{n}"));
+        assert_eq!(f.code, 32711 + n);
+        assert_eq!(f.id, format!("oneliner_{n}"));
+        assert_eq!(f.kind, FunctionKind::Command);
+        assert!(f.groups.is_empty());
+        assert!(MAIN_MENU.iter().all(|m| m.code != f.code));
+    }
+    let list = function("F_ONELINER_LIST");
+    assert_eq!((list.code, list.kind), (32761, FunctionKind::MenuSpecial));
+    let dialog = function("F_ONELINER_DIALOG");
+    assert_eq!(
+        (dialog.code, dialog.label),
+        (32762, Some("ワンライナーを入力して実行..."))
+    );
+    let settings = function("F_ONELINER_SETTINGS");
+    assert_eq!(
+        (settings.code, settings.label),
+        (32763, Some("ワンライナーの設定..."))
+    );
 }

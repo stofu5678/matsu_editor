@@ -14,6 +14,10 @@
 //!   and `>` on Windows.
 //! * The output and the error come as one stream of bytes, in the order they were written
 //!   (Sakura gives both the same pipe). The caller decodes them (`matsu_core::exec`).
+//! * [`Spec::program`] starts a program with arguments instead: no line parsing and no shell
+//!   guess (the one-liners of ADR-0029 hand a shell its own arguments). With
+//!   [`Spec::separate_error`] the standard error is a pipe of its own and comes as
+//!   [`Event::Error`], apart from the output.
 //! * The standard input is a channel of byte pieces ([`stdin_channel`]); the process sees its end
 //!   when the sender is dropped. Without one the process reads nothing (the output is taken) or
 //!   what the program itself has (the output is not taken).
@@ -22,6 +26,7 @@
 //!
 //! No `unsafe` code but the one call in `unix`.
 
+use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
@@ -32,6 +37,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+pub mod oem;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -41,6 +48,8 @@ mod windows;
 use unix as sys;
 #[cfg(unix)]
 pub(crate) use unix::kill_tree;
+#[cfg(unix)]
+pub use unix::login_shell;
 #[cfg(windows)]
 use windows as sys;
 
@@ -81,6 +90,24 @@ pub struct Spec {
     /// program. macOS started from Finder or the Dock: the `PATH` of the login shell
     /// ([`crate::login_path`]).
     pub path: Option<std::ffi::OsString>,
+    /// Start this program with these arguments instead of running [`Spec::command`] as a line
+    /// (which is then not used). Needs [`Spec::capture`].
+    pub program: Option<Program>,
+    /// Give the standard error apart from the output, as [`Event::Error`] (the output is then
+    /// only the standard output). Needs [`Spec::capture`].
+    pub separate_error: bool,
+}
+
+/// A program and its arguments, started as they are.
+#[derive(Clone, Debug, Default)]
+pub struct Program {
+    /// The program: a path, or a name that is searched for on the `PATH`.
+    pub program: OsString,
+    /// The arguments; each reaches the program as one.
+    pub args: Vec<OsString>,
+    /// Windows only: the rest of the command line, as it is, after `args` (`raw_arg`): `cmd.exe`
+    /// reads its command line by its own rules (`/D /S /C "line"`). Not used elsewhere.
+    pub raw_args: Option<OsString>,
 }
 
 impl Spec {
@@ -92,6 +119,8 @@ impl Spec {
             unicode_shell: false,
             stdin: None,
             path: None,
+            program: None,
+            separate_error: false,
         }
     }
 }
@@ -106,6 +135,27 @@ impl StdinSender {
     pub fn send(&self, piece: Vec<u8>) -> bool {
         self.0.send(piece).is_ok()
     }
+
+    /// Hands a piece over without waiting: `Err` gives the piece back when the process has not
+    /// taken the earlier ones yet ([`TrySend::Full`]), or says that it no longer reads
+    /// ([`TrySend::Closed`]). For a sender that must be able to give up (a process that left a
+    /// descendant holding its input open has ended, and nobody reads the pieces any more).
+    pub fn try_send(&self, piece: Vec<u8>) -> Result<(), TrySend> {
+        match self.0.try_send(piece) {
+            Ok(()) => Ok(()),
+            Err(mpsc::TrySendError::Full(piece)) => Err(TrySend::Full(piece)),
+            Err(mpsc::TrySendError::Disconnected(_)) => Err(TrySend::Closed),
+        }
+    }
+}
+
+/// Why [`StdinSender::try_send`] did not hand the piece over.
+#[derive(Debug, PartialEq, Eq)]
+pub enum TrySend {
+    /// The process has not taken the earlier pieces yet; the piece is given back.
+    Full(Vec<u8>),
+    /// The process no longer reads.
+    Closed,
 }
 
 /// The receiving end of the standard input, in [`Spec`].
@@ -131,8 +181,11 @@ pub struct Exit {
 /// What a [`Run`] reports.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Event {
-    /// Bytes of the output and the error, in the order written.
+    /// Bytes of the output (and of the error too, unless [`Spec::separate_error`]), in the order
+    /// written.
     Output(Vec<u8>),
+    /// Bytes of the standard error; only with [`Spec::separate_error`].
+    Error(Vec<u8>),
     /// The process has ended and its output has been given. The last event.
     Exited(Exit),
 }
@@ -154,6 +207,7 @@ impl std::error::Error for StartError {}
 
 enum Raw {
     Output(Vec<u8>),
+    Error(Vec<u8>),
     ReaderDone,
     Exited(Exit),
 }
@@ -198,7 +252,8 @@ pub struct Run {
     rx: Receiver<Raw>,
     stopper: Stopper,
     exit: Option<(Exit, Instant)>,
-    reader_done: bool,
+    /// How many of the threads that read the output and the error have not reached the end.
+    readers_left: u8,
     over: bool,
 }
 
@@ -234,7 +289,7 @@ impl Run {
                 Err(TryRecvError::Empty) => {}
             }
             if let Some((exit, at)) = self.exit
-                && (self.reader_done || disconnected || at.elapsed() >= GRACE)
+                && (self.readers_left == 0 || disconnected || at.elapsed() >= GRACE)
             {
                 return Some(self.finish(exit));
             }
@@ -288,8 +343,14 @@ impl Run {
                 }
                 Some(Event::Output(bytes))
             }
+            Raw::Error(bytes) => {
+                if let Some((_, at)) = &mut self.exit {
+                    *at = Instant::now();
+                }
+                Some(Event::Error(bytes))
+            }
             Raw::ReaderDone => {
-                self.reader_done = true;
+                self.readers_left = self.readers_left.saturating_sub(1);
                 None
             }
             Raw::Exited(exit) => {
@@ -302,38 +363,72 @@ impl Run {
 
 /// Starts the command and returns at once.
 pub fn start(spec: Spec) -> Result<Run, StartError> {
-    if spec.command.trim().is_empty() {
+    if spec.program.is_none() && spec.command.trim().is_empty() {
         return Err(StartError {
             message: "the command is empty".to_owned(),
         });
     }
+    if spec.program.is_some() || spec.separate_error {
+        if !spec.capture {
+            return Err(StartError {
+                message: "a program or a separate error needs the output to be taken".to_owned(),
+            });
+        }
+        if spec.program.as_ref().is_some_and(|p| p.program.is_empty()) {
+            return Err(StartError {
+                message: "the program is empty".to_owned(),
+            });
+        }
+    }
     let pipe = if spec.capture {
-        Some(io::pipe().map_err(|e| StartError {
-            message: e.to_string(),
-        })?)
+        Some(make_pipe()?)
+    } else {
+        None
+    };
+    // the error pipe: only when the error is not merged into the output
+    let error_pipe = if spec.separate_error {
+        Some(make_pipe()?)
     } else {
         None
     };
     let mut failure = None;
     let mut spawned = None;
-    // the program as it is, then the shell
-    for shell in [false, true] {
-        let command = if shell {
-            Some(sys::shell_command(
-                &spec.command,
-                spec.capture,
-                spec.unicode_shell,
-            ))
-        } else {
-            sys::direct_command(&spec.command)
-        };
-        let Some(mut command) = command else { continue };
-        match launch(&mut command, &spec, pipe.as_ref().map(|(_, w)| w)) {
-            Ok(child) => {
-                spawned = Some(child);
-                break;
-            }
+    if let Some(program) = &spec.program {
+        let mut command = sys::program_command(program);
+        match launch(
+            &mut command,
+            &spec,
+            pipe.as_ref().map(|(_, w)| w),
+            error_pipe.as_ref().map(|(_, w)| w),
+        ) {
+            Ok(child) => spawned = Some(child),
             Err(error) => failure = Some(error),
+        }
+    } else {
+        // the program as it is, then the shell
+        for shell in [false, true] {
+            let command = if shell {
+                Some(sys::shell_command(
+                    &spec.command,
+                    spec.capture,
+                    spec.unicode_shell,
+                ))
+            } else {
+                sys::direct_command(&spec.command)
+            };
+            let Some(mut command) = command else { continue };
+            match launch(
+                &mut command,
+                &spec,
+                pipe.as_ref().map(|(_, w)| w),
+                error_pipe.as_ref().map(|(_, w)| w),
+            ) {
+                Ok(child) => {
+                    spawned = Some(child);
+                    break;
+                }
+                Err(error) => failure = Some(error),
+            }
         }
     }
     let Some(mut child) = spawned else {
@@ -341,7 +436,10 @@ pub fn start(spec: Spec) -> Result<Run, StartError> {
             message: failure.map_or_else(|| "cannot start".to_owned(), |e| e.to_string()),
         });
     };
+    // The write ends held here must be dropped, or the readers never see the end: `launch` only
+    // lent them, and the `Command` that cloned them is gone.
     let reader = pipe.map(|(reader, _writer)| reader);
+    let error_reader = error_pipe.map(|(reader, _writer)| reader);
     let (tx, rx) = mpsc::sync_channel(OUTPUT_PIECES);
     let state = Arc::new(StopState {
         pid: child.id(),
@@ -353,19 +451,30 @@ pub fn start(spec: Spec) -> Result<Run, StartError> {
     if let (Some(input), Some(stdin)) = (spec.stdin, child.stdin.take()) {
         feed(input, stdin);
     }
+    let mut readers_left = 1;
     match reader {
-        Some(reader) => read_output(reader, tx.clone()),
+        Some(reader) => read_output(reader, tx.clone(), Raw::Output),
         None => {
             let _ = tx.send(Raw::ReaderDone);
         }
+    }
+    if let Some(reader) = error_reader {
+        readers_left += 1;
+        read_output(reader, tx.clone(), Raw::Error);
     }
     wait_for(child, Arc::clone(&state), tx);
     Ok(Run {
         rx,
         stopper: Stopper(state),
         exit: None,
-        reader_done: false,
+        readers_left,
         over: false,
+    })
+}
+
+fn make_pipe() -> Result<(io::PipeReader, io::PipeWriter), StartError> {
+    io::pipe().map_err(|e| StartError {
+        message: e.to_string(),
     })
 }
 
@@ -373,6 +482,7 @@ fn launch(
     command: &mut Command,
     spec: &Spec,
     writer: Option<&io::PipeWriter>,
+    error_writer: Option<&io::PipeWriter>,
 ) -> io::Result<Child> {
     if let Some(folder) = &spec.folder {
         command.current_dir(folder);
@@ -388,7 +498,10 @@ fn launch(
     match writer {
         Some(writer) => {
             command.stdout(writer.try_clone()?);
-            command.stderr(writer.try_clone()?);
+            command.stderr(match error_writer {
+                Some(error_writer) => error_writer.try_clone()?,
+                None => writer.try_clone()?,
+            });
         }
         None => {
             command.stdout(Stdio::inherit());
@@ -411,14 +524,14 @@ fn feed(input: StdinReceiver, mut stdin: std::process::ChildStdin) {
     });
 }
 
-fn read_output(mut reader: io::PipeReader, tx: SyncSender<Raw>) {
+fn read_output(mut reader: io::PipeReader, tx: SyncSender<Raw>, piece: fn(Vec<u8>) -> Raw) {
     thread::spawn(move || {
         let mut buf = vec![0; READ_BYTES];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    if tx.send(Raw::Output(buf[..n].to_vec())).is_err() {
+                    if tx.send(piece(buf[..n].to_vec())).is_err() {
                         return;
                     }
                 }

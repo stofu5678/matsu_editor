@@ -289,6 +289,8 @@ pub struct EditorView {
     pub(crate) save_as_dialog: Option<Entity<crate::file_ops::save_as_dialog::SaveAsDialog>>,
     /// The text input dialog (`InputBox`), while it is open.
     pub(crate) input_dialog: Option<Entity<crate::input_dialog::InputDialog>>,
+    /// The confirmation before text is sent to an AI (`crate::ai_confirm`, ADR-0030).
+    pub(crate) ai_confirm: Option<Entity<crate::ai_confirm::AiConfirmDialog>>,
     /// The list that chooses a connection of `databases.ini` (ADR-0023).
     pub(crate) connection_dialog: Option<Entity<crate::database::pick::ConnectionDialog>>,
     /// The completion list, the command list and the version dialog (`crate::support`).
@@ -387,6 +389,7 @@ impl EditorView {
             macros: MacroState::default(),
             save_as_dialog: None,
             input_dialog: None,
+            ai_confirm: None,
             connection_dialog: None,
             support: Default::default(),
             window_list: None,
@@ -976,6 +979,10 @@ impl EditorView {
         cx.bind_keys([
             gpui::KeyBinding::new("tab", gpui::NoAction, Some("Editor")),
             gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("Editor")),
+            // The confirmation before text goes to an AI is a sibling of the editor, not inside its context: its
+            // own Tab handling (`crate::ai_confirm`) needs the key as well.
+            gpui::KeyBinding::new("tab", gpui::NoAction, Some("AiConfirmDialog")),
+            gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("AiConfirmDialog")),
         ]);
     }
 
@@ -1117,6 +1124,7 @@ impl Render for EditorView {
                 .child(preview.clone())
                 .children(self.print.setup_dialog.clone())
                 .children(self.input_dialog.clone())
+                .children(self.ai_confirm.clone())
                 .children(self.connection_dialog.clone())
                 .into_any_element();
         }
@@ -1213,6 +1221,7 @@ impl Render for EditorView {
             .children(self.save_as_dialog.clone())
             .children(self.print.setup_dialog.clone())
             .children(self.input_dialog.clone())
+            .children(self.ai_confirm.clone())
             .children(self.connection_dialog.clone())
             .into_any_element()
     }

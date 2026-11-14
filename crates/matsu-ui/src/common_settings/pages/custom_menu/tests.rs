@@ -152,20 +152,31 @@ fn the_access_key_is_set_on_a_function_row_not_on_a_separator() {
 
 #[test]
 fn the_kinds_are_the_function_lookups_and_the_special_functions() {
-    assert_eq!(PAGE_KINDS.len(), 19);
+    assert_eq!(PAGE_KINDS.len(), 20);
     assert_eq!(PAGE_KINDS[16].0, "カスタムメニュー");
     assert_eq!(PAGE_KINDS[18], ("特別機能", 18));
+    assert_eq!(PAGE_KINDS[19], ("ワンライナー", 19));
     assert_eq!(functions_of_kind(18), SPECIAL_CODES);
     assert_eq!(functions_of_kind(16).len(), 25);
     assert!(functions_of_kind(99).is_empty());
     // Their names are the labels of the table.
     let menus = CustomMenus::default();
     assert_eq!(
-        function_name(29001, &menus, &RegisteredMacros::default()),
+        function_name(
+            29001,
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "ウィンドウリスト"
     );
     assert_eq!(
-        function_name(29004, &menus, &RegisteredMacros::default()),
+        function_name(
+            29004,
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "カスタムメニューリスト"
     );
 }
@@ -176,23 +187,48 @@ fn a_custom_menu_function_has_the_name_of_its_menu() {
     named[3].name = "My menu".to_owned();
     let menus = CustomMenus::from_menus(named);
     assert_eq!(
-        function_name(31503, &menus, &RegisteredMacros::default()),
+        function_name(
+            31503,
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "My menu"
     );
     assert_eq!(
-        function_name(31580, &menus, &RegisteredMacros::default()),
+        function_name(
+            31580,
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "右クリックメニュー"
     );
     assert_eq!(
-        function_name(31524, &menus, &RegisteredMacros::default()),
+        function_name(
+            31524,
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "タブメニュー"
     );
     assert_eq!(
-        function_name(31504, &menus, &RegisteredMacros::default()),
+        function_name(
+            31504,
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "メニュー4"
     );
     assert_eq!(
-        function_name(9999, &menus, &RegisteredMacros::default()),
+        function_name(
+            9999,
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "-- 不明 --"
     );
 }
@@ -204,11 +240,23 @@ fn a_registered_macro_has_its_name_not_unknown() {
     macros.macros[2].name = "名前".into();
     macros.macros[2].file = "c.mac".into();
     macros.macros[3].file = "d.mac".into();
-    assert_eq!(function_name(31602, &menus, &macros), "名前");
-    assert_eq!(function_name(31603, &menus, &macros), "d.mac");
-    assert_eq!(function_name(31600, &menus, &macros), "マクロ 0 (未登録)");
+    assert_eq!(
+        function_name(31602, &menus, &macros, &Default::default()),
+        "名前"
+    );
+    assert_eq!(
+        function_name(31603, &menus, &macros, &Default::default()),
+        "d.mac"
+    );
+    assert_eq!(
+        function_name(31600, &menus, &macros, &Default::default()),
+        "マクロ 0 (未登録)"
+    );
     let item = CustomMenuItem::command(31602, Some('M'));
-    assert_eq!(row_text(&item, &menus, &macros), "名前(M)");
+    assert_eq!(
+        row_text(&item, &menus, &macros, &Default::default()),
+        "名前(M)"
+    );
 }
 
 #[test]
@@ -218,16 +266,27 @@ fn a_row_shows_the_name_the_key_in_parentheses_or_a_line() {
         row_text(
             &item(30102, Some('O')),
             &menus,
-            &RegisteredMacros::default()
+            &RegisteredMacros::default(),
+            &Default::default()
         ),
         "開く...(O)"
     );
     assert_eq!(
-        row_text(&item(30102, None), &menus, &RegisteredMacros::default()),
+        row_text(
+            &item(30102, None),
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         "開く..."
     );
     assert_eq!(
-        row_text(&item(0, None), &menus, &RegisteredMacros::default()),
+        row_text(
+            &item(0, None),
+            &menus,
+            &RegisteredMacros::default(),
+            &Default::default()
+        ),
         SEPARATOR_TEXT
     );
 }
@@ -389,7 +448,7 @@ fn the_page_shows_menu_0_with_its_name_and_the_buttons_follow_the_rules(cx: &mut
         )
     });
     assert_eq!((name.as_str(), key.as_str()), ("Mine", ""));
-    assert_eq!(items_now(cx).len(), 30 + 2 + 7); // Sakura's 30, MATSU's copies with LF and CR, and its encodings with a separator
+    assert_eq!(items_now(cx).len(), 30 + 2 + 7 + 1); // Sakura's 30, MATSU's copies with LF and CR, and its encodings with a separator
     // Nothing is selected, nothing is chosen in the function list.
     for id in [
         "custmenu_delete",
@@ -417,8 +476,8 @@ fn the_page_shows_menu_0_with_its_name_and_the_buttons_follow_the_rules(cx: &mut
     choose_function(cx, 0, 1);
     assert!(button_is_usable(cx, "custmenu_insert"));
     assert!(button_is_usable(cx, "custmenu_add"));
-    // The last row cannot go down (Sakura's 30 items, MATSU's 2 copies, and a separator with the 6 conversions).
-    select_row(cx, 32 + 7 - 1);
+    // The last row cannot go down (Sakura's 30 items, MATSU's 2 copies, and a separator with the 6 conversions, and the submenu of the one-liners).
+    select_row(cx, 33 + 7 - 1);
     assert!(!button_is_usable(cx, "custmenu_down"));
 }
 
@@ -501,7 +560,8 @@ fn the_name_the_submenu_flag_and_the_access_key_are_set_per_item_and_menu(cx: &m
         function_name(
             31503,
             &with_dialog(cx, |d, _, _| menus_of(d.values())),
-            &RegisteredMacros::default()
+            &RegisteredMacros::default(),
+            &Default::default()
         ),
         "Work"
     );
@@ -559,6 +619,7 @@ fn the_name_the_submenu_flag_and_the_access_key_are_set_per_item_and_menu(cx: &m
             &edit_of(d.values()).items[1],
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
         )
     });
     assert_eq!(text, "やり直し(R)");
@@ -858,7 +919,7 @@ fn a_right_click_menu_the_user_changed_is_written_with_the_version_and_removed_c
     let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
     menus[0].items.retain(|i| i.function != 32700);
     assert!(data::store(&data::encode(&menus), &mut p).unwrap());
-    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("2"));
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("3"));
     assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("4"));
     assert_eq!(right_click(&p), [30602, 30603, 32701, 30604]);
 }
@@ -897,7 +958,7 @@ fn renaming_an_old_right_click_menu_keeps_the_text_the_copies_shifted() {
     assert_eq!(p.get("CustMenu", "nCMIF[00][04]"), Some("Plugin/Cmd"));
     assert_eq!(p.get("CustMenu", "nCMIK[00][04]"), Some("P"));
     assert_eq!(p.get("CustMenu", "nCMIF[00][05]"), Some("NoSuchMacro"));
-    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("2"));
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("3"));
 }
 
 #[test]
@@ -960,7 +1021,12 @@ fn an_unknown_command_shows_what_it_is_and_the_mnu_file_keeps_its_text() {
     let p = profile(UNKNOWN_CUSTOM_FILE);
     let menus = data::menus_of(&data::load(&p));
     let macros = RegisteredMacros::default();
-    let shown = row_text(&menus.menus()[0].items[4], &menus, &macros);
+    let shown = row_text(
+        &menus.menus()[0].items[4],
+        &menus,
+        &macros,
+        &Default::default(),
+    );
     assert_eq!(shown, "（不明）Plugin/Cmd(P)");
     let exported = menus.export_profile(&data::name_of_code).unwrap();
     assert_eq!(
@@ -970,4 +1036,26 @@ fn an_unknown_command_shows_what_it_is_and_the_mnu_file_keeps_its_text() {
     let mut imported = CustomMenus::default();
     assert!(imported.import_profile(&exported, &data::code_of_name));
     assert_eq!(imported, menus);
+}
+
+#[test]
+fn a_registered_one_liner_has_its_name_not_unknown() {
+    use matsu_config::settings::oneliner::{OneLiner, OneLiners, OutputTo};
+    let (menus, macros) = (CustomMenus::default(), RegisteredMacros::default());
+    let mut ones = OneLiners::default();
+    ones.slots[0] = OneLiner {
+        name: "整列".into(),
+        command: "sort".into(),
+        output: OutputTo::Replace,
+        ..OneLiner::default()
+    };
+    ones.slots[1].command = "jq .".into();
+    assert_eq!(function_name(32711, &menus, &macros, &ones), "整列");
+    assert_eq!(function_name(32712, &menus, &macros, &ones), "jq .");
+    assert_eq!(
+        function_name(32713, &menus, &macros, &ones),
+        "ワンライナー 2 (未登録)"
+    );
+    let item = CustomMenuItem::command(32711, Some('S'));
+    assert_eq!(row_text(&item, &menus, &macros, &ones), "整列(S)");
 }

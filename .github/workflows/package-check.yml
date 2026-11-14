@@ -8,7 +8,18 @@ on:
     paths:
       - .cargo/config.toml
       - .github/scripts/pe_imports.py
+      - .github/scripts/test-windows-installer.ps1
+      - packaging/windows/**
+      - crates/matsu/matsu.rc
+      - crates/matsu/build.rs
       - scripts/package-mac-app.sh
+      - scripts/package-mac-dmg.sh
+      - scripts/check-mac-dmg.sh
+      - scripts/package-linux.sh
+      - packaging/linux/**
+      - .github/scripts/test-linux-install.sh
+      - .github/scripts/test-rpm-in-fedora.sh
+      - .github/scripts/apt-install.sh
       - assets/icons/**
       - .github/actions/mac-runner/**
       - .github/workflows/package.yml
@@ -28,3 +39,38 @@ concurrency:
 jobs:
   package:
     uses: ./.github/workflows/package.yml
+
+  # The Windows installer must not touch the user's data (ADR-0032, decision 3): install, update and uninstall it
+  # on the two Windows targets and compare. The script is .github/scripts/test-windows-installer.ps1.
+  installer-test:
+    name: installer test (${{ matrix.name }})
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64, os: windows-2025 }
+          - { name: windows-arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Cone mode takes folders; the files in the root (Cargo.toml) come with it.
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-${{ matrix.name }}
+          path: dist
+      - name: Install, update and uninstall
+        shell: pwsh
+        run: .github/scripts/test-windows-installer.ps1 -Setup "dist/matsu-${{ matrix.name }}-setup.exe"
+      - name: Keep the installer's log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-logs-${{ matrix.name }}
+          path: ${{ runner.temp }}/installer-logs
+          if-no-files-found: ignore
+          retention-days: 3

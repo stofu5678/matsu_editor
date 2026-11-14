@@ -4603,6 +4603,618 @@ module.exports = function install(call) {
       return call('ShellTab', args);
     },
     /**
+     * OneLiner0() -> null
+     *
+     * MATSU Editor's own F_ONELINER_0 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner0() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner0', args);
+    },
+    /**
+     * OneLiner1() -> null
+     *
+     * MATSU Editor's own F_ONELINER_1 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner1() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner1', args);
+    },
+    /**
+     * OneLiner2() -> null
+     *
+     * MATSU Editor's own F_ONELINER_2 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner2() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner2', args);
+    },
+    /**
+     * OneLiner3() -> null
+     *
+     * MATSU Editor's own F_ONELINER_3 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner3() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner3', args);
+    },
+    /**
+     * OneLiner4() -> null
+     *
+     * MATSU Editor's own F_ONELINER_4 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner4() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner4', args);
+    },
+    /**
+     * OneLiner5() -> null
+     *
+     * MATSU Editor's own F_ONELINER_5 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner5() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner5', args);
+    },
+    /**
+     * OneLiner6() -> null
+     *
+     * MATSU Editor's own F_ONELINER_6 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner6() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner6', args);
+    },
+    /**
+     * OneLiner7() -> null
+     *
+     * MATSU Editor's own F_ONELINER_7 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner7() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner7', args);
+    },
+    /**
+     * OneLiner8() -> null
+     *
+     * MATSU Editor's own F_ONELINER_8 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner8() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner8', args);
+    },
+    /**
+     * OneLiner9() -> null
+     *
+     * MATSU Editor's own F_ONELINER_9 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    OneLiner9() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner9', args);
+    },
+    /**
+     * OneLiner10() -> null
+     *
+     * MATSU Editor's own F_ONELINER_10 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner10() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner10', args);
+    },
+    /**
+     * OneLiner11() -> null
+     *
+     * MATSU Editor's own F_ONELINER_11 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner11() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner11', args);
+    },
+    /**
+     * OneLiner12() -> null
+     *
+     * MATSU Editor's own F_ONELINER_12 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner12() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner12', args);
+    },
+    /**
+     * OneLiner13() -> null
+     *
+     * MATSU Editor's own F_ONELINER_13 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner13() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner13', args);
+    },
+    /**
+     * OneLiner14() -> null
+     *
+     * MATSU Editor's own F_ONELINER_14 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner14() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner14', args);
+    },
+    /**
+     * OneLiner15() -> null
+     *
+     * MATSU Editor's own F_ONELINER_15 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner15() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner15', args);
+    },
+    /**
+     * OneLiner16() -> null
+     *
+     * MATSU Editor's own F_ONELINER_16 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner16() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner16', args);
+    },
+    /**
+     * OneLiner17() -> null
+     *
+     * MATSU Editor's own F_ONELINER_17 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner17() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner17', args);
+    },
+    /**
+     * OneLiner18() -> null
+     *
+     * MATSU Editor's own F_ONELINER_18 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner18() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner18', args);
+    },
+    /**
+     * OneLiner19() -> null
+     *
+     * MATSU Editor's own F_ONELINER_19 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner19() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner19', args);
+    },
+    /**
+     * OneLiner20() -> null
+     *
+     * MATSU Editor's own F_ONELINER_20 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner20() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner20', args);
+    },
+    /**
+     * OneLiner21() -> null
+     *
+     * MATSU Editor's own F_ONELINER_21 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner21() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner21', args);
+    },
+    /**
+     * OneLiner22() -> null
+     *
+     * MATSU Editor's own F_ONELINER_22 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner22() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner22', args);
+    },
+    /**
+     * OneLiner23() -> null
+     *
+     * MATSU Editor's own F_ONELINER_23 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner23() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner23', args);
+    },
+    /**
+     * OneLiner24() -> null
+     *
+     * MATSU Editor's own F_ONELINER_24 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner24() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner24', args);
+    },
+    /**
+     * OneLiner25() -> null
+     *
+     * MATSU Editor's own F_ONELINER_25 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner25() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner25', args);
+    },
+    /**
+     * OneLiner26() -> null
+     *
+     * MATSU Editor's own F_ONELINER_26 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner26() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner26', args);
+    },
+    /**
+     * OneLiner27() -> null
+     *
+     * MATSU Editor's own F_ONELINER_27 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner27() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner27', args);
+    },
+    /**
+     * OneLiner28() -> null
+     *
+     * MATSU Editor's own F_ONELINER_28 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner28() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner28', args);
+    },
+    /**
+     * OneLiner29() -> null
+     *
+     * MATSU Editor's own F_ONELINER_29 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner29() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner29', args);
+    },
+    /**
+     * OneLiner30() -> null
+     *
+     * MATSU Editor's own F_ONELINER_30 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner30() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner30', args);
+    },
+    /**
+     * OneLiner31() -> null
+     *
+     * MATSU Editor's own F_ONELINER_31 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner31() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner31', args);
+    },
+    /**
+     * OneLiner32() -> null
+     *
+     * MATSU Editor's own F_ONELINER_32 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner32() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner32', args);
+    },
+    /**
+     * OneLiner33() -> null
+     *
+     * MATSU Editor's own F_ONELINER_33 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner33() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner33', args);
+    },
+    /**
+     * OneLiner34() -> null
+     *
+     * MATSU Editor's own F_ONELINER_34 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner34() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner34', args);
+    },
+    /**
+     * OneLiner35() -> null
+     *
+     * MATSU Editor's own F_ONELINER_35 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner35() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner35', args);
+    },
+    /**
+     * OneLiner36() -> null
+     *
+     * MATSU Editor's own F_ONELINER_36 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner36() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner36', args);
+    },
+    /**
+     * OneLiner37() -> null
+     *
+     * MATSU Editor's own F_ONELINER_37 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner37() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner37', args);
+    },
+    /**
+     * OneLiner38() -> null
+     *
+     * MATSU Editor's own F_ONELINER_38 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner38() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner38', args);
+    },
+    /**
+     * OneLiner39() -> null
+     *
+     * MATSU Editor's own F_ONELINER_39 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner39() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner39', args);
+    },
+    /**
+     * OneLiner40() -> null
+     *
+     * MATSU Editor's own F_ONELINER_40 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner40() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner40', args);
+    },
+    /**
+     * OneLiner41() -> null
+     *
+     * MATSU Editor's own F_ONELINER_41 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner41() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner41', args);
+    },
+    /**
+     * OneLiner42() -> null
+     *
+     * MATSU Editor's own F_ONELINER_42 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner42() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner42', args);
+    },
+    /**
+     * OneLiner43() -> null
+     *
+     * MATSU Editor's own F_ONELINER_43 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner43() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner43', args);
+    },
+    /**
+     * OneLiner44() -> null
+     *
+     * MATSU Editor's own F_ONELINER_44 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner44() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner44', args);
+    },
+    /**
+     * OneLiner45() -> null
+     *
+     * MATSU Editor's own F_ONELINER_45 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner45() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner45', args);
+    },
+    /**
+     * OneLiner46() -> null
+     *
+     * MATSU Editor's own F_ONELINER_46 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner46() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner46', args);
+    },
+    /**
+     * OneLiner47() -> null
+     *
+     * MATSU Editor's own F_ONELINER_47 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner47() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner47', args);
+    },
+    /**
+     * OneLiner48() -> null
+     *
+     * MATSU Editor's own F_ONELINER_48 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner48() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner48', args);
+    },
+    /**
+     * OneLiner49() -> null
+     *
+     * MATSU Editor's own F_ONELINER_49 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    OneLiner49() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLiner49', args);
+    },
+    /**
+     * OneLinerDialog() -> null
+     *
+     * MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
+     */
+    OneLinerDialog() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OneLinerDialog', args);
+    },
+    /**
      * TraceOut(arg1: string?, arg2: int?) -> null
      *
      * MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a

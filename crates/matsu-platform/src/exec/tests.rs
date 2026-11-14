@@ -29,6 +29,7 @@ fn finish(mut run: Run) -> Done {
         assert!(start.elapsed() < LIMIT, "the command does not end");
         match run.poll(Duration::from_millis(50)) {
             Some(Event::Output(bytes)) => output.extend(bytes),
+            Some(Event::Error(_)) => panic!("the error comes apart only when asked for"),
             Some(Event::Exited(exit)) => return Done { output, exit },
             None => {}
         }
@@ -233,6 +234,7 @@ mod unix_only {
             assert!(begun.elapsed() < LIMIT, "no output while the command runs");
             match run.poll(Duration::from_millis(50)) {
                 Some(Event::Output(bytes)) => seen.extend(bytes),
+                Some(Event::Error(_)) => panic!("the error comes apart only when asked for"),
                 Some(Event::Exited(exit)) => {
                     panic!("the command ended before its output came: {exit:?}")
                 }
@@ -349,7 +351,7 @@ mod unix_only {
                     assert_eq!(exit.code, Some(0));
                     break;
                 }
-                None => {}
+                Some(Event::Error(_)) | None => {}
             }
         }
         assert_eq!(total, 3_000_000);
@@ -398,4 +400,217 @@ fn a_line_with_shell_characters_needs_the_shell() {
     for line in ["ls", "ls -l /tmp", "sort /R", "git status --short"] {
         assert!(!needs_shell(line), "{line:?}");
     }
+}
+
+// A program with arguments, and the error apart from the output ---------------------------------
+
+/// What a run gave when the error is taken apart.
+struct Apart {
+    output: Vec<u8>,
+    error: Vec<u8>,
+    exit: Exit,
+}
+
+fn finish_apart(mut run: Run) -> Apart {
+    let begun = Instant::now();
+    let (mut output, mut error) = (Vec::new(), Vec::new());
+    loop {
+        assert!(
+            begun.elapsed() < LIMIT,
+            "the command does not end (output {} bytes, error {} bytes)",
+            output.len(),
+            error.len()
+        );
+        match run.poll(Duration::from_millis(50)) {
+            Some(Event::Output(bytes)) => output.extend(bytes),
+            Some(Event::Error(bytes)) => error.extend(bytes),
+            Some(Event::Exited(exit)) => {
+                return Apart {
+                    output,
+                    error,
+                    exit,
+                };
+            }
+            None => {}
+        }
+    }
+}
+
+/// A shell that runs `script`: `/bin/sh -c`, or `cmd.exe` with its command line as it is.
+fn shell_program(script: &str) -> Program {
+    if cfg!(windows) {
+        Program {
+            program: "cmd.exe".into(),
+            args: Vec::new(),
+            raw_args: Some(format!("/D /S /C \"{script}\"").into()),
+        }
+    } else {
+        Program {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+            raw_args: None,
+        }
+    }
+}
+
+fn apart(script: &str) -> Apart {
+    let mut spec = Spec::new(String::new());
+    spec.program = Some(shell_program(script));
+    spec.separate_error = true;
+    finish_apart(start(spec).unwrap())
+}
+
+#[test]
+fn the_error_comes_apart_from_the_output_when_asked() {
+    let done = apart(if cfg!(windows) {
+        "echo out& echo err 1>&2& exit /b 3"
+    } else {
+        "echo out; echo err 1>&2; exit 3"
+    });
+    assert_eq!(String::from_utf8_lossy(&done.output).trim(), "out");
+    assert_eq!(String::from_utf8_lossy(&done.error).trim(), "err");
+    assert_eq!(done.exit.code, Some(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_exit_comes_after_both_the_output_and_the_error() {
+    // 1 MB on each, written at the same time: both readers must have drained before the exit
+    let done = apart(
+        "head -c 1000000 /dev/zero | tr '\\0' o & head -c 1000000 /dev/zero | tr '\\0' e 1>&2 & wait",
+    );
+    assert_eq!(done.output.len(), 1_000_000);
+    assert_eq!(done.error.len(), 1_000_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_argument_reaches_the_program_as_one() {
+    let mut spec = Spec::new(String::new());
+    spec.program = Some(Program {
+        program: "/bin/sh".into(),
+        args: vec![
+            "-c".into(),
+            "printf '[%s]' \"$@\"".into(),
+            "name".into(),
+            "a b".into(),
+            "$HOME".into(),
+            "'q'".into(),
+            String::new().into(),
+        ],
+        raw_args: None,
+    });
+    spec.separate_error = true;
+    let done = finish_apart(start(spec).unwrap());
+    assert_eq!(String::from_utf8_lossy(&done.output), "[a b][$HOME]['q'][]");
+}
+
+#[cfg(windows)]
+#[test]
+fn a_command_line_goes_to_cmd_as_it_is() {
+    let done = apart("echo \"a  b\" & echo c");
+    assert_eq!(
+        String::from_utf8_lossy(&done.output).replace("\r\n", "\n"),
+        "\"a  b\" \nc\n"
+    );
+}
+
+#[test]
+fn the_input_and_a_separate_error_work_together() {
+    let (tx, rx) = stdin_channel();
+    let mut spec = Spec::new(String::new());
+    spec.program = Some(shell_program(if cfg!(windows) {
+        "findstr .& echo err 1>&2"
+    } else {
+        "cat; echo err 1>&2"
+    }));
+    spec.separate_error = true;
+    spec.stdin = Some(rx);
+    let run = start(spec).unwrap();
+    let sender = std::thread::spawn(move || {
+        // 5 MB: more than the pipes and the channel hold, while the output is read
+        let piece = format!("{}\n", "x".repeat(99)).repeat(1000);
+        for _ in 0..50 {
+            if !tx.send(piece.clone().into_bytes()) {
+                break;
+            }
+        }
+    });
+    let done = finish_apart(run);
+    sender.join().unwrap();
+    assert_eq!(String::from_utf8_lossy(&done.error).trim(), "err");
+    let output = String::from_utf8_lossy(&done.output).replace("\r\n", "\n");
+    assert_eq!(output.len(), 50 * 1000 * 100);
+}
+
+#[test]
+fn a_program_or_a_separate_error_needs_the_output_to_be_taken() {
+    let mut spec = Spec::new(String::new());
+    spec.program = Some(shell_program("echo x"));
+    spec.capture = false;
+    assert!(start(spec).is_err());
+    let mut spec = Spec::new("echo x");
+    spec.separate_error = true;
+    spec.capture = false;
+    assert!(start(spec).is_err());
+}
+
+#[test]
+fn an_empty_program_does_not_start() {
+    let mut spec = Spec::new(String::new());
+    spec.program = Some(Program::default());
+    assert!(start(spec).is_err());
+}
+
+#[test]
+fn a_program_that_is_not_there_does_not_start() {
+    let mut spec = Spec::new(String::new());
+    spec.program = Some(Program {
+        program: "matsu-no-such-program-qzx".into(),
+        ..Program::default()
+    });
+    assert!(start(spec).is_err());
+}
+
+#[test]
+fn a_line_without_separate_error_still_merges_the_error() {
+    // what Sakura's 外部コマンド実行 needs stays as it was
+    let done = run(if cfg!(windows) {
+        "cmd /C \"echo out& echo err 1>&2\""
+    } else {
+        "echo out; echo err 1>&2"
+    });
+    let text = done.text();
+    assert!(text.contains("out") && text.contains("err"), "{text:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_login_shell_is_the_environment_one_when_it_is_absolute() {
+    use std::ffi::OsStr;
+    use std::path::PathBuf;
+    assert_eq!(
+        login_shell(Some(OsStr::new("/bin/zsh"))),
+        Some(PathBuf::from("/bin/zsh"))
+    );
+    // a relative one is not trusted: the password database answers (or nothing does)
+    if let Some(shell) = login_shell(Some(OsStr::new("zsh"))) {
+        assert!(shell.is_absolute());
+    }
+    if let Some(shell) = login_shell(None) {
+        assert!(shell.is_absolute());
+    }
+}
+
+#[test]
+fn a_command_line_gets_its_error_apart_too_when_asked() {
+    let mut spec = Spec::new(if cfg!(windows) {
+        "cmd /C \"echo out& echo err 1>&2\""
+    } else {
+        "echo out; echo err 1>&2"
+    });
+    spec.separate_error = true;
+    let done = finish_apart(start(spec).unwrap());
+    assert_eq!(String::from_utf8_lossy(&done.output).trim(), "out");
+    assert_eq!(String::from_utf8_lossy(&done.error).trim(), "err");
 }

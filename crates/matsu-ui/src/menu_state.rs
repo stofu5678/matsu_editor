@@ -136,6 +136,15 @@ pub(crate) struct FuncStates {
     pub select_count_by_byte: bool,
     /// The keyword help looks up the word at the caret (`m_bUseCaretKeyWord`).
     pub key_search: bool,
+    /// The registered one-liners (ADR-0029): which of them can run, and where their result goes.
+    pub oneliners: std::sync::Arc<matsu_config::settings::oneliner::OneLiners>,
+    /// A command that takes the output runs in the window (the box of 外部コマンド実行 and of the one-liners is
+    /// shown): the one-liners and their dialog wait.
+    pub command_running: bool,
+    /// The text cannot be changed: view mode, a file that cannot be written (`uneditable_if_unwritable`), or only
+    /// the start of a big file (`oneliner::flow::can_edit`, what the commands refuse). The one-liners that put their
+    /// result into the document wait for it.
+    pub text_locked: bool,
 }
 
 /// The name of the function with this code (`F_UNDO`), if it is in Sakura's table.
@@ -241,6 +250,12 @@ impl FuncStates {
                 .select_count
                 .by_byte(crate::status_options::current(cx).select_count_by_byte),
             key_search: crate::key_help::caret_key_word(cx),
+            oneliners: cx
+                .try_global::<crate::settings::UserSettings>()
+                .map(crate::settings::UserSettings::shared_oneliners)
+                .unwrap_or_default(),
+            command_running: view.support.exec_running.is_some() || view.support.oneliner_starting,
+            text_locked: !crate::oneliner::flow::can_edit(view, cx),
         }
     }
 
@@ -293,6 +308,9 @@ impl FuncStates {
     /// `IsFuncEnable`: whether the item of the function can be chosen. `true` for the functions
     /// whose rule is not kept here (a function without a command is grayed out elsewhere).
     pub(crate) fn is_enabled(&self, code: u16) -> bool {
+        if let Some(enabled) = self.oneliner_enabled(code) {
+            return enabled;
+        }
         let Some(name) = name_of(code) else {
             return true;
         };
@@ -398,6 +416,24 @@ impl FuncStates {
             | "F_FILENEW_NEWWINDOW" => tab_mode,
             _ => true,
         }
+    }
+}
+
+impl FuncStates {
+    /// Whether the functions of the one-liners can be chosen (ADR-0029), `None` for another function. One-liner `n`
+    /// needs a command, no other run that takes the window, and, when its result goes into the document, a document
+    /// that can be edited. The input dialog waits for a run too (its box has the window). The settings page does not.
+    fn oneliner_enabled(&self, code: u16) -> Option<bool> {
+        use matsu_config::settings::oneliner::{F_ONELINER_DIALOG, OutputTo, index_of_function};
+        if code == F_ONELINER_DIALOG {
+            return Some(!self.command_running);
+        }
+        let one = self.oneliners.get(index_of_function(code)?)?;
+        Some(
+            one.is_registered()
+                && !self.command_running
+                && (one.output == OutputTo::OutputWindow || !(self.view_mode || self.text_locked)),
+        )
     }
 }
 
