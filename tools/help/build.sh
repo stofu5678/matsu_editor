@@ -10,6 +10,9 @@ if [ -f target/help/html/index.html ]; then site=target/help/html; fi
 for page in index.html about.html print.html; do
   test -f "${site}/${page}" || { echo "::error::${site}/${page} was not built"; exit 1; }
 done
+# search.html: print.html without its automatic print call, for the search of the app (it opens it and uses Ctrl+F).
+# The script fails if mdBook no longer has the call to remove.
+python3 -I tools/help/make-search-page.py "${site}"
 echo "site=${site}"
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   echo "site=${site}" >> "$GITHUB_OUTPUT"
