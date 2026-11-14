@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.14.0](https://github.com/stofu5678/matsu_editor/compare/v0.13.0...v0.14.0) (2026-11-14)
+
+
+### Features
+
+* **ai:** a read-only log tab for what was sent to an AI and its answer (ADR-0030) ([#405](https://github.com/stofu5678/matsu_editor/issues/405)) ([b884ca5](https://github.com/stofu5678/matsu_editor/commit/b884ca54a0aac78973434756ad2fe3f9e6b4b3e1))
+* **ai:** ask before sending text to an AI, with a warning for secrets (ADR-0030) ([#406](https://github.com/stofu5678/matsu_editor/issues/406)) ([b12c619](https://github.com/stofu5678/matsu_editor/commit/b12c619a596b8a1efe70ead9b28d1f9bb24e8d0b))
+* **ai:** mark a one-liner as sending to a generative AI (ADR-0030) ([#404](https://github.com/stofu5678/matsu_editor/issues/404)) ([1d491d3](https://github.com/stofu5678/matsu_editor/commit/1d491d304d4cb213869ff9928e23c6970f1e6c2d))
+* **ai:** mark a one-liner as sending to a generative AI (ADR-0030) ([#404](https://github.com/stofu5678/matsu_editor/issues/404)) ([a961dcf](https://github.com/stofu5678/matsu_editor/commit/a961dcfb75cb1d4c1fb74efe5589231d178a9b25))
+* **ai:** send the selection to a generative AI through a marked one-liner (ADR-0030) ([#411](https://github.com/stofu5678/matsu_editor/issues/411)) ([80625a5](https://github.com/stofu5678/matsu_editor/commit/80625a52914d2125e58ecc4f673312b005c32214))
+* **help:** lay the ground for the help in docs/help (ADR-0031) ([#401](https://github.com/stofu5678/matsu_editor/issues/401)) ([1ca12d4](https://github.com/stofu5678/matsu_editor/commit/1ca12d487182959c9912d9b5bd6aa4c05386b88c))
+* **help:** open the bundled help, search the help, and wire the help buttons ([#434](https://github.com/stofu5678/matsu_editor/issues/434)) ([3a48b32](https://github.com/stofu5678/matsu_editor/commit/3a48b32eb8d7e70de99b5e88b0e48ae1c981220c))
+* **oneliner:** keep the one-liners in matsu.ini and number their functions (ADR-0029) ([#395](https://github.com/stofu5678/matsu_editor/issues/395)) ([ba8b2d4](https://github.com/stofu5678/matsu_editor/commit/ba8b2d4b46ac5fdfeef722dffb6e094b621ea5ad))
+* **oneliner:** run a one-liner in the shell with the text on stdin (ADR-0029) ([#400](https://github.com/stofu5678/matsu_editor/issues/400)) ([3c87c76](https://github.com/stofu5678/matsu_editor/commit/3c87c7648e85d6c16dbd0f56020e2eba7be8e554))
+* **oneliner:** run one-liners from the right-click menu, keys and the input dialog (ADR-0029) ([#403](https://github.com/stofu5678/matsu_editor/issues/403)) ([f86200c](https://github.com/stofu5678/matsu_editor/commit/f86200c8d10ce8e645dac0f58f5375b136829c83))
+* **oneliner:** the settings page for the one-liners (ADR-0029) ([#402](https://github.com/stofu5678/matsu_editor/issues/402)) ([bfc5333](https://github.com/stofu5678/matsu_editor/commit/bfc533344e681ed0d3d5351c827ea556ea618668))
+* **package:** .deb and .rpm packages for Linux (ADR-0032) ([#397](https://github.com/stofu5678/matsu_editor/issues/397)) ([9c983c9](https://github.com/stofu5678/matsu_editor/commit/9c983c9c111858ebaf3d18a1678ef078d5e2f406))
+* **package:** a .dmg for macOS (ADR-0032) ([#396](https://github.com/stofu5678/matsu_editor/issues/396)) ([ab5ce2c](https://github.com/stofu5678/matsu_editor/commit/ab5ce2c05e3b1319e47a6e535522665954546c7a))
+* **package:** a Windows installer made with Inno Setup (ADR-0032) ([#398](https://github.com/stofu5678/matsu_editor/issues/398)) ([bbc5edd](https://github.com/stofu5678/matsu_editor/commit/bbc5eddf2ee39f68e79e4342d4854d74154884eb))
+* **plugin:** run plugin handlers in Node.js and Python ([#438](https://github.com/stofu5678/matsu_editor/issues/438)) ([4ae67ef](https://github.com/stofu5678/matsu_editor/commit/4ae67efda5e4b0992de5c74dfbc07b2f17284c57))
+* **window:** fill the window list submenu with the open documents ([#433](https://github.com/stofu5678/matsu_editor/issues/433)) ([b4489d9](https://github.com/stofu5678/matsu_editor/commit/b4489d9de15412fecb0af8cc672d8bf6c09fb024))
+
+
+### Bug Fixes
+
+* **macros:** expand every ExpandParameter symbol in macros and external commands ([#437](https://github.com/stofu5678/matsu_editor/issues/437)) ([d4faa64](https://github.com/stofu5678/matsu_editor/commit/d4faa64164ad82d07a6ead851db759fcbf88ea77))
+* **macros:** let scripts pass row counts to the paging functions and a name to FileSaveAsDialog ([#435](https://github.com/stofu5678/matsu_editor/issues/435)) ([9a9e6a5](https://github.com/stofu5678/matsu_editor/commit/9a9e6a58bfe0d578b11ff78db180cdaf751ed237))
+
 ## [0.13.0](https://github.com/stofu5678/matsu_editor/compare/v0.12.0...v0.13.0) (2026-11-13)
 
 
