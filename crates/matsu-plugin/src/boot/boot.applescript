@@ -277,8 +277,10 @@ on pluginBootText()
 	return (bootString's stringByReplacingOccurrencesOfString:(character id 13) withString:linefeed) as text
 end pluginBootText
 
--- The line of the handler (from 1) where an error is, or 0 if it is not in the handler (or is not
--- known). `errorInfo` is the dictionary of NSAppleScript; its range counts UTF-16 units of the program.
+-- The line of the handler (from 1) where an error is; -1 if its range is known and is not in the
+-- handler (an error raised inside the boot's `editorCall`, say: AppleScript has no call stack, so
+-- the line of the call in the handler cannot be known); 0 if the range is not known. `errorInfo` is
+-- the dictionary of NSAppleScript; its range counts UTF-16 units of the program.
 on pluginErrorLine(errorInfo, programString, linesBefore, userLines)
 	try
 		set errorRange to (errorInfo's objectForKey:"NSAppleScriptErrorRange")'s rangeValue()
@@ -286,6 +288,7 @@ on pluginErrorLine(errorInfo, programString, linesBefore, userLines)
 		set programLine to (my pluginLineBreaks((programString's substringToIndex:errorStart))) + 1
 		set userLine to programLine - linesBefore
 		if userLine >= 1 and userLine <= userLines then return userLine
+		return -1
 	end try
 	return 0
 end pluginErrorLine
@@ -302,8 +305,10 @@ on pluginFailure(kindName, errorInfo, handlerName, programString, linesBefore, u
 	set failureText to kindName & ": " & errorMessage & " (" & errorNumber & ")" & linefeed & "  at " & handlerName
 	if lineNumber > 0 then
 		set failureText to failureText & ":" & lineNumber
+	else if lineNumber is -1 then
+		set failureText to failureText & " (in an editor call)"
 	else
-		-- Not in the handler, or not known: say what NSAppleScript gave, so that one log tells.
+		-- The range is not known: say what NSAppleScript gave, so that one log tells.
 		set rangeText to "none"
 		try
 			set rangeText to ((errorInfo's objectForKey:"NSAppleScriptErrorRange")'s |description|()) as text

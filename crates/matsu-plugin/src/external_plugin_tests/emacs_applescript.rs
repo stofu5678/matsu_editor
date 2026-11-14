@@ -539,7 +539,7 @@ fn an_applescript_handler_may_run_a_file_of_its_folder() {
     let dir = plugin_dir(&[
         (
             "req.applescript",
-            "set theWord to run script (POSIX file (pluginDir() & \"/plugin_lib/word.applescript\"))\neditorCall(\"InsText\", {theWord})\n",
+            "set theWord to run script (read (POSIX file (pluginDir() & \"/plugin_lib/word.applescript\")) as \u{ab}class utf8\u{bb})\neditorCall(\"InsText\", {theWord})\n",
         ),
         ("plugin_lib/word.applescript", "return \"word\"\n"),
     ]);
@@ -585,7 +585,9 @@ fn an_applescript_handler_that_fails_keeps_the_kind_and_the_place_and_not_its_te
         (
             "editor.applescript",
             "set a to 1\neditorCall(\"GetLineStr\", {\"x\"})\n",
-            vec!["EditorError", "editor.applescript:2"],
+            // The error is raised inside the boot's `editorCall`, and AppleScript has no call stack:
+            // the line of the call cannot be known, and the failure says it came from an editor call.
+            vec!["EditorError", "editor.applescript (in an editor call)"],
         ),
     ];
     for (name, code, needles) in cases {
@@ -729,7 +731,7 @@ fn an_applescript_plugin_serves_the_outline_complement_and_smart_indent_handlers
         ),
         (
             "indent.applescript",
-            "editorPrint((ASCII number of indentGetChar()) as text)\n",
+            "set typedChar to indentGetChar()\nif typedChar is \"\" then\n\teditorPrint(\"empty\")\nelse\n\teditorPrint((ASCII number typedChar) as text)\nend if\n",
         ),
         (
             "noindent.applescript",
@@ -765,7 +767,13 @@ fn an_applescript_plugin_serves_the_outline_complement_and_smart_indent_handlers
     assert_eq!(world.api.added, ["あ1"]);
     let args = json!({"char": "\r"});
     let report = world.call_jack(&mut host, "SmartIndent", "indent.applescript", &args, SLOW);
-    assert_eq!(stdout(&report), ["13"], "{:?}", report.output);
+    assert_eq!(
+        stdout(&report),
+        ["13"],
+        "the typed char (CR) as indentGetChar() gave it: outcome {:?}, output {:?}",
+        report.outcome,
+        report.output
+    );
     let report = world.call_jack(
         &mut host,
         "Command",
