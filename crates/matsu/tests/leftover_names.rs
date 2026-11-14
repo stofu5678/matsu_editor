@@ -79,7 +79,8 @@ fn hits(text: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     for (i, line) in text.lines().enumerate() {
         let bytes = line.as_bytes();
-        let mut bad = line.contains("ウメ");
+        // 「ウィンドウメニュー」 has ウ and メ next to each other; it is not the old name.
+        let mut bad = line.replace("ウィンドウメ", "").contains("ウメ");
         for w in word {
             for (at, _) in line.match_indices(w) {
                 let before = at.checked_sub(1).map(|b| bytes[b]);
@@ -145,6 +146,8 @@ fn the_guard_sees_the_old_name_and_not_longer_words() {
     assert_eq!(hits("ume_config::x").len(), 1);
     assert_eq!(hits("UmeBoot").len(), 1);
     assert_eq!(hits("ウメエディタ").len(), 1);
+    assert!(hits("ウィンドウメニューの「グループ化」").is_empty());
+    assert_eq!(hits("ウィンドウメニューとウメエディタ").len(), 1);
     assert_eq!(hits("document resume assume numeric UMEDIA").len(), 0);
     assert_eq!(
         hits("see https://github.com/stofu5678/ume_editor/blob/main/x").len(),
