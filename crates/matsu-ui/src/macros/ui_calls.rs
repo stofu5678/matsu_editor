@@ -31,23 +31,27 @@ use super::wait::Wait;
 use crate::ui_command::UiRegistry;
 
 /// The UI commands that take the arguments of Sakura's macro function but do not read them yet
-/// (they use the settings of the window: the bookmark pattern, the page overlap). A script that
+/// (they use the settings of the window: the bookmark pattern). The paging functions are not here:
+/// they read the row count (`EditorView::rows_arg`). A script that
 /// gives arguments to them gets an error instead of a silent run with other values.
-const IGNORES_ARGUMENTS: &[&str] = &[
-    "F_BOOKMARK_PATTERN",
-    "F_1PageUp",
-    "F_1PageDown",
-    "F_1PageUp_Sel",
-    "F_1PageDown_Sel",
-    "F_HalfPageUp",
-    "F_HalfPageDown",
-    "F_HalfPageUp_Sel",
-    "F_HalfPageDown_Sel",
+const IGNORES_ARGUMENTS: &[&str] = &["F_BOOKMARK_PATTERN"];
+
+/// The box paging functions read the row count (argument 1) but not the lock option (argument 2,
+/// `Sub_BoxSelectLock`): 0 is the setting of the window, which is what runs. A script that gives
+/// another value gets an error.
+const IGNORES_LOCK_OPTION: &[&str] = &[
     "F_1PageUp_BOX",
     "F_1PageDown_BOX",
     "F_HalfPageUp_BOX",
     "F_HalfPageDown_BOX",
 ];
+
+/// Whether a script's call gives an argument that the command does not read.
+fn gives_ignored_argument(function: &str, params: &[Value]) -> bool {
+    (!params.is_empty() && IGNORES_ARGUMENTS.contains(&function))
+        || (IGNORES_LOCK_OPTION.contains(&function)
+            && params.get(1).is_some_and(|lock| lock.as_i64() != Some(0)))
+}
 
 impl EditorView {
     /// If `text` is a call of a macro-only function that a UI command implements, runs it and
@@ -76,7 +80,7 @@ impl EditorView {
         }
         // A command that does not read its arguments yet must not run as if it had none: the
         // search would use the pattern of an earlier search instead of the one the script gave.
-        if !params.is_empty() && IGNORES_ARGUMENTS.contains(&row.function) {
+        if gives_ignored_argument(row.function, &params) {
             if let (Some(id), Some(running)) = (id, &self.macros.running) {
                 running.session.send(response_error(
                     &id,

@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use matsu_commands::command::Arg;
-use matsu_core::buffer::Document;
+use matsu_core::buffer::{Document, Pos};
 use matsu_core::model::DocumentModel;
 use matsu_plugin::session::{Engine, Language};
 

@@ -342,6 +342,56 @@ fn a_script_cannot_give_arguments_to_a_command_that_ignores_them(cx: &mut TestAp
     assert_eq!(f.lines(cx), ["aaa"]);
 }
 
+type PagingResult = (String, usize, Option<(Pos, Pos)>);
+
+/// The outcome (`ran` or `refused`), the caret line and the selection of the window after a script
+/// that called a paging function with a row count (`PageDown(3)`; the count is
+/// `CMacro::HandleCommand`'s `lparam1`).
+fn run_paging_script(cx: &mut TestAppContext, call: &str) -> Option<PagingResult> {
+    if !available(Language::JavaScript) {
+        return None;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let script = write(
+        dir.path(),
+        "page.cjs",
+        &format!(
+            "try {{ {call}; console.log('r=ran'); }} catch (e) {{ console.log('r=refused'); }}\n"
+        ),
+    );
+    let text = (0..100)
+        .map(|i| format!("line{i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (f, cx) = setup_with_ui(cx, &text);
+    f.run_script(cx, &script, |_| {});
+    let outcome = results(&f.output(cx)).concat();
+    Some(f.view.read_with(cx, |v, _| {
+        (outcome, v.cursor.caret().line, v.cursor.selection())
+    }))
+}
+
+#[gpui::test]
+fn a_script_gives_the_row_count_to_the_paging_functions(cx: &mut TestAppContext) {
+    if let Some((outcome, line, selection)) = run_paging_script(cx, "Editor.PageDown(3)") {
+        assert_eq!((outcome.as_str(), line, selection), ("ran", 3, None));
+    }
+    if let Some((outcome, line, selection)) = run_paging_script(cx, "Editor.PageDown_Sel(3)") {
+        assert_eq!((outcome.as_str(), line), ("ran", 3));
+        assert_eq!(selection, Some((Pos::new(0, 0), Pos::new(3, 0))));
+    }
+    if let Some((outcome, line, _)) = run_paging_script(cx, "Editor.HalfPageDown(2)") {
+        assert_eq!((outcome.as_str(), line), ("ran", 2));
+    }
+    // a box paging function reads the row count; its lock option is 0 or refused
+    if let Some((outcome, line, _)) = run_paging_script(cx, "Editor.PageDown_BoxSel(3, 0)") {
+        assert_eq!((outcome.as_str(), line), ("ran", 3));
+    }
+    if let Some((outcome, line, _)) = run_paging_script(cx, "Editor.PageDown_BoxSel(3, 1)") {
+        assert_eq!((outcome.as_str(), line), ("refused", 0));
+    }
+}
+
 #[gpui::test]
 fn work_that_the_user_starts_in_the_dialog_is_waited_for_too(cx: &mut TestAppContext) {
     // The OK of a dialog often starts a job (DIFF, Grep, a file read). The macro waits for it,
