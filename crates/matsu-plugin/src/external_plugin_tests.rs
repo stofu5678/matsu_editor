@@ -153,6 +153,42 @@ Editor.InsText('名前' + n);
 }
 
 #[test]
+fn text_without_a_line_break_stays_whole_and_inside_its_call() {
+    // A line cut by an editor call is joined; the text left at the end of a call belongs to it,
+    // not to the next call.
+    let cases = [
+        (
+            Language::JavaScript,
+            "c.cjs",
+            "globalThis.n = (globalThis.n || 0) + 1;
+if (n === 1) { process.stdout.write('one '); process.stdout.write(Plugin.GetPluginDir()); } else { console.log('two'); }",
+        ),
+        (
+            Language::Python,
+            "c.py",
+            "n = globals().get('n', 0) + 1
+if n == 1:
+    print('one ', end=''); print(Plugin.GetPluginDir(), end='')
+else:
+    print('two')",
+        ),
+    ];
+    for (language, name, code) in cases {
+        if !available(language) {
+            continue;
+        }
+        let dir = plugin_dir(&[(name, code)]);
+        let mut host = host(dir.path(), language, true);
+        let mut world = World::new("");
+        let first = world.call(&mut host, name);
+        let second = world.call(&mut host, name);
+        assert_eq!(stdout(&first), ["one /plugins/テスト"], "{name}");
+        assert_eq!(stdout(&second), ["two"], "{name}");
+        host.shutdown();
+    }
+}
+
+#[test]
 fn the_boot_refuses_a_handler_that_is_not_cjs() {
     if !available(Language::JavaScript) {
         return;

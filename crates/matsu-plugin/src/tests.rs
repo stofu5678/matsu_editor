@@ -323,8 +323,24 @@ fn output_without_a_line_break_before_a_request() {
         };
         assert_clean_exit(&report);
         assert_eq!(requests, 1, "{language:?}");
-        // "abc" came before the request on the same line; the last output has no line break.
-        assert_eq!(stdout(&report), ["abc", "def", "tail"], "{language:?}");
+        // "abc" came before the request on the same line as "def"; the last output has no line break.
+        assert_eq!(stdout(&report), ["abcdef", "tail"], "{language:?}");
+    }
+}
+
+#[test]
+fn a_line_of_output_stays_whole_across_editor_calls() {
+    let js = "process.stdout.write('a'); Editor.GoFileTop(); process.stdout.write('b'); Editor.GoFileTop(); console.log('c', Editor.GetLineCount(0)); console.log('d');";
+    let py = "print('a', end=''); Editor.GoFileTop(); print('b', end=''); Editor.GoFileTop(); print('c', Editor.GetLineCount(0)); print('d')";
+    let rb = "print 'a'; Editor.GoFileTop; print 'b'; Editor.GoFileTop; puts \"c #{Editor.GetLineCount(0)}\"; puts 'd'";
+    // `echo a, b, c` writes each argument in turn.
+    let php = "echo 'a', Editor::GoFileTop() ?? '', 'b', Editor::GoFileTop() ?? '', 'c ', Editor::GetLineCount(0), \"\\n\"; echo \"d\\n\";";
+    for (language, code) in cases(js, py, rb, php) {
+        let Some((report, _)) = run(language, code, "x") else {
+            continue;
+        };
+        assert_clean_exit(&report);
+        assert_eq!(stdout(&report), ["abc 1", "d"], "{language:?}");
     }
 }
 
