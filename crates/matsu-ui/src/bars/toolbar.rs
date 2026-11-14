@@ -360,6 +360,13 @@ impl Workspace {
         scale_factor: f32,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
+        // A toolbar without buttons still keeps one line of height, so the content below does not
+        // move between an editor and the other kinds of tab.
+        let lines = if lines.is_empty() {
+            vec![Vec::new()]
+        } else {
+            lines
+        };
         let mut bar = super::semantics::toolbar(div().id("tool-bar"))
             .debug_selector(|| "tool-bar".into())
             .flex()

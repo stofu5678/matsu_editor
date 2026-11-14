@@ -3,7 +3,7 @@
 
 use gpui::{AnyWindowHandle, Bounds, Pixels, TestAppContext};
 
-use super::terminal_tests::{open as open_shell, staying, terminal_window};
+use super::terminal_tests::{open as open_shell, staying, terminal_window, wait_for_text};
 use super::tests::{answer, run, tab_count, visual, window, workspace};
 use crate::ai_log;
 
@@ -97,10 +97,23 @@ fn the_button_closes_the_ai_log(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_button_closes_a_shell_after_the_question(cx: &mut TestAppContext) {
     let handle = terminal_window(cx);
-    let _shell = open_shell(cx, handle, staying());
+    let shell = open_shell(cx, handle, staying());
+    // Closing a ConPTY before its client has started can leave the client running (Windows).
+    wait_for_text(cx, &shell, "hello");
     assert_eq!(tab_count(cx, handle), 2);
     click_close(cx, handle);
     // A running shell is asked about first, as with the close of the tab.
     answer(cx, handle, "はい(Y)");
     assert_eq!(tab_count(cx, handle), 1);
+}
+
+#[gpui::test]
+fn a_toolbar_without_buttons_has_the_same_height_on_every_kind_of_tab(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    cx.update(|cx| cx.set_global(crate::bars::toolbar::ToolbarButtons(Vec::new())));
+    cx.run_until_parked();
+    let editor = bar(cx, handle).expect("the toolbar of the document");
+    run(cx, handle, "F_PREVIEW_TAB");
+    let preview = bar(cx, handle).expect("the row on the preview");
+    assert_eq!(preview, editor);
 }
