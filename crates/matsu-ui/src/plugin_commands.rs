@@ -67,6 +67,8 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
             .collect(),
     );
     let mut commands = Vec::new();
+    // The bitmaps of the commands (`C[n].Icon`): function code and file.
+    let mut icon_files: Vec<(u16, std::path::PathBuf)> = Vec::new();
     if let Some(dirs) = dirs_of(user).filter(|_| settings.enabled) {
         let consent = ConsentFile::load(&dirs.consent_file());
         for (slot, rec) in settings.table.iter().enumerate() {
@@ -95,6 +97,12 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
                 let Some(code) = plugin_commands::function_code(slot, item.index) else {
                     continue;
                 };
+                if let Some(file) = dir
+                    .as_deref()
+                    .and_then(|dir| crate::bars::icons::plugin_icon_path(dir, &item.icon))
+                {
+                    icon_files.push((code, file));
+                }
                 commands.push(CommandInfo {
                     code,
                     slot,
@@ -123,6 +131,8 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
         })
         .collect();
     commands.extend(added);
+    let live: Vec<u16> = commands.iter().map(|c| c.code).collect();
+    crate::bars::icons::sync_plugin_icons(&icon_files, &live);
     plugin_commands::set_commands(commands);
     // The outlines of the plugins in the type settings change with the same things.
     crate::plugin_outline::refresh_for(user);

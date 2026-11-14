@@ -234,7 +234,7 @@ pub(super) fn select(
 }
 
 /// Says something with one button (`InfoMessage`, `WarningMessage`). Nobody waits for the answer.
-fn notice(window: &mut Window, cx: &mut App, message: &str) {
+pub(super) fn notice(window: &mut Window, cx: &mut App, message: &str) {
     crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
 }
 

@@ -18,11 +18,12 @@
 //!
 //! 設定 opens the dialog of the options of the plugin ([`crate::plugin_options`]).
 //!
-//! Not built here (they come in later PRs of ADR-0026): ZIPプラグインを導入, ReadMe.
+//! ZIPプラグインを導入 and ReadMe are in [`zip_install`] (ADR-0026, PR 11).
 
 mod confirm;
 mod list;
 pub(in crate::common_settings) mod rows;
+mod zip_install;
 
 use gpui::App;
 use matsu_config::plugins::{SearchDirs, set_search_dirs};
@@ -65,6 +66,13 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
             )
             .when(list::enabled)
             .into(),
+            Control::button(
+                zip_install::INSTALL_ZIP,
+                "ZIPプラグインを導入(&Z)",
+                zip_install::install_zip,
+            )
+            .when(list::enabled)
+            .into(),
         ]),
         Item::Label("プラグイン一覧"),
         Item::Custom(list::draw),
@@ -83,6 +91,9 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
                 .into(),
             Control::button(list::OPTION, "設定(&P)", list::open_options)
                 .when(list::can_open_options)
+                .into(),
+            Control::button(zip_install::README, "ReadMe(&M)", zip_install::open_readme)
+                .when(zip_install::can_open_readme)
                 .into(),
             Control::button(list::URL, "配布元(&D)", list::open_url)
                 .when(list::can_open_url)
