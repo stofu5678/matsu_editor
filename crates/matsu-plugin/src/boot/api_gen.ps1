@@ -98,9 +98,10 @@ $global:MatsuApiNames = @(
     # GetLineAttribute(line: int, type: int) -> int
     # An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
     # 1 when the line changed since the last save, type 1 the number of the undo step that last
-    # touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
-    # answer the error -32001 until the editor has them. A negative line, a line past the end
-    # and any other type are errors.
+    # touched it, type 2 the bookmark (1 or 0). Type 3 is the diff mark (0 none, 1 added, 2
+    # changed, 3 deleted, 4 deleted after the end) and type 4 is 1 when the last outline
+    # analysis found an item on the line. A negative line, a line past the end and any other
+    # type are errors.
     'GetLineAttribute'
     # IsTextSelectingLock() -> int
     # 0 when the selection is not locked, 1 when it is locked (plain moves extend the
@@ -267,8 +268,9 @@ $global:MatsuApiNames = @(
     'YesNoBox'
     # FileOpenDialog(defaultName: string?, filter: string?) -> string
     # Lets the user choose a file to open and returns its full path, or an empty string when the
-    # dialog is cancelled. The default name and the filter are not used: the dialog of the
-    # platform takes neither.
+    # dialog is cancelled. The dialog starts in the folder of the default name (when it names
+    # one) with that name filled in. The filter is not used: the dialog of the platform takes
+    # none.
     'FileOpenDialog'
     # FileSaveDialog(defaultName: string?, filter: string?) -> string
     # Lets the user choose a file name to save under and returns the full path, or an empty
@@ -278,7 +280,7 @@ $global:MatsuApiNames = @(
     # FolderDialog(message: string?, defaultFolder: string?) -> string
     # Lets the user choose a folder and returns its full path, or an empty string when the
     # dialog is cancelled. The message becomes the prompt text of the platform dialog where it
-    # has one; the default folder is not used.
+    # has one; the dialog starts in the default folder when it is an existing folder.
     'FolderDialog'
     # InputBox(message: string, defaultValue: string?, maxLength: int?) -> string
     # Shows a dialog with a text field and waits. The message is shown above the field, the
