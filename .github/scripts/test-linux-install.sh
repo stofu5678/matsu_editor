@@ -45,7 +45,9 @@ for f in LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt copyright; do
   test -f "/usr/share/doc/matsu-editor/$f" || fail "$f is missing"
 done
 # No settings file may come with the package (a matsu.ini next to the program would make it portable).
-if find /usr/lib/matsu-editor /usr/bin/matsu -name 'matsu.ini' -o -name plugins -o -name unsaved | grep -q .; then
+# Read first, then test: under pipefail, a `| grep -q` that stops reading early can fail the whole pipeline.
+left=$(find /usr/lib/matsu-editor /usr/bin/matsu -name 'matsu.ini' -o -name plugins -o -name unsaved || true)
+if [ -n "$left" ]; then
   fail "the package carries a settings file or folder"
 fi
 
@@ -61,7 +63,7 @@ status=$?
 set -e
 echo "$usage"
 test "$status" = 2 || fail "matsu-script exited with $status, not 2"
-echo "$usage" | grep -q 'usage: matsu-script' || fail "matsu-script printed no usage"
+grep -q 'usage: matsu-script' <<<"$usage" || fail "matsu-script printed no usage"
 
 echo "--- the user's files"
 mkdir -p "$config/unsaved"
@@ -88,14 +90,17 @@ rpm -qlp "$dist/matsu-$target.rpm"
 rpm -qp --requires "$dist/matsu-$target.rpm"
 rpm -qpi "$dist/matsu-$target.rpm"
 # No signature yet (ADR-0032 stage A): -K checks the digests.
-rpm -K "$dist/matsu-$target.rpm" | tee /dev/stderr | grep -q 'digests OK' || fail "rpm -K: the digests are not OK"
+digests=$(rpm -K "$dist/matsu-$target.rpm" || true)
+echo "$digests" >&2
+grep -q 'digests OK' <<<"$digests" || fail "rpm -K: the digests are not OK"
 # rpm must have found the shared libraries itself (it has no list from us).
-rpm -qp --requires "$dist/matsu-$target.rpm" | grep -q 'libc\.so\.6' || fail "the rpm has no automatic Requires"
+requires=$(rpm -qp --requires "$dist/matsu-$target.rpm" || true)
+grep -q 'libc\.so\.6' <<<"$requires" || fail "the rpm has no automatic Requires"
 listing=$(rpm -qlp "$dist/matsu-$target.rpm")
 for p in /usr/bin/matsu /usr/lib/matsu-editor/matsu /usr/lib/matsu-editor/matsu-script \
   /usr/lib/matsu-editor/help /usr/share/matsu-editor/help/index.html \
   "/usr/share/applications/$app_id.desktop" "/usr/share/metainfo/$app_id.metainfo.xml"; do
-  echo "$listing" | grep -qx "$p" || fail "the rpm lacks $p"
+  grep -qx "$p" <<<"$listing" || fail "the rpm lacks $p"
 done
 if echo "$listing" | grep -E '/(matsu\.ini|unsaved|plugins)(/|$)'; then fail "the rpm carries a settings file"; fi
 
