@@ -13,14 +13,10 @@
 
 | マクロ名 | 引数 | 戻り値 | 動き | キーマクロに記録 | MATSU での違い |
 |---|---|---|---|---|---|
-| `HalfPageUp` | 1 行数（数） | なし | キャレットを、表示している段数の半分だけ上へ。画面は、キャレットに必要なだけ付いていく。行数を指定すると、その行数 | する | スクリプトから引数を付けて呼ぶと、エラーになる（下の「引数を付けたときの注意」） |
-| `HalfPageDown` | 1 行数（数） | なし | キャレットを、表示している段数の半分だけ下へ | する | 同上 |
-| `PageUp` `1PageUp` | 1 行数（数） | なし | キャレットと画面を、表示している段数より 1 段少ない行数だけ上へ。キャレットの画面上の位置は変わらない。キャレットが動けなくても、画面は動く | する | 同上。2 つの名前は同じ関数 |
-| `PageDown` `1PageDown` | 1 行数（数） | なし | 上の逆向き。下へ | する | 同上。2 つの名前は同じ関数 |
-
-### 引数を付けたときの注意
-
-6 つの名前の関数（`HalfPageUp`、`HalfPageDown`、`PageUp`、`1PageUp`、`PageDown`、`1PageDown`）のコマンド本体は、引数の行数を読みます。ところが、スクリプトの言語から引数付きで呼ぶと、「引数をまだ使わないので、付けずに呼ぶように」というエラーになります。スクリプトからは、引数なしで呼んでください。
+| `HalfPageUp` | 1 行数（数） | なし | キャレットを、表示している段数の半分だけ上へ。画面は、キャレットに必要なだけ付いていく。行数を指定すると、その行数 | する | 違いなし |
+| `HalfPageDown` | 1 行数（数） | なし | キャレットを、表示している段数の半分だけ下へ | する | 違いなし |
+| `PageUp` `1PageUp` | 1 行数（数） | なし | キャレットと画面を、表示している段数より 1 段少ない行数だけ上へ。キャレットの画面上の位置は変わらない。キャレットが動けなくても、画面は動く | する | 違いなし。2 つの名前は同じ関数 |
+| `PageDown` `1PageDown` | 1 行数（数） | なし | 上の逆向き。下へ | する | 違いなし。2 つの名前は同じ関数 |
 
 ## キャレットの行を、画面の決まった位置へ
 
@@ -58,5 +54,5 @@
 
 - サクラのソース: `sakura_core/cmd/CViewCommander_Cursor.cpp`（`Command_HalfPageUp`、`Command_1PageUp`、`Command_CURLINECENTER`、`Command_CURLINEBOTTOM`、`Command_WndScrollUp`、`Command_WHEELUP` など）、`sakura_core/macro/CSMacroMgr.cpp` の `CanFuncIsKeyMacro`
 - MATSU のコード: `crates/matsu-ui/src/ui_commands/cursor/`（`half_page_*.rs`、`one_page_*.rs`、`cur_line_*.rs`、`wnd_scroll_*.rs`、`wheel*.rs`）、`crates/matsu-ui/src/view/paging.rs`（`rows_arg`、`page_by`、`half_page_by`、`scroll_window_by`、`run_wheel_function`、`scroll_by_wheel_function`、`WHEEL_ROWS_PER_NOTCH`）
-- 引数を拒む一覧: `crates/matsu-ui/src/macros/ui_calls.rs` の `IGNORES_ARGUMENTS`
-- 試験: `crates/matsu-ui/src/view/paging_tests.rs` の `the_wheel_functions_run_as_commands`、`the_horizontal_wheel_functions_run_as_commands`
+- スクリプトから引数を付けて呼ぶ道: `crates/matsu-ui/src/macros/ui_calls.rs`（この 6 つの名前は、引数を拒む一覧に入っていない）
+- 試験: `crates/matsu-ui/src/view/paging_tests.rs` の `the_wheel_functions_run_as_commands`、`the_horizontal_wheel_functions_run_as_commands`、`crates/matsu-ui/src/macros/tests/wait_tests.rs` の `a_script_gives_the_row_count_to_the_paging_functions`
