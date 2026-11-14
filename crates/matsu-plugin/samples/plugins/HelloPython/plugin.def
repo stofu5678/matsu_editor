@@ -1,0 +1,37 @@
+; Sample plugin whose handlers run on the user's Python (ADR-0026, PR 10): a command, an event, and
+; the jacks Outline, Complement and SmartIndent. Put the folder HelloPython in the folder "plugins"
+; next to matsu.ini, then use Common settings > Plugin > Add a new plugin. Python 3 has to be
+; installed.
+[Plugin]
+Id=io.github.stofu5678.matsu-editor.sample.hello-python
+Name=Hello (Python)
+Description=A command, an event, an outline, a completion and a smart indent written in Python.
+Author=MATSU Editor
+Version=1.0.0.0
+Url=https://github.com/stofu5678/matsu_editor
+Type=wsh
+
+[Plug]
+DocumentOpen=opened.py
+DocumentOpen.Label=Count the opens (Python)
+Outline=outline.py
+Outline.Label=Markdown headings (Python sample)
+Complement=complement.py
+Complement.Label=Hello words (Python sample)
+SmartIndent=indent.py
+SmartIndent.Label=Indent 4 spaces after a colon (Python sample)
+
+[Command]
+C[1]=command.py
+C[1].Label=Insert a greeting (Python)
+
+[Option]
+O[1].Section=Hello
+O[1].Key=Greeting
+O[1].Label=Greeting
+O[1].Type=Str
+O[1].Default=Hello
+
+[Wsh]
+; Keep the process. The jack SmartIndent is called by a key press and needs it.
+UseCache=1

@@ -382,6 +382,84 @@ fn a_plugin_command_runs_end_to_end_and_the_checks_before_it_hold(cx: &mut TestA
     cx.update(|_, app| shutdown(app, "io.github.stofu5678.matsu-editor.sample.hello-js"));
 }
 
+/// Whether Python is installed (the plugin of the test below runs on it, not on `matsu-script`).
+fn python_is_installed() -> bool {
+    let name = if cfg!(windows) { "python" } else { "python3" };
+    let found = std::process::Command::new(name)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !found {
+        eprintln!("SKIP: Python is not installed");
+        assert!(
+            std::env::var_os("MATSU_REQUIRE_INTERPRETERS").is_none_or(|v| v.is_empty()),
+            "Python is required here (MATSU_REQUIRE_INTERPRETERS)"
+        );
+    }
+    found
+}
+
+#[gpui::test]
+fn a_python_plugin_command_runs_end_to_end_on_the_users_python(cx: &mut TestAppContext) {
+    if !python_is_installed() {
+        return;
+    }
+    let place = Place::new();
+    copy_dir(
+        &Path::new(SAMPLES).join("HelloPython"),
+        &place.dir.path().join("plugins").join("HelloPython"),
+    );
+    let dirs = place.dirs();
+    let def = dirs.load_def("HelloPython", DEFAULT_LANGUAGE).unwrap();
+    let mut settings = PluginSettings {
+        enabled: true,
+        ..PluginSettings::default()
+    };
+    settings.table[0] = PluginRec {
+        id: def.id.clone(),
+        name: "HelloPython".into(),
+        cmd_num: 1,
+        state: PluginState::Stopped,
+    };
+    let mut profile = Profile::new();
+    settings.store(&mut profile).unwrap();
+    profile.save(&place.settings()).unwrap();
+    let files = fingerprint(&dirs.plugin_dir("HelloPython").unwrap()).unwrap();
+    let mut consent = ConsentFile::default();
+    consent
+        .enable(&def.id, "HelloPython", &files, "2026-11-14")
+        .unwrap();
+    consent.save(&dirs.consent_file()).unwrap();
+    let (view, cx) = setup(cx, "");
+    let user = UserSettings::from_profile(profile, Some(place.settings()));
+    cx.update(|_, app| app.set_global(user));
+
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloPython", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(&editor, prepared, app));
+    wait_for(&view, cx, "正常に終了しました");
+    assert_eq!(text_of(&view, cx), "Hello (Command)");
+    // The plugin stays (`UseCache=1`): the second call uses the same process.
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloPython", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(&editor, prepared, app));
+    for _ in 0..600 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        if text_of(&view, cx).contains("Hello (Command)Hello (Command)") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(text_of(&view, cx), "Hello (Command)Hello (Command)");
+    cx.update(|_, app| shutdown(app, &def.id));
+}
+
 #[gpui::test]
 fn a_plugin_that_fails_three_times_is_stopped_and_shows_it(cx: &mut TestAppContext) {
     let Some(host) = script_host() else {

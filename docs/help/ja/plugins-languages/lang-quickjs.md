@@ -2,7 +2,7 @@
 
 拡張子は `.js` です。MATSU Editor に同梱の `matsu-script` が、QuickJS で動かします。利用者が入れるものは、ありません。Node.js で動かしたいときは、拡張子を `.mjs` か `.cjs` にします（[JavaScript（Node.js）と TypeScript](lang-node.md)）。
 
-マクロと、プラグインのハンドラの、どちらも動かせる唯一の言語です。
+マクロとプラグインのハンドラの、どちらも動かせる、同梱の言語です。プラグインは、Node.js（[JavaScript（Node.js）と TypeScript](lang-node.md)）と Python（[Python](lang-python.md)）でも書けます。
 
 ## 処理系
 

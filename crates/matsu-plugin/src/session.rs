@@ -39,7 +39,7 @@ const OUTPUT_GRACE: Duration = Duration::from_millis(1000);
 /// 5. a sample in `samples/` and the tests in `tests.rs` (skipped when the interpreter is
 ///    missing), and the interpreter on the runners that have it: `MATSU_REQUIRE_INTERPRETERS`
 ///    makes a missing one on Linux x64 a failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     JavaScript,
     /// `.ts`, run by Node.js 22.18 or later, which strips the types itself (ADR-0025). The boot
@@ -74,7 +74,7 @@ pub enum Language {
 
 /// The engines of the bundled script host. A new engine adds a variant here, its names below
 /// and its extension in [`Language::of_file`]; the rest of the code handles every engine alike.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Engine {
     Lua,
     QuickJs,
@@ -145,6 +145,15 @@ impl Language {
                 *known == lower && (*language != Self::TypeScript || extension == "ts")
             })
             .map(|(_, language)| *language)
+    }
+
+    /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
+    /// (`.mjs`, `.cjs`, `.ts`) and Python. The other languages are not served yet.
+    pub fn serves_plugins(self) -> bool {
+        matches!(
+            self,
+            Self::Bundled(Engine::QuickJs) | Self::JavaScript | Self::TypeScript | Self::Python
+        )
     }
 
     /// Whether this OS can run the language. AppleScript runs only on macOS.
@@ -309,8 +318,8 @@ pub struct MacroConfig {
 pub const PLUGIN_LIFETIME: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 
 impl MacroConfig {
-    /// The configuration of a host for the plugin `plugin`, run by `language`. Only the bundled
-    /// QuickJS can serve a plugin for now.
+    /// The configuration of a host for the plugin `plugin`, run by `language` (see
+    /// [`Language::serves_plugins`]).
     pub fn for_plugin(
         plugin: crate::protocol::PluginIdentity,
         language: Language,
@@ -387,7 +396,7 @@ impl std::fmt::Display for StartError {
             ),
             Self::PluginNotSupported { language } => write!(
                 f,
-                "{} のプラグインはまだ動かせません (今は .js だけです)",
+                "{} のプラグインはまだ動かせません (今は .js、.mjs、.cjs、.ts、.py だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -542,7 +551,7 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
             language: config.language,
         });
     }
-    if config.plugin.is_some() && config.language != Language::Bundled(Engine::QuickJs) {
+    if config.plugin.is_some() && !config.language.serves_plugins() {
         return Err(StartError::PluginNotSupported {
             language: config.language,
         });
@@ -591,17 +600,22 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
             command.arg("--engine").arg(engine.name());
         }
         Language::JavaScript | Language::TypeScript => {
-            command
-                .arg("--require")
-                .arg(boot_files(boot::JS_BOOT))
-                .arg(&config.script);
+            command.arg("--require").arg(boot_files(boot::JS_BOOT));
+            if config.plugin.is_some() {
+                // A plugin host has no main script: the boot serves the calls itself, and
+                // `-e` only gives Node.js something to run after the boot is loaded.
+                command.args(["-e", "0"]);
+            } else {
+                command.arg(&config.script);
+            }
         }
         Language::Python => {
             // -u: no buffering, so the user's output and the requests stay in order.
-            command
-                .arg("-u")
-                .arg(boot_files(boot::PY_BOOT))
-                .arg(&config.script);
+            command.arg("-u").arg(boot_files(boot::PY_BOOT));
+            // A plugin host brings no script (`initialize` says it is a plugin).
+            if config.plugin.is_none() {
+                command.arg(&config.script);
+            }
         }
         Language::Ruby => {
             // -E UTF-8: the user's strings and files are UTF-8 whatever the OS locale is.

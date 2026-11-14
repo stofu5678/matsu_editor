@@ -65,18 +65,52 @@ pub(crate) fn set_stopped(id: &str, stopped: bool) {
 
 type SharedHost = Rc<RefCell<PluginHost>>;
 
-/// The hosts, by the ID of the plugin. A host is made at the first call.
+/// The hosts, by the ID of the plugin and the language of the handler (a plugin may have handlers in
+/// more than one language, and each language has a process of its own). A host is made at the first
+/// call.
 #[derive(Default)]
 struct Runtime {
-    hosts: HashMap<String, SharedHost>,
+    hosts: HashMap<(String, Language), SharedHost>,
+}
+
+impl Runtime {
+    /// The hosts of one plugin.
+    fn of<'a>(&'a self, id: &'a str) -> impl Iterator<Item = &'a SharedHost> {
+        self.hosts
+            .iter()
+            .filter(move |((host_id, _), _)| host_id == id)
+            .map(|(_, host)| host)
+    }
+
+    /// Takes the hosts of one plugin out.
+    fn take(&mut self, id: &str) -> Vec<SharedHost> {
+        let keys: Vec<_> = self
+            .hosts
+            .keys()
+            .filter(|(host_id, _)| host_id == id)
+            .cloned()
+            .collect();
+        keys.iter()
+            .filter_map(|key| self.hosts.remove(key))
+            .collect()
+    }
 }
 
 impl Global for Runtime {}
 
+/// The language that serves a handler: Node.js serves `.mjs`, `.cjs` and `.ts` in one process (the
+/// boot looks at the extension of each call), so they share a host.
+fn host_language(language: Language) -> Language {
+    match language {
+        Language::TypeScript => Language::JavaScript,
+        other => other,
+    }
+}
+
 /// The user enabled the plugin again: the failures start over.
 pub(crate) fn reset(cx: &mut App, id: &str) {
     set_stopped(id, false);
-    if let Some(host) = cx.default_global::<Runtime>().hosts.get(id) {
+    for host in cx.default_global::<Runtime>().of(id) {
         host.borrow_mut().reset();
     }
 }
@@ -84,7 +118,7 @@ pub(crate) fn reset(cx: &mut App, id: &str) {
 /// The plugin is off or gone: its process ends.
 pub(crate) fn shutdown(cx: &mut App, id: &str) {
     set_stopped(id, false);
-    if let Some(host) = cx.default_global::<Runtime>().hosts.remove(id) {
+    for host in cx.default_global::<Runtime>().take(id) {
         host.borrow_mut().shutdown();
     }
 }
@@ -615,16 +649,22 @@ fn prepare(
             (jack.name(), handler, 0, true)
         }
     };
-    if Language::of_file(Path::new(&handler)) != Some(Language::Bundled(Engine::QuickJs)) {
-        return Err(format!(
-            "{handler} は動かせません。今は .js のプラグインだけです"
-        ));
-    }
+    let language = match Language::of_file(Path::new(&handler)) {
+        Some(language) if language.serves_plugins() && language.runs_here() => {
+            host_language(language)
+        }
+        _ => {
+            return Err(format!(
+                "{handler} は動かせません。プラグインのハンドラは .js、.mjs、.cjs、.ts、.py のどれかにしてください"
+            ));
+        }
+    };
+    let host_key = (def.id.clone(), language);
     let runtime = cx.default_global::<Runtime>();
     let want_resident = def.resident;
     let reuse = runtime
         .hosts
-        .get(&def.id)
+        .get(&host_key)
         .filter(|host| {
             let host = host.borrow();
             // A plugin that was replaced by another folder gets a host of its own folder.
@@ -635,20 +675,22 @@ fn prepare(
     let host = match reuse {
         Some(host) => host,
         None => {
-            if let Some(old) = runtime.hosts.remove(&def.id) {
+            if let Some(old) = runtime.hosts.remove(&host_key) {
                 old.borrow_mut().shutdown();
             }
             let mut settings = HostSettings::new(
                 &def.id,
                 &plugin_dir.unwrap_or_default(),
-                Language::Bundled(Engine::QuickJs),
+                language,
                 want_resident,
             );
-            if let Some(path) = test_interpreter() {
+            if language == Language::Bundled(Engine::QuickJs)
+                && let Some(path) = test_interpreter()
+            {
                 settings.interpreter = path.into();
             }
             let host = Rc::new(RefCell::new(PluginHost::new(settings)));
-            runtime.hosts.insert(def.id.clone(), host.clone());
+            runtime.hosts.insert(host_key, host.clone());
             host
         }
     };
