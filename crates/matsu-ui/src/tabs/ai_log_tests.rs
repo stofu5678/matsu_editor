@@ -18,6 +18,7 @@ fn started(name: &str, command_line: &str) -> Started {
         name: name.to_owned(),
         command_line: command_line.to_owned(),
         input: "こんにちは\r\n世界".to_owned(),
+        input_size: None,
         started_at: chrono::Local
             .with_ymd_and_hms(2026, 11, 13, 10, 0, 0)
             .unwrap(),
@@ -258,6 +259,80 @@ fn the_selected_text_is_copied_to_the_clipboard(cx: &mut TestAppContext) {
     super::tests::visual(cx, handle).dispatch_action(crate::ai_log::Copy);
     let copied = clipboard(cx).expect("text on the clipboard");
     assert_eq!(copied, selected);
+}
+
+/// With no tab bar (the default settings) the log is reached and left with the keys of the next and previous window,
+/// as a shell or a preview tab is, and a walk that has gone round the tabs ends where it began.
+#[gpui::test]
+fn the_log_is_reached_and_left_with_the_window_keys_without_a_tab_bar(cx: &mut TestAppContext) {
+    let handle = window(cx, false);
+    let _record = begin(cx, handle, started("a", "one"));
+    cx.run_until_parked();
+    let ws = workspace(cx, handle);
+    let active = |cx: &mut TestAppContext| ws.read_with(cx, |ws, _| ws.active_tab());
+    assert_eq!(active(cx), 0, "the document keeps the focus");
+    super::tests::run(cx, handle, "F_NEXTWINDOW");
+    assert_eq!(active(cx), 1, "the log");
+    // the end of the tabs and no other window: round to the document
+    super::tests::run(cx, handle, "F_NEXTWINDOW");
+    assert_eq!(active(cx), 0);
+    super::tests::run(cx, handle, "F_PREVWINDOW");
+    assert_eq!(active(cx), 1);
+    super::tests::run(cx, handle, "F_PREVWINDOW");
+    assert_eq!(active(cx), 0);
+}
+
+/// Two windows without the tab mode, each with a document and the log: the keys visit all four tabs and come back,
+/// in both directions (the walk does not stay on the last tab of every window).
+#[gpui::test]
+fn the_window_keys_visit_every_tab_of_every_window_and_come_back(cx: &mut TestAppContext) {
+    let first = window(cx, false);
+    let second = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(
+                app,
+                crate::document::SharedDocument::empty(),
+                None,
+            )
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let _a = begin(cx, first, started("a", "one"));
+    let _b = begin(cx, second, started("b", "two"));
+    cx.run_until_parked();
+    // the position: (window, tab)
+    let at = |cx: &mut TestAppContext| {
+        let active = cx
+            .update(|app| app.active_window())
+            .expect("a window is active");
+        let tab = workspace(cx, active).read_with(cx, |ws, _| ws.active_tab());
+        (if active == first { "first" } else { "second" }, tab)
+    };
+    cx.update(|app| crate::file_ops::windows::activate(app, first));
+    cx.run_until_parked();
+    assert_eq!(at(cx), ("first", 0));
+    let mut forward = Vec::new();
+    for _ in 0..4 {
+        let (window, _) = at(cx);
+        let handle = if window == "first" { first } else { second };
+        super::tests::run(cx, handle, "F_NEXTWINDOW");
+        forward.push(at(cx));
+    }
+    assert_eq!(
+        forward,
+        [("first", 1), ("second", 0), ("second", 1), ("first", 0)]
+    );
+    let mut back = Vec::new();
+    for _ in 0..4 {
+        let (window, _) = at(cx);
+        let handle = if window == "first" { first } else { second };
+        super::tests::run(cx, handle, "F_PREVWINDOW");
+        back.push(at(cx));
+    }
+    assert_eq!(
+        back,
+        [("second", 1), ("second", 0), ("first", 1), ("first", 0)]
+    );
 }
 
 fn clipboard(cx: &mut TestAppContext) -> Option<String> {
