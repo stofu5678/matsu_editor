@@ -608,6 +608,14 @@ fn a_powershell_handler_keeps_its_output_and_its_errors_that_did_not_stop_it() {
     let shown = |needle: &str| report.output.iter().any(|(_, l)| l.contains(needle));
     assert!(shown("not fatal"), "{:?}", report.output);
     assert!(shown("careful"), "{:?}", report.output);
+    // The short form (kind, message, place); never the text of the handler.
+    assert!(
+        shown("WriteErrorException: not fatal"),
+        "{:?}",
+        report.output
+    );
+    assert!(shown("continue.ps1:2"), "{:?}", report.output);
+    assert!(!shown("Write-Output 'first'"), "{:?}", report.output);
     assert!(stdout(&report).contains(&"first") && stdout(&report).contains(&"last"));
 
     // With -ErrorAction Stop the call fails with the kind and the place of the handler.
@@ -621,5 +629,30 @@ fn a_powershell_handler_keeps_its_output_and_its_errors_that_did_not_stop_it() {
     );
     assert!(text.contains("Exception"), "{text}");
     assert!(stdout(&report).contains(&"seen"), "{:?}", report.output);
+    host.shutdown();
+}
+
+#[test]
+fn an_output_that_cannot_be_written_fails_the_call_and_the_host_still_answers() {
+    if !available(PS) {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "bad.ps1",
+            "class Bad { [string] ToString() { throw 'bad format' } }\n[Bad]::new()\n",
+        ),
+        ("ok.ps1", "$Editor.InsText('ok')\n"),
+    ]);
+    let mut host = host(dir.path(), PS, true);
+    let mut world = World::new("");
+    let report = call(&mut world, &mut host, "bad.ps1");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains("bad format"), "{text}");
+    // The host went on to answer, and serves the next call.
+    assert_eq!(call(&mut world, &mut host, "ok.ps1").outcome, Outcome::Ok);
+    assert_eq!(world.doc.text(), "ok");
     host.shutdown();
 }

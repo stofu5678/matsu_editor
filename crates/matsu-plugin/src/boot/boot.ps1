@@ -334,6 +334,45 @@ function global:Get-MatsuChainLine($Exception) {
     0
 }
 
+# The text of a failure for an error record that stopped the handler (or the writing of its
+# output): the kind, the message and the place, in the form of every failure.
+function global:Get-MatsuHandlerFailure([string]$Name, $Record) {
+    $editorError = Get-MatsuEditorException $Record
+    if ($editorError) {
+        # The line that the call stack gave; a nested pipeline has another stack, so then the
+        # line of the error record that PowerShell wrapped the error in.
+        $line = [int]$editorError.Data['Line']
+        if ($line -le 0) { $line = Get-MatsuChainLine $Record.Exception }
+        return (Format-MatsuPluginFailure $Name $line '' $editorError.Message)
+    }
+    # The exception that PowerShell wraps the handler's error in ("Exception calling Invoke") is
+    # skipped; a syntax error that only shows now has its own line.
+    $ex = $Record.Exception
+    while ($ex.InnerException -and $ex -is [System.Management.Automation.MethodInvocationException]) { $ex = $ex.InnerException }
+    $kind = $ex.GetType().Name
+    $message = $ex.Message
+    $line = 0
+    if ($ex.PSObject.Properties['Errors'] -and $ex.Errors.Count -gt 0) {
+        $kind = 'ParseError'
+        $message = $ex.Errors[0].Message
+        $line = [int]$ex.Errors[0].Extent.StartLineNumber
+    } else {
+        $line = Get-MatsuChainLine $ex
+    }
+    Format-MatsuPluginFailure $Name $line $kind $message
+}
+
+# An error that did not stop the handler (Write-Error with -ErrorAction Continue), in the same short
+# form. PowerShell's own view of such a record prints the text of the script, which has no file.
+function global:Format-MatsuErrorRecord([string]$Name, $Record) {
+    # The place is in the stack trace of the record ("at F, <No file>: line 3": the innermost frame of
+    # the handler); the invocation info of a Write-Error record has no line.
+    $line = 0
+    if ($Record.ScriptStackTrace -match '<No file>: line (\d+)') { $line = [int]$Matches[1] }
+    elseif ($Record.InvocationInfo) { $line = [int]$Record.InvocationInfo.ScriptLineNumber }
+    Format-MatsuPluginFailure $Name $line $Record.Exception.GetType().Name $Record.Exception.Message
+}
+
 # Runs one handler; the failure text, or $null. The names of the locals start with `mp`.
 function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
     $mpTokens = $null
@@ -351,39 +390,20 @@ function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
         [void]$mpPs.AddScript($mpSource, $true)
         [void]$mpPs.Invoke($null, $mpBuffer)
     } catch {
-        $mpRecord = $_
-        $mpEditorError = Get-MatsuEditorException $mpRecord
-        if ($mpEditorError) {
-            # The line that the call stack gave; a nested pipeline has another stack, so then the
-            # line of the error record that PowerShell wrapped the error in.
-            $mpLine = [int]$mpEditorError.Data['Line']
-            if ($mpLine -le 0) { $mpLine = Get-MatsuChainLine $mpRecord.Exception }
-            $mpFailure = Format-MatsuPluginFailure $mpName $mpLine '' $mpEditorError.Message
-            return $mpFailure
-        }
-        # The exception that PowerShell wraps the handler's error in ("Exception calling Invoke") is
-        # skipped; a syntax error that only shows now has its own line.
-        $mpEx = $mpRecord.Exception
-        while ($mpEx.InnerException -and $mpEx -is [System.Management.Automation.MethodInvocationException]) { $mpEx = $mpEx.InnerException }
-        $mpLine = 0
-        $mpKind = $mpEx.GetType().Name
-        $mpMessage = $mpEx.Message
-        if ($mpEx.PSObject.Properties['Errors'] -and $mpEx.Errors.Count -gt 0) {
-            $mpKind = 'ParseError'
-            $mpMessage = $mpEx.Errors[0].Message
-            $mpLine = [int]$mpEx.Errors[0].Extent.StartLineNumber
-        } else {
-            $mpLine = Get-MatsuChainLine $mpEx
-        }
-        $mpFailure = Format-MatsuPluginFailure $mpName $mpLine $mpKind $mpMessage
+        $mpFailure = Get-MatsuHandlerFailure $mpName $_
     } finally {
         # What the handler wrote to the pipeline, written as `& $block | Out-Default` did, in every
         # case, before the answer. Out-Default ends its pipeline here, so that output which PowerShell
         # holds back to format (a table) is written now. Warnings, verbose, debug and Write-Host went
-        # to the host while the handler ran; the errors that did not stop it (Write-Error with
-        # -ErrorAction Continue) wait in the stream, and are written as PowerShell formats them.
-        if ($mpBuffer.Count -gt 0) { $mpBuffer | Out-Default }
-        foreach ($mpError in $mpPs.Streams.Error) { [Console]::Error.WriteLine(([string]($mpError | Out-String)).TrimEnd()) }
+        # to the host while the handler ran; the errors that did not stop it wait in the stream.
+        # Writing can fail (an object whose ToString throws): that is a failure of the call, and the
+        # answer is still sent.
+        try {
+            if ($mpBuffer.Count -gt 0) { $mpBuffer | Out-Default }
+            foreach ($mpError in $mpPs.Streams.Error) { [Console]::Error.WriteLine((Format-MatsuErrorRecord $mpName $mpError)) }
+        } catch {
+            if ($null -eq $mpFailure) { $mpFailure = Get-MatsuHandlerFailure $mpName $_ }
+        }
         $mpPs.Dispose()
     }
     $mpFailure
