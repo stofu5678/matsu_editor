@@ -352,7 +352,13 @@ on pluginRun(handlerName, handlerSource, paramsObject)
 		set my pluginSources to current application's NSMutableDictionary's |dictionary|()
 	end if
 	set theScript to missing value
-	if my editorString((pluginSources's objectForKey:handlerName)) is handlerSource then set theScript to pluginScripts's objectForKey:handlerName
+	-- The same text, letter for letter: `is` alone ignores case, and a handler that only changed case
+	-- would keep running the old program.
+	set sameText to false
+	considering case
+		set sameText to ((my editorString((pluginSources's objectForKey:handlerName))) is handlerSource)
+	end considering
+	if sameText then set theScript to pluginScripts's objectForKey:handlerName
 	if theScript is missing value then
 		set theScript to current application's NSAppleScript's alloc()'s initWithSource:programString
 		if theScript is missing value then return "script error: NSAppleScript could not take the text of the handler" & linefeed & "  at " & handlerName
