@@ -10,8 +10,7 @@
 //! `nLineNumberRightSpace`, read with the rest of the view settings). The button 位置と大きさの設定
 //! opens [`crate::win_size_dialog`], which edits the seven keys of the size and position of a new
 //! window ([`crate::saved_state::window`]); the page keeps them in controls that are not drawn.
-//! Not available yet: the horizontal scroll bar (the view has none), the dark mode, the function
-//! keys and the language.
+//! Not available yet: the dark mode, the function keys and the language.
 
 use gpui::{App, Global};
 

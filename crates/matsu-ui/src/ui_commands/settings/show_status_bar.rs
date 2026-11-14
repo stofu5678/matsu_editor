@@ -1,4 +1,4 @@
-//! `F_SHOWSTATUSBAR`: `Command_SHOWSTATUSBAR`: shows the status bar, or hides it. The setting is `bDispSTATUSBAR`; here it is kept for the session (see `crate::settings`).
+//! `F_SHOWSTATUSBAR`: `Command_SHOWSTATUSBAR`: shows the status bar, or hides it. The setting is `bDispSTATUSBAR`; here the command changes it for the session only, and 共通設定's OK is what writes it to the file (see `crate::settings`).
 
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, Result};

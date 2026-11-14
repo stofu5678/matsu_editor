@@ -14,7 +14,8 @@
 //!   ([`super::search_box`]). The open button (`F_FILEOPEN_DROPDOWN`) has a drop-down arrow beside
 //!   it that shows the recent files and folders ([`super::open_menu`]); the button itself opens a
 //!   file, as `Command_FILEOPEN` does.
-//! * Not built: the plugin buttons.
+//! * A plugin command is a button of its function code (`TOOLBAR_ICON_PLUGCOMMAND_DEFAULT`); it is
+//!   undefined while its plugin is not enabled.
 //! * A button is pressed while `IsFuncChecked` says so (`TBSTATE_CHECKED`, `CMainToolBar.cpp`) and
 //!   gray while `IsFuncEnable` says no (`TBSTATE_ENABLED`): the state of the window the toolbar
 //!   is in ([`crate::menu_state::FuncStates`]), read each time the window is drawn.

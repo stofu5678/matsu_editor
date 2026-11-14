@@ -3,8 +3,9 @@
 //! Sakura: `CEditDoc::HandleCommand` (`sakura_core/doc/CEditDoc.cpp`) first moves to the next pane
 //! of a split window and, when there is none, calls `CControlTray::ActivePrevWindow`
 //! (`sakura_core/_main/CControlTray.cpp`), which activates the window after this one in the list
-//! of editor windows (in the order they were opened), and the first after the last. Split panes
-//! are not there yet.
+//! of editor windows (in the order they were opened), and the first after the last. Splitting
+//! exists here, but this command does not visit the panes of a split window first: it always goes to
+//! the other window or tab.
 
 use crate::file_ops::windows::activate;
 use crate::ui_command::{UiCommand, register_ui_command};

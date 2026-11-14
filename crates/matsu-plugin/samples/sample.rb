@@ -1,4 +1,4 @@
-# Sample macro (Ruby). Run it from the Tools menu of the PoC:
+# Sample macro (Ruby). Run it from the Tools menu:
 #   ツール > 名前を指定してマクロ実行...
 # `Editor` is there without a require. The names and the arguments are Sakura's macro API.
 

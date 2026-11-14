@@ -11,9 +11,9 @@
 //!   the table is made from them.
 //! * [`list`]: the widgets: the list with the description of the selected plugin, and the buttons.
 //!
-//! Nothing runs a plugin yet (ADR-0026, the PR table): there is no host, no consent screen, no
-//! jack. The state 「登録済み」 says that the plugin is in the table and its folder is there, and the
-//! states for what MATSU cannot run (「VBScript は使えません」, 「DLL プラグインは使えません」) follow
+//! The plugins run (ADR-0026): the host, the consent screen and the jacks are in `matsu-plugin` and
+//! the modules that use it. The state 「登録済み」 says that the plugin is in the table and its folder
+//! is there, and the states for what MATSU cannot run (「VBScript は使えません」, 「DLL プラグインは使えません」) follow
 //! ADR-0026, chapter 1.
 //!
 //! 設定 opens the dialog of the options of the plugin ([`crate::plugin_options`]).

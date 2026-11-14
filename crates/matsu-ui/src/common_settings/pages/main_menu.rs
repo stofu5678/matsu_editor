@@ -21,8 +21,8 @@
 //! A function row whose function cannot be read (a plug-in command, a macro name that does not exist)
 //! reads as function 0, and OK turns it into an empty node, as `GetDataTree` does with `F_NODE`.
 //!
-//! Not built: the plug-in commands (the kind プラグイン has none), the registered macros (the kind
-//! 外部マクロ lists every slot). A function or a separator on the menu bar itself (level 0) is kept in
+//! The kind プラグイン lists the commands of the plugins that are enabled, and the kind 外部マクロ
+//! lists every slot. A function or a separator on the menu bar itself (level 0) is kept in
 //! the file but not shown, because the menu bar here holds menus only. The access keys of the custom
 //! menus and the other menus that Sakura builds with `MakeMenuLabel` do not follow the setting
 //! 「アクセスキーを必ず( )付で表示」 (only the main menu does).
