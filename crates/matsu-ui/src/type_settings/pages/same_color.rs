@@ -24,7 +24,7 @@ use gpui::{
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
-use gpui_component::{Disableable as _, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex};
 use matsu_config::settings::ColorSet;
 
 use super::super::ids::*;
@@ -388,9 +388,16 @@ impl Render for SameColorDialog {
                             .on_click(|_, window, _| window.remove_window()),
                     )
                     .child(
+                        // `HLP000316`
                         Button::new("same-color-help")
                             .label("ヘルプ(H)")
-                            .disabled(true),
+                            .on_click(|_, _, cx| {
+                                crate::support::help::open_page(
+                                    cx,
+                                    crate::support::help::SAME_COLOR_PAGE,
+                                    None,
+                                );
+                            }),
                     ),
             )
     }

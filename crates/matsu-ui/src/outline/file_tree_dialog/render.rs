@@ -474,8 +474,10 @@ impl FileTreeDialog {
                             this.cancel(window, cx);
                         },
                     ))
-                    // `IDC_BUTTON_HELP`: the help is not available yet
-                    .child(self.button("ft-help", "ヘルプ(&H)", false, cx, |_, _, _| {})),
+                    // `IDC_BUTTON_HELP`: `MyWinHelp( ..., FuncID_To_HelpContextID( F_FILETREE ) )`
+                    .child(self.button("ft-help", "ヘルプ(&H)", true, cx, |_, _, cx| {
+                        crate::support::help::open_function_page(cx, "F_FILETREE");
+                    })),
             )
             .into_any_element()
     }

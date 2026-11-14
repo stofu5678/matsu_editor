@@ -82,12 +82,20 @@ impl EditorView {
 
     /// `Command_HELP_CONTENTS` (`contents`) and `Command_HELP_SEARCH`.
     pub(crate) fn program_help(&mut self, contents: bool, cx: &mut Context<Self>) {
-        let url = if contents {
-            help::CONTENTS_URL
+        let local = help::local_dir(help::exe_dir().as_deref());
+        let opening = if contents {
+            help::plan_contents(local.as_deref())
         } else {
-            help::INDEX_URL
+            // `GetCurrentTextForSearch( cmemCurText, false )`: the selection, else the word at the caret
+            let query = self.search_seed(cx).unwrap_or_default();
+            help::plan_search(local.as_deref(), &query)
         };
-        self.open_help(Opening::Url(url.to_owned()), cx);
+        let one_page = help::is_one_page(&opening);
+        self.open_help(opening, cx);
+        if one_page {
+            self.notice = Some(help::search_in_page_message());
+            cx.notify();
+        }
     }
 
     /// A relative path of a help file starts at the folder of the settings file, else at the
