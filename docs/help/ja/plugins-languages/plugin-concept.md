@@ -40,11 +40,11 @@
 | `.ps1` | 利用者が入れた PowerShell（[PowerShell](lang-powershell.md)）。`pwsh`（PowerShell 7）を探し、Windows で `pwsh.exe` が `PATH` になければ Windows PowerShell 5.1 を使います |
 | `.pl` | 利用者が入れた Perl（[Perl](lang-perl.md)） |
 
-どの言語でも、同意、時間の制限、3 回続けて失敗したら止まること、`UseCache=1` と `Resident=1` でプロセスを残すこと、`Plugin` などのオブジェクトは、同じです。外部の言語（Node.js、Python、Ruby、PHP、PowerShell、Perl）は、利用者が処理系を入れていないと動きません。そのときは、「`<言語>` を起動できませんでした」と出ます。
+どの言語でも、同意、時間の制限、3 回続けて失敗したら止まること、`UseCache=1` と `Resident=1` でプロセスを残すこと、`Plugin` などのオブジェクトは、同じです。外部の言語（Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp）は、利用者が処理系を入れていないと動きません。AppleScript は、macOS が `osascript` を持っているので、macOS では入れるものがありません。Windows と Linux では動かせず、コマンドを選ぶと、状態バーに「AppleScript のマクロは macOS でだけ動かせます (osascript が要ります)」と出ます。イベントなど、自動で呼ぶ場面では、何も言わずに飛ばします。そのときは、「`<言語>` を起動できませんでした」と出ます。
 
 1 つのプラグインに、言語の違うハンドラを混ぜることもできます。言語ごとに、別のプロセスで動きます。失敗の数は、言語に関わらず、プラグインで数えます。3 回続けて失敗すると、プラグインが止まります。
 
-Emacs Lisp、AppleScript、Lua、MicroPython、mruby のハンドラを持つプラグインも、追加して有効にできます。ただし、そのハンドラを動かす場面が来ると、動かせません。コマンドを選んだときは、状態バーに「`<ハンドラ名>` は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl のどれかにしてください」と出ます。イベントなど、自動で呼ぶ場面では、何も言わずに飛ばします。
+Lua、MicroPython、mruby のハンドラを持つプラグインも、追加して有効にできます。ただし、そのハンドラを動かす場面が来ると、動かせません。コマンドを選んだときは、状態バーに「`<ハンドラ名>` は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ) のどれかにしてください」と出ます。イベントなど、自動で呼ぶ場面では、何も言わずに飛ばします。
 
 次のプラグインは、一覧に「使えません」と出て、有効にできません。
 
@@ -68,7 +68,7 @@ Emacs Lisp、AppleScript、Lua、MicroPython、mruby のハンドラを持つプ
 - ジャックの一覧: `crates/matsu-config/src/plugins/def.rs` の `Jack`
 - 使えないプラグイン: 同ファイルの `PluginDef::unsupported`、`is_vbscript`。一覧の言葉は `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs` の `unsupported_text`
 - 動かせる言語: `crates/matsu-plugin/src/session.rs` の `Language::serves_plugins`、`start`（`PluginNotSupported`）。`crates/matsu-ui/src/macros/plugin_call.rs` の `prepare`（言語ごとのホスト）
-- Node.js、Python、Ruby、PHP、PowerShell、Perl の待ち受け: `crates/matsu-plugin/src/boot/boot.cjs`、`boot.py`、`boot.rb`、`boot.php`、`boot.ps1`、`boot.pl`（`servePlugin`、`_serve_plugin`、`MatsuPlugin.serve`、`nextInvoke`、`Start-MatsuPlugin`、`serve`）
+- Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript の待ち受け: `crates/matsu-plugin/src/boot/boot.cjs`、`boot.py`、`boot.rb`、`boot.php`、`boot.ps1`、`boot.pl`、`boot.el`、`boot.applescript`（`servePlugin`、`_serve_plugin`、`MatsuPlugin.serve`、`nextInvoke`、`Start-MatsuPlugin`、`serve`、`plugin--serve`、`pluginServe`）
 - 自動で呼ぶ場面が何も言わず飛ばすこと: `prepare_event`（`.ok()` で失敗を捨てる）
 - コマンドやマクロの間はイベントを配らないこと: `crates/matsu-ui/src/plugin_events.rs` の冒頭の説明、`crates/matsu-ui/src/macros/plugin_call.rs` の `Turn::Taken`
 - サクラのソース: `sakura_core/plugin/CJackManager.cpp`（ジャックの名前）、`CWSHPlugin.cpp`（`wsh` の動かし方）
