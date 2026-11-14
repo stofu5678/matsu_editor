@@ -127,6 +127,9 @@ mod tests {
 
     #[test]
     fn the_three_copies_with_a_line_break_all_have_a_menu_picture() {
+        // The icon tests swap the process-wide bitmap: take their lock, and use the built-in one.
+        let _guard = crate::bars::icons::tests::serial();
+        icons::install_from(None, None);
         for code in [30603, 32700, 32701] {
             assert!(picture(code, 1.0).is_some(), "function {code}");
             assert!(picture(code, 2.0).is_some(), "function {code}");

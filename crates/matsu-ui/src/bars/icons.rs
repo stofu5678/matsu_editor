@@ -411,4 +411,4 @@ pub(crate) fn icon(index: usize, factor: u32) -> Option<Arc<Image>> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

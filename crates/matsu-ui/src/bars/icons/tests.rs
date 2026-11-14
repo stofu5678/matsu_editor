@@ -1,7 +1,7 @@
 use super::*;
 
 /// The tests change the process-wide bitmap: one at a time.
-fn serial() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn serial() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
