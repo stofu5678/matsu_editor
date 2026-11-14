@@ -774,21 +774,7 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
         let sink = gated.clone();
         let done = done_tx.clone();
         thread::spawn(move || {
-            read_lines(stdout, |line| {
-                let split = protocol::split_output_line(line);
-                if let Some(text) = split.user {
-                    // osascript prints the value that the program returns: not the macro's output.
-                    if !(is_applescript && text == applescript::END_MARK) {
-                        sink(HostEvent::Output {
-                            stream: Stream::Stdout,
-                            text: text.to_string(),
-                        });
-                    }
-                }
-                if let Some(message) = split.message {
-                    sink(HostEvent::Message(message.to_string()));
-                }
-            });
+            forward_stdout(stdout, is_applescript, &*sink);
             let _ = done.send(());
         });
     }
@@ -901,6 +887,58 @@ fn read_script(path: &Path) -> Result<ScriptSource, StartError> {
             .unwrap_or(&source)
             .to_string(),
     })
+}
+
+/// Forwards the macro's standard output as events. The user's text and the protocol messages
+/// share this stream, and a macro that wrote text without a line break just before a call to the
+/// editor leaves `text<RS>{json}` on the pipe. That text is held and joined with the rest of its
+/// line, so the user's line stays whole across the call; it is flushed as a line of its own before
+/// a message that ends a call (a response, which has no `method`) and at the end of the stream.
+fn forward_stdout(
+    stream: impl std::io::Read,
+    is_applescript: bool,
+    sink: &(dyn Fn(HostEvent) + Send + Sync),
+) {
+    let mut held = String::new();
+    let output = |text: String| {
+        sink(HostEvent::Output {
+            stream: Stream::Stdout,
+            text,
+        });
+    };
+    read_lines(stream, |line| {
+        let split = protocol::split_output_line(line);
+        let Some(message) = split.message else {
+            // osascript prints the value that the program returns: not the macro's output. It
+            // ends the held line (if any), and is dropped.
+            if is_applescript && line == applescript::END_MARK {
+                if !held.is_empty() {
+                    output(std::mem::take(&mut held));
+                }
+                return;
+            }
+            // A plain line (also the empty one of `print()`) ends the held line.
+            held.push_str(split.user.unwrap_or_default());
+            output(std::mem::take(&mut held));
+            return;
+        };
+        held.push_str(split.user.unwrap_or_default());
+        if !held.is_empty() && !has_method(message) {
+            output(std::mem::take(&mut held));
+        }
+        sink(HostEvent::Message(message.to_string()));
+    });
+    if !held.is_empty() {
+        output(held);
+    }
+}
+
+/// Whether a JSON-RPC message has a `method`: a request or notification to the editor. One
+/// without it (a response) ends a call. A message that does not parse counts as a request,
+/// which the host rejects.
+fn has_method(message: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(message)
+        .map_or(true, |value| value.get("method").is_some())
 }
 
 /// Reads lines until the end of the stream. The bytes are read as UTF-8, and anything that is
@@ -1039,5 +1077,135 @@ mod tests {
             .filter(|(_, language)| language.runs_here())
             .count();
         assert_eq!(listed, runnable);
+    }
+
+    /// What `forward_stdout` makes of a piece of standard output: `O:` for output, `M:` for a message.
+    fn forwarded(input: &str, is_applescript: bool) -> Vec<String> {
+        let events = Mutex::new(Vec::new());
+        forward_stdout(input.as_bytes(), is_applescript, &|event| match event {
+            HostEvent::Output { stream, text } => {
+                assert_eq!(stream, Stream::Stdout);
+                events.lock().unwrap().push(format!("O:{text}"));
+            }
+            HostEvent::Message(text) => events.lock().unwrap().push(format!("M:{text}")),
+            HostEvent::Finished(_) => unreachable!(),
+        });
+        events.into_inner().unwrap()
+    }
+
+    const REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"method":"Editor.X","params":[]}"#;
+    const NOTE: &str = r#"{"jsonrpc":"2.0","method":"Editor.Y","params":[]}"#;
+    const RESPONSE: &str = r#"{"jsonrpc":"2.0","id":7,"result":null}"#;
+
+    #[test]
+    fn a_line_is_joined_across_an_editor_call() {
+        let input = format!("a\u{1e}{REQUEST}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:ab".to_string()]
+        );
+        // A notification holds the text as a request does.
+        let input = format!("a\u{1e}{NOTE}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{NOTE}"), "O:ab".to_string()]
+        );
+    }
+
+    #[test]
+    fn two_calls_in_a_row_keep_one_line() {
+        let input = format!("a\u{1e}{REQUEST}\nb\u{1e}{REQUEST}\nc\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                format!("M:{REQUEST}"),
+                format!("M:{REQUEST}"),
+                "O:abc".to_string()
+            ]
+        );
+        // A message with no text before it neither flushes nor breaks the line.
+        let input = format!("a\u{1e}{REQUEST}\n\u{1e}{REQUEST}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                format!("M:{REQUEST}"),
+                format!("M:{REQUEST}"),
+                "O:ab".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_response_ends_the_held_line_before_it() {
+        let input = format!("a\u{1e}{RESPONSE}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                "O:a".to_string(),
+                format!("M:{RESPONSE}"),
+                "O:b".to_string()
+            ]
+        );
+        // Text held from an earlier call comes out with the text before the response.
+        let input = format!("a\u{1e}{REQUEST}\nb\u{1e}{RESPONSE}\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                format!("M:{REQUEST}"),
+                "O:ab".to_string(),
+                format!("M:{RESPONSE}")
+            ]
+        );
+        // A response with nothing held changes nothing.
+        let input = format!("\u{1e}{RESPONSE}\n");
+        assert_eq!(forwarded(&input, false), [format!("M:{RESPONSE}")]);
+    }
+
+    #[test]
+    fn held_text_comes_out_at_the_end_of_the_stream() {
+        let input = format!("a\u{1e}{REQUEST}\ntail");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:atail".to_string()]
+        );
+        let input = format!("a\u{1e}{REQUEST}\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:a".to_string()]
+        );
+    }
+
+    #[test]
+    fn lines_without_a_message_are_unchanged() {
+        assert_eq!(
+            forwarded("a\n\nb\r\nlast", false),
+            ["O:a", "O:", "O:b", "O:last"]
+        );
+        assert!(forwarded("", false).is_empty());
+        // The empty line of `print()` ends a held line and is not lost.
+        let input = format!("a\u{1e}{REQUEST}\n\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:a".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_message_that_does_not_parse_holds_the_text() {
+        let input = "a\u{1e}{oops\nb\n";
+        assert_eq!(forwarded(input, false), ["M:{oops", "O:ab"]);
+    }
+
+    #[test]
+    fn the_applescript_end_mark_is_not_output() {
+        let input = format!("{}\n", applescript::END_MARK);
+        assert!(forwarded(&input, true).is_empty());
+        assert_eq!(forwarded(&input, false).len(), 1);
+        // Text held across a call comes out as its own line; the mark is still dropped.
+        let input = format!("a\u{1e}{REQUEST}\n{}\n", applescript::END_MARK);
+        assert_eq!(
+            forwarded(&input, true),
+            [format!("M:{REQUEST}"), "O:a".to_string()]
+        );
     }
 }

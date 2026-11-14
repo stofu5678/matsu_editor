@@ -250,11 +250,11 @@ fn the_script_sees_the_initialize_message() {
 
 #[test]
 fn output_stays_in_order_with_requests() {
-    // No line break before the request: the host splits the line at the RS.
+    // No line break before the request: the host joins it with the rest of its line (the line is not cut at the call).
     let code = "import sys\nsys.stdout.write('abc')\nEditor.InsText('x')\nprint('def')\nprint('tail', end='')";
     let (report, doc) = run(code, "");
     assert_clean_exit(&report);
-    assert_eq!(stdout(&report), ["abc", "def", "tail"]);
+    assert_eq!(stdout(&report), ["abcdef", "tail"]);
     assert_eq!(doc.text(), "x");
 }
 

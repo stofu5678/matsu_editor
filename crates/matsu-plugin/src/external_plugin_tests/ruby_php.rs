@@ -403,3 +403,33 @@ fn the_ruby_and_php_sample_plugins_run() {
         host.shutdown();
     }
 }
+
+#[test]
+fn text_without_a_line_break_belongs_to_its_own_call() {
+    // The first call ends without a line break after an editor call; its text must not move to the
+    // next call. The second call prints a whole line.
+    let ruby = "
+if (@n = (@n || 0) + 1) == 1
+  print \"one \"; print Plugin.GetPluginDir
+else
+  puts 'two'
+end
+";
+    let php = "<?php
+$n = ($n ?? 0) + 1;
+if ($n == 1) { echo 'one ', Plugin::GetPluginDir(); } else { echo \"two\\n\"; }
+";
+    for (language, name, code) in [(RUBY, "h.rb", ruby), (PHP, "h.php", php)] {
+        if !available(language) {
+            continue;
+        }
+        let dir = plugin_dir(&[(name, code)]);
+        let mut host = host(dir.path(), language, true);
+        let mut world = World::new("");
+        let first = world.call(&mut host, name);
+        let second = world.call(&mut host, name);
+        assert_eq!(stdout(&first), ["one /plugins/テスト"], "{name}");
+        assert_eq!(stdout(&second), ["two"], "{name}");
+        host.shutdown();
+    }
+}
