@@ -1,7 +1,8 @@
 //! `F_FILESAVEAS_DIALOG`: saves under a name chosen in the save dialog.
 //!
 //! Sakura: `Command_FILESAVEAS_DIALOG` (`sakura_core/cmd/CViewCommander_File.cpp`). Arguments, as
-//! in the macro `S_FileSaveAsDialog`: the default file name (the dialog offers it, as `FileOpen`'s default name; a folder in it is where the dialog starts), the encoding number
+//! in the macro `S_FileSaveAsDialog`: the default file name (the dialog offers it; a folder in it
+//! is where the dialog starts, as for `FileOpen`), the encoding number
 //! (99 or none: keep the document's), the line ending (0 or none: do not change, 1 CRLF, 2 LF,
 //! 3 CR). The save dialog has the encoding, the BOM and the line ending in itself, as Sakura's
 //! does (`file_dialog::save_fields`); where it cannot (GPUI's dialog), a small dialog of the window
