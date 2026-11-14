@@ -232,3 +232,4 @@
   - [データベース](matsu-only/database.md)
   - [エンコードとデコード](matsu-only/encode-decode.md)
   - [ワンライナー](matsu-only/oneliner.md)
+  - [生成 AI に送る](matsu-only/ai-send.md)
