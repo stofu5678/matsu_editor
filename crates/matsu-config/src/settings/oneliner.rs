@@ -67,6 +67,9 @@ pub const F_ONELINER_LIST: u16 = 32761;
 pub const F_ONELINER_DIALOG: u16 = 32762;
 /// `F_ONELINER_SETTINGS`: 「ワンライナーの設定」.
 pub const F_ONELINER_SETTINGS: u16 = 32763;
+/// `F_AI_LOG_SHOW`: 「AI ログを表示」, the log of what was sent to a generative AI (ADR-0030). It is the last item of
+/// what `F_ONELINER_LIST` expands to.
+pub const F_AI_LOG_SHOW: u16 = 32764;
 
 /// The one-liner that the function `code` stands for (`F_ONELINER_0 <= code < F_ONELINER_0 + MAX_ONELINER`).
 pub fn index_of_function(code: u16) -> Option<usize> {
