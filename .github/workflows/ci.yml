@@ -127,6 +127,11 @@ jobs:
         uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color
+      # The old product name must not come back (ADR-0021). This runs for every pull request, docs-only ones too: the
+      # workspace tests are skipped for those, and a help page once brought the old katakana name back unseen.
+      - name: old product name
+        if: success() || failure()
+        run: cargo run --locked --package xtask -- names-check
       # Which jobs the self-hosted runner in the VM on the maintainer's Mac lets run (ADR-0027). Bash and jq only.
       - name: mac-runner admission
         if: success() || failure()

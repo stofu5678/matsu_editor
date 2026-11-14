@@ -8,6 +8,9 @@
 //! - `help-check [--sakura <path>]`: the checks of the help in `docs/help/` (links, and no text shared with
 //!   Sakura's GFDL help; ADR-0031). See `help_check.rs`.
 //!
+//! - `names-check`: the old product name (before MATSU) is only where the allow-list says (ADR-0021). See
+//!   `names_check.rs`.
+//!
 //! To check that the committed tables are up to date, run the test with the path of the clone:
 //! `SAKURA_DIR=<path> cargo test -p xtask`. Without `SAKURA_DIR` that test is skipped.
 
@@ -16,6 +19,7 @@ mod help_links;
 mod help_shared;
 mod macro_table;
 mod matsu_extras;
+mod names_check;
 mod parse;
 mod render;
 
@@ -53,7 +57,8 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         Some("help-check") => help_check::run(&args[1..], &repository_root()),
-        _ => Err("tasks: sakura-tables, help-check".into()),
+        Some("names-check") => names_check::run(&repository_root()),
+        _ => Err("tasks: sakura-tables, help-check, names-check".into()),
     }
 }
 
