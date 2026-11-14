@@ -239,11 +239,11 @@ fn the_script_sees_the_initialize_message() {
 
 #[test]
 fn output_stays_in_order_with_requests() {
-    // `print` has no line break before the request; the host splits the line at the RS.
+    // `print` has no line break before the request; the host joins it with the rest of its line (the line is not cut at the call).
     let code = "print 'abc'\nEditor.InsText('x')\nputs 'def'\nprint 'tail'";
     let (report, doc) = run(code, "");
     assert_clean_exit(&report);
-    assert_eq!(stdout(&report), ["abc", "def", "tail"]);
+    assert_eq!(stdout(&report), ["abcdef", "tail"]);
     assert_eq!(doc.text(), "x");
 }
 

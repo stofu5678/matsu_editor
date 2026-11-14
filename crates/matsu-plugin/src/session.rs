@@ -896,22 +896,28 @@ fn forward_stdout(
 ) {
     let mut held = String::new();
     let output = |text: String| {
-        // osascript prints the value that the program returns: not the macro's output.
-        if !(is_applescript && text == applescript::END_MARK) {
-            sink(HostEvent::Output {
-                stream: Stream::Stdout,
-                text,
-            });
-        }
+        sink(HostEvent::Output {
+            stream: Stream::Stdout,
+            text,
+        });
     };
     read_lines(stream, |line| {
         let split = protocol::split_output_line(line);
-        held.push_str(split.user.unwrap_or_default());
         let Some(message) = split.message else {
+            // osascript prints the value that the program returns: not the macro's output. It
+            // ends the held line (if any), and is dropped.
+            if is_applescript && line == applescript::END_MARK {
+                if !held.is_empty() {
+                    output(std::mem::take(&mut held));
+                }
+                return;
+            }
             // A plain line (also the empty one of `print()`) ends the held line.
+            held.push_str(split.user.unwrap_or_default());
             output(std::mem::take(&mut held));
             return;
         };
+        held.push_str(split.user.unwrap_or_default());
         if !held.is_empty() && !has_method(message) {
             output(std::mem::take(&mut held));
         }
@@ -1190,5 +1196,11 @@ mod tests {
         let input = format!("{}\n", applescript::END_MARK);
         assert!(forwarded(&input, true).is_empty());
         assert_eq!(forwarded(&input, false).len(), 1);
+        // Text held across a call comes out as its own line; the mark is still dropped.
+        let input = format!("a\u{1e}{REQUEST}\n{}\n", applescript::END_MARK);
+        assert_eq!(
+            forwarded(&input, true),
+            [format!("M:{REQUEST}"), "O:a".to_string()]
+        );
     }
 }
