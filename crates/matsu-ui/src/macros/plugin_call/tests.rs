@@ -483,6 +483,15 @@ fn a_php_plugin_command_runs_end_to_end_on_the_users_php(cx: &mut TestAppContext
     }
 }
 
+// PowerShell has its end-to-end run in `matsu-plugin` (the pwsh of the Linux ARM64 runners crashes
+// now and then, and that crate retries it); Perl goes through the editor here.
+#[gpui::test]
+fn a_perl_plugin_command_runs_end_to_end_on_the_users_perl(cx: &mut TestAppContext) {
+    if interpreter_is_installed("Perl", "perl") {
+        sample_command_runs_end_to_end(cx, "HelloPerl");
+    }
+}
+
 #[gpui::test]
 fn a_plugin_that_fails_three_times_is_stopped_and_shows_it(cx: &mut TestAppContext) {
     let Some(host) = script_host() else {

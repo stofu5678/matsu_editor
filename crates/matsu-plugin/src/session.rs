@@ -148,8 +148,8 @@ impl Language {
     }
 
     /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
-    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`), Python, Ruby and PHP. The other
-    /// languages are not served yet.
+    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`), Python, Ruby, PHP, PowerShell and
+    /// Perl. The other languages are not served yet.
     pub fn serves_plugins(self) -> bool {
         matches!(
             self,
@@ -159,6 +159,8 @@ impl Language {
                 | Self::Python
                 | Self::Ruby
                 | Self::Php
+                | Self::PowerShell
+                | Self::Perl
         )
     }
 
@@ -402,7 +404,7 @@ impl std::fmt::Display for StartError {
             ),
             Self::PluginNotSupported { language } => write!(
                 f,
-                "{} のプラグインはまだ動かせません (今は .js、.cjs、.mjs、.ts、.py、.rb、.php だけです)",
+                "{} のプラグインはまだ動かせません (今は .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -572,7 +574,9 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
     };
     let script = match config.language {
         // A plugin host brings no script: the handlers come with each call.
-        Language::Bundled(_) if config.plugin.is_some() => None,
+        Language::Bundled(_) | Language::PowerShell | Language::Perl if config.plugin.is_some() => {
+            None
+        }
         Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
             Some(read_script(&config.script)?)
         }
