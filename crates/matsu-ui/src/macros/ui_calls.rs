@@ -31,23 +31,10 @@ use super::wait::Wait;
 use crate::ui_command::UiRegistry;
 
 /// The UI commands that take the arguments of Sakura's macro function but do not read them yet
-/// (they use the settings of the window: the bookmark pattern, the page overlap). A script that
+/// (they use the settings of the window: the bookmark pattern). The paging functions are not here:
+/// they read the row count (`EditorView::rows_arg`). A script that
 /// gives arguments to them gets an error instead of a silent run with other values.
-const IGNORES_ARGUMENTS: &[&str] = &[
-    "F_BOOKMARK_PATTERN",
-    "F_1PageUp",
-    "F_1PageDown",
-    "F_1PageUp_Sel",
-    "F_1PageDown_Sel",
-    "F_HalfPageUp",
-    "F_HalfPageDown",
-    "F_HalfPageUp_Sel",
-    "F_HalfPageDown_Sel",
-    "F_1PageUp_BOX",
-    "F_1PageDown_BOX",
-    "F_HalfPageUp_BOX",
-    "F_HalfPageDown_BOX",
-];
+const IGNORES_ARGUMENTS: &[&str] = &["F_BOOKMARK_PATTERN"];
 
 impl EditorView {
     /// If `text` is a call of a macro-only function that a UI command implements, runs it and
