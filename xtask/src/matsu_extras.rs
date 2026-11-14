@@ -308,6 +308,13 @@ fn oneliner_functions() -> Vec<Function> {
             Kind::Command,
             "ワンライナーの設定...",
         ),
+        (
+            3,
+            "F_AI_LOG_SHOW",
+            "ai_log_show",
+            Kind::Command,
+            "AI ログを表示",
+        ),
     ] {
         out.push(Function {
             code: next + offset,

@@ -225,6 +225,7 @@ mod tests {
         assert_eq!(code("F_ONELINER_LIST"), o::F_ONELINER_LIST);
         assert_eq!(code("F_ONELINER_DIALOG"), o::F_ONELINER_DIALOG);
         assert_eq!(code("F_ONELINER_SETTINGS"), o::F_ONELINER_SETTINGS);
+        assert_eq!(code("F_AI_LOG_SHOW"), o::F_AI_LOG_SHOW);
     }
 
     #[test]
