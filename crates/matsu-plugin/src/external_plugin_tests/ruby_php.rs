@@ -22,9 +22,9 @@ Editor.InsText('名前')
     let php = "<?php
 $n = ($n ?? 0) + 1;
 echo Plugin::$jack, ' ', Plugin::$args['n'], ' ', Plugin::$id, ' ', $n, \"\\n\";
-echo Plugin::GetPluginDir(), ' ', Plugin::GetDef('Plugin', 'Name'), \"\\n\";
+echo Plugin::GetPluginDir() . ' ' . Plugin::GetDef('Plugin', 'Name') . \"\\n\";
 Plugin::SetOption('Main', 'Level', '7');
-echo Plugin::GetOption('Main', 'Level'), ' ', Plugin::GetString(2), \"\\n\";
+echo Plugin::GetOption('Main', 'Level') . ' ' . Plugin::GetString(2) . \"\\n\";
 Editor::InsText('名前');
 ";
     for (language, name, code) in [(RUBY, "h.rb", ruby), (PHP, "h.php", php)] {
@@ -188,6 +188,24 @@ fn a_ruby_handler_cannot_overwrite_the_hosts_variables() {
         assert_eq!(report.outcome, Outcome::Ok, "{name}: {:?}", report.output);
     }
     assert_eq!(world.doc.text(), "coc");
+    host.shutdown();
+}
+
+#[test]
+fn a_ruby_handler_may_define_methods_named_like_the_hosts_helpers() {
+    if !available(RUBY) {
+        return;
+    }
+    // `source`, `name` and `space` are not locals of the host's method, so these are the handler's own.
+    let dir = plugin_dir(&[(
+        "names.rb",
+        "def source; 'snippet'; end\ndef name; 'n'; end\ndef space; 's'; end\nputs source\nputs name\nputs space\nsource ||= 'x'\nputs source\n",
+    )]);
+    let mut host = host(dir.path(), RUBY, true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "names.rb");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(stdout(&report), ["snippet", "n", "s", "x"]);
     host.shutdown();
 }
 

@@ -156,15 +156,23 @@ module MatsuPlugin
     end
 
     text = exc.full_message(highlight: false, order: :top).scrub
-    text.lines.reject { |line| line.include?(__FILE__) }.join.rstrip
+    # The frames of this boot go. A line that starts with this boot's place (the first line, when the
+    # error was raised through `instance_eval`) keeps its message: only the place is cut off.
+    prefix = /\A#{Regexp.escape(__FILE__)}:\d+:in .*?': /
+    text.lines.reject { |line| line.start_with?("\tfrom ") && line.include?(__FILE__) }
+        .map { |line| line.sub(prefix, '') }
+        .reject { |line| line.include?(__FILE__) }
+        .join.rstrip
   end
 
   # Runs the handler in a method of its own. A string `instance_eval` sees the local variables of
   # its caller, so in `serve` a handler that assigns `message` or `plugin` would overwrite the
-  # host's, and a `return` in the handler would return from `serve` and end the host. Here the only
-  # locals are the parameters, and `return` ends only the handler.
-  def self.evaluate(space, source, name)
-    space.instance_eval(source, name, 1)
+  # host's, and a `return` in the handler would return from `serve` and end the host. This method
+  # has no local variables at all (not even parameters: a handler's `def source` or `name` would be
+  # shadowed by one): `serve` leaves the three values in instance variables of this module, which
+  # are read here with `self` being the module. `return` ends only the handler.
+  def self.evaluate
+    @handler_space.instance_eval(@handler_source, @handler_name, 1)
   end
 
   def self.serve(info)
@@ -210,7 +218,10 @@ module MatsuPlugin
       end
       failure = nil
       begin
-        evaluate(spaces[name] ||= Object.new, params['source'].to_s, name)
+        @handler_space = spaces[name] ||= Object.new
+        @handler_source = params['source'].to_s
+        @handler_name = name
+        evaluate
       rescue SystemExit
         # `exit` in a handler ends the handler, not the host.
         nil
