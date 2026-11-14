@@ -188,10 +188,12 @@ pub(crate) fn plan_search(local: Option<&Path>, query: &str) -> Opening {
     if query.is_empty() {
         return plan_contents(local);
     }
+    // The text is one literal term: quoted, so that `NOT` or `path:` in it is not search syntax.
+    let literal = format!("\"{}\"", query.replace('\\', "\\\\").replace('"', "\\\""));
     let scope = format!("repo:{} path:{ONLINE_SEARCH_PATH}", repo_slug());
     Opening::Url(format!(
         "{ONLINE_SEARCH_URL}{}",
-        percent_encode(&format!("{query} {scope}"))
+        percent_encode(&format!("{literal} {scope}"))
     ))
 }
 
@@ -626,19 +628,31 @@ mod tests {
         };
         assert_eq!(
             url,
-            "https://github.com/search?type=code&q=grep%20%E3%81%AE%20%E6%A4%9C%E7%B4%A2\
+            "https://github.com/search?type=code&q=%22grep%20%E3%81%AE%20%E6%A4%9C%E7%B4%A2%22\
              %20repo%3Astofu5678%2Fmatsu_editor%20path%3Adocs%2Fhelp"
         );
         // only the first line, trimmed, at most 100 characters
         let Opening::Url(url) = plan_search(None, "  one \ntwo") else {
             panic!("a URL")
         };
-        assert!(url.contains("q=one%20repo"), "{url}");
+        assert!(url.contains("q=%22one%22%20repo"), "{url}");
         let Opening::Url(url) = plan_search(None, &"a".repeat(300)) else {
             panic!("a URL")
         };
         assert!(
-            url.contains(&format!("q={}%20repo", "a".repeat(100))),
+            url.contains(&format!("q=%22{}%22%20repo", "a".repeat(100))),
+            "{url}"
+        );
+    }
+
+    #[test]
+    fn the_word_is_a_literal_term_of_the_search() {
+        // `NOT` is not an operator, and a quote or a backslash cannot end the term
+        let Opening::Url(url) = plan_search(None, r#"NOT a"b\c"#) else {
+            panic!("a URL")
+        };
+        assert!(
+            url.contains("q=%22NOT%20a%5C%22b%5C%5Cc%22%20repo"),
             "{url}"
         );
     }

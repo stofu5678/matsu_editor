@@ -262,7 +262,7 @@ fn the_search_looks_for_the_word_at_the_caret_in_the_help(cx: &mut TestAppContex
     let Opening::Url(url) = opened().remove(0) else {
         panic!("a URL")
     };
-    assert!(url.contains("q=hello%20repo%3A"), "{url}");
+    assert!(url.contains("q=%22hello%22%20repo%3A"), "{url}");
     assert!(url.contains("path%3Adocs%2Fhelp"), "{url}");
     assert_eq!(f.notice(cx), None);
 }
@@ -277,7 +277,7 @@ fn the_search_takes_the_selection_as_the_query(cx: &mut TestAppContext) {
     let Opening::Url(url) = opened().remove(0) else {
         panic!("a URL")
     };
-    assert!(url.contains("q=hello%20w%20repo%3A"), "{url}");
+    assert!(url.contains("q=%22hello%20w%22%20repo%3A"), "{url}");
 }
 
 #[gpui::test]

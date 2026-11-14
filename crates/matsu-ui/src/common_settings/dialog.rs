@@ -1597,10 +1597,18 @@ impl Render for CommonSettingsDialog {
                         Button::new("cs-help")
                             .label("ヘルプ(H)")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                let page =
-                                    Page::ALL.get(this.page).copied().unwrap_or(Page::General);
-                                let target = crate::support::help::common_settings_page(page)
-                                    .unwrap_or("common-settings/index.md");
+                                // the sheet of a document type has its own pages (no table yet)
+                                let target = match this.target {
+                                    Target::Type(_) => "type-settings-window/index.md",
+                                    Target::Common => {
+                                        let page = Page::ALL
+                                            .get(this.page)
+                                            .copied()
+                                            .unwrap_or(Page::General);
+                                        crate::support::help::common_settings_page(page)
+                                            .unwrap_or("common-settings/index.md")
+                                    }
+                                };
                                 crate::support::help::open_page(cx, target, None);
                             })),
                     ),
