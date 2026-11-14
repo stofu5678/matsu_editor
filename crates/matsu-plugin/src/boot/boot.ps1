@@ -256,20 +256,167 @@ if ($null -ne $first -and $first.Trim() -ne '') {
     $message = ConvertFrom-MatsuJson $first
     if ($message -is [System.Collections.IDictionary] -and $message['method'] -eq 'initialize') { $global:MatsuInfo = $message['params'] }
 }
-if ($null -eq $global:MatsuInfo -or -not $global:MatsuInfo.Contains('script')) {
-    [Console]::Error.WriteLine('the editor did not send the script in initialize')
-    exit 1
+# A plugin host (ADR-0026): `initialize` says kind "plugin" and brings no script; the handlers come
+# with each `plugin/invoke`, and this process serves them (below).
+$global:MatsuIsPlugin = $null -ne $global:MatsuInfo -and $global:MatsuInfo.Contains('kind') -and $global:MatsuInfo['kind'] -eq 'plugin'
+if (-not $global:MatsuIsPlugin) {
+    if ($null -eq $global:MatsuInfo -or -not $global:MatsuInfo.Contains('script')) {
+        [Console]::Error.WriteLine('the editor did not send the script in initialize')
+        exit 1
+    }
+    $global:MatsuName = [string]$global:MatsuInfo['script']['name']
+    $global:MatsuSource = [string]$global:MatsuInfo['script']['source']
+    # The text is compiled without a file, so $PSScriptRoot and $PSCommandPath are empty (they cannot
+    # be set); a macro that looks for files beside itself uses these two.
+    $global:MacroPath = $global:MatsuName
+    $global:MacroDir = [IO.Path]::GetDirectoryName($global:MatsuName)
 }
-$global:MatsuName = [string]$global:MatsuInfo['script']['name']
-$global:MatsuSource = [string]$global:MatsuInfo['script']['source']
-# The text is compiled without a file, so $PSScriptRoot and $PSCommandPath are empty (they cannot
-# be set); a macro that looks for files beside itself uses these two.
-$global:MacroPath = $global:MatsuName
-$global:MacroDir = [IO.Path]::GetDirectoryName($global:MatsuName)
 
 . ([scriptblock]::Create([IO.File]::ReadAllText(([IO.Path]::Combine($env:MATSU_BOOT_DIR, 'api_gen.ps1')), $utf8)))
 $global:Editor = New-MatsuEditor
 $global:Editor.Info = $global:MatsuInfo
+
+# ---- Plugin host -----------------------------------------------------------------------------
+#
+# The handler sees $Editor, $Plugin, $Outline, $Complement and $Indent. It runs as `& $block` in a
+# scope of its own: the variables it assigns, and a `return`, stay in that call (a variable that
+# has to stay for the next call of a resident plugin is `$global:name`). `exit` would end this
+# process, so the text is rewritten first: each `exit` becomes a throw that ends only the handler
+# (the line numbers do not change).
+
+$global:MatsuExitSignal = 'matsu-plugin-exit'
+
+# The arguments of a call without the trailing nulls (a trailing null is a missing argument).
+function global:Get-MatsuTrimmedArgs($Values) {
+    $list = [System.Collections.Generic.List[object]]::new()
+    foreach ($v in @($Values)) { $list.Add($v) }
+    while ($list.Count -gt 0 -and $null -eq $list[$list.Count - 1]) { $list.RemoveAt($list.Count - 1) }
+    , $list.ToArray()
+}
+
+# An object whose methods pass their arguments to the editor as the call "$Prefix$name".
+function global:New-MatsuCallObject([string]$Prefix, [string[]]$Names) {
+    $o = [System.Management.Automation.PSObject]::new()
+    foreach ($n in $Names) {
+        $body = [scriptblock]::Create("Invoke-MatsuCall '$Prefix$n' (Get-MatsuTrimmedArgs `$args)")
+        $o.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new($n, $body))
+    }
+    $o
+}
+
+# The text with every `exit` turned into a throw of the signal.
+function global:Convert-MatsuExit([string]$Text, $Ast) {
+    $exits = @($Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))
+    for ($i = $exits.Count - 1; $i -ge 0; $i--) {
+        $e = $exits[$i].Extent
+        $old = $Text.Substring($e.StartOffset, $e.EndOffset - $e.StartOffset)
+        $breaks = $old.Length - $old.Replace("`n", '').Length
+        $new = "throw [System.OperationCanceledException]::new('$($global:MatsuExitSignal)')" + ("`n" * $breaks)
+        $Text = $Text.Substring(0, $e.StartOffset) + $new + $Text.Substring($e.EndOffset)
+    }
+    $Text
+}
+
+function global:Test-MatsuExit($Record) {
+    $e = $Record.Exception
+    while ($e) {
+        if ($e -is [System.OperationCanceledException] -and $e.Message -eq $global:MatsuExitSignal) { return $true }
+        $e = $e.InnerException
+    }
+    $false
+}
+
+# The text of a failure for the editor: the kind, the message, and the place in the handler.
+function global:Format-MatsuPluginFailure([string]$Name, [int]$Line, [string]$Kind, [string]$Message) {
+    if ($Kind) { $Message = "${Kind}: $Message" }
+    "$Message`n  at ${Name}:$Line"
+}
+
+function global:Send-MatsuAnswer($Id, $Failure) {
+    $global:MatsuOut.Flush()
+    $idText = ConvertTo-MatsuJsonValue $Id
+    if ($null -eq $Failure) {
+        $line = '{"jsonrpc":"2.0","id":' + $idText + ',"result":{"ok":true}}'
+    } else {
+        $line = '{"jsonrpc":"2.0","id":' + $idText + ',"error":{"code":-32000,"message":' + (ConvertTo-MatsuJsonString ([string]$Failure)) + '}}'
+    }
+    $global:MatsuOut.Write($global:MatsuRS + $line + "`n")
+    $global:MatsuOut.Flush()
+}
+
+# Runs one handler; the failure text, or $null. The names of the locals start with `mp`.
+function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
+    $mpTokens = $null
+    $mpErrors = $null
+    $mpAst = [System.Management.Automation.Language.Parser]::ParseInput($mpSource, [ref]$mpTokens, [ref]$mpErrors)
+    if ($mpErrors.Count -gt 0) {
+        return (Format-MatsuPluginFailure $mpName ([int]$mpErrors[0].Extent.StartLineNumber) 'ParseError' $mpErrors[0].Message)
+    }
+    try {
+        $mpBlock = [scriptblock]::Create((Convert-MatsuExit $mpSource $mpAst))
+        # Out-Default ends its pipeline here, so that output which PowerShell holds back to format
+        # (a table) is written before the answer.
+        & $mpBlock | Out-Default
+    } catch {
+        $mpRecord = $_
+        if (Test-MatsuExit $mpRecord) { return $null }
+        $mpEditorError = Get-MatsuEditorException $mpRecord
+        $mpLine = Get-MatsuErrorLine $mpRecord
+        if ($mpEditorError) {
+            return (Format-MatsuPluginFailure $mpName $mpLine '' $mpEditorError.Message)
+        }
+        return (Format-MatsuPluginFailure $mpName $mpLine $mpRecord.Exception.GetType().Name $mpRecord.Exception.Message)
+    }
+    $null
+}
+
+function global:Start-MatsuPlugin {
+    $identity = $global:MatsuInfo['plugin']
+    [void]$global:MatsuInfo.Remove('plugin')
+    $global:Plugin = New-MatsuCallObject 'Plugin.' @('GetPluginDir', 'GetDef', 'GetOption', 'SetOption', 'GetString', 'GetCommandNo', 'AddCommand')
+    foreach ($p in @(@('Id', [string]$identity['id']), @('Dir', [string]$identity['dir']), @('Jack', ''), @('Args', $null))) {
+        $global:Plugin.PSObject.Members.Add([System.Management.Automation.PSNoteProperty]::new($p[0], $p[1]))
+    }
+    $global:Outline = New-MatsuCallObject 'Outline.' @('AddFuncInfo', 'AddFuncInfo2', 'AddFuncInfo3', 'AddFuncInfo4', 'SetTitle', 'SetListType', 'SetLabel')
+    # The word to complete, and the option, come with the call; the candidates go to the editor.
+    $global:Complement = [System.Management.Automation.PSObject]::new()
+    $global:Complement.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('GetCurrentWord', [scriptblock]::Create(
+        '$a = $global:Plugin.Args; if ($a -is [System.Collections.IDictionary] -and $a["word"] -is [string]) { $a["word"] } else { "" }')))
+    $global:Complement.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('GetOption', [scriptblock]::Create(
+        '$a = $global:Plugin.Args; if ($a -is [System.Collections.IDictionary] -and $a["option"] -is [long]) { $a["option"] } else { [long]0 }')))
+    $global:Complement.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('AddList', [scriptblock]::Create(
+        'param($Word = $null); $p = @(); if ($null -ne $Word) { $p = @([string]$Word) }; Invoke-MatsuCall "Complement.AddList" $p')))
+    # The object of the jack SmartIndent: GetChar answers the typed char ("" in the other jacks).
+    $global:Indent = [System.Management.Automation.PSObject]::new()
+    $global:Indent.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('GetChar', [scriptblock]::Create('[string]$global:MatsuTyped')))
+    while ($true) {
+        $text = Read-MatsuLine
+        if ($null -eq $text) { break }
+        $text = $text.Trim()
+        if ($text -eq '') { continue }
+        try { $message = ConvertFrom-MatsuJson $text } catch { continue }
+        if (-not ($message -is [System.Collections.IDictionary])) { continue }
+        if ($message['method'] -eq 'plugin/shutdown') { break }
+        if ($message['method'] -ne 'plugin/invoke') { continue }
+        $params = $message['params']
+        if (-not ($params -is [System.Collections.IDictionary])) { $params = @{} }
+        $name = if ($params['name'] -is [string]) { $params['name'] } else { '<plugin>' }
+        $global:Plugin.Jack = if ($params['jack'] -is [string]) { $params['jack'] } else { '' }
+        $global:Plugin.Args = $params['args']
+        $global:MatsuTyped = ''
+        if ($global:Plugin.Jack -eq 'SmartIndent' -and $params['args'] -is [System.Collections.IDictionary] -and $params['args']['char'] -is [string]) {
+            $global:MatsuTyped = $params['args']['char']
+        }
+        $source = if ($params['source'] -is [string]) { $params['source'] } else { '' }
+        $failure = Invoke-MatsuHandler $name $source
+        Send-MatsuAnswer $message['id'] $failure
+    }
+}
+
+if ($global:MatsuIsPlugin) {
+    Start-MatsuPlugin
+    exit 0
+}
 
 $userCode = $null
 try {

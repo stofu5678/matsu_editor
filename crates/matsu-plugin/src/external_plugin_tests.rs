@@ -1022,3 +1022,5 @@ fn the_timer_rules_hold_for_module_handlers() {
 }
 
 mod ruby_php;
+
+mod powershell_perl;

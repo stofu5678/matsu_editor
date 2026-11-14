@@ -10,7 +10,7 @@
 |---|---|
 | 起動する名前 | `osascript` |
 | 版 | macOS が持つもの |
-| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP です） |
+| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP、PowerShell、Perl です） |
 
 ## 動き方
 

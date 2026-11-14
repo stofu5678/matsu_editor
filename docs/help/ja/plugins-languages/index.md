@@ -36,8 +36,8 @@
 | [Python](lang-python.md) | 外部。プラグインも動かせる |
 | [Ruby](lang-ruby.md) | 外部。プラグインも動かせる |
 | [PHP](lang-php.md) | 外部。プラグインも動かせる |
-| [PowerShell](lang-powershell.md) | 外部 |
-| [Perl](lang-perl.md) | 外部 |
+| [PowerShell](lang-powershell.md) | 外部。プラグインも動かせる |
+| [Perl](lang-perl.md) | 外部。プラグインも動かせる |
 | [Emacs Lisp](lang-emacs-lisp.md) | 外部 |
 | [AppleScript](lang-applescript.md) | 外部（macOS だけ） |
 

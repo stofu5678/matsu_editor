@@ -11,3 +11,11 @@ sub run {
     return eval "package main;\n#line 1 \"$_[1]\"\n$_[0]\n;1";
 }
 
+
+# Runs one handler of a Perl plugin: the text and the name are in `$MatsuUser::SOURCE` and
+# `$MatsuUser::NAME`, so that the handler's `@_` is empty (no argument to `shift` away), and there is
+# no `my` for it to see. `return` in the handler ends the eval; the caller tells that from `die` by
+# `$@`.
+sub run_handler {
+    return eval "package main;\n#line 1 \"$MatsuUser::NAME\"\n$MatsuUser::SOURCE\n;1";
+}
