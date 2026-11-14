@@ -1,9 +1,12 @@
-//! A guard against leftovers of the old product name (ADR-0021).
+//! A check against leftovers of the old product name (ADR-0021), run as `cargo xtask names-check`.
 //!
 //! The product was called "UME Editor" until 0.1.0. Since the rename to MATSU Editor, the old name must not
-//! come back by accident: this test fails when the old name is in a tracked file outside the allow-list below.
+//! come back by accident: the check fails when the old name is in a tracked file outside the allow-list below.
 //! It looks for the word (an `ume` that is not inside a longer word such as `document` or `resume`, in lower,
 //! upper and title case) and for the katakana form, in every text file of the repository.
+//!
+//! CI runs it for every pull request, docs-only ones too (the `lint` job), because the workspace tests are skipped
+//! for those and a help page once brought the old katakana name back unseen. It is also a test of this crate.
 //!
 //! To allow a new place, add it to [`ALLOWED`] with the reason. Keep the list short.
 
@@ -41,36 +44,30 @@ const ALLOWED: &[(&str, &str)] = &[
         "the tests of that migration",
     ),
     (
-        "crates/matsu/tests/leftover_names.rs",
-        "this guard names the old word in its own explanation",
+        "xtask/src/names_check.rs",
+        "this check names the old word in its own explanation",
     ),
 ];
 
 /// Folders that are not part of the repository's own text.
 const SKIPPED_DIRS: &[&str] = &[".git", "target", ".claude", "vendor", "node_modules"];
 
-fn repository_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
-}
-
-fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).unwrap().flatten() {
+fn files_under(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)?.flatten() {
         let path = entry.path();
-        let kind = entry.file_type().unwrap();
+        let kind = entry.file_type()?;
         let name = entry.file_name();
         if SKIPPED_DIRS.iter().any(|s| name == *s) {
             // (`.git` is a file in a worktree.)
             continue;
         }
         if kind.is_dir() {
-            files_under(&path, out);
+            files_under(&path, out)?;
         } else if kind.is_file() {
             out.push(path);
         }
     }
+    Ok(())
 }
 
 /// The places in `text` where the old name is, as (line number, line).
@@ -79,7 +76,8 @@ fn hits(text: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     for (i, line) in text.lines().enumerate() {
         let bytes = line.as_bytes();
-        let mut bad = line.contains("ウメ");
+        // 「ウィンドウメニュー」 has ウ and メ next to each other; it is not the old name.
+        let mut bad = line.replace("ウィンドウメ", "").contains("ウメ");
         for w in word {
             for (at, _) in line.match_indices(w) {
                 let before = at.checked_sub(1).map(|b| bytes[b]);
@@ -100,20 +98,18 @@ fn hits(text: &str) -> Vec<(usize, String)> {
     found
 }
 
-#[test]
-fn the_old_name_is_only_where_the_allow_list_says() {
-    let root = repository_root();
-    // A source archive without the repository still has the files; the guard does not need git.
+/// Scans the repository at `root`: one line `path:line: text` per place of the old name outside the allow-list.
+pub fn scan(root: &Path) -> Result<Vec<String>, String> {
+    // A source archive without the repository still has the files; the check does not need git.
     let mut files = Vec::new();
-    files_under(&root, &mut files);
-    assert!(
-        files.len() > 100,
-        "the repository was not found at {root:?}"
-    );
+    files_under(root, &mut files).map_err(|e| format!("{}: {e}", root.display()))?;
+    if files.len() <= 100 {
+        return Err(format!("the repository was not found at {root:?}"));
+    }
     let mut report = Vec::new();
     for file in files {
         let relative = file
-            .strip_prefix(&root)
+            .strip_prefix(root)
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
@@ -131,35 +127,65 @@ fn the_old_name_is_only_where_the_allow_list_says() {
             report.push(format!("{relative}:{line}: {content}"));
         }
     }
-    assert!(
-        report.is_empty(),
-        "the old product name is in files outside the allow-list of tests/leftover_names.rs (ADR-0021):\n{}",
-        report.join("\n")
-    );
+    Ok(report)
 }
 
-#[test]
-fn the_guard_sees_the_old_name_and_not_longer_words() {
-    assert_eq!(hits("a UME Editor b").len(), 1);
-    assert_eq!(hits("crates/ume-core").len(), 1);
-    assert_eq!(hits("ume_config::x").len(), 1);
-    assert_eq!(hits("UmeBoot").len(), 1);
-    assert_eq!(hits("ウメエディタ").len(), 1);
-    assert_eq!(hits("document resume assume numeric UMEDIA").len(), 0);
-    assert_eq!(
-        hits("see https://github.com/stofu5678/ume_editor/blob/main/x").len(),
-        1
-    );
+/// `cargo xtask names-check`.
+pub fn run(root: &Path) -> Result<(), String> {
+    let report = scan(root)?;
+    if report.is_empty() {
+        println!("names-check: the old product name is only where the allow-list says");
+        Ok(())
+    } else {
+        Err(format!(
+            "the old product name is in files outside the allow-list of xtask/src/names_check.rs (ADR-0021):\n{}",
+            report.join("\n")
+        ))
+    }
 }
 
-#[test]
-fn every_allowed_place_exists() {
-    let root = repository_root();
-    for (prefix, why) in ALLOWED {
-        assert!(!why.is_empty());
-        assert!(
-            root.join(prefix).exists(),
-            "{prefix} is in the allow-list but not in the repository"
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repository_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf()
+    }
+
+    #[test]
+    fn names_check_the_old_name_is_only_where_the_allow_list_says() {
+        let report = scan(&repository_root()).unwrap();
+        assert!(report.is_empty(), "{}", report.join("\n"));
+    }
+
+    #[test]
+    fn names_check_sees_the_old_name_and_not_longer_words() {
+        assert_eq!(hits("a UME Editor b").len(), 1);
+        assert_eq!(hits("crates/ume-core").len(), 1);
+        assert_eq!(hits("ume_config::x").len(), 1);
+        assert_eq!(hits("UmeBoot").len(), 1);
+        assert_eq!(hits("ウメエディタ").len(), 1);
+        assert!(hits("ウィンドウメニューの「グループ化」").is_empty());
+        assert_eq!(hits("ウィンドウメニューとウメエディタ").len(), 1);
+        assert_eq!(hits("document resume assume numeric UMEDIA").len(), 0);
+        assert_eq!(
+            hits("see https://github.com/stofu5678/ume_editor/blob/main/x").len(),
+            1
         );
+    }
+
+    #[test]
+    fn names_check_every_allowed_place_exists() {
+        let root = repository_root();
+        for (prefix, why) in ALLOWED {
+            assert!(!why.is_empty());
+            assert!(
+                root.join(prefix).exists(),
+                "{prefix} is in the allow-list but not in the repository"
+            );
+        }
     }
 }
