@@ -571,3 +571,55 @@ fn a_powershell_exit_runs_its_argument_and_the_output_streams_still_show() {
     );
     host.shutdown();
 }
+
+#[test]
+fn a_powershell_handler_keeps_its_output_and_its_errors_that_did_not_stop_it() {
+    if !available(PS) {
+        return;
+    }
+    let dir = plugin_dir(&[
+        ("before.ps1", "Write-Output 'before'\nthrow 'oops'\n"),
+        (
+            "continue.ps1",
+            "Write-Output 'first'\nWrite-Error 'not fatal' -ErrorAction Continue\nWrite-Warning 'careful'\nWrite-Output 'last'\n",
+        ),
+        (
+            "stop.ps1",
+            "Write-Output 'seen'\nWrite-Error 'fatal' -ErrorAction Stop\n",
+        ),
+    ]);
+    let mut host = host(dir.path(), PS, true);
+    let mut world = World::new("");
+
+    // Output written before a failure comes out, and the failure still has its kind and place.
+    let report = call(&mut world, &mut host, "before.ps1");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(
+        text.contains("oops") && text.contains("before.ps1:2"),
+        "{text}"
+    );
+    assert!(stdout(&report).contains(&"before"), "{:?}", report.output);
+
+    // An error that does not stop the handler is shown, and the call succeeds.
+    let report = call(&mut world, &mut host, "continue.ps1");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    let shown = |needle: &str| report.output.iter().any(|(_, l)| l.contains(needle));
+    assert!(shown("not fatal"), "{:?}", report.output);
+    assert!(shown("careful"), "{:?}", report.output);
+    assert!(stdout(&report).contains(&"first") && stdout(&report).contains(&"last"));
+
+    // With -ErrorAction Stop the call fails with the kind and the place of the handler.
+    let report = call(&mut world, &mut host, "stop.ps1");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(
+        text.contains("fatal") && text.contains("stop.ps1:2"),
+        "{text}"
+    );
+    assert!(text.contains("Exception"), "{text}");
+    assert!(stdout(&report).contains(&"seen"), "{:?}", report.output);
+    host.shutdown();
+}

@@ -343,14 +343,13 @@ function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
         return (Format-MatsuPluginFailure $mpName ([int]$mpErrors[0].Extent.StartLineNumber) 'ParseError' $mpErrors[0].Message)
     }
     $mpPs = [powershell]::Create([System.Management.Automation.RunspaceMode]::CurrentRunspace)
+    # The output goes into a buffer of ours, so that what the handler wrote before it failed is not lost.
+    $mpBuffer = [System.Management.Automation.PSDataCollection[psobject]]::new()
+    $mpFailure = $null
     try {
         # $true: a scope of its own.
         [void]$mpPs.AddScript($mpSource, $true)
-        $mpOut = $mpPs.Invoke()
-        # What the handler wrote to the pipeline, written as `& $block | Out-Default` did. Out-Default
-        # ends its pipeline here, so that output which PowerShell holds back to format (a table) is
-        # written before the answer.
-        if ($mpOut.Count -gt 0) { $mpOut | Out-Default }
+        [void]$mpPs.Invoke($null, $mpBuffer)
     } catch {
         $mpRecord = $_
         $mpEditorError = Get-MatsuEditorException $mpRecord
@@ -359,7 +358,8 @@ function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
             # line of the error record that PowerShell wrapped the error in.
             $mpLine = [int]$mpEditorError.Data['Line']
             if ($mpLine -le 0) { $mpLine = Get-MatsuChainLine $mpRecord.Exception }
-            return (Format-MatsuPluginFailure $mpName $mpLine '' $mpEditorError.Message)
+            $mpFailure = Format-MatsuPluginFailure $mpName $mpLine '' $mpEditorError.Message
+            return $mpFailure
         }
         # The exception that PowerShell wraps the handler's error in ("Exception calling Invoke") is
         # skipped; a syntax error that only shows now has its own line.
@@ -375,11 +375,18 @@ function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
         } else {
             $mpLine = Get-MatsuChainLine $mpEx
         }
-        return (Format-MatsuPluginFailure $mpName $mpLine $mpKind $mpMessage)
+        $mpFailure = Format-MatsuPluginFailure $mpName $mpLine $mpKind $mpMessage
     } finally {
+        # What the handler wrote to the pipeline, written as `& $block | Out-Default` did, in every
+        # case, before the answer. Out-Default ends its pipeline here, so that output which PowerShell
+        # holds back to format (a table) is written now. Warnings, verbose, debug and Write-Host went
+        # to the host while the handler ran; the errors that did not stop it (Write-Error with
+        # -ErrorAction Continue) wait in the stream, and are written as PowerShell formats them.
+        if ($mpBuffer.Count -gt 0) { $mpBuffer | Out-Default }
+        foreach ($mpError in $mpPs.Streams.Error) { [Console]::Error.WriteLine(([string]($mpError | Out-String)).TrimEnd()) }
         $mpPs.Dispose()
     }
-    $null
+    $mpFailure
 }
 
 function global:Start-MatsuPlugin {
