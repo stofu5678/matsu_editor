@@ -43,6 +43,7 @@ use crate::menu_bar::access::{
     AltTap, Clickable, after_down, after_up, as_in_popup, is_clickable, item_key, key_of,
     next_match, presses_to_reach,
 };
+use crate::menu_bar::popup_keys::{KeyList, Rebuild};
 use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
@@ -56,6 +57,7 @@ use gpui_base::actions::{Cancel, SelectDown, SelectLeft, SelectRight, SelectUp};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::PopupMenu;
 use gpui_component::{GlobalState, InteractiveElementExt as _, Selectable, Sizable, h_flex};
+use std::rc::Rc;
 
 /// The key context that `gpui_component::init` binds Escape, Left and Right to.
 const CONTEXT: &str = "AppMenuBar";
@@ -322,15 +324,23 @@ pub(crate) fn fill(
                 let icon = with_icons.then(|| {
                     gpui_component::Icon::empty().mr(px(crate::menu_icons::submenu_padding(scale)))
                 });
-                menu.submenu_with_icon(icon, submenu.name, window, cx, move |sub, window, cx| {
+                let items = submenu.items;
+                // The submenu takes the access keys too (`CMenuDrawer::OnMenuChar` answers
+                // `WM_MENUCHAR` for whichever menu has the focus): it is registered with the
+                // popups whose letters `popup_keys::key` handles, with the way to fill it again.
+                let keys = KeyList::of_owned(items.clone());
+                let fill_again: Rebuild = Rc::new(move |sub, window, cx| {
                     let sub = match &context {
                         Some(handle) => sub.action_context(handle.clone()),
                         None => sub,
                     };
                     // As gpui-component does: a long submenu scrolls within its default height.
-                    let scrollable = submenu.items.len() > 20;
-                    fill(sub, submenu.items.clone(), context.as_ref(), window, cx)
-                        .scrollable(scrollable)
+                    let scrollable = items.len() > 20;
+                    fill(sub, items.clone(), context.as_ref(), window, cx).scrollable(scrollable)
+                });
+                menu.submenu_with_icon(icon, submenu.name, window, cx, move |sub, window, cx| {
+                    popup_keys::register(&cx.entity(), keys.clone(), fill_again.clone(), cx);
+                    fill_again(sub, window, cx)
                 })
             }
             OwnedMenuItem::SystemMenu(_) => menu,
@@ -501,8 +511,8 @@ impl BarMenu {
 
     /// A letter in the open menu (`CMenuDrawer::OnMenuChar`): the item with that access key runs
     /// (a submenu opens), or, if several have it, the selection goes to the next of them. Case does
-    /// not matter. Only the menu itself is handled; once a submenu has the focus, its letters are
-    /// left alone.
+    /// not matter. Only the menu itself is handled; the letters of a submenu that has the focus
+    /// come through `popup_keys::key` (`fill` registers every submenu).
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let m = keystroke.modifiers;

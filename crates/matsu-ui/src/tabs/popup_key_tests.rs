@@ -279,3 +279,118 @@ fn the_letters_work_in_the_right_click_menu(cx: &mut TestAppContext) {
     // Typing is undone a character at a time.
     assert_eq!(text, "ab", "Undo ran");
 }
+
+/// A popup at the middle of the window with the entries すべて選択(A) and the submenu 枝(S) of
+/// 先頭(T), 末尾(E), 行頭(e) and a gray one (the one-liner submenu of the right-click menu has
+/// this shape).
+fn open_submenu_popup(cx: &mut TestAppContext, handle: AnyWindowHandle) {
+    use crate::menu::{Entry, Item, MenuAction};
+    let item = |label: &str, code: &str, enabled: bool| {
+        Entry::Item(Item {
+            label: label.to_owned(),
+            action: MenuAction::Function(code_of(code)),
+            shortcut: None,
+            enabled,
+        })
+    };
+    let entries = vec![
+        item("すべて選択(A)", "F_SELECTALL", true),
+        Entry::Submenu {
+            label: "枝(S)".to_owned(),
+            entries: vec![
+                item("先頭(T)", "F_GOFILETOP", true),
+                item("末尾(E)", "F_GOFILEEND", true),
+                item("行頭(e)", "F_GOLINETOP", true),
+                item("やり直し(R)", "F_REDO", false),
+            ],
+        },
+    ];
+    let view = active_view(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.open_popup_menu(entries, point(px(200.), px(200.)), window, cx);
+            })
+        })
+        .unwrap();
+    visual(cx, handle).run_until_parked();
+    assert!(is_open(cx, handle), "the popup is open");
+}
+
+/// The letter of a submenu selects it and sends the Right key a frame later, once the popup has drawn
+/// its selection. A test window draws no frames of its own, so the Right key is pressed here.
+fn enter_submenu(cx: &mut TestAppContext, handle: AnyWindowHandle) {
+    keys(cx, handle, "right");
+}
+
+#[gpui::test]
+fn a_submenu_of_the_popup_takes_the_letters(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    run(cx, handle, "F_GOFILEEND");
+    open_submenu_popup(cx, handle);
+    // S opens the submenu; T is its only item with the key.
+    keys(cx, handle, "s");
+    assert!(is_open(cx, handle));
+    enter_submenu(cx, handle);
+    keys(cx, handle, "t");
+    assert!(!is_open(cx, handle));
+    assert_eq!(caret(cx, handle), Pos::new(0, 0), "先頭 ran");
+}
+
+#[gpui::test]
+fn a_submenu_of_the_popup_goes_round_the_items_that_share_a_key(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    run(cx, handle, "F_GOFILEEND");
+    open_submenu_popup(cx, handle);
+    keys(cx, handle, "s");
+    enter_submenu(cx, handle);
+    // E selects 末尾 and runs nothing; E again selects 行頭, Enter runs it.
+    keys(cx, handle, "e");
+    assert!(is_open(cx, handle));
+    assert_eq!(caret(cx, handle), Pos::new(0, 3));
+    keys(cx, handle, "e");
+    keys(cx, handle, "enter");
+    assert!(!is_open(cx, handle));
+    assert_eq!(caret(cx, handle), Pos::new(0, 0), "行頭 ran");
+}
+
+#[gpui::test]
+fn a_submenu_of_the_popup_ignores_an_unknown_key_and_a_gray_item(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    open_submenu_popup(cx, handle);
+    keys(cx, handle, "s");
+    enter_submenu(cx, handle);
+    keys(cx, handle, "z");
+    assert!(is_open(cx, handle));
+    keys(cx, handle, "r");
+    assert!(is_open(cx, handle), "a gray item is not run");
+    // The letters did not go into the text.
+    let text = workspace(cx, handle).read_with(cx, |ws, cx| {
+        ws.editor()
+            .read(cx)
+            .document()
+            .read(cx)
+            .doc()
+            .line(0)
+            .unwrap()
+            .unwrap()
+            .text
+    });
+    assert_eq!(text, "abc");
+}
+
+#[gpui::test]
+fn a_submenu_of_the_popup_that_is_entered_again_starts_from_its_first_row(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    run(cx, handle, "F_GOFILEEND");
+    open_submenu_popup(cx, handle);
+    keys(cx, handle, "s");
+    enter_submenu(cx, handle);
+    // E, E: the registry saw the third row. Out and in again selects the first row.
+    keys(cx, handle, "e e");
+    keys(cx, handle, "left");
+    enter_submenu(cx, handle);
+    keys(cx, handle, "t");
+    assert!(!is_open(cx, handle));
+    assert_eq!(caret(cx, handle), Pos::new(0, 0), "先頭 ran");
+}
