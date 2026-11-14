@@ -657,3 +657,31 @@ fn the_digits_of_the_window_list_submenu_run_its_items(cx: &mut TestAppContext) 
     cx.simulate_keystrokes("a");
     assert_eq!(ran(&probe, cx), ["third"]);
 }
+
+#[gpui::test]
+fn a_submenu_that_is_left_and_entered_again_starts_from_its_first_row(cx: &mut TestAppContext) {
+    // `s i i`: the registry saw the selection reach the third row. Left and Right go out and in
+    // again, where gpui-component selects the first row; K must still run 三(K), not the item
+    // one Down after the first row.
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("i i left right k");
+    assert_eq!(ran(&probe, cx), ["third"]);
+}
+
+#[gpui::test]
+fn a_submenu_that_is_entered_again_after_the_arrows_moved_in_it_is_not_followed_wrongly(
+    cx: &mut TestAppContext,
+) {
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    // I selects the first row, Down the second, Left/Right out and in: the keys start again from
+    // nothing selected, so I, I is the first row and then the third (a stale position, the
+    // second row, would make the first I the third and the next one the first).
+    cx.simulate_keystrokes("i down left right i i enter");
+    assert_eq!(ran(&probe, cx), ["third"]);
+    let (probe, cx) = self::probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("i down down left right j");
+    assert_eq!(ran(&probe, cx), ["second"]);
+}

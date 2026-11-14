@@ -378,3 +378,19 @@ fn a_submenu_of_the_popup_ignores_an_unknown_key_and_a_gray_item(cx: &mut TestAp
     });
     assert_eq!(text, "abc");
 }
+
+#[gpui::test]
+fn a_submenu_of_the_popup_that_is_entered_again_starts_from_its_first_row(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    run(cx, handle, "F_GOFILEEND");
+    open_submenu_popup(cx, handle);
+    keys(cx, handle, "s");
+    enter_submenu(cx, handle);
+    // E, E: the registry saw the third row. Out and in again selects the first row.
+    keys(cx, handle, "e e");
+    keys(cx, handle, "left");
+    enter_submenu(cx, handle);
+    keys(cx, handle, "t");
+    assert!(!is_open(cx, handle));
+    assert_eq!(caret(cx, handle), Pos::new(0, 0), "先頭 ran");
+}
