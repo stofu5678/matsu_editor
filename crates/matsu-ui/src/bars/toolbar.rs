@@ -208,7 +208,7 @@ fn item_of(number: i32) -> Item {
         return Item::Button(Button {
             number: code,
             code,
-            icon: plugin_icon(),
+            icon: super::icon_of_function(code),
         });
     }
     let Some(index) = usize::try_from(number - 1)

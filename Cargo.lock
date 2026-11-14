@@ -4025,6 +4025,7 @@ name = "matsu-config"
 version = "0.13.0"
 dependencies = [
  "encoding_rs",
+ "flate2",
  "libc",
  "matsu-print",
  "sha2 0.11.1",

@@ -207,6 +207,11 @@ pub(crate) fn display_style() -> matsu_commands::keymap::DisplayStyle {
 /// toolbar button of the table that stands for it. Functions with no button, and the
 /// placeholders up to `F_DUMMY_MAX_CODE`, have none.
 pub(crate) fn icon_of_function(code: u16) -> Option<usize> {
+    // A plugin command has the bitmap of its plugin, or the picture of `F_PLUGCOMMAND`
+    // (`CEditWnd::RegisterPluginCommand`).
+    if matsu_commands::plugin_commands::is_plugin_code(code) {
+        return icons::plugin_icon_index(code).or_else(toolbar::plugin_icon);
+    }
     if code <= 10 {
         return None;
     }

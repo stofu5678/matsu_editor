@@ -8,9 +8,10 @@
 
 | 項目 | キー | 既定 | 動き |
 |---|---|---|---|
-| プラグインを有効にする | `EnablePlugin` | オフ | プラグイン全体の入り切りです。オフのとき、「新規プラグインを追加」は使えません |
+| プラグインを有効にする | `EnablePlugin` | オフ | プラグイン全体の入り切りです。オフのとき、「新規プラグインを追加」と「ZIPプラグインを導入」は使えません |
 | フォルダーを開く | なし | | プラグインを置くフォルダーを開きます |
 | 新規プラグインを追加 | なし | | `plugins` フォルダーで見つかったプラグインのフォルダーを、一覧に足します。足したプラグインは、利用者が有効にするまで、無効です |
+| ZIPプラグインを導入 | なし | | ZIP ファイルを選ぶと、中身を `plugins` フォルダーへ解凍して、一覧に足します。足したプラグインは、これも無効です。決まりは下の「ZIP ファイルの導入」にあります |
 
 一覧は 40 個の枠で、1 つにつき `P[nn].Name`（フォルダー名）、`P[nn].Id`、`P[nn].CmdNum` の 3 つのキーを書きます。
 
@@ -22,18 +23,35 @@
 | 試しに実行 | プラグインを試しに動かします |
 | 削除 | 一覧から外します |
 | 設定 | プラグインのオプションのダイアログを開きます。有効にして、オプションのあるプラグインだけです |
+| ReadMe | プラグインの ReadMe を、読み取り専用の新しいウィンドウで開きます。ReadMe があるプラグインだけです。ファイルは、プラグインのフォルダーの `ReadMe.txt`、なければ `<フォルダー名>.txt` です。置き場所は、設定のフォルダーの `plugins`、なければ実行ファイルの隣の `plugins` の順に探します。文字コードは自動で判定します |
 | 配布元 | 配布元のページを開きます |
 
 MATSU Editor が動かせないプラグイン（VBScript、DLL）には、そう書いた状態が出ます。
 
+## ZIP ファイルの導入 {#zip}
+
+ZIP の中は、プラグインのフォルダー 1 つだけにして、その直下に `plugin.def` を置きます。次のどれかに当てはまる ZIP は、何も書かずに断ります。
+
+- `plugin.def` がない、`Plugin.Id` がない、`Plugin.Id` に使えない文字がある（追加のときと同じ決まりです）
+- 一番上にフォルダーが 2 つ以上ある、またはフォルダーの外にファイルがある
+- 親のフォルダーへ出る `..`、`/` や `C:` で始まるパス、`:`・`?`・`*` などの文字、`CON` や `NUL` のような Windows の予約名、末尾が `.` か空白の名前を含む（どの OS でも断ります）
+- リンクやデバイスのファイルを含む、同じパスが 2 つある
+- 暗号化されている、ZIP64 や複数に分かれている、圧縮方式が「無圧縮」と「deflate」以外
+- 大きさの上限を超える: ZIP ファイル 64 MiB、ファイル 2000 個、1 ファイル 32 MiB、全体で 128 MiB、パスの深さ 16
+
+`plugins` にすでに同じ名前のフォルダーがあるとき、または一覧に同じフォルダーのプラグインがあるときは、「上書きしますか？」と聞きます。上書きでは、ZIP にあるファイルだけが入れ替わり、ZIP にないファイルは残ります。解凍はいったん一時のフォルダーに行い、全部が正しく取り出せたときだけ移すので、壊れた ZIP が中途半端なファイルを残すことはありません。
+
 ## サクラエディタとの違い
 
-- 「ZIPプラグインを導入」と、ReadMe を見るボタンは、まだありません（ADR-0026 の後の PR で入る予定です）
+- ZIP の取り込みは、サクラのように OS の ZIP フォルダーには頼らず、MATSU Editor が自分で読みます。そのぶん、上の決まりで中身を確かめます。サクラは確かめません。
+- ZIP から足したプラグインも、有効にするまで動きません（追加と有効化が別です）。
+- ReadMe は、新しいウィンドウを開くところはサクラ（`-R -CODE=99` で自分を起動します）と同じです。MATSU Editor が動いているときは、そのアプリが受け取ります。
+- プラグインのオプションのダイアログにある ReadMe のボタンは、まだありません。
 
 有効なプラグインのコマンドは、メインメニュー、ツールバー、キー割り当て、カスタムメニューの各ページの種別「プラグイン」に並びます。
 
 ## 根拠
 
-- サクラのソース: `sakura_core/prop/CPropComPlugin.cpp`、`CPluginManager::SearchNewPlugin`、`UninstallPlugin`
-- MATSU のコード: `crates/matsu-ui/src/common_settings/pages/plugin.rs` と `plugin/` の下のファイル、`crates/matsu-config/src/plugins.rs`
+- サクラのソース: `sakura_core/prop/CPropComPlugin.cpp`（`IDC_PLUGIN_INST_ZIP`、`GetReadMeFile`、`BrowseReadMe`）、`CPluginManager::SearchNewPlugin`、`InstZipPlugin`、`InstZipPluginSub`、`UninstallPlugin`、`sakura_core/io/CZipFile.cpp`（`ChkPluginDef`、`Unzip`）
+- MATSU のコード: `crates/matsu-ui/src/common_settings/pages/plugin.rs` と `plugin/` の下のファイル、`crates/matsu-config/src/plugins.rs`（`SearchDirs::readme_file`）、`crates/matsu-config/src/plugins/zip.rs`（ZIP の決まりと上限）、`plugin/zip_install.rs`（ボタン）
 - `docs/sakura-gaps.md`（「共通設定「プラグイン」のページ」の行）、`docs/adr/0026-*.md`
