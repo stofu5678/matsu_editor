@@ -1208,3 +1208,60 @@ fn showing_the_page_again_shows_the_state_of_the_files_now(cx: &mut TestAppConte
     assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
     cancel(cx);
 }
+
+#[test]
+fn a_pending_agreement_survives_a_refresh_that_sees_a_change() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let script = plugin_dir.join("command.js");
+    let original = fs::read(&script).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    let files = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    rows::set_consent(
+        &mut rows[0],
+        true,
+        &matsu_config::plugins::consent::manifest_text(&files),
+    );
+    fs::write(&script, "Editor.InsText('changed, longer');").unwrap();
+    let saved = ConsentFile::default();
+    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &saved));
+    assert_eq!(rows[0][CONSENT], "changed");
+    // OK still records what the user agreed to.
+    let mut file = ConsentFile::default();
+    assert!(write_consent(&rows, &mut file));
+    assert_eq!(file.record(HELLO_JS_ID).unwrap().files, files);
+    // Putting the files back shows the agreement as on again.
+    fs::write(&script, original).unwrap();
+    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &saved));
+    assert_eq!(rows[0][CONSENT], "on");
+}
+
+#[test]
+fn a_plugin_stopped_by_failures_stays_stopped_when_its_files_match_again() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let script = plugin_dir.join("command.js");
+    let original = fs::read(&script).unwrap();
+    let files = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    let mut consent = ConsentFile::default();
+    consent.enable(HELLO_JS_ID, "HelloJs", &files, "d").unwrap();
+    consent.save(&dirs.consent_file()).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    fs::write(&script, "Editor.InsText('changed, longer');").unwrap();
+    rows::refresh_consent(&mut rows, Some(&dirs), &consent);
+    assert_eq!(rows[0][CONSENT], "changed");
+    fs::write(&script, original).unwrap();
+    rows::refresh_consent(&mut rows, Some(&dirs), &consent);
+    crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
+    assert_eq!(rows[0][CONSENT], "stopped");
+    assert_eq!(rows[0][STATE], "停止（失敗が続きました）");
+}

@@ -272,6 +272,8 @@ pub(super) fn refresh_consent(
         let same = consent::compare(&agreed, &now).is_empty();
         let code = match (same, row[CONSENT].as_str()) {
             (false, _) => "changed",
+            // What `row_of` shows for files that match: the stop by failures stays.
+            (true, "changed") if crate::macros::plugin_call::is_stopped(&row[ID]) => "stopped",
             (true, "changed") => "on",
             (true, kept) => kept,
         };
@@ -369,7 +371,9 @@ pub(in crate::common_settings) fn write_consent(rows: &[Row], file: &mut Consent
             PluginState::None => {}
             PluginState::Deleted => changed |= file.disable(id),
             _ => match text(CONSENT) {
-                "on" if !text(MANIFEST).is_empty() => {
+                // A pending agreement stays one while the page says the files changed: the
+                // run-time check refuses until the files match it.
+                "on" | "changed" if !text(MANIFEST).is_empty() => {
                     let files = consent::parse_manifest(text(MANIFEST));
                     // An ID that the file cannot hold is not recorded (and does not run).
                     changed |= file
