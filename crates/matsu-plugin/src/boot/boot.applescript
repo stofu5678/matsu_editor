@@ -155,7 +155,9 @@ end editorStart
 -- host builds a program for it: this boot text, the handler inside `script UserMacro ... end
 -- script`, and an `on run`; compiles it with NSAppleScript (which says where an error is) and
 -- runs it. That program is a script of its own: it sees none of the variables of the host's
--- loop, and what the handler sets (properties, handlers) is gone when the call ends. Its own
+-- loop. The compiled program is kept by the name of the handler while its text stays the same, and
+-- is run again for each call, so what the handler sets (properties) stays while the process stays;
+-- a handler with another text, or one that failed, is compiled again. Its own
 -- `return` ends only the handler, and so does an `error` with the number -128 (the way a script
 -- says "stop quietly"); any other `error` is a failure, with its kind, its message and its place
 -- in the handler. Output that the handler wrote before a failure is not lost: `editorPrint`
@@ -166,8 +168,10 @@ end editorStart
 -- objects of the plugin through `editorCall("Plugin.GetOption", {"Section", "Key"})`,
 -- `editorCall("Outline.SetTitle", {"Title"})` and `editorCall("Complement.AddList", {"word"})`.
 property pluginIdentity : missing value
-property pluginContextText : missing value
 property pluginContext : missing value
+property pluginBootCache : missing value
+property pluginScripts : missing value
+property pluginSources : missing value
 
 -- An NSString as text; any other object (or `missing value`) as "".
 on editorString(someObject)
@@ -179,7 +183,7 @@ end editorString
 -- A field of the call that is a string: "id", "dir" or "jack". "" outside a plugin.
 on pluginString(keyName)
 	if pluginContext is missing value then return ""
-	return my editorString(pluginContext's objectForKey:keyName)
+	return my editorString((pluginContext's objectForKey:keyName))
 end pluginString
 
 on pluginId()
@@ -232,11 +236,29 @@ on indentGetChar()
 	return theChar as text
 end indentGetChar
 
+-- The host and the program of a handler talk through the dictionary of the thread (both run on it,
+-- one after the other): "matsuPluginContext" is the JSON text of what the host says about the
+-- call, "matsuPluginTurn" is set by the host just before it runs the program, and taken by the
+-- program's `on run` (so that an empty script object, which runs the `on run` around it again,
+-- does nothing the second time, and a program that is run again starts afresh).
+on pluginThreadInfo()
+	return current application's NSThread's currentThread()'s threadDictionary()
+end pluginThreadInfo
+
+-- The start of the program's `on run`: true once for each run that the host asked for.
+on pluginTakeTurn()
+	set threadInfo to my pluginThreadInfo()
+	if (threadInfo's objectForKey:"matsuPluginTurn") is missing value then return false
+	threadInfo's removeObjectForKey:"matsuPluginTurn"
+	return true
+end pluginTakeTurn
+
 -- The first thing a handler's program does: the buffer for the lines, and what the host says
--- about this call (`pluginContextText`, set by the program's `on run`).
+-- about this call.
 on pluginPrepare()
 	set my editorBuffer to current application's NSMutableData's |data|()
-	set my pluginContext to my editorParse(pluginContextText)
+	set contextString to (my pluginThreadInfo())'s objectForKey:"matsuPluginContext"
+	set my pluginContext to my editorParse(my editorString(contextString))
 	if pluginContext is not missing value then set my editorInfoObject to pluginContext's objectForKey:"info"
 end pluginPrepare
 
@@ -251,14 +273,9 @@ on pluginBootText()
 	set bootString to current application's NSString's stringWithContentsOfFile:(bootFolder & "/boot.applescript") encoding:(editorUTF8) |error|:(missing value)
 	if bootString is missing value then error "EditorError -32000: the boot text of the plugin host cannot be read" number -32000
 	set bootString to bootString's stringByReplacingOccurrencesOfString:((character id 13) & linefeed) withString:linefeed
-	return bootString's stringByReplacingOccurrencesOfString:(character id 13) withString:linefeed
+	-- As text, not as the NSString: a text is what `&` takes.
+	return (bootString's stringByReplacingOccurrencesOfString:(character id 13) withString:linefeed) as text
 end pluginBootText
-
--- A text as the inside of an AppleScript string literal.
-on pluginQuote(someString)
-	set quoted to someString's stringByReplacingOccurrencesOfString:"\\" withString:"\\\\"
-	return (quoted's stringByReplacingOccurrencesOfString:"\"" withString:"\\\"") as text
-end pluginQuote
 
 -- The line of the handler (from 1) where an error is, or 0 if it is not in the handler (or is not
 -- known). `errorInfo` is the dictionary of NSAppleScript; its range counts UTF-16 units of the program.
@@ -266,7 +283,7 @@ on pluginErrorLine(errorInfo, programString, linesBefore, userLines)
 	try
 		set errorRange to (errorInfo's objectForKey:"NSAppleScriptErrorRange")'s rangeValue()
 		set errorStart to location of errorRange
-		set programLine to (my pluginLineBreaks(programString's substringToIndex:errorStart)) + 1
+		set programLine to (my pluginLineBreaks((programString's substringToIndex:errorStart))) + 1
 		set userLine to programLine - linesBefore
 		if userLine >= 1 and userLine <= userLines then return userLine
 	end try
@@ -276,35 +293,46 @@ end pluginErrorLine
 -- The text of a failure for the editor: the kind of error, the message and number that
 -- AppleScript gave, and the place in the handler.
 on pluginFailure(kindName, errorInfo, handlerName, programString, linesBefore, userLines)
-	set errorMessage to my editorString(errorInfo's objectForKey:"NSAppleScriptErrorMessage")
+	set errorMessage to my editorString((errorInfo's objectForKey:"NSAppleScriptErrorMessage"))
 	set errorNumber to 0
 	try
 		set errorNumber to (errorInfo's objectForKey:"NSAppleScriptErrorNumber") as integer
 	end try
 	set lineNumber to my pluginErrorLine(errorInfo, programString, linesBefore, userLines)
 	set failureText to kindName & ": " & errorMessage & " (" & errorNumber & ")" & linefeed & "  at " & handlerName
-	if lineNumber > 0 then set failureText to failureText & ":" & lineNumber
+	if lineNumber > 0 then
+		set failureText to failureText & ":" & lineNumber
+	else
+		-- Not in the handler, or not known: say what NSAppleScript gave, so that one log tells.
+		set rangeText to "none"
+		try
+			set rangeText to ((errorInfo's objectForKey:"NSAppleScriptErrorRange")'s |description|()) as text
+		end try
+		set failureText to failureText & " (no line; boot lines " & linesBefore & ", handler lines " & userLines & ", error range " & rangeText & ")"
+	end if
 	return failureText
 end pluginFailure
 
 -- Runs one handler. `missing value` if it went well, else the text of its failure.
-on pluginRun(handlerName, handlerSource, paramsObject, bootText)
+on pluginRun(handlerName, handlerSource, paramsObject)
 	set contextDictionary to current application's NSMutableDictionary's |dictionary|()
 	set identityId to ""
 	set identityDir to ""
 	if pluginIdentity is not missing value then
-		set identityId to my editorString(pluginIdentity's objectForKey:"id")
-		set identityDir to my editorString(pluginIdentity's objectForKey:"dir")
+		set identityId to my editorString((pluginIdentity's objectForKey:"id"))
+		set identityDir to my editorString((pluginIdentity's objectForKey:"dir"))
 	end if
 	contextDictionary's setObject:identityId forKey:"id"
 	contextDictionary's setObject:identityDir forKey:"dir"
-	contextDictionary's setObject:(my editorString(paramsObject's objectForKey:"jack")) forKey:"jack"
+	contextDictionary's setObject:(my editorString((paramsObject's objectForKey:"jack"))) forKey:"jack"
 	set argsObject to paramsObject's objectForKey:"args"
 	if argsObject is not missing value then contextDictionary's setObject:argsObject forKey:"args"
 	if editorInfoObject is not missing value then contextDictionary's setObject:editorInfoObject forKey:"info"
 	set {contextData, contextError} to current application's NSJSONSerialization's dataWithJSONObject:contextDictionary options:0 |error|:(reference)
 	if contextData is missing value then return "EditorError -32602: the arguments of the call cannot be sent to the handler" & linefeed & "  at " & handlerName
 	set contextText to (current application's NSString's alloc()'s initWithData:contextData encoding:(editorUTF8))
+	if pluginBootCache is missing value then set my pluginBootCache to my pluginBootText()
+	set bootText to pluginBootCache
 	-- The handler's text, with the line breaks of the program (LF), ending with one.
 	set userString to current application's NSString's stringWithString:handlerSource
 	set userString to userString's stringByReplacingOccurrencesOfString:((character id 13) & linefeed) withString:linefeed
@@ -314,14 +342,34 @@ on pluginRun(handlerName, handlerSource, paramsObject, bootText)
 	if userText is "" then set userText to linefeed
 	set linesBefore to my pluginLineBreaks(current application's NSString's stringWithString:bootText)
 	set userLines to my pluginLineBreaks(current application's NSString's stringWithString:userText)
-	set programText to bootText & userText & "end script" & linefeed & linefeed & "on run" & linefeed & tab & "if editorStarted then return" & linefeed & tab & "set my editorStarted to true" & linefeed & tab & "set my pluginContextText to \"" & my pluginQuote(contextText) & "\"" & linefeed & tab & "my pluginPrepare()" & linefeed & tab & "set ignoredResult to run UserMacro" & linefeed & "end run" & linefeed
+	set programText to bootText & userText & "end script" & linefeed & linefeed & "on run" & linefeed & tab & "if not my pluginTakeTurn() then return" & linefeed & tab & "my pluginPrepare()" & linefeed & tab & "set ignoredResult to run UserMacro" & linefeed & "end run" & linefeed
 	set programString to current application's NSString's stringWithString:programText
-	set theScript to current application's NSAppleScript's alloc()'s initWithSource:programString
-	if theScript is missing value then return "script error: the handler cannot be compiled" & linefeed & "  at " & handlerName
-	set {didCompile, compileInfo} to theScript's compileAndReturnError:(reference)
-	if not (didCompile as boolean) then return my pluginFailure("script error", compileInfo, handlerName, programString, linesBefore, userLines)
+	-- The compiled program of a handler is kept, by the name of the handler, as long as its text is
+	-- the same: it is run again for the next call, so its properties stay (as the globals of the
+	-- handlers of the other languages do). A handler with another text is compiled again.
+	if pluginScripts is missing value then
+		set my pluginScripts to current application's NSMutableDictionary's |dictionary|()
+		set my pluginSources to current application's NSMutableDictionary's |dictionary|()
+	end if
+	set theScript to missing value
+	if my editorString((pluginSources's objectForKey:handlerName)) is handlerSource then set theScript to pluginScripts's objectForKey:handlerName
+	if theScript is missing value then
+		set theScript to current application's NSAppleScript's alloc()'s initWithSource:programString
+		if theScript is missing value then return "script error: NSAppleScript could not take the text of the handler" & linefeed & "  at " & handlerName
+		set {didCompile, compileInfo} to theScript's compileAndReturnError:(reference)
+		if not (didCompile as boolean) then return my pluginFailure("script error", compileInfo, handlerName, programString, linesBefore, userLines)
+		pluginScripts's setObject:theScript forKey:handlerName
+		pluginSources's setObject:handlerSource forKey:handlerName
+	end if
+	set threadInfo to my pluginThreadInfo()
+	threadInfo's setObject:contextText forKey:"matsuPluginContext"
+	threadInfo's setObject:"go" forKey:"matsuPluginTurn"
 	set {runResult, runInfo} to theScript's executeAndReturnError:(reference)
+	threadInfo's removeObjectForKey:"matsuPluginTurn"
 	if runResult is missing value then
+		-- A program that failed is compiled again next time.
+		pluginScripts's removeObjectForKey:handlerName
+		pluginSources's removeObjectForKey:handlerName
 		set errorNumber to 0
 		try
 			set errorNumber to (runInfo's objectForKey:"NSAppleScriptErrorNumber") as integer
@@ -355,14 +403,13 @@ end pluginRespond
 -- Serves the calls of the editor until it says shutdown or closes the input.
 on pluginServe()
 	set my pluginIdentity to editorInfoObject's objectForKey:"plugin"
-	set bootText to my pluginBootText()
 	repeat
 		set theLine to my editorReadLine()
 		if theLine is missing value then exit repeat
 		if theLine is not "" then
 			set theMessage to my editorParse(theLine)
 			if theMessage is not missing value then
-				set methodName to my editorString(theMessage's objectForKey:"method")
+				set methodName to my editorString((theMessage's objectForKey:"method"))
 				if methodName is "plugin/shutdown" then exit repeat
 				if methodName is "plugin/invoke" then
 					set paramsObject to theMessage's objectForKey:"params"
@@ -371,11 +418,18 @@ on pluginServe()
 					else if not ((paramsObject's isKindOfClass:(current application's NSDictionary)) as boolean) then
 						set paramsObject to current application's NSDictionary's |dictionary|()
 					end if
-					set handlerName to my editorString(paramsObject's objectForKey:"name")
+					set handlerName to my editorString((paramsObject's objectForKey:"name"))
 					if handlerName is "" then set handlerName to "<plugin>"
-					set handlerSource to my editorString(paramsObject's objectForKey:"source")
-					set failure to my pluginRun(handlerName, handlerSource, paramsObject, bootText)
-					my pluginRespond(theMessage's objectForKey:"id", failure)
+					set handlerSource to my editorString((paramsObject's objectForKey:"source"))
+					-- A failure of the host's own steps (reading the boot text, building the program, an
+					-- object that is not what it was taken for) is the failure of this call, with the step's
+					-- own message and number; it never ends the host.
+					try
+						set failure to my pluginRun(handlerName, handlerSource, paramsObject)
+					on error hostMessage number hostNumber
+						set failure to "execution error: the plugin host failed: " & hostMessage & " (" & hostNumber & ")" & linefeed & "  at " & handlerName & " (in pluginRun of the host)"
+					end try
+					my pluginRespond((theMessage's objectForKey:"id"), failure)
 				end if
 			end if
 		end if

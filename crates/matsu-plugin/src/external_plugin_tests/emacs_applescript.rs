@@ -462,12 +462,12 @@ editorCall(\"InsText\", {\"名前\"})
 }
 
 #[test]
-fn an_applescript_handler_is_a_program_of_its_own_for_each_call() {
+fn an_applescript_handler_keeps_its_properties_while_the_process_stays() {
     if !available(AS) {
         return;
     }
-    // A property of the handler starts from 5 in every call: nothing of one call is in the next,
-    // and the host (which keeps its own names) answers each of them.
+    // The compiled handler is run again for each call, so `keptValue` goes on from where it was;
+    // the host's own names (set in the handler as its own variables) are never touched.
     let code = "property keptValue : 5
 set keptValue to keptValue + 1
 set theLine to \"x\"
@@ -479,12 +479,50 @@ editorCall(\"InsText\", {\"c\"})
     let dir = plugin_dir(&[("first.applescript", code)]);
     let mut host = host(dir.path(), AS, true);
     let mut world = World::new("");
+    let mut seen = Vec::new();
     for _ in 0..3 {
         let report = world.call_jack(&mut host, "Command", "first.applescript", &json!({}), SLOW);
         assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
-        assert_eq!(stdout(&report), ["6"], "{:?}", report.output);
+        seen.extend(stdout(&report).iter().map(|l| (*l).to_owned()));
     }
+    assert_eq!(seen, ["6", "7", "8"], "properties must stay between calls");
     assert_eq!(world.doc.text(), "ccc");
+    host.shutdown();
+}
+
+#[test]
+fn an_applescript_handler_with_a_new_text_is_compiled_again() {
+    if !available(AS) {
+        return;
+    }
+    let dir = plugin_dir(&[(
+        "h.applescript",
+        "property n : 0\nset n to n + 1\neditorPrint(\"v1 \" & n)\n",
+    )]);
+    let mut host = host(dir.path(), AS, true);
+    let mut world = World::new("");
+    let first = world.call_jack(&mut host, "Command", "h.applescript", &json!({}), SLOW);
+    assert_eq!(
+        stdout(&first),
+        ["v1 1"],
+        "{:?} {:?}",
+        first.outcome,
+        first.output
+    );
+    // The file changes; the kept program is for the old text, so the handler starts afresh.
+    std::fs::write(
+        dir.path().join("h.applescript"),
+        "property n : 0\nset n to n + 10\neditorPrint(\"v2 \" & n)\n",
+    )
+    .unwrap();
+    let second = world.call_jack(&mut host, "Command", "h.applescript", &json!({}), SLOW);
+    assert_eq!(
+        stdout(&second),
+        ["v2 10"],
+        "{:?} {:?}",
+        second.outcome,
+        second.output
+    );
     host.shutdown();
 }
 
