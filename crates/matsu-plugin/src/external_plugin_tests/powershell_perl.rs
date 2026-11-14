@@ -225,7 +225,7 @@ fn a_powershell_or_perl_handler_that_fails_keeps_the_kind_and_the_place_and_the_
         (
             PS,
             "syntax.ps1",
-            "$a = 1\n$b = = 2\n",
+            "$a = 1\n$b = (\n",
             ["syntax.ps1:2", "ParseError"],
         ),
         (
@@ -308,6 +308,16 @@ fn a_return_or_exit_ends_only_the_handler() {
             PS,
             "exit-in-function.ps1",
             "function Stop-Here { exit 4 }\n$Editor.InsText('a')\nStop-Here\n$Editor.InsText('b')\n",
+        ),
+        (
+            PS,
+            "exit-with-argument.ps1",
+            "function Get-Code { $global:argument_ran = 'yes'; 3 }\n$Editor.InsText('a')\nexit (Get-Code)\n$Editor.InsText('b')\n",
+        ),
+        (
+            PS,
+            "exit-nested.ps1",
+            "$Editor.InsText('a')\nexit $(exit 2)\n$Editor.InsText('b')\n",
         ),
         (
             PERL,
@@ -528,4 +538,36 @@ fn the_powershell_and_perl_sample_plugins_run() {
         assert_eq!(world.api.added, ["ab_hello", "ab_world"], "{folder}");
         host.shutdown();
     }
+}
+
+#[test]
+fn a_powershell_exit_runs_its_argument_and_the_output_streams_still_show() {
+    if !available(PS) {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "exit.ps1",
+            "function Get-Code { $global:argument_ran = 'yes'; 3 }\nexit (Get-Code)\n",
+        ),
+        (
+            "read.ps1",
+            "Write-Host \"host $global:argument_ran\"\nWrite-Output 'out'\nWrite-Warning 'careful'\n",
+        ),
+    ]);
+    let mut host = host(dir.path(), PS, true);
+    let mut world = World::new("");
+    assert_eq!(call(&mut world, &mut host, "exit.ps1").outcome, Outcome::Ok);
+    let report = call(&mut world, &mut host, "read.ps1");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    let lines = stdout(&report);
+    assert!(lines.contains(&"host yes"), "{:?}", report.output);
+    assert!(lines.contains(&"out"), "{:?}", report.output);
+    // PowerShell's own host prints the warning; it is not lost.
+    assert!(
+        report.output.iter().any(|(_, l)| l.contains("careful")),
+        "{:?}",
+        report.output
+    );
+    host.shutdown();
 }

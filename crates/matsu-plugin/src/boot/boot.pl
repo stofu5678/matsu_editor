@@ -215,7 +215,7 @@ sub serve {
     # `exit` in a handler ends the handler, not the host. This is set while the host runs, so it
     # holds for the code that the handlers compile (the host's own `exit` is compiled already).
     {
-        no warnings 'redefine';
+        no warnings qw(redefine once);
         *CORE::GLOBAL::exit = sub { die bless({}, 'MatsuBoot::Exit') };
     }
     # The messages that Perl and the handler make ("... at FILE line N.") say the name right.

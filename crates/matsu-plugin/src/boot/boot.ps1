@@ -278,13 +278,11 @@ $global:Editor.Info = $global:MatsuInfo
 
 # ---- Plugin host -----------------------------------------------------------------------------
 #
-# The handler sees $Editor, $Plugin, $Outline, $Complement and $Indent. It runs as `& $block` in a
-# scope of its own: the variables it assigns, and a `return`, stay in that call (a variable that
-# has to stay for the next call of a resident plugin is `$global:name`). `exit` would end this
-# process, so the text is rewritten first: each `exit` becomes a throw that ends only the handler
-# (the line numbers do not change).
-
-$global:MatsuExitSignal = 'matsu-plugin-exit'
+# The handler sees $Editor, $Plugin, $Outline, $Complement and $Indent. It runs in a nested pipeline
+# of this runspace (`[powershell]::Create(CurrentRunspace)`), with its own scope: the variables it
+# assigns stay in that call (a variable that has to stay for the next call of a resident plugin is
+# `$global:name`). `return` ends the handler. So does `exit`: in a nested pipeline it ends only that
+# pipeline, and its argument is run first (the process stays).
 
 # The arguments of a call without the trailing nulls (a trailing null is a missing argument).
 function global:Get-MatsuTrimmedArgs($Values) {
@@ -302,28 +300,6 @@ function global:New-MatsuCallObject([string]$Prefix, [string[]]$Names) {
         $o.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new($n, $body))
     }
     $o
-}
-
-# The text with every `exit` turned into a throw of the signal.
-function global:Convert-MatsuExit([string]$Text, $Ast) {
-    $exits = @($Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))
-    for ($i = $exits.Count - 1; $i -ge 0; $i--) {
-        $e = $exits[$i].Extent
-        $old = $Text.Substring($e.StartOffset, $e.EndOffset - $e.StartOffset)
-        $breaks = $old.Length - $old.Replace("`n", '').Length
-        $new = "throw [System.OperationCanceledException]::new('$($global:MatsuExitSignal)')" + ("`n" * $breaks)
-        $Text = $Text.Substring(0, $e.StartOffset) + $new + $Text.Substring($e.EndOffset)
-    }
-    $Text
-}
-
-function global:Test-MatsuExit($Record) {
-    $e = $Record.Exception
-    while ($e) {
-        if ($e -is [System.OperationCanceledException] -and $e.Message -eq $global:MatsuExitSignal) { return $true }
-        $e = $e.InnerException
-    }
-    $false
 }
 
 # The text of a failure for the editor: the kind, the message, and the place in the handler.
@@ -344,28 +320,64 @@ function global:Send-MatsuAnswer($Id, $Failure) {
     $global:MatsuOut.Flush()
 }
 
+# The line of the handler that the first error record with a place in the chain of exceptions
+# names, or 0.
+function global:Get-MatsuChainLine($Exception) {
+    $e = $Exception
+    while ($e) {
+        $record = $e.PSObject.Properties['ErrorRecord']
+        if ($record -and $record.Value -and $record.Value.InvocationInfo -and $record.Value.InvocationInfo.ScriptLineNumber -gt 0) {
+            return [int]$record.Value.InvocationInfo.ScriptLineNumber
+        }
+        $e = $e.InnerException
+    }
+    0
+}
+
 # Runs one handler; the failure text, or $null. The names of the locals start with `mp`.
 function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
     $mpTokens = $null
     $mpErrors = $null
-    $mpAst = [System.Management.Automation.Language.Parser]::ParseInput($mpSource, [ref]$mpTokens, [ref]$mpErrors)
+    [void][System.Management.Automation.Language.Parser]::ParseInput($mpSource, [ref]$mpTokens, [ref]$mpErrors)
     if ($mpErrors.Count -gt 0) {
         return (Format-MatsuPluginFailure $mpName ([int]$mpErrors[0].Extent.StartLineNumber) 'ParseError' $mpErrors[0].Message)
     }
+    $mpPs = [powershell]::Create([System.Management.Automation.RunspaceMode]::CurrentRunspace)
     try {
-        $mpBlock = [scriptblock]::Create((Convert-MatsuExit $mpSource $mpAst))
-        # Out-Default ends its pipeline here, so that output which PowerShell holds back to format
-        # (a table) is written before the answer.
-        & $mpBlock | Out-Default
+        # $true: a scope of its own.
+        [void]$mpPs.AddScript($mpSource, $true)
+        $mpOut = $mpPs.Invoke()
+        # What the handler wrote to the pipeline, written as `& $block | Out-Default` did. Out-Default
+        # ends its pipeline here, so that output which PowerShell holds back to format (a table) is
+        # written before the answer.
+        if ($mpOut.Count -gt 0) { $mpOut | Out-Default }
     } catch {
         $mpRecord = $_
-        if (Test-MatsuExit $mpRecord) { return $null }
         $mpEditorError = Get-MatsuEditorException $mpRecord
-        $mpLine = Get-MatsuErrorLine $mpRecord
         if ($mpEditorError) {
+            # The line that the call stack gave; a nested pipeline has another stack, so then the
+            # line of the error record that PowerShell wrapped the error in.
+            $mpLine = [int]$mpEditorError.Data['Line']
+            if ($mpLine -le 0) { $mpLine = Get-MatsuChainLine $mpRecord.Exception }
             return (Format-MatsuPluginFailure $mpName $mpLine '' $mpEditorError.Message)
         }
-        return (Format-MatsuPluginFailure $mpName $mpLine $mpRecord.Exception.GetType().Name $mpRecord.Exception.Message)
+        # The exception that PowerShell wraps the handler's error in ("Exception calling Invoke") is
+        # skipped; a syntax error that only shows now has its own line.
+        $mpEx = $mpRecord.Exception
+        while ($mpEx.InnerException -and $mpEx -is [System.Management.Automation.MethodInvocationException]) { $mpEx = $mpEx.InnerException }
+        $mpLine = 0
+        $mpKind = $mpEx.GetType().Name
+        $mpMessage = $mpEx.Message
+        if ($mpEx.PSObject.Properties['Errors'] -and $mpEx.Errors.Count -gt 0) {
+            $mpKind = 'ParseError'
+            $mpMessage = $mpEx.Errors[0].Message
+            $mpLine = [int]$mpEx.Errors[0].Extent.StartLineNumber
+        } else {
+            $mpLine = Get-MatsuChainLine $mpEx
+        }
+        return (Format-MatsuPluginFailure $mpName $mpLine $mpKind $mpMessage)
+    } finally {
+        $mpPs.Dispose()
     }
     $null
 }
