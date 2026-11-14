@@ -39,6 +39,7 @@ pub(crate) fn tree(entries: &[Entry], style: DisplayStyle) -> Vec<Node> {
                 ),
                 MenuAction::RecentFile(_)
                 | MenuAction::RecentFolder(_)
+                | MenuAction::Window { .. }
                 | MenuAction::Placeholder => Some(Node::Plain),
             },
         })
