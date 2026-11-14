@@ -12,7 +12,9 @@
 //! * the item that has it runs (a submenu opens),
 //! * with several, the selection goes to the next of them, round the end, and nothing runs.
 //!
-//! Once a submenu has the focus its own letters are left alone, as in the bar.
+//! A submenu is a popup of its own and takes the letters the same way, at every level: `fill` registers
+//! each submenu it makes (the menu bar's submenus too), and the letters go to the popup that has the
+//! focus, as `OnMenuChar` answers for the menu that has it.
 //!
 //! gpui-component's `PopupMenu` does not tell its selection, so the registry follows the Up and
 //! Down keys and its own moves. If the mouse moved since (it selects what it points at), the
@@ -244,7 +246,19 @@ pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> b
     if m.control || m.alt || m.platform || m.function {
         return false;
     }
-    // The popup that has the focus itself (not one of its submenus: those keep their letters).
+    // Left and Right move the focus between a popup and its submenus, and gpui-component selects
+    // the first row of the submenu it enters, which the registry cannot follow: no popup's
+    // position is to be trusted until a letter has built it again. (This is before the lookup of
+    // the focused popup: the bar's first level is not registered, and Right leaves it.)
+    if matches!(keystroke.key.as_str(), "left" | "right") {
+        let registry = cx.global_mut::<Registry>();
+        let stale = registry.moves.wrapping_sub(1);
+        for entry in &mut registry.entries {
+            entry.moves = stale;
+        }
+        return false;
+    }
+    // The popup that has the focus itself (a submenu with the focus is registered too).
     let focused = cx.global::<Registry>().entries.iter().position(|e| {
         e.popup
             .upgrade()

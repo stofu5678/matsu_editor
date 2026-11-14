@@ -11,10 +11,20 @@ use gpui::{Modifiers, OwnedMenuItem};
 /// The access key of an item, upper-cased, read from the `(K)` mark of its name.
 pub(super) fn item_key(item: &OwnedMenuItem) -> Option<char> {
     match item {
-        OwnedMenuItem::Action { name, .. } => key_hint(name),
+        OwnedMenuItem::Action { name, .. } => key_hint(name).or_else(|| leading_key(name)),
         OwnedMenuItem::Submenu(submenu) => key_hint(&submenu.name),
         OwnedMenuItem::Separator | OwnedMenuItem::SystemMenu(_) => None,
     }
+}
+
+/// The access key of a label that starts with it and a space, as the window list's items do
+/// (`1 name`, `A name`: `CFileNameManager::GetMenuFullLabel`, which Sakura draws as `&1 name`).
+fn leading_key(name: &str) -> Option<char> {
+    let name = name.rsplit_once("    ").map_or(name, |(name, _)| name);
+    let mut chars = name.chars();
+    let (key, space) = (chars.next()?, chars.next()?);
+    (key.is_ascii_alphanumeric() && space == ' ' && !chars.as_str().is_empty())
+        .then(|| key.to_ascii_uppercase())
 }
 
 /// The items as the popup menu holds them, so that an index here is an index there: it drops what
@@ -161,6 +171,21 @@ mod tests {
             alt: true,
             ..Modifiers::default()
         }
+    }
+
+    #[test]
+    fn a_label_that_starts_with_its_key_has_it() {
+        let item = |name: &str| MenuItem::action(name.to_owned(), Nothing).owned();
+        // The window list: `1 name`, and the 36th is `0`.
+        assert_eq!(item_key(&item("1 file.txt *")), Some('1'));
+        assert_eq!(item_key(&item("a file")), Some('A'));
+        assert_eq!(item_key(&item("0 file    Ctrl+O")), Some('0'));
+        // Not a key: a word, a lone character, a mark in parentheses wins.
+        assert_eq!(item_key(&item("ab file")), None);
+        assert_eq!(item_key(&item("1")), None);
+        assert_eq!(item_key(&item("1 ")), None);
+        assert_eq!(item_key(&item("あ file")), None);
+        assert_eq!(item_key(&item("1 file(K)")), Some('K'));
     }
 
     #[test]
