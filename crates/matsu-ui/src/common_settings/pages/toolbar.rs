@@ -16,7 +16,7 @@
 //! `bToolBarIsFlat` (フラットなボタン) is the form of the buttons ([`ToolbarFlat`]): flat ones have no
 //! frame until the pointer is over them, the others are drawn raised.
 //!
-//! Not built: the plugin commands (the kind プラグイン has none).
+//! The kind プラグイン lists the commands of the plugins that are enabled.
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,

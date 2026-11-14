@@ -140,9 +140,10 @@ def install(call):
         def GetLineAttribute(self, line: int, type: int) -> int:
             """An attribute of a logical line (0 is the line of the cursor, 1 the first line).
             Type 0 is 1 when the line changed since the last save, type 1 the number of the
-            undo step that last touched it, type 2 the bookmark (1 or 0). Types 3 (diff
-            mark) and 4 (function list mark) answer the error -32001 until the editor has
-            them. A negative line, a line past the end and any other type are errors."""
+            undo step that last touched it, type 2 the bookmark (1 or 0). Type 3 is the diff
+            mark (0 none, 1 added, 2 changed, 3 deleted, 4 deleted after the end) and type 4
+            is 1 when the last outline analysis found an item on the line. A negative line,
+            a line past the end and any other type are errors."""
             return call("GetLineAttribute", _pack(line, type))
 
         def IsTextSelectingLock(self) -> int:
@@ -361,8 +362,9 @@ def install(call):
 
         def FileOpenDialog(self, defaultName: str = _UNSET, filter: str = _UNSET) -> str:
             """Lets the user choose a file to open and returns its full path, or an empty
-            string when the dialog is cancelled. The default name and the filter are not
-            used: the dialog of the platform takes neither."""
+            string when the dialog is cancelled. The dialog starts in the folder of the
+            default name (when it names one) with that name filled in. The filter is not
+            used: the dialog of the platform takes none."""
             return call("FileOpenDialog", _pack(defaultName, filter))
 
         def FileSaveDialog(self, defaultName: str = _UNSET, filter: str = _UNSET) -> str:
@@ -374,7 +376,8 @@ def install(call):
         def FolderDialog(self, message: str = _UNSET, defaultFolder: str = _UNSET) -> str:
             """Lets the user choose a folder and returns its full path, or an empty string when
             the dialog is cancelled. The message becomes the prompt text of the platform
-            dialog where it has one; the default folder is not used."""
+            dialog where it has one; the dialog starts in the default folder when it is an
+            existing folder."""
             return call("FolderDialog", _pack(message, defaultFolder))
 
         def InputBox(self, message: str, defaultValue: str = _UNSET, maxLength: int = _UNSET) -> str:

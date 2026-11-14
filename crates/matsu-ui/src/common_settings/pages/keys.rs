@@ -16,8 +16,7 @@
 //!
 //! インポート and エクスポート read and write `.key` files ([`transfer`]).
 //!
-//! Not built: the access keys of the lists (`(&F)`, `(&Y)`, `(&G)`); the functions of the kind
-//! プラグイン (there are no plugins).
+//! Not built: the access keys of the lists (`(&F)`, `(&Y)`, `(&G)`).
 
 mod bindings;
 mod draw;
