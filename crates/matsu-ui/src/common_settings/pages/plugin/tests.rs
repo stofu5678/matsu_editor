@@ -1265,3 +1265,75 @@ fn a_plugin_stopped_by_failures_stays_stopped_when_its_files_match_again() {
     assert_eq!(rows[0][CONSENT], "stopped");
     assert_eq!(rows[0][STATE], "停止（失敗が続きました）");
 }
+
+#[test]
+fn a_pending_agreement_is_kept_by_ok_through_changes_and_stops_until_disabled() {
+    use matsu_config::plugins::consent::{fingerprint, manifest_text};
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let script = plugin_dir.join("command.js");
+    let set = |text: &str| fs::write(&script, text).unwrap();
+    set("Editor.InsText('A');");
+    let a = fingerprint(&plugin_dir).unwrap();
+    let mut saved = ConsentFile::default();
+    saved.enable(HELLO_JS_ID, "HelloJs", &a, "d").unwrap();
+    saved.save(&dirs.consent_file()).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    assert_eq!(rows[0][CONSENT], "on");
+
+    // Files "B" are agreed to on this page.
+    set("Editor.InsText('B, longer');");
+    let b = fingerprint(&plugin_dir).unwrap();
+    // Files "C" are neither.
+    let put_c = || set("Editor.InsText('C, even longer than B');");
+
+    // (step, what the row shows after it, what plugins.ini holds after OK)
+    let mut steps: Vec<(&str, &str, Option<&Vec<_>>)> = Vec::new();
+    steps.push(("agree to B", "on", Some(&b)));
+    steps.push(("files become C, refresh", "changed", Some(&b)));
+    steps.push((
+        "three failures stop it, files back to B, refresh",
+        "stopped",
+        Some(&b),
+    ));
+    steps.push(("files become C, refresh", "changed", Some(&b)));
+    steps.push((
+        "not stopped any more, files back to B, refresh",
+        "on",
+        Some(&b),
+    ));
+    steps.push(("disable", "off", None));
+    for (step, shows, holds) in steps {
+        match step {
+            "agree to B" => rows::set_consent(&mut rows[0], true, &manifest_text(&b)),
+            "files become C, refresh" => {
+                put_c();
+                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+            }
+            "three failures stop it, files back to B, refresh" => {
+                crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
+                set("Editor.InsText('B, longer');");
+                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+                crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
+            }
+            "not stopped any more, files back to B, refresh" => {
+                set("Editor.InsText('B, longer');");
+                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+            }
+            _ => rows::set_consent(&mut rows[0], false, ""),
+        }
+        assert_eq!(rows[0][CONSENT], shows, "{step}");
+        let mut file = ConsentFile::load(&dirs.consent_file());
+        write_consent(&rows, &mut file);
+        assert_eq!(
+            file.record(HELLO_JS_ID).map(|record| record.files),
+            holds.cloned(),
+            "{step}"
+        );
+        // Each OK is a fresh start for the next step from what the dialog holds, not from the file.
+    }
+}

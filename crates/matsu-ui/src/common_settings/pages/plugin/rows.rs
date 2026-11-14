@@ -371,9 +371,10 @@ pub(in crate::common_settings) fn write_consent(rows: &[Row], file: &mut Consent
             PluginState::None => {}
             PluginState::Deleted => changed |= file.disable(id),
             _ => match text(CONSENT) {
-                // A pending agreement stays one while the page says the files changed: the
-                // run-time check refuses until the files match it.
-                "on" | "changed" if !text(MANIFEST).is_empty() => {
+                // An agreement made on this page is saved whatever the row shows (on, changed or
+                // stopped: those are the state of the files and of the run); only 無効にする and 削除
+                // clear it. The run-time check refuses until the files match it.
+                "on" | "changed" | "stopped" if !text(MANIFEST).is_empty() => {
                     let files = consent::parse_manifest(text(MANIFEST));
                     // An ID that the file cannot hold is not recorded (and does not run).
                     changed |= file
