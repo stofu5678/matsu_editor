@@ -364,6 +364,15 @@ fn probe_with(
         gpui_component::init(cx);
         GlobalState::global_mut(cx).set_app_menus(vec![menu.owned()]);
     });
+    // As the workspace does: the letters of the popups reach `popup_keys::key` before the bindings.
+    cx.update(|cx| {
+        cx.intercept_keystrokes(|event, window, cx| {
+            if popup_keys::key(&event.keystroke, window, cx) {
+                cx.stop_propagation();
+            }
+        })
+        .detach();
+    });
     let (probe, cx) = cx.add_window_view(|window, cx| {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
@@ -494,4 +503,157 @@ fn after_the_mouse_pointed_at_an_item_a_submenu_key_opens_that_submenu(cx: &mut 
     // The focus is in the submenu now: Enter runs its first item.
     cx.simulate_keystrokes("enter");
     assert_eq!(ran(&probe, cx), ["inner"]);
+}
+
+/// A bar whose menu has the submenu 枝(S) with: 中(I), 次(J), another I, a gray 灰(G), and 三(K).
+fn probe_with_submenu(cx: &mut TestAppContext) -> (Entity<Probe>, &mut gpui::VisualTestContext) {
+    probe_with(
+        cx,
+        Menu::new("メニュー(M)").items([
+            MenuItem::action("一つ目(A)", First),
+            MenuItem::submenu(Menu::new("枝(S)").items([
+                MenuItem::action("中(I)", Inner),
+                MenuItem::action("次(J)", Second),
+                MenuItem::action("別の中(i)", Third),
+                MenuItem::action("灰(G)", First).disabled(true),
+                MenuItem::action("三(K)", Third),
+            ])),
+        ]),
+    )
+}
+
+// `CMenuDrawer::OnMenuChar` answers `WM_MENUCHAR` for whichever menu has the focus, so the
+// submenus take the letters as the first level does.
+#[gpui::test]
+fn in_a_submenu_a_key_that_one_item_has_runs_it(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("j");
+    assert_eq!(ran(&probe, cx), ["second"]);
+    let bar = probe.read_with(cx, |p, _| p.menu_bar.clone());
+    assert_eq!(bar.read_with(cx, |b, _| b.selected_index), None);
+}
+
+#[gpui::test]
+fn in_a_submenu_the_key_case_does_not_matter(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("shift-k");
+    assert_eq!(ran(&probe, cx), ["third"]);
+}
+
+#[gpui::test]
+fn in_a_submenu_a_key_that_several_items_have_goes_round_them(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    // The first I selects the first item with it, and nothing runs.
+    cx.simulate_keystrokes("i");
+    assert!(ran(&probe, cx).is_empty());
+    cx.simulate_keystrokes("enter");
+    assert_eq!(ran(&probe, cx), ["inner"]);
+
+    let (probe, cx) = self::probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("i i enter");
+    assert_eq!(ran(&probe, cx), ["third"]);
+
+    let (probe, cx) = self::probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("i i i enter");
+    assert_eq!(ran(&probe, cx), ["inner"], "round the end to the first");
+}
+
+#[gpui::test]
+fn in_a_submenu_a_gray_item_is_passed_over_and_a_gray_key_runs_nothing(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("g");
+    assert!(ran(&probe, cx).is_empty());
+    let bar = probe.read_with(cx, |p, _| p.menu_bar.clone());
+    assert_eq!(
+        bar.read_with(cx, |b, _| b.selected_index),
+        Some(0),
+        "still open"
+    );
+    // K is after the gray item: the selection passes over it.
+    cx.simulate_keystrokes("k");
+    assert_eq!(ran(&probe, cx), ["third"]);
+}
+
+#[gpui::test]
+fn in_a_submenu_a_key_that_no_item_has_does_nothing(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("z");
+    assert!(ran(&probe, cx).is_empty());
+    let bar = probe.read_with(cx, |p, _| p.menu_bar.clone());
+    assert_eq!(
+        bar.read_with(cx, |b, _| b.selected_index),
+        Some(0),
+        "still open"
+    );
+    // The submenu still has the focus: Enter runs the item it had selected.
+    cx.simulate_keystrokes("enter");
+    assert_eq!(ran(&probe, cx), ["inner"]);
+}
+
+#[gpui::test]
+fn in_a_submenu_the_keys_go_on_from_where_the_arrows_left_the_selection(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    // I selects the first one; Down moves to 次; the next I after it is the other one.
+    cx.simulate_keystrokes("i");
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("i");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(ran(&probe, cx), ["third"]);
+}
+
+#[gpui::test]
+fn in_a_submenu_the_first_level_keys_stay_with_the_submenu(cx: &mut TestAppContext) {
+    // A is the first level's key; in the submenu it is nobody's.
+    let (probe, cx) = probe_with_submenu(cx);
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("a");
+    assert!(ran(&probe, cx).is_empty());
+}
+
+#[gpui::test]
+fn a_submenu_takes_its_keys_again_after_the_menu_was_closed_and_opened(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with_submenu(cx);
+    let bar = probe.read_with(cx, |p, _| p.menu_bar.clone());
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("escape");
+    bar.update_in(cx, |bar, window, cx| {
+        bar.set_selected_index(None, window, cx)
+    });
+    bar.update_in(cx, |bar, window, cx| {
+        bar.set_selected_index(Some(0), window, cx)
+    });
+    cx.run_until_parked();
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("j");
+    assert_eq!(ran(&probe, cx), ["second"]);
+}
+
+/// The window list submenu: its items are `1 name`, `2 name` and the digits are their keys.
+#[gpui::test]
+fn the_digits_of_the_window_list_submenu_run_its_items(cx: &mut TestAppContext) {
+    let list = || {
+        Menu::new("ウィンドウ(W)").items([MenuItem::submenu(Menu::new("ウィンドウ一覧(W)").items(
+            [
+                MenuItem::action("1 一つ目 *", First),
+                MenuItem::action("2 二つ目", Second),
+                MenuItem::action("A 十一番目", Third),
+            ],
+        ))])
+    };
+    let (probe, cx) = probe_with(cx, list());
+    cx.simulate_keystrokes("w");
+    cx.simulate_keystrokes("2");
+    assert_eq!(ran(&probe, cx), ["second"]);
+    let (probe, cx) = self::probe_with(cx, list());
+    cx.simulate_keystrokes("w");
+    cx.simulate_keystrokes("a");
+    assert_eq!(ran(&probe, cx), ["third"]);
 }
