@@ -31,6 +31,12 @@ test "$(readlink -f /usr/bin/matsu)" = /usr/lib/matsu-editor/matsu || fail "/usr
 test -f "/usr/share/applications/$app_id.desktop" || fail "the desktop file is missing"
 grep -qx 'MimeType=text/plain;' "/usr/share/applications/$app_id.desktop" || fail "MimeType is wrong"
 test -f "/usr/share/metainfo/$app_id.metainfo.xml" || fail "the metainfo file is missing"
+# The help (ADR-0031): the files are in /usr/share/matsu-editor/help, and the editor finds them through the symlink
+# next to the program (its exe dir is /usr/lib/matsu-editor).
+test -f /usr/share/matsu-editor/help/index.html || fail "the help is missing"
+test -f /usr/share/matsu-editor/help/pagefind/pagefind-entry.json || fail "the search index of the help is missing"
+test -L /usr/lib/matsu-editor/help || fail "/usr/lib/matsu-editor/help is not a symlink"
+test -f /usr/lib/matsu-editor/help/index.html || fail "the help is not found next to the program"
 for size in 16x16 32x32 48x48 256x256 512x512; do
   test -f "/usr/share/icons/hicolor/$size/apps/$app_id.png" || fail "the $size icon is missing"
 done
@@ -67,7 +73,7 @@ sudo apt-get remove -y matsu-editor
 
 echo "--- after removal"
 for p in /usr/lib/matsu-editor /usr/bin/matsu "/usr/share/applications/$app_id.desktop" \
-  "/usr/share/metainfo/$app_id.metainfo.xml" /usr/share/doc/matsu-editor; do
+  "/usr/share/metainfo/$app_id.metainfo.xml" /usr/share/doc/matsu-editor /usr/share/matsu-editor; do
   test ! -e "$p" && test ! -L "$p" || fail "$p is still there"
 done
 if ls /usr/share/icons/hicolor/*/apps/"$app_id".* 2>/dev/null; then fail "an icon is still there"; fi
@@ -87,6 +93,7 @@ rpm -K "$dist/matsu-$target.rpm" | tee /dev/stderr | grep -q 'digests OK' || fai
 rpm -qp --requires "$dist/matsu-$target.rpm" | grep -q 'libc\.so\.6' || fail "the rpm has no automatic Requires"
 listing=$(rpm -qlp "$dist/matsu-$target.rpm")
 for p in /usr/bin/matsu /usr/lib/matsu-editor/matsu /usr/lib/matsu-editor/matsu-script \
+  /usr/lib/matsu-editor/help /usr/share/matsu-editor/help/index.html \
   "/usr/share/applications/$app_id.desktop" "/usr/share/metainfo/$app_id.metainfo.xml"; do
   echo "$listing" | grep -qx "$p" || fail "the rpm lacks $p"
 done

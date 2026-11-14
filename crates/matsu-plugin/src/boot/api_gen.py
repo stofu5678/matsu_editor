@@ -319,13 +319,16 @@ def install(call):
             return call("IsSameTypeExt", _pack(extension1, extension2))
 
         def ExpandParameter(self, format: str) -> str:
-            """Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f
-            (file name), $g (file name without the extension), $/ (full path with /), $N (as
-            $F), $b (extension), $e and $E (folder), $C (the selected text or the word at
-            the caret), $x and $y (caret column in UTF-16 units and line, from 1), $S (the
-            editor), $M (the macro file), $V (version), $A (name), and conditions
-            ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (無題). $d $t $D $T $B
-            $Q $I are not supported and stay as written. At most 2047 UTF-16 units."""
+            """Replaces the codes that start with $ in a string, as the window title does: $$
+            ($), $A (name), $F (full path), $f (file name), $g (file name without the
+            extension), $/ (full path with /), $N (short path), $b (extension), $e (folder),
+            $E (short folder), $n (number of an untitled window), $B (document type), $Q
+            (print setting), $C (the selected text or the word at the caret), $x and $y
+            (caret column in UTF-16 units and line, from 1), $d and $t (date and time now),
+            $D and $T (date and time of the file), $V (version), $h (Grep key), $S (the
+            editor), $I (the settings file), $M (the macro file), $<profile>, and conditions
+            ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (無題). $p and $P are
+            the notice that they are for the print preview. At most 2047 UTF-16 units."""
             return call("ExpandParameter", _pack(format))
 
         def MessageBox(self, message: str, type: int = _UNSET) -> int:

@@ -105,6 +105,14 @@ pub struct OpenRecentFolder {
     pub path: String,
 }
 
+/// A menu item of the window list: bring this document to the front. `id` is the id of its view as
+/// the menu showed it, so a window that closed since cannot make the item bring another one.
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = matsu, no_json)]
+pub struct SelectWindow {
+    pub id: u64,
+}
+
 /// The font of the text, by OS: a Japanese monospaced font, so that full-width characters are
 /// twice as wide as half-width ones. GPUI picks a font by family name and falls back to its
 /// default when the font is missing (the PoC's list of fonts is in `poc/gpui-textview`).
@@ -931,6 +939,9 @@ impl EditorView {
                     .map(|t| t.type_name.clone())
             });
         }
+        if wants("$Q") {
+            ctx.print_setting_name = self.current_print_setting(cx).name;
+        }
         if wants("$d") || wants("$t") {
             let options = matsu_commands::format_options::get();
             let now = matsu_commands::convert::datetime::Clock::now(
@@ -979,6 +990,10 @@ impl EditorView {
         cx.bind_keys([
             gpui::KeyBinding::new("tab", gpui::NoAction, Some("Editor")),
             gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("Editor")),
+            // The confirmation before text goes to an AI is a sibling of the editor, not inside its context: its
+            // own Tab handling (`crate::ai_confirm`) needs the key as well.
+            gpui::KeyBinding::new("tab", gpui::NoAction, Some("AiConfirmDialog")),
+            gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("AiConfirmDialog")),
         ]);
     }
 

@@ -439,12 +439,29 @@ mod powershell {
         shells
     }
 
+    /// Runs `line` in every PowerShell of [`powershells`]. PowerShell 7 on the Linux ARM64 runners has died
+    /// by a signal now and then on a trivial script (SIGSEGV, exit 139, 2026-11-13): that is pwsh itself, not
+    /// the one-liner. Outside Windows a run that a signal ended (128 and up, not stopped by the test) is tried
+    /// once more, and a shell that dies twice is left out of the test with a note.
     fn ps(line: &str, text: &str, output: OutputKind) -> Vec<(String, Finished, String)> {
         powershells()
             .into_iter()
-            .map(|shell| {
-                let (done, output) = run(&shell, line, text, output);
-                (shell, done, output)
+            .filter_map(|shell| {
+                for attempt in 1..=2 {
+                    let (done, out) = run(&shell, line, text, output);
+                    let died = !cfg!(windows)
+                        && !done.exit.stopped
+                        && done.exit.code.is_some_and(|code| code >= 128);
+                    if !died {
+                        return Some((shell, done, out));
+                    }
+                    eprintln!(
+                        "{shell} died by a signal (exit {:?}), attempt {attempt}",
+                        done.exit.code
+                    );
+                }
+                eprintln!("{shell} died twice: not tested by this test here");
+                None
             })
             .collect()
     }

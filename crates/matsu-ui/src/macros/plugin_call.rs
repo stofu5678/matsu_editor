@@ -30,7 +30,7 @@ use matsu_config::plugins::options::PluginOptions;
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginDef, SearchDirs};
 use matsu_plugin::bridge;
 use matsu_plugin::plugin_host::{
-    self, HostSettings, Outcome, PluginApi, PluginHost, Progress, limit_of,
+    self, HostSettings, MAX_FAILURES, Outcome, PluginApi, PluginHost, Progress, limit_of,
 };
 use matsu_plugin::protocol::RpcError;
 use matsu_plugin::session::{Engine, Language, Stream};
@@ -46,6 +46,31 @@ thread_local! {
     /// The plugins that three failures in a row stopped, for the list of the settings page (which
     /// has no window to ask). Only the UI thread uses it.
     static STOPPED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
+thread_local! {
+    /// The failures in a row of each plugin, over all the languages of its handlers (the hosts count
+    /// their own too, but the plugin is what stops: ADR-0026).
+    static FAILURES: RefCell<HashMap<String, u32>> = RefCell::new(HashMap::new());
+}
+
+/// Counts the end of a call of the plugin `id`: a success starts the count over, a failure adds to
+/// it, and [`MAX_FAILURES`] in a row stop the plugin (all its hosts, whatever the language). Returns
+/// whether the plugin is stopped now.
+pub(crate) fn note_outcome(id: &str, outcome: &Outcome) -> bool {
+    FAILURES.with(|map| {
+        let mut map = map.borrow_mut();
+        if *outcome == Outcome::Ok {
+            map.remove(id);
+        } else if outcome.is_failure() {
+            let count = map.entry(id.to_owned()).or_insert(0);
+            *count += 1;
+            if *count >= MAX_FAILURES {
+                set_stopped(id, true);
+            }
+        }
+    });
+    is_stopped(id)
 }
 
 /// Whether three failures in a row stopped the plugin `id`.
@@ -65,18 +90,52 @@ pub(crate) fn set_stopped(id: &str, stopped: bool) {
 
 type SharedHost = Rc<RefCell<PluginHost>>;
 
-/// The hosts, by the ID of the plugin. A host is made at the first call.
+/// The hosts, by the ID of the plugin and the language of the handler (a plugin may have handlers in
+/// more than one language, and each language has a process of its own). A host is made at the first
+/// call.
 #[derive(Default)]
 struct Runtime {
-    hosts: HashMap<String, SharedHost>,
+    hosts: HashMap<(String, Language), SharedHost>,
+}
+
+impl Runtime {
+    /// The hosts of one plugin.
+    fn of<'a>(&'a self, id: &'a str) -> impl Iterator<Item = &'a SharedHost> {
+        self.hosts
+            .iter()
+            .filter(move |((host_id, _), _)| host_id == id)
+            .map(|(_, host)| host)
+    }
+
+    /// Takes the hosts of one plugin out.
+    fn take(&mut self, id: &str) -> Vec<SharedHost> {
+        let keys: Vec<_> = self
+            .hosts
+            .keys()
+            .filter(|(host_id, _)| host_id == id)
+            .cloned()
+            .collect();
+        keys.iter()
+            .filter_map(|key| self.hosts.remove(key))
+            .collect()
+    }
 }
 
 impl Global for Runtime {}
 
+/// A success of the plugin starts the failure count of every host of it over: only the count of
+/// the plugin stops it, so the hosts' own counts (which stop a host alone) must never get ahead of it.
+fn forgive_hosts(cx: &mut App, id: &str) {
+    for host in cx.default_global::<Runtime>().of(id) {
+        host.borrow_mut().reset();
+    }
+}
+
 /// The user enabled the plugin again: the failures start over.
 pub(crate) fn reset(cx: &mut App, id: &str) {
     set_stopped(id, false);
-    if let Some(host) = cx.default_global::<Runtime>().hosts.get(id) {
+    FAILURES.with(|map| map.borrow_mut().remove(id));
+    for host in cx.default_global::<Runtime>().of(id) {
         host.borrow_mut().reset();
     }
 }
@@ -84,7 +143,8 @@ pub(crate) fn reset(cx: &mut App, id: &str) {
 /// The plugin is off or gone: its process ends.
 pub(crate) fn shutdown(cx: &mut App, id: &str) {
     set_stopped(id, false);
-    if let Some(host) = cx.default_global::<Runtime>().hosts.remove(id) {
+    FAILURES.with(|map| map.borrow_mut().remove(id));
+    for host in cx.default_global::<Runtime>().take(id) {
         host.borrow_mut().shutdown();
     }
 }
@@ -615,16 +675,33 @@ fn prepare(
             (jack.name(), handler, 0, true)
         }
     };
-    if Language::of_file(Path::new(&handler)) != Some(Language::Bundled(Engine::QuickJs)) {
+    // An ES module and a TypeScript file would have Node.js read the file again after the user's
+    // agreement was checked, so they are refused for now (the same words as the settings page).
+    if matches!(
+        Language::of_file(Path::new(&handler)),
+        Some(Language::TypeScript)
+    ) || Path::new(&handler)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("mjs"))
+    {
         return Err(format!(
-            "{handler} は動かせません。今は .js のプラグインだけです"
+            "{handler} は動かせません。.mjs と .ts のプラグインは、まだ動かせません。.cjs にしてください"
         ));
     }
+    let language = match Language::of_file(Path::new(&handler)) {
+        Some(language) if language.serves_plugins() && language.runs_here() => language,
+        _ => {
+            return Err(format!(
+                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.py のどれかにしてください"
+            ));
+        }
+    };
+    let host_key = (def.id.clone(), language);
     let runtime = cx.default_global::<Runtime>();
     let want_resident = def.resident;
     let reuse = runtime
         .hosts
-        .get(&def.id)
+        .get(&host_key)
         .filter(|host| {
             let host = host.borrow();
             // A plugin that was replaced by another folder gets a host of its own folder.
@@ -635,24 +712,26 @@ fn prepare(
     let host = match reuse {
         Some(host) => host,
         None => {
-            if let Some(old) = runtime.hosts.remove(&def.id) {
+            if let Some(old) = runtime.hosts.remove(&host_key) {
                 old.borrow_mut().shutdown();
             }
             let mut settings = HostSettings::new(
                 &def.id,
                 &plugin_dir.unwrap_or_default(),
-                Language::Bundled(Engine::QuickJs),
+                language,
                 want_resident,
             );
-            if let Some(path) = test_interpreter() {
+            if language == Language::Bundled(Engine::QuickJs)
+                && let Some(path) = test_interpreter()
+            {
                 settings.interpreter = path.into();
             }
             let host = Rc::new(RefCell::new(PluginHost::new(settings)));
-            runtime.hosts.insert(def.id.clone(), host.clone());
+            runtime.hosts.insert(host_key, host.clone());
             host
         }
     };
-    if host.borrow().is_stopped() {
+    if host.borrow().is_stopped() || is_stopped(&def.id) {
         return Err("失敗が続いたので止めています。もう一度「有効にする」を押すと戻ります".into());
     }
     let label = if def.name.is_empty() {
@@ -1123,8 +1202,11 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                     }
                 }
                 Progress::Done(outcome) => {
-                    let stopped = host.borrow().is_stopped();
-                    set_stopped(&api.def.id, stopped);
+                    let stopped = note_outcome(&api.def.id, &outcome);
+                    if outcome == Outcome::Ok {
+                        let id = api.def.id.clone();
+                        cx.update(|app| forgive_hosts(app, &id));
+                    }
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.macros.plugin_event = false;

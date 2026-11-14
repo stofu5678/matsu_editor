@@ -105,6 +105,9 @@ pub enum Unsupported {
     VbScript,
     /// A `Type` that is none of `wsh`, `script` and `dll`.
     UnknownType(String),
+    /// A handler is an ES module (`.mjs`) or a TypeScript file (`.ts`): the plugin host cannot give
+    /// Node.js only the text that the user agreed to for those yet. The file name is kept.
+    EsModule(String),
 }
 
 /// A plug: a function of the plugin tied to a jack (`[Plug]`).
@@ -278,18 +281,32 @@ impl PluginDef {
             PluginKind::Other(name) => return Some(Unsupported::UnknownType(name.clone())),
             PluginKind::Wsh | PluginKind::Script => {}
         }
-        let mut handlers = self
+        let handlers = self
             .plugs
             .iter()
             .map(|p| p.handler.as_str())
             .chain(self.commands.iter().map(|c| c.handler.as_str()));
-        handlers.any(is_vbscript).then_some(Unsupported::VbScript)
+        let handlers: Vec<&str> = handlers.collect();
+        if handlers.iter().any(|h| is_vbscript(h)) {
+            return Some(Unsupported::VbScript);
+        }
+        handlers
+            .iter()
+            .find(|h| is_es_module(h))
+            .map(|h| Unsupported::EsModule((*h).to_owned()))
     }
 
     /// The commands the plugin has (`GetCommandCount`).
     pub fn command_count(&self) -> usize {
         self.commands.len()
     }
+}
+
+/// A handler that is an ES module (`.mjs`) or TypeScript (`.ts`, lower case only: Node.js strips the
+/// types only from that spelling, as `Language::of_file` has it).
+fn is_es_module(handler: &str) -> bool {
+    let ext = handler.rsplit_once('.').map(|(_, e)| e);
+    ext.is_some_and(|e| e.eq_ignore_ascii_case("mjs") || e == "ts")
 }
 
 /// A handler that is a VBScript file: `.vbs`, or `.vbe` (encoded VBScript).

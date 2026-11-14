@@ -22,7 +22,7 @@ const ONELINER_CODES: [std::ops::Range<u16>; 2] = {
     use matsu_config::settings::oneliner::{F_ONELINER_0, F_ONELINER_DIALOG, MAX_ONELINER};
     [
         F_ONELINER_0..F_ONELINER_0 + MAX_ONELINER as u16,
-        F_ONELINER_DIALOG..F_ONELINER_DIALOG + 2,
+        F_ONELINER_DIALOG..F_ONELINER_DIALOG + 3,
     ]
 };
 
@@ -113,13 +113,18 @@ mod tests {
 
     #[test]
     fn the_kind_oneliner_lists_the_50_one_liners_the_dialog_and_the_settings() {
-        use matsu_config::settings::oneliner::{F_ONELINER_DIALOG, F_ONELINER_SETTINGS};
+        use matsu_config::settings::oneliner::{
+            F_AI_LOG_SHOW, F_ONELINER_DIALOG, F_ONELINER_SETTINGS,
+        };
         let codes = codes_of_kind(19);
-        assert_eq!(codes.len(), 52);
+        assert_eq!(codes.len(), 53);
         assert!(codes_of_kind(18).is_empty());
         assert_eq!((codes[0], codes[49]), (32711, 32760));
         assert!(codes[..50].windows(2).all(|w| w[1] == w[0] + 1));
-        assert_eq!(codes[50..], [F_ONELINER_DIALOG, F_ONELINER_SETTINGS]);
+        assert_eq!(
+            codes[50..],
+            [F_ONELINER_DIALOG, F_ONELINER_SETTINGS, F_AI_LOG_SHOW]
+        );
     }
 
     #[test]

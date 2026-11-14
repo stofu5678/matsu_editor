@@ -165,3 +165,21 @@ pub(crate) fn register(
         Err(e) => Err(RegisterError::Invalid(e)),
     }
 }
+
+/// 「次から聞かない」 of the confirmation window (ADR-0030): writes `AskBeforeSend[nnn]=0` for slot `index`, if the
+/// slot still holds the AI one-liner whose command is `command` (the settings may have changed while the window was
+/// open). The section is changed the way the history is: read again under the lock, written there.
+pub(crate) fn stop_asking(cx: &mut App, index: usize, command: &str) {
+    // a setting that cannot be written is kept for this session; the run itself does not depend on it
+    let _ = update(cx, |table| {
+        let Some(slot) = table
+            .slots
+            .get_mut(index)
+            .filter(|slot| slot.ai && slot.ask_before_send && slot.command == command)
+        else {
+            return Ok(false);
+        };
+        slot.ask_before_send = false;
+        Ok(true)
+    });
+}

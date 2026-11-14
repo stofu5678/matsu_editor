@@ -306,33 +306,43 @@ fn the_candidate_window_opens_at_the_cursor_and_follows_the_preedit(cx: &mut Tes
     let handle = terminal_window(cx);
     let view = open(cx, handle, staying());
     wait_for_text(cx, &view, "hello");
-    let (row, column) = view.read_with(cx, |view, _| view.cursor());
-    let at = |cx: &mut TestAppContext, units: std::ops::Range<usize>| {
+    // The cursor is read again in every attempt: on Windows ConPTY can paint the screen again after the tab
+    // is laid out (see `until_it_holds`), which moves the prompt and the cursor with it, so a cell read once
+    // may be stale by the time it is compared. Each attempt reads the cursor and the candidate window's
+    // place back to back; one that straddles a move fails its comparison and is done again.
+    let near = |a: gpui::Pixels, b: gpui::Pixels| (f32::from(a) - f32::from(b)).abs() < 0.01;
+    // `range` of the preedit, `columns_on` cells past the cursor: the place the window is asked for, and the
+    // cell of the cursor that it is expected at.
+    let measure = |cx: &mut TestAppContext, range: std::ops::Range<usize>, columns_on: usize| {
+        let (row, column) = view.read_with(cx, |view, _| view.cursor());
         let mut bounds = None;
         with_view(cx, handle, &view, |view, window, cx| {
-            bounds = view.bounds_for_range(units, gpui::Bounds::default(), window, cx);
+            bounds = view.bounds_for_range(range, gpui::Bounds::default(), window, cx);
         });
-        bounds.expect("the cell is known once the screen is drawn")
+        let expected = view.read_with(cx, |view, _| view.cell_point(row, column + columns_on, 0.0));
+        Some((bounds?, expected?))
     };
-    let origin = |cx: &mut TestAppContext, columns_on: usize| {
-        view.read_with(cx, |view, _| {
-            view.cell_point(row, column + columns_on, 0.0).unwrap()
-        })
-    };
-    let near = |a: gpui::Pixels, b: gpui::Pixels| (f32::from(a) - f32::from(b)).abs() < 0.01;
     // No preedit: the cell of the cursor.
-    let bounds = at(cx, 0..0);
-    let expected = origin(cx, 0);
-    assert!(near(bounds.origin.x, expected.x));
-    assert!(near(bounds.origin.y + bounds.size.height / 2.0, expected.y));
+    until_it_holds(cx, "the window to open at the cell of the cursor", |cx| {
+        measure(cx, 0..0, 0).is_some_and(|(bounds, expected)| {
+            near(bounds.origin.x, expected.x)
+                && near(bounds.origin.y + bounds.size.height / 2.0, expected.y)
+        })
+    });
     // Two wide characters: the second starts two cells on, and a range past the text is after it.
     mark(cx, handle, &view, "かな");
-    let second = at(cx, 1..1);
-    assert!(near(second.origin.x, origin(cx, 2).x));
-    let after = at(cx, 2..2);
-    assert!(near(after.origin.x, origin(cx, 4).x));
-    let whole = at(cx, 0..2);
-    assert!(near(whole.size.width, second.size.width * 4.0));
+    until_it_holds(cx, "the window to follow the preedit", |cx| {
+        let (Some((second, second_at)), Some((after, after_at)), Some((whole, _))) = (
+            measure(cx, 1..1, 2),
+            measure(cx, 2..2, 4),
+            measure(cx, 0..2, 0),
+        ) else {
+            return false;
+        };
+        near(second.origin.x, second_at.x)
+            && near(after.origin.x, after_at.x)
+            && near(whole.size.width, second.size.width * 4.0)
+    });
 }
 
 // ---- paste ----

@@ -19,7 +19,7 @@ use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
 use crate::tabs::content::MenuKind;
-use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction};
+use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction, SelectWindow};
 use matsu_commands::keymap::{DisplayStyle, KeyMap};
 
 actions!(
@@ -80,15 +80,37 @@ impl KindMenus {
     }
 }
 
+/// The windows that the menus were made with (`F_WINDOW_LIST`), to make them again when the list changes.
+struct ListedWindows(Vec<crate::menu::Item>);
+
+impl gpui::Global for ListedWindows {}
+
+/// Whether the window list the menus show is the one the windows make now.
+fn window_list_is_current(cx: &App) -> bool {
+    cx.try_global::<ListedWindows>().is_some_and(|listed| {
+        listed.0 == crate::window_ops::menu_list::WindowListMenu::collect(cx).into_items()
+    })
+}
+
+/// Makes the menus again if the window list in them (ウィンドウ一覧: the documents, their marks, the
+/// current one) is not the one the windows make now.
+pub(crate) fn refresh_window_list(cx: &mut App) {
+    if !window_list_is_current(cx) {
+        refresh_menus(cx);
+    }
+}
+
 /// macOS: makes the native menu again if the marks of the active window are not the ones it shows.
 /// Called when a window becomes active and after a function ran, because the native menu cannot
-/// ask when it opens. Does nothing elsewhere (the window's menu bar asks).
+/// ask when it opens. Elsewhere the window's menu bar asks for the marks, and only the window list
+/// is looked at (it is part of the menus, not of the marks).
 ///
 /// `always` skips the comparison: the snapshot does not include what the disk says (whether a
 /// file is there, a header of the same name), so a window that becomes active makes them again.
 fn refresh_menu_states(cx: &mut App, always: bool) {
     let (kind, states) = active_menu_context(cx);
     if !always
+        && window_list_is_current(cx)
         && cx
             .try_global::<MenuStates>()
             .is_some_and(|m| m.kind == kind && m.states == states)
@@ -98,12 +120,14 @@ fn refresh_menu_states(cx: &mut App, always: bool) {
     refresh_menus(cx);
 }
 
-/// Asks for [`refresh_menu_states`] once the update that is running ends (macOS only). It has to
-/// be the application's `defer`, not a window's: a window's runs inside an update of that window,
-/// and the state is read by updating the active window.
+/// Asks for [`refresh_menu_states`] once the update that is running ends. It has to be the
+/// application's `defer`, not a window's: a window's runs inside an update of that window, and the
+/// state is read by updating the active window.
 pub(crate) fn defer_refresh_menu_states(cx: &mut App, always: bool) {
     if cfg!(target_os = "macos") {
         cx.defer(move |cx| refresh_menu_states(cx, always));
+    } else {
+        cx.defer(refresh_window_list);
     }
 }
 
@@ -202,6 +226,7 @@ pub(crate) fn run(
         cx.set_global(MenuKeyMap(keymap.clone()));
         set_menus(cx, &keymap);
         cx.on_action(|_: &Exit, cx| crate::file_ops::close::quit(cx));
+        cx.on_action(|a: &SelectWindow, cx| crate::window_ops::menu_list::select(cx, a.id));
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
             // The processes of the plugins end first: none is left running behind the editor.
@@ -222,6 +247,8 @@ pub(crate) fn run(
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 cx.quit();
+            } else {
+                defer_refresh_menu_states(cx, false);
             }
         })
         .detach();
@@ -309,6 +336,9 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     cx.set_global(KindMenus(by_kind));
     let native = menus_of(cx, keymap, kind_now, style, states.as_ref());
     cx.set_menus(native.menus);
+    cx.set_global(ListedWindows(
+        crate::window_ops::menu_list::WindowListMenu::collect(cx).into_items(),
+    ));
     // The native menu has just been made again, without pictures: give them (macOS; Windows and
     // Linux draw the menu themselves). `menu_icons::enabled` is Sakura's 「アイコン付きメニュー」.
     if cfg!(target_os = "macos") && crate::menu_icons::enabled(cx) {
@@ -432,6 +462,10 @@ fn editor_menus(
     let rest = ChainedLists(&custom, &macro_list);
     let rest = ChainedLists(&rest, &oneliner_list);
     let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
+    let rest = ChainedLists(
+        &rest,
+        &crate::window_ops::menu_list::WindowListMenu::collect(cx),
+    );
     let lists = ChainedLists(&recent, &rest);
     // The menu of the user (`[MainMenu]`), Sakura's default without one.
     let main_menu = cx
@@ -515,6 +549,9 @@ pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuIt
                     }
                     MenuAction::RecentFolder(path) => {
                         Some(MenuItem::action(label, OpenRecentFolder { path }))
+                    }
+                    MenuAction::Window { id, current } => {
+                        Some(MenuItem::action(label, SelectWindow { id }).checked(current))
                     }
                     // Nobody handles `Unavailable`, so the native menu of macOS, which asks
                     // whether the action can be handled, keeps the item gray.

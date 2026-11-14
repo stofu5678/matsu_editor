@@ -29,11 +29,24 @@
 //! | cannot start, cannot be written for `cmd`, too large, cannot be read | as it was | a message box, as 外部コマンド実行 tells a command that cannot start |
 //!
 //! The line breaks of the result are made the ones of the document.
+//!
+//! # A one-liner that sends to a generative AI (ADR-0030)
+//!
+//! A slot with `AI[nnn]=1` goes through the same flow with three more steps:
+//!
+//! 1. Before anything starts, when `AskBeforeSend[nnn]` is 1, the confirmation window (`ask_ai_confirm`) shows what
+//!    would be sent: the same range as the input. 「送らない」, Escape or closing the window runs nothing and changes
+//!    nothing (the status bar says so, and the log has a record that nothing was sent). 「送る」 with
+//!    「次から聞かない」 writes `AskBeforeSend[nnn]=0`. The state is looked at again after the wait.
+//! 2. The working folder is a new, empty folder for each run ([`workdir`]), removed when the run ends.
+//! 3. The log tab (`crate::ai_log`) gets a record before the process starts, and the end of the run completes it,
+//!    whatever the end is.
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use chrono::Local;
 use gpui::{App, AsyncWindowContext, Context, PromptLevel, WeakEntity, Window};
 use matsu_commands::command::{CommandError, Result as CommandResult};
 use matsu_commands::context::CommandContext;
@@ -44,13 +57,17 @@ use matsu_config::settings::oneliner::OutputTo;
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::encoding::Eol;
 use matsu_core::exec::{exit_code_text, header_text};
-use matsu_core::oneliner::{OUTPUT_CAP_BYTES, feed_lf};
+use matsu_core::oneliner::{OUTPUT_CAP_BYTES, feed_lf, for_next_line, for_replace};
 use matsu_oneliner::{Event, Finished, Input, OutputKind, Request, RunError, StartError, start};
 use matsu_platform::exec::Stopper;
 
+use crate::ai_confirm::Request as ConfirmRequest;
+use crate::ai_log::{self, RecordHandle};
 use crate::file_ops::ask::tell;
 use crate::file_ops::start as spawn_flow;
 use crate::view::EditorView;
+
+use super::workdir::WorkDir;
 
 /// How often the end of the process is looked for when it has not ended (as 外部コマンド実行 does).
 const POLL: Duration = Duration::from_millis(15);
@@ -60,6 +77,19 @@ const POLL: Duration = Duration::from_millis(15);
 pub(crate) struct Job {
     pub line: String,
     pub output: OutputTo,
+    /// The slot, when it sends to a generative AI (`AI[nnn]=1`). `None` for every other one-liner.
+    pub ai: Option<AiSlot>,
+}
+
+/// What the flow needs of an AI one-liner's slot (ADR-0030).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AiSlot {
+    /// The number of the slot, to write `AskBeforeSend` back.
+    pub index: usize,
+    /// The name shown in the confirmation window and the log.
+    pub name: String,
+    /// `AskBeforeSend[nnn]`: the confirmation window comes first.
+    pub ask: bool,
 }
 
 /// What is read from the window before the process starts.
@@ -117,6 +147,11 @@ pub(crate) fn run_slot(
         Job {
             line: one.command.clone(),
             output: one.output,
+            ai: one.ai.then(|| AiSlot {
+                index,
+                name: one.title().to_owned(),
+                ask: one.ask_before_send,
+            }),
         },
         window,
         cx,
@@ -236,16 +271,45 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         return;
     }
 
+    // An AI one-liner: the confirmation, the record in the log and its own working folder (ADR-0030).
+    let mut began = Instant::now();
+    let mut log = None;
+    let mut workdir = None;
+    if let Some(ai) = &job.ai {
+        let Some(handle) = begin_ai(view, cx, &prepared, &job, ai, began).await else {
+            return;
+        };
+        // the time of the run starts when it is approved, not when the window was shown
+        began = Instant::now();
+        match WorkDir::create() {
+            Ok(dir) => workdir = Some(dir),
+            Err(error) => {
+                let why = format!("作業用のフォルダを作れませんでした。\n{error}");
+                end_log(cx, Some(&handle), failed_log(&why, began));
+                release(view, cx);
+                tell(
+                    cx,
+                    PromptLevel::Warning,
+                    &failure_message(&job.line, &why),
+                    None,
+                )
+                .await;
+                return;
+            }
+        }
+        log = Some(handle);
+    }
+
     let request = Request {
         shell: prepared.shell.clone(),
         line: job.line.clone(),
-        folder: prepared.folder.clone(),
-        input: input_of(&prepared),
-        output: match job.output {
-            OutputTo::Replace => OutputKind::Replace,
-            OutputTo::NextLine => OutputKind::NextLine,
-            OutputTo::OutputWindow => OutputKind::Window,
+        folder: match &workdir {
+            Some(dir) => Some(dir.path().to_owned()),
+            None => prepared.folder.clone(),
         },
+        input: input_of(&prepared),
+        // always the output as it is: `finish` finishes it off for the place of the result
+        output: OutputKind::Window,
         path: login_path,
     };
     // `start` reads the whole text once for `cmd` (to see that the code page can write it): not on the window's
@@ -257,11 +321,13 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
     let mut run = match started {
         Ok(run) => run,
         Err(error) => {
+            let why = start_error_text(&error);
+            end_log(cx, log.as_ref(), failed_log(&why, began));
             release(view, cx);
             tell(
                 cx,
                 PromptLevel::Warning,
-                &failure_message(&job.line, &start_error_text(&error)),
+                &failure_message(&job.line, &why),
                 None,
             )
             .await;
@@ -287,6 +353,14 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
     match opened {
         Ok(true) => {}
         Ok(false) => {
+            end_log(
+                cx,
+                log.as_ref(),
+                failed_log(
+                    "別のコマンドを実行中だったので、実行しませんでした。",
+                    began,
+                ),
+            );
             release(view, cx);
             stop_in_background(cx, stopper);
             tell_busy(cx).await;
@@ -294,6 +368,11 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         }
         Err(_) => {
             stop_in_background(cx, stopper);
+            end_log(
+                cx,
+                log.as_ref(),
+                failed_log("文書が閉じられたので、実行しませんでした。", began),
+            );
             return;
         }
     }
@@ -303,12 +382,25 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
             break event;
         }
         if view.read_with(cx, |_, _| ()).is_err() {
-            // the window is gone
+            // the editor is gone (the log may still be open): the run is ended and so is its record
             stop_in_background(cx, stopper);
+            end_log(
+                cx,
+                log.as_ref(),
+                failed_log("文書が閉じられたので、中断しました。", began),
+            );
             return;
         }
         cx.background_executor().timer(POLL).await;
     };
+
+    // The process is over: the log has the end, whatever it was. The answer is the standard output as the command
+    // wrote it, whatever the place of the result (the finishing of 置き換える and 次の行に入れる is in `finish`).
+    if log.is_some() {
+        end_log(cx, log.as_ref(), log_end(&event, began));
+    }
+
+    let stopped = matches!(&event, Event::Finished(f) if f.exit.stopped);
 
     // The state is looked at again, in the same step that puts the result in.
     let message = view
@@ -317,8 +409,255 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         })
         .ok()
         .flatten();
+    // The box is gone and the result is placed: only now the working folder is removed, so that キャンセル cannot
+    // meet a result that is already final.
+    if let Some(dir) = workdir {
+        cx.background_executor()
+            .spawn(async move { dir.remove() })
+            .await;
+    }
+    // Last of all, so that the status of the new selection does not hide it: where the run was recorded. A run that
+    // was cancelled or has a message box to tell has its own words.
+    if log.is_some() && !stopped && message.is_none() {
+        say(
+            view,
+            cx,
+            "AI に送った内容と答えを、AI ログのタブに記録しました（メニューの「ワンライナー」の「AI ログを表示」で見られます）。",
+        );
+    }
     if let Some(message) = message {
         tell(cx, PromptLevel::Warning, &message, None).await;
+    }
+}
+
+/// The steps before the process of an AI one-liner (ADR-0030): asks when the slot says so, and puts the record in
+/// the log. Returns the record, or `None` when nothing is to run: the reservation is released and the reason is said
+/// (the status bar for a refusal, a message box for a failure).
+async fn begin_ai(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    prepared: &Prepared,
+    job: &Job,
+    ai: &AiSlot,
+    began: Instant,
+) -> Option<RecordHandle> {
+    let started_with = |input: String, input_size: Option<usize>| ai_log::Started {
+        name: ai.name.clone(),
+        command_line: job.line.clone(),
+        input,
+        input_size,
+        started_at: Local::now(),
+    };
+
+    if ai.ask {
+        let asked = view.update_in(cx, |view, window, cx| {
+            confirm_request(prepared, job, ai)
+                .map(|request| view.ask_ai_confirm(request, window, cx))
+        });
+        let answer = match asked {
+            Ok(Ok(wait)) => wait.await,
+            Ok(Err(why)) => {
+                release(view, cx);
+                tell(
+                    cx,
+                    PromptLevel::Warning,
+                    &failure_message(&job.line, &why),
+                    None,
+                )
+                .await;
+                return None;
+            }
+            // the window is gone
+            Err(_) => return None,
+        };
+        // After the wait the state is looked at again: the window, and the document that was read. 「次から聞かない」
+        // is the user's own setting, so it is written even when the document changed meanwhile.
+        let unchanged = view
+            .update_in(cx, |view, _window, cx| {
+                if answer.send && answer.dont_ask_again {
+                    super::store::stop_asking(cx, ai.index, &job.line);
+                }
+                still_the_same(view, prepared, job, cx)
+            })
+            .ok()?;
+        if !answer.send {
+            // nothing runs; the log says that nothing was sent
+            if let Some(handle) = begin_log(view, cx, started_with(String::new(), None)).await {
+                end_log(
+                    cx,
+                    Some(&handle),
+                    failed_log(
+                        "送りませんでした。確認の窓で「送らない」が選ばれたか、窓が閉じられました。",
+                        began,
+                    ),
+                );
+            }
+            release(view, cx);
+            say(
+                view,
+                cx,
+                "生成 AI に送らないので、ワンライナーを実行しませんでした。",
+            );
+            return None;
+        }
+        if !unchanged {
+            release(view, cx);
+            say(
+                view,
+                cx,
+                "文書か設定が変わったので、ワンライナーを実行しませんでした。",
+            );
+            return None;
+        }
+    }
+
+    // Approved: the text for the log is read now (not before the window, which must not wait for a large input),
+    // from the snapshot that the input is read from.
+    let input = input_of(prepared);
+    let (text, size) = cx
+        .background_executor()
+        .spawn(async move { log_input(&input) })
+        .await;
+    // The window was usable while a large input was read: the document is looked at once more.
+    let unchanged = view
+        .update_in(cx, |view, _window, cx| {
+            still_the_same(view, prepared, job, cx)
+        })
+        .ok()?;
+    if !unchanged {
+        release(view, cx);
+        say(
+            view,
+            cx,
+            "文書が変わったので、ワンライナーを実行しませんでした。",
+        );
+        return None;
+    }
+    let handle = begin_log(view, cx, started_with(text, size)).await;
+    if handle.is_none() {
+        release(view, cx);
+        say(
+            view,
+            cx,
+            "AI ログを開けないので、ワンライナーを実行しませんでした。",
+        );
+    }
+    handle
+}
+
+/// The document is the one that was read, and can still take the result.
+fn still_the_same(
+    view: &EditorView,
+    prepared: &Prepared,
+    job: &Job,
+    cx: &mut Context<EditorView>,
+) -> bool {
+    let shared = view.document().read(cx);
+    shared.generation() == prepared.generation
+        && shared.version() == prepared.version
+        && (job.output == OutputTo::OutputWindow || can_edit(view, cx))
+}
+
+/// What the confirmation window shows: the name, the command line and the same range that the input is read from
+/// (a box: the text of the box).
+fn confirm_request(prepared: &Prepared, job: &Job, ai: &AiSlot) -> Result<ConfirmRequest, String> {
+    let boxed;
+    let (doc, from, to) = match &prepared.source {
+        Source::Whole => {
+            let end = prepared.doc.end_pos().map_err(|e| e.to_string())?;
+            (&prepared.doc, Pos::new(0, 0), end)
+        }
+        Source::Range(from, to) => (&prepared.doc, *from, *to),
+        Source::Box { text, .. } => {
+            boxed = Document::from_utf8(text.clone().into_bytes()).map_err(|e| e.to_string())?;
+            let end = boxed.end_pos().map_err(|e| e.to_string())?;
+            (&boxed, Pos::new(0, 0), end)
+        }
+    };
+    ConfirmRequest::from_document(&ai.name, &job.line, doc, from, to).map_err(|e| e.to_string())
+}
+
+/// The head of the input for the log, up to the size the log keeps, and the size of the whole when it is more.
+fn log_input(input: &Input) -> (String, Option<usize>) {
+    let mut text = String::new();
+    let mut total = 0usize;
+    let mut cut = false;
+    // an input that cannot be read ends here: the log has what was read
+    let _ = input(&mut |piece| {
+        total += piece.len();
+        // only the part that still fits, cut on a character boundary; the size of the whole is counted anyway
+        if !cut {
+            let room = ai_log::records::MAX_TEXT_BYTES - text.len();
+            let mut end = piece.len().min(room);
+            while !piece.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.push_str(&piece[..end]);
+            // after the first cut nothing more is kept: the log has the head of the input and no gaps
+            cut = end < piece.len();
+        }
+        true
+    });
+    let size = (total > text.len()).then_some(total);
+    (text, size)
+}
+
+/// Opens the log (behind the document) and adds the running record. `None` when the window has no workspace.
+async fn begin_log(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    started: ai_log::Started,
+) -> Option<RecordHandle> {
+    let host = view
+        .read_with(cx, |view, _| view.split_host.clone())
+        .ok()??;
+    cx.update(|window, app| {
+        host.update(app, |workspace, cx| {
+            ai_log::begin(workspace, started, window, cx)
+        })
+        .ok()
+    })
+    .ok()
+    .flatten()
+}
+
+fn end_log(cx: &mut AsyncWindowContext, handle: Option<&RecordHandle>, finished: ai_log::Finished) {
+    if let Some(handle) = handle {
+        cx.update(|_, app| handle.finish(finished, app)).ok();
+    }
+}
+
+/// A record of a run that did not happen or did not get a result: only what is known.
+fn failed_log(why: &str, began: Instant) -> ai_log::Finished {
+    ai_log::Finished {
+        output: String::new(),
+        stderr: why.to_owned(),
+        exit_code: None,
+        elapsed: began.elapsed(),
+    }
+}
+
+/// What the log keeps of the end of a run: the answer, the standard error, the exit code. A run stopped by キャンセル
+/// says so in the standard error's place, above what the process wrote.
+fn log_end(event: &Event, began: Instant) -> ai_log::Finished {
+    match event {
+        Event::Failed(error) => failed_log(&run_error_text(error), began),
+        Event::Finished(finished) => {
+            let mut stderr = String::new();
+            if finished.exit.stopped {
+                stderr.push_str("キャンセルで中断しました。\n");
+            }
+            stderr.push_str(&finished.error);
+            if finished.error_truncated {
+                stderr.push_str("\n(以降は省略しました)\n");
+            }
+            ai_log::Finished {
+                output: finished.output.concat(),
+                stderr,
+                exit_code: finished.exit.code,
+                elapsed: began.elapsed(),
+            }
+        }
     }
 }
 
@@ -417,7 +756,7 @@ fn finish(
     view.support.exec_running = None;
     window.focus(&view.focus_handle, cx);
     cx.notify();
-    let finished = match event {
+    let mut finished = match event {
         Event::Failed(error) => return Some(failure_message(&job.line, &run_error_text(&error))),
         Event::Finished(finished) => finished,
     };
@@ -467,6 +806,13 @@ fn finish(
             );
         }
         OutputTo::Replace | OutputTo::NextLine => {
+            // the output finished off for the place (ADR-0029): 置き換える drops the line break that the input did
+            // not have, 次の行に入れる ends with one
+            if job.output == OutputTo::Replace {
+                for_replace(&mut finished.output, finished.input_ended_with_break);
+            } else {
+                for_next_line(&mut finished.output);
+            }
             let result = apply(view, prepared, &finished.output, job.output, cx);
             if let Err(why) = result {
                 return Some(failure_message(

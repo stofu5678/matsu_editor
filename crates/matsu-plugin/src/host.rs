@@ -165,6 +165,10 @@ pub struct Requests {
 /// the index of the type.
 pub type TypeOfExt = Box<dyn Fn(&str) -> usize>;
 
+/// `GetTransformFileNameFast`: the short form of a path or a folder, for `$N` and `$E` of
+/// `ExpandParameter`.
+pub type ShortName = Box<dyn Fn(&str) -> String>;
+
 /// Everything in this file for one call. See the [module documentation](self).
 pub struct HostEnv {
     pub state: HostState,
@@ -187,6 +191,14 @@ pub struct HostEnv {
     pub current_type: usize,
     /// The document type of an extension, if the window has the types.
     pub type_of_ext: Option<TypeOfExt>,
+    /// What `ExpandParameter` reads from the window and the program, as the title and the print
+    /// headers get it (the document type, the number of an untitled document, the time stamp
+    /// of the file, the paths of the settings file, the profile, the Grep key, the kind of window,
+    /// whether the file is locked, the print setting). The function overwrites what a macro can
+    /// change meanwhile (the path, the caret, the marks). `None` without a window.
+    pub header: Option<matsu_print::HeaderContext>,
+    /// The short form of a path (`$N`, `$E`); the full path when `None`.
+    pub short_name: Option<ShortName>,
     pub requests: Requests,
 }
 
@@ -204,6 +216,8 @@ impl HostEnv {
             macro_path: None,
             current_type: 0,
             type_of_ext: None,
+            header: None,
+            short_name: None,
             requests: Requests::default(),
         }
     }

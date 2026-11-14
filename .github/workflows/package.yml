@@ -24,7 +24,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
-# Both jobs have a time limit (timeout-minutes) instead of GitHub's default of 6 hours; the jobs of release.yml and
+# Every job has a time limit (timeout-minutes) instead of GitHub's default of 6 hours; the jobs of release.yml and
 # package-check.yml that call this workflow cannot set one, so a new job here needs its own. On 2026-11-06
 # `apt-get update` in package (linux-x64) printed nothing for those 6 hours (.github/scripts/apt-install.sh now cuts
 # it off and tries again); the nightly was not published, and the next run of release.yml waited behind it in the
@@ -58,9 +58,48 @@ jobs:
           head-commit-time: ${{ github.event.head_commit.timestamp }}
           head-commit-committer: ${{ github.event.head_commit.committer.email }}
 
+  # The help (ADR-0031) is built once, here, and every package job takes the same files (the book does not depend on
+  # the OS). The artifact is named help-site-<prefix>, not package-* or release-*: release.yml publishes every
+  # artifact of those two names as a package. mdBook and Pagefind are the pinned ones of tools/help/ (the `help` job
+  # of ci.yml uses them too). It takes about 2 minutes, and the packages wait for it.
+  help:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Install mdBook and Pagefind
+        run: tools/help/install-tools.sh "${RUNNER_TEMP}/help-bin"
+      - name: Build the book
+        id: book
+        run: tools/help/build.sh
+      - name: Index the book with Pagefind
+        run: tools/help/index.sh "${{ steps.book.outputs.site }}"
+      # The size of the help goes into every package (ADR-0031 decision 7 asked to measure it).
+      - name: Measure the help
+        run: |
+          site="${{ steps.book.outputs.site }}"
+          test -f "$site/index.html"
+          {
+            echo "### help/"
+            echo "- size: $(du -sk "$site" | cut -f1) KiB in $(find "$site" -type f | wc -l) files"
+            echo "- pagefind/: $(du -sk "$site/pagefind" | cut -f1) KiB"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          # About 30 MB is the size at which the coordinator decides (spec of the packaging of the help).
+          if [ "$(du -sk "$site" | cut -f1)" -gt 30720 ]; then
+            echo "::warning::help/ is more than 30 MB."
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: help-site-${{ inputs.artifact-prefix }}
+          path: ${{ steps.book.outputs.site }}
+          if-no-files-found: error
+          retention-days: 7
+
   package:
     name: package (${{ matrix.name }})
-    needs: mac-runner
+    needs: [mac-runner, help]
     strategy:
       fail-fast: false
       matrix:
@@ -110,6 +149,13 @@ jobs:
             echo "::error::freetype-sys built its bundled FreeType. Install libfreetype-dev."
             exit 1
           fi
+      # The built help (the `help` job above); copied into each package below, where the editor looks for it
+      # (crates/matsu-ui/src/support/help.rs): `help/` next to matsu.exe or the binary, Contents/Resources/help in the
+      # .app, /usr/share/matsu-editor/help in the .deb and the .rpm (scripts/package-linux.sh).
+      - uses: actions/download-artifact@v8
+        with:
+          name: help-site-${{ inputs.artifact-prefix }}
+          path: help-site
       - name: Stage the files
         env:
           TARGET: ${{ matrix.name }}
@@ -123,9 +169,11 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             # An app bundle, so that Finder opens it without a Terminal window (a bare executable
             # makes Terminal.app run it). Both programs are inside it.
-            scripts/package-mac-app.sh target/release "dist/$dir"
+            scripts/package-mac-app.sh target/release "dist/$dir" help-site
           else
             cp "target/release/matsu$SUFFIX" "target/release/matsu-script$SUFFIX" "dist/$dir/"
+            test -f help-site/index.html
+            cp -R help-site "dist/$dir/help"
           fi
           # The icon of MATSU Editor as pictures (assets/icons/README.md); matsu.exe has its own copy inside.
           mkdir "dist/$dir/icons"
@@ -148,6 +196,11 @@ jobs:
             fi
             echo "Licensed under MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE)."
             echo "icons/ has the icon of MATSU Editor (MIT OR Apache-2.0, like the code)."
+            if [ "$RUNNER_OS" = macOS ]; then
+              echo "The help is inside the app (Contents/Resources/help); the editor opens it from the Help menu."
+            else
+              echo "help/ has the help (open help/index.html); the editor opens it from the Help menu. Keep it next to matsu$SUFFIX."
+            fi
             echo "THIRD_PARTY_NOTICES.txt has the notices and licenses of the code the programs include."
             echo "https://github.com/${GITHUB_REPOSITORY}"
           } > "dist/$dir/README.txt"
@@ -161,6 +214,7 @@ jobs:
           test -x "$app/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")"
           test -x "$app/Contents/MacOS/matsu-script"
           test -f "$app/Contents/Resources/matsu_editor.icns"
+          test -f "$app/Contents/Resources/help/index.html"
           codesign --verify --deep --strict --verbose=2 "$app"
           file "$app/Contents/MacOS/matsu" "$app/Contents/Resources/matsu_editor.icns"
       # A .dmg (ADR-0032): the app and a link to /Applications. Needs no secret, and runs the same on the VM and on
@@ -186,7 +240,7 @@ jobs:
         run: .github/scripts/apt-install.sh appstream desktop-file-utils dpkg-dev rpm
       - name: Build the .deb and the .rpm
         if: runner.os == 'Linux'
-        run: scripts/package-linux.sh "${{ matrix.name }}" target/release dist
+        run: scripts/package-linux.sh "${{ matrix.name }}" target/release dist help-site
       - name: Test the .deb and the .rpm
         if: runner.os == 'Linux'
         run: .github/scripts/test-linux-install.sh "${{ matrix.name }}" dist
@@ -233,6 +287,16 @@ jobs:
           & $env:ISCC "/DTarget=$($env:TARGET)" "/DArch=$arch" "/DAppVersion=$version" "/DStageDir=$stage" "/DOutDir=$(Join-Path $PWD 'dist')" packaging/windows/matsu.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC exited with $LASTEXITCODE" }
           Get-Item "dist/matsu-$($env:TARGET)-setup.exe"
+      # The size of each package, for the record (the help is in all of them).
+      - name: Sizes of the packages
+        run: |
+          {
+            echo "### ${{ matrix.name }}"
+            for f in dist/*.zip dist/*.tar.gz dist/*.dmg dist/*.deb dist/*.rpm dist/*-setup.exe; do
+              [ -f "$f" ] || continue
+              echo "- $(basename "$f"): $(( $(wc -c < "$f") / 1024 )) KiB"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-prefix }}-${{ matrix.name }}

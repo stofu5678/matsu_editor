@@ -61,6 +61,10 @@ pub(crate) struct SaveRequest {
     /// Ask whether to continue when the encoding cannot write some characters. The macro
     /// `FileSaveAs` does not: it saves them as `?` (see `ui_commands/file/file_save_as.rs`).
     pub ask_unmappable: bool,
+    /// The folder and the file name the dialog offers first, from the macro's default name
+    /// (`FileSaveAsDialog`'s first argument; `CDocFileOperation::FileSaveAs` puts it into
+    /// `SSaveInfo::cFilePath` before `SaveFileDialog`).
+    pub given: Option<(Option<PathBuf>, Option<String>)>,
 }
 
 impl SaveRequest {
@@ -84,6 +88,7 @@ impl Default for SaveRequest {
             ask_name: true,
             ask_mixed_eol: true,
             ask_unmappable: true,
+            given: None,
         }
     }
 }
@@ -118,7 +123,7 @@ pub(crate) async fn choose_path(
     name: Option<&str>,
     document_type: Option<usize>,
 ) -> Option<PathBuf> {
-    choose_path_and_options(cx, current, name, document_type, None)
+    choose_path_and_options(cx, current, name, document_type, None, None)
         .await
         .map(|(path, _)| path)
 }
@@ -133,6 +138,7 @@ pub(crate) async fn choose_path_and_options(
     name: Option<&str>,
     document_type: Option<usize>,
     fields: Option<&SaveFields>,
+    start: Option<PathBuf>,
 ) -> Option<(PathBuf, Option<SaveChoice>)> {
     let name = name.map(str::to_owned).unwrap_or_else(|| {
         current.and_then(|p| p.file_name()).map_or_else(
@@ -142,7 +148,7 @@ pub(crate) async fn choose_path_and_options(
     });
     let answer = cx
         .update(|window, app| {
-            let start = file_dialog::start_folder(app, current);
+            let start = start.or_else(|| file_dialog::start_folder(app, current));
             let mut ask = Ask::save().start(start).name(Some(name));
             if let Some(index) = document_type {
                 ask = ask.save_types(file_dialog::save_types::for_document(app, index, current));
@@ -230,8 +236,16 @@ pub(crate) async fn save(
         } else {
             None
         };
-        match choose_path_and_options(cx, current.as_deref(), None, document_type, fields.as_ref())
-            .await
+        let (given_start, given_name) = request.given.clone().unwrap_or_default();
+        match choose_path_and_options(
+            cx,
+            current.as_deref(),
+            given_name.as_deref(),
+            document_type,
+            fields.as_ref(),
+            given_start,
+        )
+        .await
         {
             Some((path, choice)) => {
                 from_dialog = true;

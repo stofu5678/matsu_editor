@@ -1,0 +1,32 @@
+; Sample plugin whose handlers run on the user's Node.js (ADR-0026, PR 10): CommonJS files (.cjs;
+; ES modules and TypeScript are not served yet). Put the folder HelloNode in the folder "plugins" next to
+; matsu.ini, then use Common settings > Plugin > Add a new plugin. Node.js has to be installed.
+[Plugin]
+Id=io.github.stofu5678.matsu-editor.sample.hello-node
+Name=Hello (Node.js)
+Description=A command, an event and an outline written in Node.js.
+Author=MATSU Editor
+Version=1.0.0.0
+Url=https://github.com/stofu5678/matsu_editor
+Type=wsh
+
+[Plug]
+DocumentOpen=opened.cjs
+DocumentOpen.Label=Count the opens (Node.js)
+Outline=outline.cjs
+Outline.Label=Markdown headings (Node.js sample)
+
+[Command]
+C[1]=command.cjs
+C[1].Label=Insert a greeting (Node.js)
+
+[Option]
+O[1].Section=Hello
+O[1].Key=Greeting
+O[1].Label=Greeting
+O[1].Type=Str
+O[1].Default=Hello
+
+[Wsh]
+; Keep the process: the next call does not start Node.js again.
+UseCache=1

@@ -35,10 +35,10 @@ fn key(name: &str) -> &'static KeyBinding {
 /// main menu, where the six have two separator lines of their own (`MATSU_MENU_SEPARATORS`). The counts in
 /// the comments above are Sakura's.
 const MATSU_ONLY: usize = 11;
-/// The 53 functions of the one-liners (ADR-0029): `F_ONELINER_0` ... `F_ONELINER_49`, `F_ONELINER_LIST` (a
-/// `MenuSpecial`), `F_ONELINER_DIALOG` and `F_ONELINER_SETTINGS`. The main menu has a submenu for them (5 rows).
+/// The 54 functions of the one-liners (ADR-0029, 0030): `F_ONELINER_0` ... `F_ONELINER_49`, `F_ONELINER_LIST` (a
+/// `MenuSpecial`), `F_ONELINER_DIALOG`, `F_ONELINER_SETTINGS` and `F_AI_LOG_SHOW`. The main menu has a submenu for them (5 rows).
 const ONELINER_MENU_ITEMS: usize = 5;
-const ONELINER_FUNCTIONS: usize = 53;
+const ONELINER_FUNCTIONS: usize = 54;
 const MATSU_MENU_SEPARATORS: usize = 2;
 
 #[test]

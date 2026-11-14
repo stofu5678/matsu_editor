@@ -31,6 +31,9 @@ pub enum MenuAction {
     RecentFolder(String),
     /// Quit the application.
     Exit,
+    /// Bring this document (the id of its view) to the front, with its window and tab
+    /// (`IDM_SELWINDOW + index`). `current` is the one the window shows (the check mark).
+    Window { id: u64, current: bool },
     /// Nothing: a list that Sakura fills in at run time (recent files, windows, ...), which is
     /// empty here.
     Placeholder,

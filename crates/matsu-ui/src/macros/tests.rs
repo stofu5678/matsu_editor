@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use matsu_commands::command::Arg;
-use matsu_core::buffer::Document;
+use matsu_core::buffer::{Document, Pos};
 use matsu_core::model::DocumentModel;
 use matsu_plugin::session::{Engine, Language};
 
@@ -1141,6 +1141,37 @@ fn expand_parameter_knows_the_macro_file(cx: &mut TestAppContext) {
         "{}",
         f.output(cx)
     );
+}
+
+/// A macro gets the same text as the window title for the codes that the window knows: the time
+/// stamp, the settings file, the profile, the print setting and the number of an untitled document
+/// were empty or left as written before.
+#[gpui::test]
+fn expand_parameter_in_a_macro_is_what_the_title_gives(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "abc");
+    let format = "$n|$B|$Q|$D|$T|$I|$S|$V|$A|$h|$<profile>|${w?g$:o$:n$}|${R?v$:l$:w$}|$p";
+    let expected = f
+        .view
+        .read_with(cx, |view, cx| view.expand_format(format, cx));
+    // `$M` is the macro, which the title does not know; `$d` and `$t` change with the clock.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(
+        dir.path(),
+        "title.cjs",
+        &format!("console.log('r=' + Editor.ExpandParameter('{format}'));"),
+    );
+    f.run_script(cx, &path, |_| {});
+    assert_eq!(
+        results(&f.output(cx)),
+        [expected.as_str()],
+        "{}",
+        f.output(cx)
+    );
+    assert!(!expected.contains("$B"), "{expected}");
+    assert!(!expected.contains("$D"), "{expected}");
 }
 
 /// `IsCurTypeExt` and `IsSameTypeExt` compare the document types of the extensions

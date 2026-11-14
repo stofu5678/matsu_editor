@@ -6,7 +6,7 @@
 
 サクラエディタの操作感を macOS・Windows・Linux で再現するテキストエディタ。Rust で書き、MIT OR Apache-2.0 で公開する。
 
-- 製品名は、2026-10-22 に「MATSU Editor」に改めた（[ADR-0021](docs/adr/0021-rename-to-matsu.md)）。名前の書き方は、その表に従う。古い名前を戻さないための検査が `crates/matsu/tests/leftover_names.rs` にある（歴史の記録は除く）
+- 製品名は、2026-10-22 に「MATSU Editor」に改めた（[ADR-0021](docs/adr/0021-rename-to-matsu.md)）。名前の書き方は、その表に従う。古い名前を戻さないための検査が `xtask/src/names_check.rs`（`cargo xtask names-check`。CI の lint ジョブが、文書だけの PR でも回す）にある（歴史の記録は除く）
 - 名前は、英字で書く場所では「MATSU Editor」とする（SAKURA Editor に合わせる）。ウィンドウのタイトル、メニュー、README、文書の中の製品名など。小文字しか使えない場所や慣習で小文字にする場所（リポジトリ名の `matsu_editor`、クレート名の `matsu-*`、アプリの識別子（例: `io.github.stofu5678.matsu-editor`））はそのままにする
 - カタカナで書く場所では「マツエディタ」とする（サクラエディタに合わせる。2026-10-17 にユーザーが判断）。サクラの表示名に「サクラエディタ」が入るもの（メニューの「サクラエディタの全終了」など）は、「マツエディタ」に置き換える
 - 計画と現在のフェーズ: [docs/roadmap.md](docs/roadmap.md)
@@ -48,6 +48,7 @@ typos                   # cargo install --locked typos-cli
 ## ライセンスのルール
 
 - 依存を追加するときは、ライセンスが MIT / Apache-2.0 と両立するか確認する。GPL 系（GPL・LGPL・AGPL）のものは使わない
+- CI で使うだけで配布物に入らない道具（パッケージを作る `dpkg-dev`・`rpm` など）は、GPL 系でもよい。配布物に入るもの（依存）には、上の決まりがそのまま当たる（2026-11-13 にユーザーが判断）
 - MPL-2.0 のものは使ってよい（2026-10-10 にユーザーが判断）。ただし、MPL-2.0 のファイルを改変したら、そのファイルを公開する
 - パーサー生成器（Bison・Lrama など）が作ったファイルは、先頭が GPL でも、生成物を好きな条件で配布してよいとする特別例外（Bison の "special exception"）が付いていれば使ってよい。GPL なのは生成器とその型紙（スケルトン）で、生成物は例外で外れるため。生成器そのものや型紙は使わない（2026-10-16 にユーザーが判断。mruby の `y.tab.c`）
 - Zed のエディタ部分（GPL / AGPL のクレート）からコードを写さない。参考にしてよいのは GPUI 本体と gpui-component（どちらも Apache-2.0）まで

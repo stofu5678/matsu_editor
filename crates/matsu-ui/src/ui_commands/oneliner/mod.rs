@@ -1,5 +1,6 @@
 //! ワンライナー (ADR-0029): `F_ONELINER_0` to `F_ONELINER_49` and the input dialog. The flow is `crate::oneliner`.
 
+pub mod ai_log_show;
 pub mod oneliner_0;
 pub mod oneliner_1;
 pub mod oneliner_10;

@@ -4113,6 +4113,7 @@ version = "0.13.0"
 dependencies = [
  "matsu-commands",
  "matsu-core",
+ "matsu-print",
  "serde_json",
  "tempfile",
 ]
