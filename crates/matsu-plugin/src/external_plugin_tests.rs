@@ -122,42 +122,50 @@ fn stdout(report: &Report) -> Vec<&str> {
     report.lines(Stream::Stdout)
 }
 
-/// The languages under test, each with the handler files that it runs.
-const NODE_FILES: [&str; 3] = ["h.mjs", "h.cjs", "h.ts"];
-
 #[test]
-fn a_node_plugin_runs_mjs_cjs_and_ts_handlers_with_the_plugin_object() {
-    if !available(Language::TypeScript) {
+fn a_node_plugin_runs_cjs_handlers_with_the_plugin_object() {
+    if !available(Language::JavaScript) {
         return;
     }
     let code = "
-const n: number = 1;
+const n = 1;
 console.log(Plugin.jack, JSON.stringify(Plugin.args), Plugin.id);
 console.log(Plugin.GetPluginDir(), Plugin.GetDef('Plugin', 'Name'));
 Plugin.SetOption('Main', 'Level', '7');
 console.log(Plugin.GetOption('Main', 'Level'), Plugin.GetString(2));
 Editor.InsText('名前' + n);
 ";
-    // The types are only for the `.ts` file: the others get the same text without them.
-    let untyped = code.replace(": number", "");
-    let dir = plugin_dir(&[("h.mjs", &untyped), ("h.cjs", &untyped), ("h.ts", code)]);
-    for name in NODE_FILES {
-        let mut host = host(dir.path(), Language::JavaScript, false);
-        let mut world = World::new("");
-        let report = world.call(&mut host, name);
-        assert_eq!(report.outcome, Outcome::Ok, "{name}: {:?}", report.output);
-        assert_eq!(
-            stdout(&report),
-            [
-                "Command {\"n\":1} jp.example.test",
-                "/plugins/テスト def:Plugin:Name",
-                "7 string 2",
-            ],
-            "{name}"
-        );
-        assert_eq!(world.doc.text(), "名前1", "{name}");
-        assert!(!host.is_running(), "not resident: the process ended");
+    let dir = plugin_dir(&[("h.cjs", code)]);
+    let mut host = host(dir.path(), Language::JavaScript, false);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "h.cjs");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(
+        stdout(&report),
+        [
+            "Command {\"n\":1} jp.example.test",
+            "/plugins/テスト def:Plugin:Name",
+            "7 string 2",
+        ]
+    );
+    assert_eq!(world.doc.text(), "名前1");
+    assert!(!host.is_running(), "not resident: the process ended");
+}
+
+#[test]
+fn the_boot_refuses_a_handler_that_is_not_cjs() {
+    if !available(Language::JavaScript) {
+        return;
     }
+    let dir = plugin_dir(&[("a.mjs", "Editor.InsText('x');")]);
+    let mut host = host(dir.path(), Language::JavaScript, false);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "a.mjs");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains(".cjs だけ"), "{text}");
+    assert_eq!(world.doc.text(), "");
 }
 
 #[test]
@@ -166,39 +174,32 @@ fn a_resident_node_host_keeps_its_process_and_globals_and_runs_each_call_again()
         return;
     }
     let code = "globalThis.n = (globalThis.n || 0) + 1; console.log('n=' + n);";
-    let dir = plugin_dir(&[("c.cjs", code), ("c.mjs", code)]);
-    for name in ["c.cjs", "c.mjs"] {
-        let mut host = host(dir.path(), Language::JavaScript, true);
-        let mut world = World::new("");
-        let first = world.call(&mut host, name);
-        let pid = host.process_id().expect("it stays");
-        let second = world.call(&mut host, name);
-        assert_eq!(host.process_id(), Some(pid), "{name}: the same process");
-        assert_eq!(stdout(&first), ["n=1"], "{name}");
-        assert_eq!(stdout(&second), ["n=2"], "{name}");
-        host.shutdown();
-    }
+    let dir = plugin_dir(&[("c.cjs", code)]);
+    let name = "c.cjs";
+    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    let first = world.call(&mut host, name);
+    let pid = host.process_id().expect("it stays");
+    let second = world.call(&mut host, name);
+    assert_eq!(host.process_id(), Some(pid), "{name}: the same process");
+    assert_eq!(stdout(&first), ["n=1"], "{name}");
+    assert_eq!(stdout(&second), ["n=2"], "{name}");
+    host.shutdown();
 }
 
 #[test]
-fn a_node_handler_may_await_and_may_use_the_modules_of_its_folder() {
+fn a_node_handler_may_use_the_modules_of_its_folder() {
     if !available(Language::JavaScript) {
         return;
     }
     let dir = plugin_dir(&[
-        (
-            "wait.mjs",
-            "import { word } from './lib/word.mjs';\nawait new Promise((r) => setTimeout(r, 20));\nEditor.InsText(word);",
-        ),
-        ("lib/word.mjs", "export const word = 'ことば';"),
         ("req.cjs", "Editor.InsText(require('./lib/word.cjs').word);"),
         ("lib/word.cjs", "exports.word = 'こと';"),
     ]);
     let mut host = host(dir.path(), Language::JavaScript, false);
     let mut world = World::new("");
-    assert_eq!(world.call(&mut host, "wait.mjs").outcome, Outcome::Ok);
     assert_eq!(world.call(&mut host, "req.cjs").outcome, Outcome::Ok);
-    assert_eq!(world.doc.text(), "ことばこと");
+    assert_eq!(world.doc.text(), "こと");
 }
 
 #[test]
@@ -208,8 +209,7 @@ fn a_node_handler_that_throws_or_rejects_fails_the_call_with_its_place() {
     }
     let dir = plugin_dir(&[
         ("bad.cjs", "const a = 1;\nthrow new Error('だめ');"),
-        ("bad.mjs", "const a = 1;\nthrow new Error('だめ');"),
-        ("reject.mjs", "Promise.reject(new Error('はじかれた'));"),
+        ("reject.cjs", "Promise.reject(new Error('はじかれた'));"),
         ("editor.cjs", "Editor.GetLineStr('x');"),
         ("ok.cjs", "Editor.InsText('ok');"),
     ]);
@@ -217,8 +217,7 @@ fn a_node_handler_that_throws_or_rejects_fails_the_call_with_its_place() {
     let mut world = World::new("");
     for (name, needle) in [
         ("bad.cjs", "bad.cjs:2"),
-        ("bad.mjs", "bad.mjs:2"),
-        ("reject.mjs", "はじかれた"),
+        ("reject.cjs", "はじかれた"),
         ("editor.cjs", "EditorError"),
     ] {
         let report = world.call(&mut host, name);
@@ -270,7 +269,7 @@ fn a_node_plugin_serves_the_outline_complement_and_smart_indent_objects() {
             "Outline.SetTitle('見出し'); Outline.AddFuncInfo2(3, 1, 'a', 0);",
         ),
         (
-            "complement.mjs",
+            "complement.cjs",
             "const w = Complement.GetCurrentWord();\nconsole.log(Complement.GetOption());\nComplement.AddList(w + '1'); console.log(Complement.AddList(w + '1'));",
         ),
         (
@@ -291,7 +290,7 @@ fn a_node_plugin_serves_the_outline_complement_and_smart_indent_objects() {
         ]
     );
     let args = json!({"word": "あ", "option": 3});
-    let report = world.call_jack(&mut host, "Complement", "complement.mjs", &args, PATIENT);
+    let report = world.call_jack(&mut host, "Complement", "complement.cjs", &args, PATIENT);
     assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
     assert_eq!(stdout(&report), ["3", "-1"]);
     assert_eq!(world.api.added, ["あ1"]);
@@ -432,12 +431,12 @@ fn the_sample_plugins_run() {
     let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/plugins");
     let text = "# 見出し\n本文\n## 小見出し\n";
 
-    if available(Language::TypeScript) {
+    if available(Language::JavaScript) {
         let mut host = host(&samples.join("HelloNode"), Language::JavaScript, true);
         let mut world = World::new(text);
         let opened = world.call_jack(&mut host, "DocumentOpen", "opened.cjs", &json!({}), PATIENT);
         assert_eq!(opened.outcome, Outcome::Ok, "{:?}", opened.output);
-        let report = world.call(&mut host, "command.mjs");
+        let report = world.call(&mut host, "command.cjs");
         assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
         assert!(
             world
@@ -445,7 +444,7 @@ fn the_sample_plugins_run() {
                 .text()
                 .starts_with("Hello (Command, opened 1 times)")
         );
-        let report = world.call_jack(&mut host, "Outline", "outline.ts", &json!({}), PATIENT);
+        let report = world.call_jack(&mut host, "Outline", "outline.cjs", &json!({}), PATIENT);
         assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
         assert!(
             world

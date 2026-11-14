@@ -33,17 +33,18 @@
 | 拡張子 | 動かすもの |
 |---|---|
 | `.js` | 同梱の QuickJS（[JavaScript（QuickJS）](lang-quickjs.md)） |
-| `.mjs`、`.cjs`、`.ts` | 利用者が入れた Node.js（[JavaScript（Node.js）と TypeScript](lang-node.md)）。`.ts` は Node.js 22.18 以降 |
+| `.cjs` | 利用者が入れた Node.js（[JavaScript（Node.js）と TypeScript](lang-node.md)）。`.mjs` と `.ts` は、まだ動かせません |
 | `.py` | 利用者が入れた Python（[Python](lang-python.md)） |
 
 どの言語でも、同意、時間の制限、3 回続けて失敗したら止まること、`UseCache=1` と `Resident=1` でプロセスを残すこと、`Plugin` などのオブジェクトは、同じです。外部の言語（Node.js と Python）は、利用者が処理系を入れていないと動きません。そのときは、「`<言語>` を起動できませんでした」と出ます。
 
-1 つのプラグインに、言語の違うハンドラを混ぜることもできます。言語ごとに、別のプロセスで動きます（`.mjs`、`.cjs`、`.ts` は、同じ Node.js のプロセスです）。このとき、失敗の数も言語ごとに数えます。
+1 つのプラグインに、言語の違うハンドラを混ぜることもできます。言語ごとに、別のプロセスで動きます。このとき、失敗の数も言語ごとに数えます。
 
-Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript、Lua、MicroPython、mruby のハンドラを持つプラグインも、追加して有効にできます。ただし、そのハンドラを動かす場面が来ると、動かせません。コマンドを選んだときは、状態バーに「`<ハンドラ名>` は動かせません。プラグインのハンドラは .js、.mjs、.cjs、.ts、.py のどれかにしてください」と出ます。イベントなど、自動で呼ぶ場面では、何も言わずに飛ばします。
+Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript、Lua、MicroPython、mruby のハンドラを持つプラグインも、追加して有効にできます。ただし、そのハンドラを動かす場面が来ると、動かせません。コマンドを選んだときは、状態バーに「`<ハンドラ名>` は動かせません。プラグインのハンドラは .js、.cjs、.py のどれかにしてください」と出ます。イベントなど、自動で呼ぶ場面では、何も言わずに飛ばします。
 
 次のプラグインは、一覧に「使えません」と出て、有効にできません。
 
+- ハンドラに `.mjs`（ES モジュール）か `.ts`（TypeScript）のファイルがあるもの。「`<ファイル名>` は使えません」と出ます。同意した文面だけを Node.js に渡す仕組みが、まだないためです（[JavaScript（Node.js）と TypeScript](lang-node.md)）。
 - 種別（`[Plugin]` の `Type`）が `dll` のもの。「DLL プラグインは使えません」と出ます。
 - 種別が `wsh`、`script`、`dll` のどれでもないもの。
 - ハンドラに VBScript のファイル（`.vbs`、`.vbe`）があるもの。「VBScript は使えません」と出ます。

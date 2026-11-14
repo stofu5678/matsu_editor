@@ -98,15 +98,6 @@ impl Runtime {
 
 impl Global for Runtime {}
 
-/// The language that serves a handler: Node.js serves `.mjs`, `.cjs` and `.ts` in one process (the
-/// boot looks at the extension of each call), so they share a host.
-fn host_language(language: Language) -> Language {
-    match language {
-        Language::TypeScript => Language::JavaScript,
-        other => other,
-    }
-}
-
 /// The user enabled the plugin again: the failures start over.
 pub(crate) fn reset(cx: &mut App, id: &str) {
     set_stopped(id, false);
@@ -649,13 +640,24 @@ fn prepare(
             (jack.name(), handler, 0, true)
         }
     };
+    // An ES module and a TypeScript file would have Node.js read the file again after the user's
+    // agreement was checked, so they are refused for now (the same words as the settings page).
+    if matches!(
+        Language::of_file(Path::new(&handler)),
+        Some(Language::TypeScript)
+    ) || Path::new(&handler)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("mjs"))
+    {
+        return Err(format!(
+            "{handler} は動かせません。.mjs と .ts のプラグインは、まだ動かせません。.cjs にしてください"
+        ));
+    }
     let language = match Language::of_file(Path::new(&handler)) {
-        Some(language) if language.serves_plugins() && language.runs_here() => {
-            host_language(language)
-        }
+        Some(language) if language.serves_plugins() && language.runs_here() => language,
         _ => {
             return Err(format!(
-                "{handler} は動かせません。プラグインのハンドラは .js、.mjs、.cjs、.ts、.py のどれかにしてください"
+                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.py のどれかにしてください"
             ));
         }
     };

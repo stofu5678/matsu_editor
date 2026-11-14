@@ -220,12 +220,10 @@ function respond(id, error) {
 }
 
 // The text of a failure for the editor: the error with the frames of the handler. The frames of
-// this boot and of Node.js itself are left out, and so is the number that makes each import of an
-// ES module new (`?matsu=N`).
+// this boot and of Node.js itself are left out.
 function describeError(err) {
   const clean = (text) =>
     text
-      .replace(/\?matsu=\d+/g, '')
       .split('\n')
       .filter((line) => !/boot\.cjs:\d+|\(node:internal\//.test(line) && !/^\s+at node:internal\//.test(line))
       .join('\n');
@@ -238,7 +236,6 @@ function describeError(err) {
 
 async function servePlugin(identity) {
   const path = require('path');
-  const { pathToFileURL } = require('url');
   const Module = require('module');
 
   const Plugin = { id: identity.id, dir: identity.dir, jack: '', args: null };
@@ -263,10 +260,6 @@ async function servePlugin(identity) {
     if (unhandled === null) unhandled = { reason };
   });
 
-  const [major, minor] = process.versions.node.split('.').map(Number);
-  const strips = major > 23 || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
-  let loads = 0;
-
   async function run(invoke) {
     Plugin.jack = invoke.jack;
     Plugin.args = invoke.args === undefined ? null : invoke.args;
@@ -277,24 +270,17 @@ async function servePlugin(identity) {
       delete globalThis.Indent;
     }
     const name = invoke.name;
-    if (/\.cjs$/i.test(name)) {
-      // The text the editor read (the one that the user agreed to) is what runs. A fresh module
-      // for each call, so that it runs again; what it keeps goes in `globalThis`.
-      const mod = new Module(name, null);
-      mod.filename = name;
-      mod.paths = Module._nodeModulePaths(path.dirname(name));
-      mod._compile(invoke.source, name);
-    } else {
-      if (/\.ts$/.test(name) && !strips) {
-        throw new Error(
-          `TypeScript のプラグインには Node.js 22.18 以降が要ります (見つかったのは v${process.versions.node})`,
-        );
-      }
-      // An ES module (and a TypeScript file) is imported from its file, under a new name for each
-      // call so that it runs again.
-      loads += 1;
-      await import(pathToFileURL(name).href + '?matsu=' + loads);
+    // Only CommonJS (`.cjs`) is served for now: an ES module or a TypeScript file would have
+    // Node.js read the file again after the editor checked what the user agreed to.
+    if (!/\.cjs$/i.test(name)) {
+      throw new Error(name + ' は動かせません。Node.js のプラグインは .cjs だけです');
     }
+    // The text the editor read (the one that the user agreed to) is what runs. A fresh module for
+    // each call, so that it runs again; what it keeps goes in `globalThis`.
+    const mod = new Module(name, null);
+    mod.filename = name;
+    mod.paths = Module._nodeModulePaths(path.dirname(name));
+    mod._compile(invoke.source, name);
     // Let the rejections of promises that nobody waits for be reported before the call ends.
     await new Promise((resolve) => setImmediate(resolve));
     if (unhandled !== null) {
