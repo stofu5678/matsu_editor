@@ -1,7 +1,7 @@
 use super::*;
 
 /// The tests change the process-wide bitmap: one at a time.
-fn serial() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn serial() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -189,6 +189,56 @@ fn bitmaps_of_other_depths_and_top_down_ones_are_read() {
     assert_eq!(&sheet.rgba[4..8], &[0, 255, 0, 255]);
 }
 
+#[test]
+fn the_lf_and_cr_copies_have_icons_made_from_the_crlf_one() {
+    let _g = serial();
+    install_from(None, None);
+    // The functions map to the two pictures after Sakura's table.
+    assert_eq!(super::super::icon_of_function(32700), Some(ICON_COPY_LF));
+    assert_eq!(super::super::icon_of_function(32701), Some(ICON_COPY_CR));
+    assert_eq!(super::super::button_function(ICON_COPY_LF), Some(32700));
+    assert_eq!(super::super::button_function(ICON_COPY_CR), Some(32701));
+    let crlf = icon_pixels(
+        builtin().unwrap(),
+        super::super::icon_of_function(30603).unwrap(),
+    )
+    .unwrap();
+    let lf = extra_pixels(ICON_COPY_LF).unwrap();
+    let cr = extra_pixels(ICON_COPY_CR).unwrap();
+    assert_eq!((lf.len(), cr.len()), (crlf.len(), crlf.len()));
+    assert_ne!(lf, crlf);
+    assert_ne!(cr, crlf);
+    assert_ne!(lf, cr);
+    // The top left part is still the CRLF picture; the plate is opaque.
+    let at = |p: &[u8], x: usize, y: usize| p[(y * ICON_SIZE + x) * 4..][..4].to_vec();
+    assert_eq!(at(&lf, 1, 1), at(&crlf, 1, 1));
+    assert_eq!(at(&cr, 5, 3), at(&crlf, 5, 3));
+    assert_eq!(at(&lf, 8, 10), [0, 0, 128, 255]); // the top left dot of the "L"
+    assert_eq!(at(&cr, 9, 11), [255, 255, 255, 255]); // inside the "C"
+    assert!(extra_pixels(0).is_none() && extra_pixels(480).is_none());
+    // They can be drawn at every size.
+    for factor in 1..=3 {
+        assert!(icon(ICON_COPY_LF, factor).is_some());
+        assert!(icon(ICON_COPY_CR, factor).is_some());
+    }
+    assert!(icon(480, 1).is_none() && icon(483, 1).is_none());
+}
+
+#[test]
+fn the_lf_and_cr_icons_do_not_depend_on_my_icons_bmp() {
+    let _g = serial();
+    install_from(None, None);
+    let built_in = scaled_pixels(ICON_COPY_CR, 1).unwrap();
+    let dir = std::env::temp_dir().join(format!("matsu-icons-extra-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(FILE_NAME), bmp24(528, 240, |_, _| [9, 9, 9])).unwrap();
+    install_from(Some(&dir), None);
+    let with_external = scaled_pixels(ICON_COPY_CR, 1);
+    install_from(None, None);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(with_external, Some(built_in));
+}
+
 // ---- the icons of plugin commands (ADR-0026, PR 11) ----
 
 #[test]
@@ -254,7 +304,8 @@ fn a_plugin_command_gets_its_bitmap_or_the_default_picture() {
     let code = matsu_commands::plugin_commands::FIRST + 105;
     sync_plugin_icons(&[(code, file.clone())], &[code]);
     let index = plugin_icon_index(code).expect("the command has an icon of its own");
-    assert!(index >= ICON_COUNT);
+    assert!(index >= PLUGIN_ICON_BASE);
+    assert!(index > ICON_COPY_CR);
     assert_eq!(crate::bars::icon_of_function(code), Some(index));
     assert!(icon(index, 1).is_some());
     assert!(icon(index, 2).is_some());

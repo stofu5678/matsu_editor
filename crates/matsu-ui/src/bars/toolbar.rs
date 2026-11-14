@@ -654,5 +654,16 @@ mod tests {
             panic!()
         };
         assert_eq!((free.code, free.icon), (0, None));
+        // MATSU's own buttons after Sakura's table: the LF and the CR copies, with pictures.
+        for (number, code) in [(482, 32700), (483, 32701)] {
+            let Item::Button(own) = item_of(number) else {
+                panic!()
+            };
+            assert_eq!((own.code, own.icon), (code, Some(number as usize - 1)));
+        }
+        let Item::Button(past) = item_of(484) else {
+            panic!()
+        };
+        assert_eq!((past.code, past.icon), (0, None));
     }
 }

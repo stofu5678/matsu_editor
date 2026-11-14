@@ -27,7 +27,7 @@
 //! as wide as it is high, of any size (`StretchBlt` makes it 16x16), whose top left pixel is the
 //! transparent colour. A file that cannot be read, or that is not square, leaves the command with
 //! the default picture of a plugin command. The picture is for the toolbar and the menus alike
-//! (`GetIconIdByFuncId`). Here such an icon has the number [`ICON_COUNT`] plus the offset of the
+//! (`GetIconIdByFuncId`). Here such an icon has the number [`PLUGIN_ICON_BASE`] plus the offset of the
 //! command's function code in the plugin range, so that it does not move when other plugins come and
 //! go ([`plugin_icon_index`]); [`sync_plugin_icons`] loads them.
 //!
@@ -59,6 +59,18 @@ const COLUMNS: usize = 32;
 const ROWS: usize = 15;
 /// `MAX_TOOLBAR_ICON_COUNT`.
 pub(crate) const ICON_COUNT: usize = COLUMNS * ROWS;
+
+/// The picture number of `F_COPY_LF`'s button (MATSU's own, after Sakura's 481 table entries).
+pub(crate) const ICON_COPY_LF: usize = 481;
+/// The picture number of `F_COPY_CR`'s button.
+pub(crate) const ICON_COPY_CR: usize = 482;
+/// The first picture number of the plugin commands. The numbers from [`ICON_COUNT`] up to here are
+/// kept for the pictures MATSU makes for its own buttons ([`ICON_COPY_LF`] and so on, which follow
+/// Sakura's table: the picture number of a button is its table index), so that no plugin command
+/// shares a number with them.
+pub(crate) const PLUGIN_ICON_BASE: usize = ICON_COUNT + 32;
+/// `F_COPY_CRLF`: its picture is the base of the two above.
+const F_COPY_CRLF: u16 = 30603;
 
 /// The bitmap as RGBA pixels, row by row from the top.
 pub(crate) struct Sheet {
@@ -260,12 +272,12 @@ pub(crate) fn plugin_icon_index(code: u16) -> Option<usize> {
         .read()
         .unwrap_or_else(|e| e.into_inner())
         .contains_key(&code)
-        .then(|| ICON_COUNT + usize::from(code - matsu_commands::plugin_commands::FIRST))
+        .then(|| PLUGIN_ICON_BASE + usize::from(code - matsu_commands::plugin_commands::FIRST))
 }
 
 /// The pixels of icon `index` of the plugin commands, if the number is one of theirs.
 fn plugin_pixels_of(index: usize) -> Option<Arc<Vec<u8>>> {
-    let offset = u16::try_from(index.checked_sub(ICON_COUNT)?).ok()?;
+    let offset = u16::try_from(index.checked_sub(PLUGIN_ICON_BASE)?).ok()?;
     let code = matsu_commands::plugin_commands::FIRST.checked_add(offset)?;
     plugin_icons()
         .read()
@@ -429,6 +441,48 @@ fn icon_pixels(sheet: &Sheet, index: usize) -> Option<Vec<u8>> {
     Some(pixels)
 }
 
+/// 3x5 letters, one row per entry, the left dot in bit 2.
+const LETTER_C: [u8; 5] = [0b111, 0b100, 0b100, 0b100, 0b111];
+const LETTER_R: [u8; 5] = [0b110, 0b101, 0b110, 0b101, 0b101];
+const LETTER_L: [u8; 5] = [0b100, 0b100, 0b100, 0b100, 0b111];
+const LETTER_F: [u8; 5] = [0b111, 0b100, 0b110, 0b100, 0b100];
+
+/// The pictures of the MATSU-only buttons: the picture of `F_COPY_CRLF` of Sakura's `mytool.bmp`
+/// (never the user's `my_icons.bmp`: the same picture on every machine) with a white plate in the
+/// bottom right corner that has the two letters of the line break written on it, in the dark blue
+/// of the picture, so the three copies are told apart at 16x16. `None` for any other number.
+fn extra_pixels(index: usize) -> Option<Vec<u8>> {
+    let letters = match index {
+        ICON_COPY_LF => [LETTER_L, LETTER_F],
+        ICON_COPY_CR => [LETTER_C, LETTER_R],
+        _ => return None,
+    };
+    let sheet = builtin()?;
+    let mut pixels = icon_pixels(sheet, super::icon_of_function(F_COPY_CRLF)?)?;
+    let mut put = |x: usize, y: usize, rgb: [u8; 3]| {
+        let at = (y * ICON_SIZE + x) * 4;
+        pixels[at..at + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+    };
+    const INK: [u8; 3] = [0, 0, 128];
+    // The plate: x 7..=15, y 9..=15, with a one dot frame.
+    for y in 9..=15 {
+        for x in 7..=15 {
+            let edge = x == 7 || x == 15 || y == 9 || y == 15;
+            put(x, y, if edge { INK } else { [255, 255, 255] });
+        }
+    }
+    for (n, letter) in letters.iter().enumerate() {
+        for (row, bits) in letter.iter().enumerate() {
+            for col in 0..3 {
+                if bits & (0b100 >> col) != 0 {
+                    put(8 + n * 4 + col, 10 + row, INK);
+                }
+            }
+        }
+    }
+    Some(pixels)
+}
+
 /// Every dot of `rgba` (`width` x `height`) becomes a square of `factor` x `factor` dots.
 fn enlarge(rgba: &[u8], width: usize, height: usize, factor: usize) -> Vec<u8> {
     if factor <= 1 {
@@ -454,17 +508,16 @@ fn enlarge(rgba: &[u8], width: usize, height: usize, factor: usize) -> Vec<u8> {
 /// the bitmap in use.
 fn scaled_pixels(index: usize, factor: u32) -> Option<(Vec<u8>, usize)> {
     let factor = factor.max(1) as usize;
-    if index >= ICON_COUNT {
-        let pixels = plugin_pixels_of(index)?;
-        return Some((
-            enlarge(&pixels, ICON_SIZE, ICON_SIZE, factor),
-            ICON_SIZE * factor,
-        ));
-    }
-    let external = external().read().unwrap_or_else(|e| e.into_inner()).clone();
-    let pixels = match &external {
-        Some(sheet) => icon_pixels(sheet, index)?,
-        None => icon_pixels(builtin()?, index)?,
+    let pixels = if let Some(extra) = extra_pixels(index) {
+        extra
+    } else if index >= PLUGIN_ICON_BASE {
+        plugin_pixels_of(index)?.to_vec()
+    } else {
+        let external = external().read().unwrap_or_else(|e| e.into_inner()).clone();
+        match &external {
+            Some(sheet) => icon_pixels(sheet, index)?,
+            None => icon_pixels(builtin()?, index)?,
+        }
     };
     Some((
         enlarge(&pixels, ICON_SIZE, ICON_SIZE, factor),
@@ -488,4 +541,4 @@ pub(crate) fn icon(index: usize, factor: u32) -> Option<Arc<Image>> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
