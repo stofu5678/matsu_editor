@@ -136,6 +136,10 @@ fn header_context(ed: &Editor, format: &str) -> Result<matsu_print::HeaderContex
     let mut context = ed.env.header.clone().unwrap_or_default();
     context.version = env!("CARGO_PKG_VERSION").to_owned();
     context.file_path = ed.cx.path().map(|p| p.to_string_lossy().into_owned());
+    // The template's short forms belong to the path it was made for: take them from the callback
+    // for the path of this call, or fall back to the full path and folder.
+    context.file_path_short = None;
+    context.folder_short = None;
     if let Some(short) = &ed.env.short_name {
         context.file_path_short = context.file_path.as_deref().map(short);
         context.folder_short = context.file_path.as_deref().and_then(|path| {
@@ -380,6 +384,9 @@ mod tests {
             expand_in(&mut f, "$N|$E"),
             "/home/u/work/memo.txt|/home/u/work/"
         );
+        // a short form left in the template is not used for another path
+        f.env.header.as_mut().unwrap().file_path_short = Some("stale".to_owned());
+        assert_eq!(expand_in(&mut f, "$N"), "/home/u/work/memo.txt",);
         f.env.short_name = Some(Box::new(|path| format!("<{path}>")));
         assert_eq!(
             expand_in(&mut f, "$N|$E|$e"),
