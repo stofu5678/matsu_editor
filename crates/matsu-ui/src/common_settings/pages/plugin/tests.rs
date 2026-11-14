@@ -1105,3 +1105,31 @@ fn the_readme_button_needs_a_readme_and_opens_it_read_only(cx: &mut TestAppConte
     assert!(!usable(cx));
     cancel(cx);
 }
+
+#[gpui::test]
+fn the_readme_pressed_twice_before_it_has_loaded_is_read_only_in_both_windows(
+    cx: &mut TestAppContext,
+) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    fs::write(dir_of(&ini).join("plugins/HelloJs/ReadMe.txt"), "read me").unwrap();
+    run(cx, handle, "F_OPTION_PLUGIN");
+    with_dialog(cx, |d, _, dcx| select(d, 0, dcx));
+    let before = cx.update(crate::file_ops::windows::window_count);
+    // Two presses with no wait in between: both loads are pending at the same time.
+    with_dialog(cx, open_readme);
+    with_dialog(cx, open_readme);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(crate::file_ops::windows::window_count),
+        before + 2
+    );
+    let views = cx.update(crate::file_ops::windows::editors);
+    let fresh = &views[views.len() - 2..];
+    for (_, view) in fresh {
+        assert!(
+            view.read_with(cx, |v, app| v.document().read(app).view_mode()),
+            "a ReadMe window is editable"
+        );
+    }
+}
