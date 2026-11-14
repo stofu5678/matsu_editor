@@ -21,8 +21,8 @@
 //! (Sakura selects the first item when the window opens); the access key is set with a box and a
 //! button; `.mnu` files are chosen with the dialog of the OS without a file type filter.
 //!
-//! Not built: plugin commands (the kind プラグイン has none), the registered macros (the kind
-//! 外部マクロ is empty until macros can be registered).
+//! The kind プラグイン lists the commands of the plugins that are enabled, and the kind 外部マクロ
+//! the registered macros.
 
 mod data;
 mod draw;

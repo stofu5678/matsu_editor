@@ -30,9 +30,8 @@
 //! `Command_SETFONTSIZE` in mode 2 ("一時適用フォント"), the `F_TMPWRAP*` functions say
 //! "(一時設定)", and `Command_WRAPWINDOWWIDTH` does not touch the common settings
 //! (`sakura_core/cmd/CViewCommander_Settings.cpp`). Only `F_SHOWSTATUSBAR` changes a common
-//! setting (`bDispSTATUSBAR`); it is kept for the session, and written together with the other
-//! settings when the settings dialogs come (they need the lossless writer of `matsu-config` and
-//! an answer to "which window's state is the file's").
+//! setting (`bDispSTATUSBAR`); the menu command keeps it for the session, and
+//! only 共通設定's OK writes it to the file (`crate::common_settings`).
 
 pub mod doc_type;
 pub mod mac_key_layout;

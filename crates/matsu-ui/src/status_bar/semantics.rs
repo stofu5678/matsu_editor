@@ -101,9 +101,9 @@ mod tests {
         assert_eq!(eol.role(), Role::Label);
         assert_eq!(eol.label(), Some("改行コード: CRLF"));
         assert_eq!(platform_name(&eol), Some("改行コード: CRLF"));
-        let position = node_of(&part(div().id("p"), Part::Position, "12 行 3 列")).unwrap();
-        assert_eq!(position.label(), Some("カーソル位置: 12 行 3 列"));
-        assert_eq!(platform_name(&position), Some("カーソル位置: 12 行 3 列"));
+        let position = node_of(&part(div().id("p"), Part::Position, "12 行 3 桁")).unwrap();
+        assert_eq!(position.label(), Some("カーソル位置: 12 行 3 桁"));
+        assert_eq!(platform_name(&position), Some("カーソル位置: 12 行 3 桁"));
     }
 
     #[test]

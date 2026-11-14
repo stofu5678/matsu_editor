@@ -5,7 +5,7 @@
 //! (`sakura_core/env/CAppNodeManager.cpp`), which ask each window to close, one after the other.
 //! A window with changes asks "save?"; "cancel" stops it and keeps the windows that are left.
 //! Sakura's extra question "close several windows?" is asked only when the setting
-//! `bCloseAllConfirm` is on (off by default); this program does not read that setting yet.
+//! `bCloseAllConfirm` is on (off by default); `crate::window_ops::confirm_closing_several` reads it.
 //! With no tray process, closing the last window ends the program.
 
 use crate::file_ops::start;
