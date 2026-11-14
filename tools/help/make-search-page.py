@@ -4,7 +4,8 @@
 usage: make-search-page.py <site folder>
 
 mdBook's print.html calls window.print() when it loads, so opening it only to search it (Ctrl+F finds all pages)
-pops up a print dialog. search.html is a copy of print.html in which every `window.print()` is replaced by `void 0`.
+pops up a print dialog. search.html is a copy of print.html in which every `window.print()` is replaced by `void 0` and every bare `window.print` (as in
+`window.setTimeout(window.print, 100)`, which is what mdBook 0.5.4 has) by an empty function.
 The call may be inline or in a local script that print.html loads; a script that holds it is copied as
 `search-<name>` and search.html loads the copy (print.html keeps the original). If no call is found anywhere, or one
 is left, the script fails: an mdBook upgrade that changes this must break the build, not ship a page that prints.
@@ -16,8 +17,17 @@ import re
 import sys
 
 CALL = re.compile(r"window\s*\.\s*print\s*\(\s*\)")
-ANY = re.compile(r"window\s*\.\s*print")
+# mdBook 0.5.4 (print.hbs): window.setTimeout(window.print, 100) in a load handler, so the bare name has to go too.
+BARE = re.compile(r"window\s*\.\s*print\b(?!\s*\()")
+ANY = re.compile(r"window\s*\.\s*print\b")
 SRC = re.compile(r'(<script\b[^>]*?\bsrc=")([^"#?]+)((?:[?#][^"]*)?")')
+
+
+def neutralize(text):
+    """The text without the print call, and the number of places changed."""
+    text, calls = CALL.subn("void 0", text)
+    text, names = BARE.subn("function () {}", text)
+    return text, calls + names
 
 
 def fail(message):
@@ -40,7 +50,7 @@ def main():
     page = read(os.path.join(site, "print.html"))
     replaced = 0
 
-    page, n = CALL.subn("void 0", page)
+    page, n = neutralize(page)
     replaced += n
 
     def local_script(match):
@@ -54,7 +64,7 @@ def main():
         script = read(path)
         if not ANY.search(script):
             return match.group(0)
-        new_script, count = CALL.subn("void 0", script)
+        new_script, count = neutralize(script)
         replaced += count
         copy = os.path.join(os.path.dirname(name), "search-" + os.path.basename(name))
         write(os.path.join(site, copy), new_script)
@@ -62,7 +72,7 @@ def main():
 
     page = SRC.sub(local_script, page)
     if replaced == 0:
-        fail("no window.print() call was found in print.html or the scripts it loads; check tools/help/make-search-page.py against this mdBook version")
+        fail("no window.print call was found in print.html or the scripts it loads; check tools/help/make-search-page.py against this mdBook version")
     write(os.path.join(site, "search.html"), page)
     check(site)
     print(f"search.html written ({replaced} print call(s) removed)")
