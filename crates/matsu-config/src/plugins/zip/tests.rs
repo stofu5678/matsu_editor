@@ -530,3 +530,65 @@ fn the_crc_is_the_one_of_zip() {
     assert_eq!(crc_of(b"123456789"), 0xCBF4_3926);
     assert_eq!(crc_of(b""), 0);
 }
+
+#[test]
+fn a_failed_update_leaves_the_installed_plugin_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let plugins = dir.path().join("plugins");
+    let root = plugins.join("Z");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("a.js"), "old a").unwrap();
+    fs::write(root.join("plugin.def"), "old def").unwrap();
+    // The archive has a folder `z` where the installed plugin has a file `z`: the files that are
+    // taken before it (`a.js`, `plugin.def`) must not stay replaced.
+    fs::write(root.join("z"), "a file").unwrap();
+    let bytes = zip(&[
+        item("Z/a.js", b"new a"),
+        item("Z/plugin.def", b"[Plugin]\r\nId=jp.example.z\r\n"),
+        item("Z/z/inner.js", b"x"),
+    ]);
+    let plugin = ZipPlugin::from_bytes(bytes).unwrap();
+    assert!(matches!(plugin.extract(&plugins), Err(ZipError::Write(_))));
+    assert_eq!(fs::read_to_string(root.join("a.js")).unwrap(), "old a");
+    assert_eq!(
+        fs::read_to_string(root.join("plugin.def")).unwrap(),
+        "old def"
+    );
+    assert_eq!(fs::read_to_string(root.join("z")).unwrap(), "a file");
+    // Nothing else is left: not a temporary folder, not a backup.
+    let names: Vec<_> = fs::read_dir(&plugins)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(names, ["Z"]);
+    let mut inside: Vec<_> = fs::read_dir(&root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    inside.sort();
+    assert_eq!(inside, ["a.js", "plugin.def", "z"]);
+}
+
+#[test]
+fn the_definition_is_written_as_plugin_def_whatever_its_spelling() {
+    let plugin = ZipPlugin::from_bytes(zip(&[
+        item("P/PLUGIN.DEF", DEF.as_bytes()),
+        item("P/a.js", b"1"),
+    ]))
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let plugins = dir.path().join("plugins");
+    plugin.extract(&plugins).unwrap();
+    let mut names: Vec<_> = fs::read_dir(plugins.join("P"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["a.js", "plugin.def"]);
+    // Registration finds it (`SearchDirs::def_file` looks for exactly `plugin.def`).
+    let dirs = crate::plugins::SearchDirs::new(&dir.path().join("matsu.ini"), None);
+    assert!(dirs.def_file("P").is_some());
+}

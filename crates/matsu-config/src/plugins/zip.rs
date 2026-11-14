@@ -346,6 +346,9 @@ impl ZipPlugin {
                     && e.parts[1].eq_ignore_ascii_case(super::DEF_FILE_NAME)
             })
             .ok_or(ZipError::NoDefinition)?;
+        // Registration looks for exactly `plugin.def` (`SearchDirs::def_file`), which a file system
+        // that tells the case apart does not find as `PLUGIN.DEF`: it is written as `plugin.def`.
+        entries[def_index].parts[1] = super::DEF_FILE_NAME.to_owned();
         let mut plugin = ZipPlugin {
             bytes,
             entries,
@@ -503,11 +506,18 @@ impl ZipPlugin {
         let write = |e: std::io::Error| ZipError::Write(e.to_string());
         std::fs::create_dir_all(plugins_dir).map_err(write)?;
         let temp = unused_temp_dir(plugins_dir)?;
+        let mut journal = Journal::default();
         let result = self.extract_to(&temp).and_then(|()| {
             let source = temp.join(&self.folder);
             let target = plugins_dir.join(&self.folder);
-            move_tree(&source, &target)
+            journal.backups = temp.join(BACKUP_DIR);
+            move_tree(&source, &target, &mut journal)
         });
+        if result.is_err() {
+            // The folder of the plugin goes back to what it was: the files that were replaced
+            // come back from the backups, and what was made is removed.
+            journal.roll_back();
+        }
         let _ = std::fs::remove_dir_all(&temp);
         result
     }
@@ -555,9 +565,58 @@ fn unused_temp_dir(plugins_dir: &Path) -> Result<PathBuf, ZipError> {
     Err(ZipError::Write("temporary folder".into()))
 }
 
+/// The folder in the temporary folder where the files that an update replaces wait, until the whole
+/// update has worked. A plugin folder cannot start with a dot, so no plugin file is in its way.
+const BACKUP_DIR: &str = ".backup";
+
+/// What [`move_tree`] did, to undo it when a later step fails.
+#[derive(Default)]
+struct Journal {
+    backups: PathBuf,
+    steps: Vec<Step>,
+}
+
+enum Step {
+    /// A folder that was made.
+    Folder(PathBuf),
+    /// A file that was put in place; `backup` holds the file that was there (if one was).
+    File {
+        target: PathBuf,
+        backup: Option<PathBuf>,
+    },
+}
+
+impl Journal {
+    /// Undoes the steps, the last first. Errors are ignored: there is nothing better to do.
+    fn roll_back(&mut self) {
+        while let Some(step) = self.steps.pop() {
+            match step {
+                Step::Folder(path) => {
+                    let _ = std::fs::remove_dir(path);
+                }
+                Step::File { target, backup } => {
+                    let _ = std::fs::remove_file(&target);
+                    if let Some(backup) = backup {
+                        let _ = std::fs::rename(backup, target);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A path in the backup folder for the next file.
+    fn backup_path(&self) -> Result<PathBuf, ZipError> {
+        std::fs::create_dir_all(&self.backups).map_err(|e| ZipError::Write(e.to_string()))?;
+        Ok(self.backups.join(self.steps.len().to_string()))
+    }
+}
+
 /// Moves the files of `source` into `target`, replacing files that are there. A file where a folder
-/// should be (or the reverse) is an error, and so is a link: nothing is written through one.
-fn move_tree(source: &Path, target: &Path) -> Result<(), ZipError> {
+/// should be (or the reverse) is an error, and so is a link: nothing is written through one. Every
+/// step is recorded in `journal`; the files that are replaced are moved to the backup folder, not
+/// deleted, so that a failure can be undone. The entries are taken in the order of their names, so
+/// that a failure happens at the same place every time.
+fn move_tree(source: &Path, target: &Path, journal: &mut Journal) -> Result<(), ZipError> {
     let write = |e: std::io::Error| ZipError::Write(e.to_string());
     match std::fs::symlink_metadata(target) {
         Ok(meta) if meta.is_dir() => {}
@@ -567,19 +626,37 @@ fn move_tree(source: &Path, target: &Path) -> Result<(), ZipError> {
                 target.display()
             )));
         }
-        Err(_) => std::fs::create_dir_all(target).map_err(write)?,
+        Err(_) => {
+            std::fs::create_dir_all(target).map_err(write)?;
+            journal.steps.push(Step::Folder(target.to_owned()));
+        }
     }
-    for entry in std::fs::read_dir(source).map_err(write)? {
-        let entry = entry.map_err(write)?;
+    let mut entries = std::fs::read_dir(source)
+        .map_err(write)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(write)?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
         let to = target.join(entry.file_name());
         if entry.file_type().map_err(write)?.is_dir() {
-            move_tree(&entry.path(), &to)?;
+            move_tree(&entry.path(), &to, journal)?;
         } else {
-            if let Ok(meta) = std::fs::symlink_metadata(&to)
-                && meta.is_dir()
-            {
-                return Err(ZipError::Write(format!("{} is a folder", to.display())));
-            }
+            let backup = match std::fs::symlink_metadata(&to) {
+                Ok(meta) if meta.is_dir() => {
+                    return Err(ZipError::Write(format!("{} is a folder", to.display())));
+                }
+                Ok(_) => {
+                    let backup = journal.backup_path()?;
+                    std::fs::rename(&to, &backup).map_err(write)?;
+                    Some(backup)
+                }
+                Err(_) => None,
+            };
+            // Recorded before the move, so that a move that fails still brings the old file back.
+            journal.steps.push(Step::File {
+                target: to.clone(),
+                backup,
+            });
             std::fs::rename(entry.path(), &to).map_err(write)?;
         }
     }

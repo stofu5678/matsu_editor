@@ -11,10 +11,9 @@
 //! confirmation screen (ADR-0026, chapter 5).
 //!
 //! The ReadMe button is `CPropPlugin::GetReadMeFile` (the file) and `BrowseReadMe` (a new editor
-//! window with `-R -CODE=99`, read-only, the encoding detected).
+//! window of this application, read-only, the encoding detected).
 
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use gpui::{Context, PathPromptOptions, PromptLevel, Window};
 use matsu_config::plugins::SearchDirs;
@@ -162,8 +161,11 @@ fn selected_readme(values: &Values) -> Option<PathBuf> {
     matsu_config::plugins::search_dirs()?.readme_file(&row[rows::FOLDER])
 }
 
-/// ReadMe: opens the file in a new editor window, read-only, with the encoding detected
-/// (`BrowseReadMe`: `-R -CODE=99`).
+/// ReadMe: opens the file in a new editor window of this application, read-only, with the
+/// encoding detected. Sakura starts itself with `-R -CODE=99` (`BrowseReadMe`), which opens a new
+/// window in a new process; here the window is opened inside this application, so that the
+/// profile in use (`-PROF=`) is the same, the tab setting does not turn it into a tab, and a
+/// ReadMe that is open already is not only brought to the front without view mode.
 pub(super) fn open_readme(
     dialog: &mut CommonSettingsDialog,
     window: &mut Window,
@@ -171,7 +173,7 @@ pub(super) fn open_readme(
 ) {
     match selected_readme(dialog.values()) {
         Some(file) => {
-            if !launch(&readme_arguments(&file)) {
+            if open_in_new_window(cx, &file).is_err() {
                 // `STR_PROPCOMPLG_ERR2`
                 notice(window, cx, "ReadMeファイルが開けません");
             }
@@ -181,47 +183,23 @@ pub(super) fn open_readme(
     }
 }
 
-/// The command line that opens a ReadMe, as `BrowseReadMe` builds it.
-pub(super) fn readme_arguments(file: &Path) -> Vec<OsString> {
-    vec![file.into(), "-R".into(), "-CODE=99".into()]
-}
-
-#[cfg(test)]
-pub(super) static LAUNCHED: std::sync::Mutex<Vec<Vec<OsString>>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Starts this program with `arguments` (`CreateProcess` of `BrowseReadMe`). A running MATSU Editor
-/// takes the launch over and opens the file in a window of its own (ADR-0016).
-#[cfg(not(test))]
-fn launch(arguments: &[OsString]) -> bool {
-    let Ok(program) = std::env::current_exe() else {
-        return false;
+/// A new window that reads `file` in view mode (`-R`), the encoding detected (`-CODE=99`).
+fn open_in_new_window(cx: &mut gpui::App, file: &std::path::Path) -> gpui::Result<()> {
+    use crate::document::SharedDocument;
+    use crate::file_ops::{view_mode_request, windows};
+    view_mode_request::request(cx, file);
+    let load = windows::LoadRequest {
+        path: file.to_owned(),
+        encoding: None,
     };
-    match std::process::Command::new(program)
-        .args(arguments)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(mut child) => {
-            // Nobody needs the result; the thread only keeps the finished process from staying
-            // in the process table.
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-            true
+    match windows::open_editor_window(cx, SharedDocument::empty(), Some(load)) {
+        Ok(handle) => {
+            windows::activate(cx, handle);
+            Ok(())
         }
-        Err(_) => false,
+        Err(error) => {
+            view_mode_request::take(cx, file);
+            Err(error)
+        }
     }
-}
-
-/// The tests do not start the test program again; they read what would have been started.
-#[cfg(test)]
-fn launch(arguments: &[OsString]) -> bool {
-    LAUNCHED
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(arguments.to_vec());
-    true
 }

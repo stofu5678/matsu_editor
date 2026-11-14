@@ -868,8 +868,7 @@ fn the_settings_button_opens_the_dialog_of_the_options(cx: &mut TestAppContext) 
 // ---- ZIP install and ReadMe (ADR-0026, PR 11) ----
 
 use super::zip_install::{
-    INSTALL_ZIP, LAUNCHED, README, can_open_readme, is_installed, open_readme, readme_arguments,
-    register,
+    INSTALL_ZIP, README, can_open_readme, is_installed, open_readme, register,
 };
 use matsu_config::plugins::zip::ZipPlugin;
 
@@ -1071,17 +1070,35 @@ fn the_readme_button_needs_a_readme_and_opens_it_read_only(cx: &mut TestAppConte
     assert!(!usable(cx), "the plugin has no ReadMe");
     fs::write(&readme, "read me").unwrap();
     assert!(usable(cx));
-    LAUNCHED.lock().unwrap().clear();
+    let windows_before = cx.update(crate::file_ops::windows::window_count);
     with_dialog(cx, open_readme);
-    let launched = LAUNCHED.lock().unwrap().clone();
-    assert_eq!(launched, [readme_arguments(&readme)]);
+    cx.run_until_parked();
+    // A new window of this application holds the ReadMe, in view mode (`-R`), whatever the tab
+    // setting says and whether the file was open already.
     assert_eq!(
-        launched[0]
-            .iter()
-            .skip(1)
-            .map(|a| a.to_str().unwrap())
-            .collect::<Vec<_>>(),
-        ["-R", "-CODE=99"]
+        cx.update(crate::file_ops::windows::window_count),
+        windows_before + 1
+    );
+    let (_, view) = cx
+        .update(crate::file_ops::windows::editors)
+        .into_iter()
+        .last()
+        .unwrap();
+    assert!(view.read_with(cx, |v, app| v.document().read(app).view_mode()));
+    assert_eq!(
+        view.read_with(cx, |v, app| v
+            .document()
+            .read(app)
+            .path()
+            .map(Path::to_owned)),
+        Some(readme)
+    );
+    // The same ReadMe again: another window, also read-only.
+    with_dialog(cx, open_readme);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(crate::file_ops::windows::window_count),
+        windows_before + 2
     );
     // An empty slot has none.
     with_dialog(cx, |d, _, dcx| select(d, 5, dcx));
