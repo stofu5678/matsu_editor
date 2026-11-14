@@ -382,53 +382,55 @@ fn a_plugin_command_runs_end_to_end_and_the_checks_before_it_hold(cx: &mut TestA
     cx.update(|_, app| shutdown(app, "io.github.stofu5678.matsu-editor.sample.hello-js"));
 }
 
-/// Whether Python is installed (the plugin of the test below runs on it, not on `matsu-script`).
-fn python_is_installed() -> bool {
-    let name = if cfg!(windows) { "python" } else { "python3" };
+/// Whether the interpreter `name` is installed (the plugin of the tests below runs on it, not on
+/// `matsu-script`). Prints why not when it is missing, and fails where one is required.
+fn interpreter_is_installed(label: &str, name: &str) -> bool {
     let found = std::process::Command::new(name)
         .arg("--version")
         .stdin(std::process::Stdio::null())
         .output()
         .is_ok_and(|output| output.status.success());
     if !found {
-        eprintln!("SKIP: Python is not installed");
+        eprintln!("SKIP: {label} is not installed");
         assert!(
             std::env::var_os("MATSU_REQUIRE_INTERPRETERS").is_none_or(|v| v.is_empty()),
-            "Python is required here (MATSU_REQUIRE_INTERPRETERS)"
+            "{label} is required here (MATSU_REQUIRE_INTERPRETERS)"
         );
     }
     found
 }
 
-#[gpui::test]
-fn a_python_plugin_command_runs_end_to_end_on_the_users_python(cx: &mut TestAppContext) {
-    if !python_is_installed() {
-        return;
-    }
+fn python_is_installed() -> bool {
+    interpreter_is_installed("Python", if cfg!(windows) { "python" } else { "python3" })
+}
+
+/// Runs command 1 of the sample plugin `folder` twice through the editor (the plugin stays, so the
+/// second call uses the same process).
+fn sample_command_runs_end_to_end(cx: &mut TestAppContext, folder: &str) {
     let place = Place::new();
     copy_dir(
-        &Path::new(SAMPLES).join("HelloPython"),
-        &place.dir.path().join("plugins").join("HelloPython"),
+        &Path::new(SAMPLES).join(folder),
+        &place.dir.path().join("plugins").join(folder),
     );
     let dirs = place.dirs();
-    let def = dirs.load_def("HelloPython", DEFAULT_LANGUAGE).unwrap();
+    let def = dirs.load_def(folder, DEFAULT_LANGUAGE).unwrap();
     let mut settings = PluginSettings {
         enabled: true,
         ..PluginSettings::default()
     };
     settings.table[0] = PluginRec {
         id: def.id.clone(),
-        name: "HelloPython".into(),
+        name: folder.into(),
         cmd_num: 1,
         state: PluginState::Stopped,
     };
     let mut profile = Profile::new();
     settings.store(&mut profile).unwrap();
     profile.save(&place.settings()).unwrap();
-    let files = fingerprint(&dirs.plugin_dir("HelloPython").unwrap()).unwrap();
+    let files = fingerprint(&dirs.plugin_dir(folder).unwrap()).unwrap();
     let mut consent = ConsentFile::default();
     consent
-        .enable(&def.id, "HelloPython", &files, "2026-11-14")
+        .enable(&def.id, folder, &files, "2026-11-14")
         .unwrap();
     consent.save(&dirs.consent_file()).unwrap();
     let (view, cx) = setup(cx, "");
@@ -436,7 +438,7 @@ fn a_python_plugin_command_runs_end_to_end_on_the_users_python(cx: &mut TestAppC
     cx.update(|_, app| app.set_global(user));
 
     let prepared = cx
-        .update(|_, app| prepare_command(app, &dirs, "HelloPython", 1))
+        .update(|_, app| prepare_command(app, &dirs, folder, 1))
         .unwrap();
     let editor = view.clone();
     cx.update(|_, app| run(&editor, prepared, app));
@@ -444,7 +446,7 @@ fn a_python_plugin_command_runs_end_to_end_on_the_users_python(cx: &mut TestAppC
     assert_eq!(text_of(&view, cx), "Hello (Command)");
     // The plugin stays (`UseCache=1`): the second call uses the same process.
     let prepared = cx
-        .update(|_, app| prepare_command(app, &dirs, "HelloPython", 1))
+        .update(|_, app| prepare_command(app, &dirs, folder, 1))
         .unwrap();
     let editor = view.clone();
     cx.update(|_, app| run(&editor, prepared, app));
@@ -458,6 +460,27 @@ fn a_python_plugin_command_runs_end_to_end_on_the_users_python(cx: &mut TestAppC
     }
     assert_eq!(text_of(&view, cx), "Hello (Command)Hello (Command)");
     cx.update(|_, app| shutdown(app, &def.id));
+}
+
+#[gpui::test]
+fn a_python_plugin_command_runs_end_to_end_on_the_users_python(cx: &mut TestAppContext) {
+    if python_is_installed() {
+        sample_command_runs_end_to_end(cx, "HelloPython");
+    }
+}
+
+#[gpui::test]
+fn a_ruby_plugin_command_runs_end_to_end_on_the_users_ruby(cx: &mut TestAppContext) {
+    if interpreter_is_installed("Ruby", "ruby") {
+        sample_command_runs_end_to_end(cx, "HelloRuby");
+    }
+}
+
+#[gpui::test]
+fn a_php_plugin_command_runs_end_to_end_on_the_users_php(cx: &mut TestAppContext) {
+    if interpreter_is_installed("PHP", "php") {
+        sample_command_runs_end_to_end(cx, "HelloPhp");
+    }
 }
 
 #[gpui::test]

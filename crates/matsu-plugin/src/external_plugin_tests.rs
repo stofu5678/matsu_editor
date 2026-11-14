@@ -630,3 +630,5 @@ fn a_timer_callback_gets_its_receiver_and_arguments() {
     assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
     assert_eq!(world.doc.text(), "pqfunction");
 }
+
+mod ruby_php;

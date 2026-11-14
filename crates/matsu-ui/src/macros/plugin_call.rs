@@ -692,7 +692,7 @@ fn prepare(
         Some(language) if language.serves_plugins() && language.runs_here() => language,
         _ => {
             return Err(format!(
-                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.py のどれかにしてください"
+                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.py、.rb、.php のどれかにしてください"
             ));
         }
     };

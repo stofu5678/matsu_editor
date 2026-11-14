@@ -148,12 +148,16 @@ impl Language {
     }
 
     /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
-    /// (only `.cjs`: the caller refuses `.mjs`, and `.ts` is not served) and Python. The other
-    /// languages are not served yet.
+    /// (only `.cjs`: the caller refuses `.mjs`, and `.ts` is not served), Python, Ruby and PHP. The
+    /// other languages are not served yet.
     pub fn serves_plugins(self) -> bool {
         matches!(
             self,
-            Self::Bundled(Engine::QuickJs) | Self::JavaScript | Self::Python
+            Self::Bundled(Engine::QuickJs)
+                | Self::JavaScript
+                | Self::Python
+                | Self::Ruby
+                | Self::Php
         )
     }
 
@@ -397,7 +401,7 @@ impl std::fmt::Display for StartError {
             ),
             Self::PluginNotSupported { language } => write!(
                 f,
-                "{} のプラグインはまだ動かせません (今は .js、.cjs、.py だけです)",
+                "{} のプラグインはまだ動かせません (今は .js、.cjs、.py、.rb、.php だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -623,8 +627,11 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
             command
                 .arg("-E")
                 .arg("UTF-8")
-                .arg(boot_files(boot::RB_BOOT))
-                .arg(&config.script);
+                .arg(boot_files(boot::RB_BOOT));
+            // A plugin host brings no script (`initialize` says it is a plugin).
+            if config.plugin.is_none() {
+                command.arg(&config.script);
+            }
         }
         Language::PowerShell => {
             // The text of the script goes in `initialize`, so there is no path to open. No
@@ -673,8 +680,11 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
                     "-d",
                     "output_buffering=0",
                 ])
-                .arg(boot_files(boot::PHP_BOOT))
-                .arg(&config.script);
+                .arg(boot_files(boot::PHP_BOOT));
+            // A plugin host brings no script (`initialize` says it is a plugin).
+            if config.plugin.is_none() {
+                command.arg(&config.script);
+            }
         }
     }
     if let Some(path) = &config.path {
