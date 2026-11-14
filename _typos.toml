@@ -56,3 +56,5 @@ CodeCnvUNICODEBEtoSJIS = "CodeCnvUNICODEBEtoSJIS"
 bCopyAndDisablSelection = "bCopyAndDisablSelection"
 # The key of the file tree item option 読み取り専用ファイルを除く in Sakura's settings file (CDataProfile.cpp), spelled so.
 bIgnoreReadOny = "bIgnoreReadOny"
+# The page of Sakura's help that holds its license (help/sakura/res/HLP_LISENCE.html), spelled so.
+HLP_LISENCE = "HLP_LISENCE"
