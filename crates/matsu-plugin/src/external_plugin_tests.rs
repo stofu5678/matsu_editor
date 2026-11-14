@@ -484,3 +484,86 @@ fn the_sample_plugins_run() {
         assert_eq!(world.api.added, ["ab_hello", "ab_world"]);
     }
 }
+
+#[test]
+fn a_node_timer_of_a_handler_finishes_inside_its_own_call() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "timer.cjs",
+            "setTimeout(() => Editor.InsText('x'), 100);\nsetTimeout(() => setTimeout(() => Editor.InsText('y'), 30), 30);",
+        ),
+        (
+            "late_error.cjs",
+            "setTimeout(() => { throw new Error('遅い'); }, 20);",
+        ),
+        ("forever.cjs", "setInterval(() => {}, 1000);"),
+        ("next.cjs", "Editor.InsText('n');"),
+    ]);
+    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "timer.cjs");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    // Both timers, also the one that starts another, ran before the call ended: the chain of
+    // 60 ms came first, the timer of 100 ms second.
+    assert_eq!(world.doc.text(), "yx");
+    // An error in a timer fails that call.
+    let report = world.call(&mut host, "late_error.cjs");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains("遅い"), "{text}");
+    host.reset();
+    // A timer that never ends is the time limit's business.
+    let report = world.call_jack(
+        &mut host,
+        "Command",
+        "forever.cjs",
+        &Value::Null,
+        Duration::from_secs(2),
+    );
+    assert_eq!(report.outcome, Outcome::TimedOut);
+    host.reset();
+    let before = world.doc.text();
+    assert_eq!(world.call(&mut host, "next.cjs").outcome, Outcome::Ok);
+    assert_eq!(world.doc.text(), format!("{before}n"));
+}
+
+#[test]
+fn a_python_namespace_is_a_main_module_while_the_handler_runs() {
+    if !available(Language::Python) {
+        return;
+    }
+    let first = "from __future__ import annotations
+import dataclasses, pickle, sys
+
+class Point:
+    def __init__(self, x):
+        self.x = x
+
+@dataclasses.dataclass
+class Box:
+    point: Point
+    n: int = 1
+
+copy = pickle.loads(pickle.dumps(Point(7)))
+print(copy.x, sys.modules['__main__'].Point is Point, Box(Point(1)).n)
+";
+    let second = "print(Point)
+";
+    let dir = plugin_dir(&[("first.py", first), ("second.py", second)]);
+    let mut host = host(dir.path(), Language::Python, true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "first.py");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(stdout(&report), ["7 True 1"]);
+    // The boot's own `__main__` is back between the calls: the next file has a module of its own,
+    // and does not see the names of the first.
+    let report = world.call(&mut host, "second.py");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?} {:?}", report.outcome, report.output);
+    };
+    assert!(text.contains("NameError"), "{text}");
+}

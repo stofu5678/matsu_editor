@@ -259,6 +259,10 @@ async function servePlugin(identity) {
   process.on('unhandledRejection', (reason) => {
     if (unhandled === null) unhandled = { reason };
   });
+  // An error thrown in a callback of a timer is the failure of the call that started the timer.
+  process.on('uncaughtException', (reason) => {
+    if (unhandled === null) unhandled = { reason };
+  });
 
   async function run(invoke) {
     Plugin.jack = invoke.jack;
@@ -281,8 +285,19 @@ async function servePlugin(identity) {
     mod.filename = name;
     mod.paths = Module._nodeModulePaths(path.dirname(name));
     mod._compile(invoke.source, name);
-    // Let the rejections of promises that nobody waits for be reported before the call ends.
-    await new Promise((resolve) => setImmediate(resolve));
+    // The call ends when the handler's own work is done: the timers that it started (a callback of
+    // `setTimeout` may call `Editor`) run first, within the time limit that the editor holds (a
+    // timer that never ends, a `setInterval`, makes the call time out). Otherwise the callback would
+    // wait while this loop blocks for the next call, and then run in that call, on its document.
+    // One more turn lets the rejections of promises that nobody waits for be reported.
+    for (;;) {
+      await new Promise((resolve) => setImmediate(resolve));
+      const timers = process
+        .getActiveResourcesInfo()
+        .some((type) => type === 'Timeout' || type === 'Immediate');
+      if (!timers) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
     if (unhandled !== null) {
       const { reason } = unhandled;
       unhandled = null;

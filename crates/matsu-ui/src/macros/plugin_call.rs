@@ -30,7 +30,7 @@ use matsu_config::plugins::options::PluginOptions;
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginDef, SearchDirs};
 use matsu_plugin::bridge;
 use matsu_plugin::plugin_host::{
-    self, HostSettings, Outcome, PluginApi, PluginHost, Progress, limit_of,
+    self, HostSettings, MAX_FAILURES, Outcome, PluginApi, PluginHost, Progress, limit_of,
 };
 use matsu_plugin::protocol::RpcError;
 use matsu_plugin::session::{Engine, Language, Stream};
@@ -46,6 +46,31 @@ thread_local! {
     /// The plugins that three failures in a row stopped, for the list of the settings page (which
     /// has no window to ask). Only the UI thread uses it.
     static STOPPED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
+thread_local! {
+    /// The failures in a row of each plugin, over all the languages of its handlers (the hosts count
+    /// their own too, but the plugin is what stops: ADR-0026).
+    static FAILURES: RefCell<HashMap<String, u32>> = RefCell::new(HashMap::new());
+}
+
+/// Counts the end of a call of the plugin `id`: a success starts the count over, a failure adds to
+/// it, and [`MAX_FAILURES`] in a row stop the plugin (all its hosts, whatever the language). Returns
+/// whether the plugin is stopped now.
+pub(crate) fn note_outcome(id: &str, outcome: &Outcome) -> bool {
+    FAILURES.with(|map| {
+        let mut map = map.borrow_mut();
+        if *outcome == Outcome::Ok {
+            map.remove(id);
+        } else if outcome.is_failure() {
+            let count = map.entry(id.to_owned()).or_insert(0);
+            *count += 1;
+            if *count >= MAX_FAILURES {
+                set_stopped(id, true);
+            }
+        }
+    });
+    is_stopped(id)
 }
 
 /// Whether three failures in a row stopped the plugin `id`.
@@ -101,6 +126,7 @@ impl Global for Runtime {}
 /// The user enabled the plugin again: the failures start over.
 pub(crate) fn reset(cx: &mut App, id: &str) {
     set_stopped(id, false);
+    FAILURES.with(|map| map.borrow_mut().remove(id));
     for host in cx.default_global::<Runtime>().of(id) {
         host.borrow_mut().reset();
     }
@@ -109,6 +135,7 @@ pub(crate) fn reset(cx: &mut App, id: &str) {
 /// The plugin is off or gone: its process ends.
 pub(crate) fn shutdown(cx: &mut App, id: &str) {
     set_stopped(id, false);
+    FAILURES.with(|map| map.borrow_mut().remove(id));
     for host in cx.default_global::<Runtime>().take(id) {
         host.borrow_mut().shutdown();
     }
@@ -696,7 +723,7 @@ fn prepare(
             host
         }
     };
-    if host.borrow().is_stopped() {
+    if host.borrow().is_stopped() || is_stopped(&def.id) {
         return Err("失敗が続いたので止めています。もう一度「有効にする」を押すと戻ります".into());
     }
     let label = if def.name.is_empty() {
@@ -1167,8 +1194,7 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                     }
                 }
                 Progress::Done(outcome) => {
-                    let stopped = host.borrow().is_stopped();
-                    set_stopped(&api.def.id, stopped);
+                    let stopped = note_outcome(&api.def.id, &outcome);
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.macros.plugin_event = false;

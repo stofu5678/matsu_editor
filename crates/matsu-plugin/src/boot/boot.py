@@ -9,6 +9,7 @@ import os
 import runpy
 import sys
 import traceback
+import types
 
 _RS = "\x1e"
 _out = sys.__stdout__
@@ -237,18 +238,23 @@ def _serve_plugin(editor, info):
         name = params.get("name") or "<plugin>"
         plugin.jack = params.get("jack") or ""
         plugin.args = params.get("args")
-        space = spaces.get(name)
-        if space is None:
-            space = {
-                "__name__": "__main__",
-                "__file__": name,
-                "Editor": editor,
-                "EditorError": EditorError,
-                "Plugin": plugin,
-                "Outline": outline,
-                "Complement": complement,
-            }
-            spaces[name] = space
+        module = spaces.get(name)
+        if module is None:
+            # A module object backs the namespace, so that what looks up `sys.modules[__name__]`
+            # (pickle, dataclasses with postponed annotations) finds the handler's own names.
+            module = types.ModuleType("__main__")
+            module.__file__ = name
+            module.__dict__.update(
+                {
+                    "Editor": editor,
+                    "EditorError": EditorError,
+                    "Plugin": plugin,
+                    "Outline": outline,
+                    "Complement": complement,
+                }
+            )
+            spaces[name] = module
+        space = module.__dict__
         if plugin.jack == "SmartIndent":
             args = plugin.args
             typed = args.get("char") if isinstance(args, dict) else None
@@ -256,6 +262,9 @@ def _serve_plugin(editor, info):
         else:
             space.pop("Indent", None)
         failure = None
+        # While the handler runs, `__main__` is its module (the boot's own is put back after).
+        boot_main = sys.modules.get("__main__")
+        sys.modules["__main__"] = module
         try:
             exec(compile(params.get("source") or "", name, "exec"), space)
         except SystemExit:
@@ -263,6 +272,8 @@ def _serve_plugin(editor, info):
             pass
         except BaseException as exc:  # noqa: BLE001 - whatever the handler raised fails the call
             failure = _describe(exc)
+        finally:
+            sys.modules["__main__"] = boot_main
         sys.stdout.flush()
         sys.stderr.flush()
         _respond(message.get("id"), failure)

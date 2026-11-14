@@ -39,7 +39,7 @@ Windows で `python` が Microsoft Store の案内だけのときは、終了コ
 
 ハンドラの拡張子が `.py` のとき、利用者の Python が動かします。
 
-- ハンドラの文面は、ファイルごとの名前空間（グローバルの辞書）の中で、`__main__` として動きます。`Editor`、`EditorError`、`Plugin`、`Outline`、`Complement`（と、`SmartIndent` のとき `Indent`）が、その中にあります。`import` は要りません（[ハンドラの中で使えるもの](plugin-api.md)）。
+- ハンドラの文面は、ファイルごとの名前空間（グローバルの辞書）の中で、`__main__` として動きます。名前空間は、`__main__` という名前のモジュールオブジェクトが持っていて、ハンドラが動いている間は、`sys.modules['__main__']` がそれです。ハンドラで定義したクラスの `pickle` や、`from __future__ import annotations` つきの `dataclass` が使えます。`Editor`、`EditorError`、`Plugin`、`Outline`、`Complement`（と、`SmartIndent` のとき `Indent`）が、その中にあります。`import` は要りません（[ハンドラの中で使えるもの](plugin-api.md)）。
 - 名前空間は、プロセスが残っている（`UseCache=1` か `Resident=1`）間、同じファイルの次の呼び出しに引き継ぎます。文面は呼び出しのたびに最初から動くので、前の呼び出しの値は、`globals().get('名前', 初めの値)` のようにして読みます。別のファイルの名前空間は、見えません。
 - モジュールを探す場所の先頭は、プラグインのフォルダーです。隣のファイルを `import` できます。同じ名前のモジュールは、一度読むと、次の呼び出しでも読み直しません。
 - `sys.exit()` は、そのハンドラを終えるだけで、失敗ではありません。

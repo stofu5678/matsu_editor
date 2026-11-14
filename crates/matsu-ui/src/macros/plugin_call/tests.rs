@@ -965,3 +965,29 @@ fn a_plugin_does_not_start_while_a_macro_runs_in_another_pane(cx: &mut TestAppCo
     cx2.update(|_, app| shutdown(app, &id));
     set_test_interpreter(None);
 }
+
+#[test]
+fn failures_are_counted_for_the_plugin_over_all_the_languages_of_its_hosts() {
+    use matsu_plugin::plugin_host::{MAX_FAILURES, Outcome};
+    let id = "jp.example.failures-per-plugin";
+    set_stopped(id, false);
+    // Failures from handlers of two languages add up to one count.
+    assert!(!note_outcome(id, &Outcome::Failed("py".into())));
+    assert!(!note_outcome(id, &Outcome::TimedOut));
+    // A cancel is neither a failure nor a success.
+    assert!(!note_outcome(id, &Outcome::Cancelled));
+    assert_eq!(MAX_FAILURES, 3);
+    assert!(note_outcome(id, &Outcome::Died("js".into())));
+    assert!(is_stopped(id));
+    // A success of another host does not clear the stop (only enabling again does).
+    assert!(note_outcome(id, &Outcome::Ok));
+    assert!(is_stopped(id));
+    set_stopped(id, false);
+    FAILURES.with(|map| map.borrow_mut().remove(id));
+    // A success starts the count over.
+    note_outcome(id, &Outcome::Failed("x".into()));
+    note_outcome(id, &Outcome::Failed("x".into()));
+    assert!(!note_outcome(id, &Outcome::Ok));
+    assert!(!note_outcome(id, &Outcome::Failed("x".into())));
+    FAILURES.with(|map| map.borrow_mut().remove(id));
+}
