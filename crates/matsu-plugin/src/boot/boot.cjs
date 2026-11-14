@@ -364,9 +364,13 @@ async function servePlugin(identity) {
     target.search = '';
     target.hash = '';
     const candidates = [target.href];
-    // Node.js hands the conditions over as an array or, in some versions, as a Set.
+    // Node.js hands the conditions over as an array or, in some versions, as an internal set (not an
+    // instance of Set: it is asked with has).
     const conditions = context.conditions;
-    if (Array.isArray(conditions) ? conditions.includes('require') : conditions instanceof Set && conditions.has('require')) {
+    const requiring = Array.isArray(conditions)
+      ? conditions.includes('require')
+      : conditions != null && typeof conditions.has === 'function' && conditions.has('require');
+    if (requiring) {
       // The CommonJS way: no extension, or a folder.
       for (const ext of EXTENSIONS) candidates.push(target.href + ext);
       for (const ext of EXTENSIONS) candidates.push(target.href.replace(/\/?$/, '/index') + ext);
