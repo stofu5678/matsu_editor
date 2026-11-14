@@ -208,7 +208,8 @@ fn item_of(number: i32) -> Item {
         return Item::Button(Button {
             number: code,
             code,
-            icon: super::icon_of_function(code),
+            // A button of a plugin command that is not loaded keeps the default picture, gray.
+            icon: super::icon_of_function(code).or_else(plugin_icon),
         });
     }
     let Some(index) = usize::try_from(number - 1)

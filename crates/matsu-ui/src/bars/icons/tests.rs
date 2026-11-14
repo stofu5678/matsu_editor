@@ -261,11 +261,24 @@ fn a_plugin_command_gets_its_bitmap_or_the_default_picture() {
     // A file that is gone gives back the default picture of a plugin command.
     sync_plugin_icons(&[(code, dir.path().join("none.bmp"))], &[code]);
     assert_eq!(plugin_icon_index(code), None);
+    assert!(icon(index, 1).is_none());
+    // The command has no picture while it is not loaded, and the default one when it is.
+    assert_eq!(crate::bars::icon_of_function(code), None);
+    matsu_commands::plugin_commands::add_command(matsu_commands::plugin_commands::CommandInfo {
+        code,
+        slot: 1,
+        plug: 6,
+        plugin_id: "p".into(),
+        plugin_name: "p".into(),
+        label: "l".into(),
+        handler: "h.js".into(),
+        icon: String::new(),
+        added: false,
+    });
     assert_eq!(
         crate::bars::icon_of_function(code),
         crate::bars::toolbar::plugin_icon()
     );
-    assert!(icon(index, 1).is_none());
     // The icon of a command that a plugin added stays when the table is made again, and goes with
     // the command.
     set_plugin_icon(code, &file);
