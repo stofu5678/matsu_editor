@@ -321,6 +321,28 @@ pub(crate) fn window_after(
     Some(all[neighbor(all.len(), at, direction)])
 }
 
+/// After the walk of `F_NEXTWINDOW` / `F_PREVWINDOW` has entered window `handle` (tab mode off): shows its first tab
+/// (going forward) or its last (going back) when it holds a shell, a preview or the AI log, so that going on the same
+/// way visits every tab of every window once, as the walk inside a window does.
+pub(crate) fn show_edge_tab(cx: &mut App, handle: AnyWindowHandle, last: bool) {
+    let Some(workspace) = crate::file_ops::windows::workspace_of(cx, handle) else {
+        return;
+    };
+    let (count, own) = {
+        let ws = workspace.read(cx);
+        (ws.tab_count(), ws.has_own_tab())
+    };
+    if count < 2 || !own {
+        return;
+    }
+    let index = if last { count - 1 } else { 0 };
+    handle
+        .update(cx, |_, window, app| {
+            workspace.update(app, |ws, cx| ws.activate_tab(index, window, cx));
+        })
+        .ok();
+}
+
 /// All windows of the editor, oldest first, also the ones that hold no document (only shells): the walk to
 /// the next window, the arrangement and the like must reach and start from them.
 pub(crate) fn all_handles(cx: &mut App) -> Vec<AnyWindowHandle> {

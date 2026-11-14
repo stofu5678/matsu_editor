@@ -759,6 +759,7 @@ fn the_ai_log_tab_is_not_kept(cx: &mut TestAppContext) {
                         name: "secret run".to_owned(),
                         command_line: "claude -p".to_owned(),
                         input: "PROMPT-NOT-TO-BE-KEPT".to_owned(),
+                        input_size: None,
                         started_at: chrono::Local
                             .with_ymd_and_hms(2026, 11, 13, 10, 0, 0)
                             .unwrap(),

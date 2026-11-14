@@ -457,6 +457,7 @@ pub(crate) async fn run_dialog(view: &WeakEntity<EditorView>, cx: &mut AsyncWind
         Job {
             line: choice.line,
             output: choice.output,
+            ai: None,
         },
     )
     .await;
