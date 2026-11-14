@@ -17,7 +17,8 @@
 //! * Sakura has its own help file (`sakura.chm`). MATSU Editor's help is a built book (ADR-0031):
 //!   `F_HELP_CONTENTS` opens the copy that comes with the program ([`local_dir`]) and, when there
 //!   is none, the same pages on the web ([`ONLINE_BASE`]). `F_HELP_SEARCH` opens a search on the
-//!   web: the local copy has no search (see [`plan_search`]).
+//!   web, or, with the local copy, its one-page version to search with the browser (see
+//!   [`plan_search`]).
 //! * [`PAGES`] is the one table from a function to its page; the help buttons of the dialogs
 //!   (`MyWinHelp( ..., FuncID_To_HelpContextID( F_... ) )` in Sakura) read it.
 
@@ -168,15 +169,33 @@ pub(crate) fn plan_contents(local: Option<&Path>) -> Opening {
     }
 }
 
-/// What `Command_HELP_SEARCH` opens: a search on the web, in the help of the repository, for
-/// `query` (the selection or the word at the caret). Without a query there is nothing to look
-/// for, and the contents open instead.
+/// The one-page version of the book (mdBook's `print.html`, `book.toml`).
+const LOCAL_ONE_PAGE: &str = "print.html";
+
+/// The status bar says this when the one-page version is opened for the search.
+pub(crate) const SEARCH_IN_PAGE: &str = "ヘルプ全体を 1 ページで開きました。ブラウザーの検索（Ctrl+F、macOS は Command+F）で探してください";
+
+/// Whether `opening` is the one-page version opened for the search ([`plan_search`]).
+pub(crate) fn is_one_page(opening: &Opening) -> bool {
+    matches!(opening, Opening::File(file) if file.file_name().is_some_and(|n| n == LOCAL_ONE_PAGE))
+}
+
+/// What `Command_HELP_SEARCH` opens (ADR-0031 案 5).
 ///
-/// The local help is not used: Pagefind reads its index with `fetch`, which browsers do not allow
-/// for a page opened as `file://`. This is what is known of Chromium-based browsers; it was not
-/// tried here (Pagefind is not installed where this was written), and the book has no search page
-/// yet. ADR-0031 (決めたこと 8) has no server for it.
+/// * With the local help: its one-page version, where the reader searches with the browser's find
+///   (the status bar says so). The search of the book (Pagefind) is not used: it reads its index
+///   with `fetch`, which browsers are not known to allow for `file://` (not tried here), and the
+///   app has no server for it (ADR-0031 決めたこと 8). No login is needed.
+/// * Without it (or without `print.html`): a search on the web, in the help of the repository, for
+///   `query` (the selection or the word at the caret). Without a query the contents open instead.
+///   GitHub's code search needs a login.
 pub(crate) fn plan_search(local: Option<&Path>, query: &str) -> Opening {
+    if let Some(page) = local
+        .map(|dir| dir.join(LOCAL_ONE_PAGE))
+        .filter(|page| page.is_file())
+    {
+        return Opening::File(page);
+    }
     let query: String = query
         .lines()
         .next()
@@ -655,6 +674,23 @@ mod tests {
             url.contains("q=%22NOT%20a%5C%22b%5C%5Cc%22%20repo"),
             "{url}"
         );
+    }
+
+    #[test]
+    fn the_search_opens_the_one_page_book_when_the_program_has_the_help() {
+        let root = root_with_help("help");
+        let dir = root.path().join("help");
+        // no `print.html`: the web
+        assert!(matches!(plan_search(Some(&dir), "word"), Opening::Url(_)));
+        std::fs::write(dir.join("print.html"), b"").unwrap();
+        // with or without a word, the one page; the word is not needed
+        for query in ["word", ""] {
+            let opening = plan_search(Some(&dir), query);
+            assert_eq!(opening, Opening::File(dir.join("print.html")));
+            assert!(is_one_page(&opening));
+        }
+        assert!(!is_one_page(&plan_contents(Some(&dir))));
+        assert!(!is_one_page(&plan_search(None, "word")));
     }
 
     #[test]

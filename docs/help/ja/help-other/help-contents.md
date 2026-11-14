@@ -1,58 +1,55 @@
 # ヘルプ目次
 
-このヘルプの目次を開きます。
+マツエディタのヘルプを、ブラウザで開きます。
 
-| 項目 | 内容 |
-|---|---|
-| メニュー | ヘルプ > ヘルプ目次 |
-| 機能名 | `F_HELP_CONTENTS` |
-| 既定のキー | `Alt+F1` |
-| マクロ | `HelpContents` |
-| キーマクロに記録 | しない |
+- 機能名: `F_HELP_CONTENTS`
+- メニュー: 「ヘルプ」→「ヘルプ目次」
+- 既定のキー: `Alt+F1`（macOS では `Option+F1`）
+- マクロ: `HelpContents()`（引数なし。キーマクロには記録されません）
 
 ## 動き
 
-次の順で、最初に見つかったものを開きます。
+ヘルプの目次を、既定のブラウザで開きます。開くものは、次の順で決まります。
 
-1. プログラムに付いているヘルプ。プログラムの置き場所を基準に、次の場所の `index.html` を探します。
+1. プログラムに付いているヘルプ（`index.html`）。実行ファイルの置き場所を基準に、次の順で探し、最初に見つかったものを使います。
 
-   | 配布物 | 場所 |
+   | 探す場所 | 使う配布物 |
    |---|---|
-   | Windows の zip とインストーラー | `matsu.exe` と同じフォルダーの `help` |
-   | macOS の `.app` | `MATSU Editor.app/Contents/Resources/help` |
-   | macOS と Linux の tar.gz | 実行ファイルと同じフォルダーの `help` |
-   | Linux の `.deb` と `.rpm` | `/usr/share/matsu-editor/help`（実行ファイルの隣の `help` が、ここへのリンクになっている場合もあります） |
+   | 実行ファイルと同じフォルダの `help` | Windows の zip とインストーラー、macOS と Linux の tar.gz。Linux の `.deb` と `.rpm` では、ここが `/usr/share/matsu-editor/help` へのリンクです |
+   | 実行ファイルの 1 つ上の `Resources/help` | macOS の `.app` |
+   | 実行ファイルの 1 つ上の `share/matsu-editor/help` | Linux の `.deb` と `.rpm` |
 
-   上の表の順に探し、`index.html` がある最初のフォルダーを使います。ブラウザーで開きます。
-2. 見つからなければ、ウェブ上のヘルプの目次（GitHub のリポジトリにある `docs/help/ja/SUMMARY.md`）を、ブラウザーで開きます。
+2. 見つからなければ、ウェブ上のヘルプの目次を開きます。
 
-開発中のビルドなど、ヘルプが付いていないプログラムでも、ウェブのヘルプを読めます。ウェブのヘルプは、リポジトリの main の内容なので、手元のプログラムの版と合わないことがあります。
+   ```
+   https://github.com/stofu5678/matsu_editor/blob/main/docs/help/ja/SUMMARY.md
+   ```
 
-`F1`（外部HTMLヘルプ）と `Ctrl+F1`（外部ヘルプ１）は、このコマンドではありません。利用者が設定した外部のヘルプを開きます（[共通設定: 支援](../common-settings/page-support.md)）。このヘルプは `Alt+F1` で開きます。
+   GitHub にあるソースの目次で、ネットにつながっていないと開けません。リポジトリの main の内容なので、手元の版と合わないことがあります。
+
+- ウィンドウの中に、確認や設定の箱は出ません。ブラウザが開くだけです。
+- `F1` と `Ctrl+F1` は、これではなく、設定した外部のヘルプを開きます（[外部HTMLヘルプ](ext-html-help.md)、[外部ヘルプ１](ext-help1.md)）。
 
 ## ダイアログのヘルプボタン
 
-ダイアログの「ヘルプ」ボタンは、そのダイアログの説明のページを開きます。プログラムに付いているヘルプにそのページがあればそれを、なければウェブのページを開きます。
+ダイアログの「ヘルプ」ボタンは、上と同じ探し方で、そのダイアログのページを開きます。
 
 | ダイアログ | 開くページ |
 |---|---|
-| 共通設定 | 表示しているページの説明（[共通設定](../common-settings/index.md)の各ページ）。シェルのページは説明がないので、共通設定の章の最初のページ |
+| 共通設定 | 表示しているページの説明。タイプ別設定のシートでは、タイプ別設定の章の最初のページ |
 | ファイルツリーの設定 | [ファイルツリー](../search/file-tree.md) |
 | 文字色統一・背景色統一 | [タイプ別設定: 色](../type-settings-window/type-page-color.md) |
 
-ほかのダイアログのヘルプボタンは、まだ働きません（無効のまま、またはありません）。
-
-## ページの途中への移動
-
-ページの見出しまで移る（`#見出し` を付けて開く）ことは、まだしていません。ページの先頭を開きます。OS とブラウザーによっては `#見出し` が落ちることが分かっておらず、確かめるまで付けないことにしています。
+ほかのダイアログのボタンは、まだ働きません。ページの途中の見出しまでは移らず、ページの先頭を開きます（`#見出し` がブラウザまで届くか、確かめていないため）。
 
 ## サクラエディタとの違い
 
-- サクラエディタは、自分のヘルプファイル（`sakura.chm`）を開きます。MATSU Editor のヘルプは、HTML のファイルの集まりで、ブラウザーで開きます。
+サクラエディタは、自分のヘルプのファイル（`sakura.chm`）を目次のページで開きます。マツエディタのヘルプは、HTML のファイルの集まりで、ブラウザで開きます。
 
 ## 根拠
 
-- サクラのソース: `sakura_core/cmd/CViewCommander_Support.cpp` の `Command_HELP_CONTENTS`、`sakura_core/func/CKeyBind.cpp`（`Alt+F1`）、`sakura_core/func/Funccode.cpp` の `FuncID_To_HelpContextID`（機能からヘルプの項目を引く表）
-- MATSU のコード: `crates/matsu-ui/src/support/help.rs`（`local_dir`、`plan_contents`、`PAGES`）、`crates/matsu-ui/src/ui_commands/support/help_contents.rs`
+- サクラのソース: `sakura_core/cmd/CViewCommander_Support.cpp` の `CViewCommander::Command_HELP_CONTENTS`
+- MATSU のコード: `crates/matsu-ui/src/ui_commands/support/help_contents.rs`、`crates/matsu-ui/src/support/help.rs`（`local_dir`、`plan_contents`、`PAGES`）、`crates/matsu-ui/src/support/help_flow.rs`（`program_help`）
 - 試験: `crates/matsu-ui/src/support/help.rs` の `the_local_help_is_looked_for_in_the_places_of_the_packages`、`the_contents_are_the_local_index_else_the_page_on_the_web`、`every_page_of_the_table_exists`
-- 決めたこと: ADR-0031
+- 既定のキーとマクロ名: `crates/matsu-commands/src/sakura/key_bindings.rs`（`F1` の行）、`crates/matsu-commands/src/sakura/macro_functions.rs`（`HelpContents`）
+- 計画: `docs/adr/0031-help.md`

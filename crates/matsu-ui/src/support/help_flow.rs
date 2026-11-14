@@ -90,7 +90,12 @@ impl EditorView {
             let query = self.search_seed(cx).unwrap_or_default();
             help::plan_search(local.as_deref(), &query)
         };
+        let one_page = help::is_one_page(&opening);
         self.open_help(opening, cx);
+        if one_page {
+            self.notice = Some(help::SEARCH_IN_PAGE.to_owned());
+            cx.notify();
+        }
     }
 
     /// A relative path of a help file starts at the folder of the settings file, else at the
