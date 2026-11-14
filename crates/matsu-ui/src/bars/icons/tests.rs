@@ -188,3 +188,113 @@ fn bitmaps_of_other_depths_and_top_down_ones_are_read() {
     let sheet = decode_bmp(&eight).unwrap();
     assert_eq!(&sheet.rgba[4..8], &[0, 255, 0, 255]);
 }
+
+// ---- the icons of plugin commands (ADR-0026, PR 11) ----
+
+#[test]
+fn a_plugin_icon_must_stay_in_the_folder_of_the_plugin() {
+    let dir = Path::new("plugins/P");
+    assert_eq!(
+        plugin_icon_path(dir, "icon.bmp"),
+        Some(dir.join("icon.bmp"))
+    );
+    assert_eq!(
+        plugin_icon_path(dir, "img/a.bmp"),
+        Some(dir.join("img/a.bmp"))
+    );
+    for bad in [
+        "",
+        "  ",
+        "../a.bmp",
+        "img/../../a.bmp",
+        "/etc/a.bmp",
+        "\\a.bmp",
+        "C:a.bmp",
+        "C:\\a.bmp",
+        "img//a.bmp",
+        "..\\a.bmp",
+    ] {
+        assert_eq!(plugin_icon_path(dir, bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_plugin_bitmap_is_made_16_by_16_and_must_be_square() {
+    // 32x32: the top left pixel (red) is transparent; from column 16 on the pixels are blue.
+    let bytes = bmp24(
+        32,
+        32,
+        |x, _| {
+            if x >= 16 { [0, 0, 255] } else { [255, 0, 0] }
+        },
+    );
+    let pixels = plugin_icon_pixels(&bytes).unwrap();
+    assert_eq!(pixels.len(), 16 * 16 * 4);
+    assert_eq!(pixels[3], 0, "the top left colour is transparent");
+    // Column 8 of 16 is column 16 of 32: blue and opaque.
+    assert_eq!(&pixels[8 * 4..8 * 4 + 4], &[0, 0, 255, 255]);
+    // A bitmap that is not square is refused (`nWidth != nHeight`), and so is a file that is no bitmap.
+    assert!(plugin_icon_pixels(&bmp24(16, 8, |_, _| [1, 2, 3])).is_none());
+    assert!(plugin_icon_pixels(b"not a bitmap").is_none());
+    // A small bitmap is stretched.
+    assert_eq!(
+        plugin_icon_pixels(&bmp24(4, 4, |_, _| [9, 9, 9]))
+            .unwrap()
+            .len(),
+        16 * 16 * 4
+    );
+}
+
+#[test]
+fn a_plugin_command_gets_its_bitmap_or_the_default_picture() {
+    let _guard = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.bmp");
+    std::fs::write(&file, bmp24(16, 16, |x, y| [x as u8 * 10, y as u8 * 10, 7])).unwrap();
+    let code = matsu_commands::plugin_commands::FIRST + 105;
+    sync_plugin_icons(&[(code, file.clone())], &[code]);
+    let index = plugin_icon_index(code).expect("the command has an icon of its own");
+    assert!(index >= ICON_COUNT);
+    assert_eq!(crate::bars::icon_of_function(code), Some(index));
+    assert!(icon(index, 1).is_some());
+    assert!(icon(index, 2).is_some());
+    // A file that is gone gives back the default picture of a plugin command.
+    sync_plugin_icons(&[(code, dir.path().join("none.bmp"))], &[code]);
+    assert_eq!(plugin_icon_index(code), None);
+    assert!(icon(index, 1).is_none());
+    // The command has no picture while it is not loaded, and the default one when it is.
+    assert_eq!(crate::bars::icon_of_function(code), None);
+    matsu_commands::plugin_commands::add_command(matsu_commands::plugin_commands::CommandInfo {
+        code,
+        slot: 1,
+        plug: 6,
+        plugin_id: "p".into(),
+        plugin_name: "p".into(),
+        label: "l".into(),
+        handler: "h.js".into(),
+        icon: String::new(),
+        added: false,
+    });
+    assert_eq!(
+        crate::bars::icon_of_function(code),
+        crate::bars::toolbar::plugin_icon()
+    );
+    // The icon of a command that a plugin added stays when the table is made again, and goes with
+    // the command.
+    set_plugin_icon(code, &file);
+    assert!(plugin_icon_index(code).is_some());
+    sync_plugin_icons(&[], &[code]);
+    assert!(plugin_icon_index(code).is_some());
+    sync_plugin_icons(&[], &[]);
+    assert!(plugin_icon_index(code).is_none());
+}
+
+#[test]
+fn a_huge_plugin_bitmap_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("big.bmp");
+    let f = std::fs::File::create(&file).unwrap();
+    f.set_len(MAX_PLUGIN_ICON_BYTES + 1).unwrap();
+    assert!(load_plugin_icon(&file).is_none());
+    assert!(load_plugin_icon(dir.path()).is_none(), "a folder");
+}

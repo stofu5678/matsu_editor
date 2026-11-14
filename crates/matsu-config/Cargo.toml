@@ -13,6 +13,9 @@ publish.workspace = true
 encoding_rs = "0.8.35"
 # The SHA-256 of the files of a plugin when the user enables it (ADR-0026, chapter 4). Already in Cargo.lock.
 sha2 = "0.11"
+# Inflates the files of a plugin ZIP (ADR-0026, PR 11). Already in Cargo.lock (MIT OR Apache-2.0); the ZIP
+# container itself is read by `plugins/zip.rs`, so that no ZIP crate is needed.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 # Sakura's print settings (`[Print]`) are read into the types of the print layout.
 matsu-print = { path = "../matsu-print" }
 

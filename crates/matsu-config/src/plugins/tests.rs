@@ -734,3 +734,54 @@ mod remembered {
         ));
     }
 }
+
+// ---- the ReadMe file (`CPropPlugin::GetReadMeFile`) ----
+
+fn touch(path: &Path) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, "x").unwrap();
+}
+
+#[test]
+fn the_readme_is_readme_txt_then_the_name_txt_in_the_user_folder_then_the_exe_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("user");
+    let exe = dir.path().join("exe");
+    let dirs = SearchDirs::new(&user.join("matsu.ini"), Some(&exe));
+    assert_eq!(dirs.readme_file("P"), None);
+
+    // Only the exe's: found.
+    touch(&exe.join("plugins/P/P.txt"));
+    assert_eq!(dirs.readme_file("P"), Some(exe.join("plugins/P/P.txt")));
+    touch(&exe.join("plugins/P/ReadMe.txt"));
+    assert_eq!(
+        dirs.readme_file("P"),
+        Some(exe.join("plugins/P/ReadMe.txt"))
+    );
+
+    // The user's folder comes first, and in it ReadMe.txt before <name>.txt.
+    touch(&user.join("plugins/P/P.txt"));
+    assert_eq!(dirs.readme_file("P"), Some(user.join("plugins/P/P.txt")));
+    touch(&user.join("plugins/P/ReadMe.txt"));
+    assert_eq!(
+        dirs.readme_file("P"),
+        Some(user.join("plugins/P/ReadMe.txt"))
+    );
+}
+
+#[test]
+fn the_case_of_the_readme_name_does_not_matter_and_a_folder_is_not_a_readme() {
+    let dir = tempfile::tempdir().unwrap();
+    let dirs = SearchDirs::new(&dir.path().join("matsu.ini"), None);
+    touch(&dir.path().join("plugins/P/README.TXT"));
+    assert_eq!(
+        dirs.readme_file("P"),
+        Some(dir.path().join("plugins/P/README.TXT"))
+    );
+    fs::remove_file(dir.path().join("plugins/P/README.TXT")).unwrap();
+    fs::create_dir_all(dir.path().join("plugins/P/ReadMe.txt")).unwrap();
+    assert_eq!(dirs.readme_file("P"), None);
+    // The other plugins' files are not taken.
+    touch(&dir.path().join("plugins/Q/ReadMe.txt"));
+    assert_eq!(dirs.readme_file("P"), None);
+}

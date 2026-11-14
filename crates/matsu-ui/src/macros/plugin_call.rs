@@ -212,9 +212,12 @@ impl DefApi {
             },
             label,
             handler: handler.to_owned(),
-            icon,
+            icon: icon.clone(),
             added: true,
         });
+        if let Some(file) = crate::bars::icons::plugin_icon_path(&self.dir, &icon) {
+            crate::bars::icons::set_plugin_icon(code, &file);
+        }
         Ok(Value::Null)
     }
 }

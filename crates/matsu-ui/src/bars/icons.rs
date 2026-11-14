@@ -19,6 +19,18 @@
 //! 528x240 pixels has no pixels for the icons beyond its edge: Sakura reads past the end of the
 //! bitmap for them (`DrawToolIcon` does not check), here they have no picture.
 //!
+//! # Icons of plugin commands
+//!
+//! A plugin command can have a bitmap of its own (`C[n].Icon` of `plugin.def`, or the third argument
+//! of `Plugin.AddCommand`). Sakura (`CEditWnd::RegisterPluginCommand`, `CImageListMgr::Add`) loads the
+//! file from the folder of the plugin and puts it after the icons of the toolbar: one bitmap that is
+//! as wide as it is high, of any size (`StretchBlt` makes it 16x16), whose top left pixel is the
+//! transparent colour. A file that cannot be read, or that is not square, leaves the command with
+//! the default picture of a plugin command. The picture is for the toolbar and the menus alike
+//! (`GetIconIdByFuncId`). Here such an icon has the number [`ICON_COUNT`] plus the offset of the
+//! command's function code in the plugin range, so that it does not move when other plugins come and
+//! go ([`plugin_icon_index`]); [`sync_plugin_icons`] loads them.
+//!
 //! # Sharp icons on high-DPI screens
 //!
 //! GPUI draws a picture with linear filtering, so a 16x16 icon drawn at 125 % or 150 % turns
@@ -152,6 +164,114 @@ fn builtin() -> Option<&'static Sheet> {
 fn external() -> &'static RwLock<Option<Arc<Sheet>>> {
     static EXTERNAL: OnceLock<RwLock<Option<Arc<Sheet>>>> = OnceLock::new();
     EXTERNAL.get_or_init(Default::default)
+}
+
+/// The 16x16 RGBA pixels of the icons of plugin commands, by function code.
+fn plugin_icons() -> &'static RwLock<HashMap<u16, Arc<Vec<u8>>>> {
+    static ICONS: OnceLock<RwLock<HashMap<u16, Arc<Vec<u8>>>>> = OnceLock::new();
+    ICONS.get_or_init(Default::default)
+}
+
+/// The largest bitmap file that is read for a plugin command, in bytes.
+const MAX_PLUGIN_ICON_BYTES: u64 = 4 * 1024 * 1024;
+/// The widest bitmap of a plugin command, in pixels (it is shrunk to 16).
+const MAX_PLUGIN_ICON_SIDE: usize = 1024;
+
+/// `CImageListMgr::Add`: the pixels of a plugin's bitmap as a 16x16 icon. `None` for a bitmap that is
+/// not square (`nWidth != nHeight`) or that cannot be read. The size is changed by taking the nearest
+/// pixel, as `StretchBlt` does when it copies (`SRCCOPY`, no halftone).
+fn plugin_icon_pixels(bytes: &[u8]) -> Option<Vec<u8>> {
+    let sheet = decode_bmp(bytes)?;
+    if sheet.width != sheet.height || sheet.width > MAX_PLUGIN_ICON_SIDE {
+        return None;
+    }
+    let mut pixels = Vec::with_capacity(ICON_SIZE * ICON_SIZE * 4);
+    for y in 0..ICON_SIZE {
+        for x in 0..ICON_SIZE {
+            let (sx, sy) = (x * sheet.width / ICON_SIZE, y * sheet.width / ICON_SIZE);
+            let at = (sy * sheet.width + sx) * 4;
+            pixels.extend_from_slice(&sheet.rgba[at..at + 4]);
+        }
+    }
+    Some(pixels)
+}
+
+/// Reads the bitmap file of a plugin command: a file that is not there, is too large or is not a bitmap
+/// gives `None`.
+fn load_plugin_icon(path: &Path) -> Option<Vec<u8>> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_PLUGIN_ICON_BYTES {
+        return None;
+    }
+    plugin_icon_pixels(&std::fs::read(path).ok()?)
+}
+
+/// The bitmap file `icon` (as `plugin.def` or `Plugin.AddCommand` writes it) in the folder `dir` of
+/// the plugin. Sakura joins the two (`CPlugin::GetFilePath`); a name that leaves the folder (`..`,
+/// an absolute path, a drive) is refused here, so that a plugin cannot make the editor read a bitmap
+/// from anywhere. `None` for an empty name too.
+pub(crate) fn plugin_icon_path(dir: &Path, icon: &str) -> Option<std::path::PathBuf> {
+    let name = icon.trim();
+    let path = Path::new(name);
+    let inside = !name.is_empty()
+        && path.is_relative()
+        && !name.contains(':')
+        && !name.starts_with(['/', '\\'])
+        && name
+            .split(['/', '\\'])
+            .all(|part| !part.is_empty() && part != "..");
+    inside.then(|| dir.join(name))
+}
+
+/// Makes the icons of the plugin commands what `defined` says (function code, bitmap file) and drops
+/// the ones of codes that are not in `live` any more. The icons of the other live codes stay: a
+/// command that a plugin added while it ran keeps its icon when the table is made again.
+pub(crate) fn sync_plugin_icons(defined: &[(u16, std::path::PathBuf)], live: &[u16]) {
+    let mut icons = plugin_icons().write().unwrap_or_else(|e| e.into_inner());
+    icons.retain(|code, _| live.contains(code));
+    for (code, path) in defined {
+        match load_plugin_icon(path) {
+            Some(pixels) => {
+                icons.insert(*code, Arc::new(pixels));
+            }
+            None => {
+                icons.remove(code);
+            }
+        }
+    }
+    drop(icons);
+    cache().lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
+/// Gives the command with function code `code` the bitmap `path` (`Plugin.AddCommand`).
+pub(crate) fn set_plugin_icon(code: u16, path: &Path) {
+    if let Some(pixels) = load_plugin_icon(path) {
+        plugin_icons()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(code, Arc::new(pixels));
+        cache().lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
+/// The number of the icon of plugin command `code`, if it has a bitmap of its own.
+pub(crate) fn plugin_icon_index(code: u16) -> Option<usize> {
+    plugin_icons()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains_key(&code)
+        .then(|| ICON_COUNT + usize::from(code - matsu_commands::plugin_commands::FIRST))
+}
+
+/// The pixels of icon `index` of the plugin commands, if the number is one of theirs.
+fn plugin_pixels_of(index: usize) -> Option<Arc<Vec<u8>>> {
+    let offset = u16::try_from(index.checked_sub(ICON_COUNT)?).ok()?;
+    let code = matsu_commands::plugin_commands::FIRST.checked_add(offset)?;
+    plugin_icons()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&code)
+        .cloned()
 }
 
 /// The pictures made so far, by icon number and [`pixel_factor`].
@@ -334,6 +454,13 @@ fn enlarge(rgba: &[u8], width: usize, height: usize, factor: usize) -> Vec<u8> {
 /// the bitmap in use.
 fn scaled_pixels(index: usize, factor: u32) -> Option<(Vec<u8>, usize)> {
     let factor = factor.max(1) as usize;
+    if index >= ICON_COUNT {
+        let pixels = plugin_pixels_of(index)?;
+        return Some((
+            enlarge(&pixels, ICON_SIZE, ICON_SIZE, factor),
+            ICON_SIZE * factor,
+        ));
+    }
     let external = external().read().unwrap_or_else(|e| e.into_inner()).clone();
     let pixels = match &external {
         Some(sheet) => icon_pixels(sheet, index)?,
