@@ -3,7 +3,7 @@
 # scripts/mac-checks/pack-build.sh. Opening a bare executable from Finder starts Terminal.app, which
 # shows a black window; a bundle opens the program as a normal application.
 #
-#   scripts/package-mac-app.sh <folder with matsu and matsu-script> <folder to put "MATSU Editor.app" in>
+#   scripts/package-mac-app.sh <folder with matsu and matsu-script> <folder to put "MATSU Editor.app" in> [built help]
 #
 # Layout:
 #   MATSU Editor.app/Contents/Info.plist
@@ -12,12 +12,15 @@
 #                                               crates/matsu-plugin/src/session.rs)
 #   MATSU Editor.app/Contents/Resources/matsu_editor.icns  (made from assets/icons)
 #   MATSU Editor.app/Contents/Resources/LICENSE-MIT, LICENSE-APACHE, THIRD_PARTY_NOTICES.txt
+#   MATSU Editor.app/Contents/Resources/help/index.html, ...  (the built help, ADR-0031; only when the third
+#                                               argument is given: the editor looks for <exe dir>/../Resources/help)
 # The bundle is signed ad hoc (no Developer ID, no notarization). Needs iconutil, plutil and
 # codesign, which macOS has. Run it from the root of the repository.
 set -euo pipefail
 
 programs=${1:?folder with matsu and matsu-script}
 dest=${2:?folder to put the app in}
+help=${3:-}
 app="$dest/MATSU Editor.app"
 # The version of the workspace (release-please keeps it; the nightly builds say 0.0.0).
 version=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
@@ -28,6 +31,11 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$programs/matsu" "$programs/matsu-script" "$app/Contents/MacOS/"
 # The licenses travel with the app (it is often moved out of the archive alone).
 cp LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "$app/Contents/Resources/"
+# The help is part of the app (it is often moved out of the archive alone); before the signing, which seals Resources.
+if [ -n "$help" ]; then
+  test -f "$help/index.html"
+  cp -R "$help" "$app/Contents/Resources/help"
+fi
 
 # The icon: the Mac pictures of assets/icons (a rounded square with the 824 px body of Apple's template,
 # see assets/icons/README.md). The hand-made 16, 32 and 64 px ones are used as they are; 1024 px is

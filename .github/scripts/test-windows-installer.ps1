@@ -84,6 +84,7 @@ function Check-Gone([string]$Dir, [string]$Scope) {
     $hive = if ($Scope -eq 'User') { 'HKCU:' } else { 'HKLM:' }
     Check (-not (Test-Path (Join-Path $Dir 'matsu.exe'))) "matsu.exe is gone from $Dir"
     Check (-not (Test-Path (Join-Path $Dir 'matsu-script.exe'))) "matsu-script.exe is gone from $Dir"
+    Check (-not (Test-Path (Join-Path $Dir 'help'))) "help\ is gone from $Dir (the uninstall removes it with the other files)"
     Check (-not (Test-Path "$hive\$uninstallKey")) 'the uninstall entry is gone'
     Check (-not (Test-Path "$hive\Software\Classes\Applications\matsu.exe")) 'the "Open with" entry is gone'
     Check (-not (Test-Path "$hive\Software\Classes\MATSU.Editor.txt")) 'the .txt program entry is gone'
@@ -100,7 +101,7 @@ $userPathBefore = Get-RawPath 'User'
 
 # ---- 1. Silent per-user install ----
 Invoke-Installer 'install' @('/CURRENTUSER')
-foreach ($file in 'matsu.exe', 'matsu-script.exe', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.txt', 'README.txt', 'icons\matsu_editor.ico', 'unins000.exe') {
+foreach ($file in 'matsu.exe', 'matsu-script.exe', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.txt', 'README.txt', 'icons\matsu_editor.ico', 'help\index.html', 'help\pagefind\pagefind-entry.json', 'unins000.exe') {
     Check (Test-Path (Join-Path $userDir $file)) "$file is installed in $userDir"
 }
 Check (-not (Test-Path (Join-Path $userDir 'matsu.ini'))) 'the install folder has no matsu.ini'
@@ -196,6 +197,7 @@ $machinePathBefore = Get-RawPath 'Machine'
 Invoke-Installer 'install-allusers' @('/ALLUSERS')
 Check (Test-Path (Join-Path $machineDir 'matsu.exe')) "matsu.exe is installed in $machineDir"
 Check (Test-Path (Join-Path $machineDir 'matsu-script.exe')) "matsu-script.exe is installed in $machineDir"
+Check (Test-Path (Join-Path $machineDir 'help\index.html')) "help\index.html is installed in $machineDir"
 Check (Test-Path "HKLM:\$uninstallKey") 'the uninstall entry is in HKLM'
 Check (-not (Test-Path (Join-Path $machineDir 'matsu.ini'))) 'the Program Files folder has no matsu.ini'
 Check (Test-Path 'HKLM:\Software\Classes\Applications\matsu.exe\shell\open\command') '"Open with" is registered for all users'

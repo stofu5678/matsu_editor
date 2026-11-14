@@ -24,6 +24,7 @@ cp -a @ROOT@/. %{buildroot}/
 %files
 /usr/bin/matsu
 /usr/lib/matsu-editor
+/usr/share/matsu-editor
 /usr/share/applications/io.github.stofu5678.matsu-editor.desktop
 /usr/share/metainfo/io.github.stofu5678.matsu-editor.metainfo.xml
 /usr/share/icons/hicolor/*/apps/io.github.stofu5678.matsu-editor.*

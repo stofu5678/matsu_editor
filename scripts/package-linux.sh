@@ -2,7 +2,7 @@
 # Builds the .deb and the .rpm of MATSU Editor from the release programs, for .github/workflows/package.yml
 # (ADR-0032 stage A). Run it from the root of the repository.
 #
-#   scripts/package-linux.sh <target: linux-x64 | linux-arm64> <folder with matsu and matsu-script> <out folder>
+#   scripts/package-linux.sh <target: linux-x64 | linux-arm64> <folder with matsu and matsu-script> <out folder> <built help>
 #
 # It writes <out>/matsu-<target>.deb and <out>/matsu-<target>.rpm. Needs dpkg-deb and dpkg-shlibdeps (dpkg-dev),
 # rpmbuild (rpm), and appstreamcli and desktop-file-validate if you want the metadata checked (CI does).
@@ -14,12 +14,18 @@
 #   /usr/bin/matsu                              symlink to the above
 #   /usr/share/applications, metainfo, icons/hicolor
 #   /usr/share/doc/matsu-editor/                licenses and notices
+#   /usr/share/matsu-editor/help/               the built help (ADR-0031); the editor looks for <exe dir>/help, and the exe
+#                                                dir is /usr/lib/matsu-editor, so /usr/lib/matsu-editor/help is a symlink
+#                                                to it (the other place it looks, <exe dir>/../share/matsu-editor/help,
+#                                                would be /usr/lib/share/...)
 # The packages have no install or removal scripts: they never touch the user's settings (ADR-0032 decision 3).
 set -euo pipefail
 
 target=${1:?target (linux-x64 or linux-arm64)}
 programs=${2:?folder with matsu and matsu-script}
 out=${3:?folder for the packages}
+help=${4:?folder with the built help (index.html at its top)}
+test -f "$help/index.html"
 app_id=io.github.stofu5678.matsu-editor
 
 case "$target" in
@@ -48,6 +54,12 @@ mkdir -p "$root/usr/share/metainfo"
 sed -e "s/@VERSION@/$version/" -e "s/@DATE@/$date/" "packaging/linux/$app_id.metainfo.xml.in" \
   > "$root/usr/share/metainfo/$app_id.metainfo.xml"
 chmod 644 "$root/usr/share/metainfo/$app_id.metainfo.xml"
+# The help: files 644, folders 755, whatever the artifact download made of them.
+mkdir -p "$root/usr/share/matsu-editor"
+cp -R "$help" "$root/usr/share/matsu-editor/help"
+find "$root/usr/share/matsu-editor/help" -type d -exec chmod 755 {} +
+find "$root/usr/share/matsu-editor/help" -type f -exec chmod 644 {} +
+ln -s ../../share/matsu-editor/help "$root/usr/lib/matsu-editor/help"
 # The 16 and 32 px pictures are the simplified designs for small sizes (assets/icons/README.md).
 for size in 16 32 48 256 512; do
   install -D -m 644 "assets/icons/matsu_editor_$size.png" \

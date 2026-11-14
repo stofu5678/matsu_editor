@@ -99,7 +99,8 @@ Name: associatetxt; Description: "{cm:TaskAssociateTxt}"; GroupDescription: "{cm
 Name: addtopath; Description: "{cm:TaskAddToPath}"; GroupDescription: "{cm:GroupCommandLine}"; Flags: unchecked
 
 [Files]
-; Everything the zip has (package.yml, "Stage the files"): the two programs, the licenses, the notices, README.txt and icons\.
+; Everything the zip has (package.yml, "Stage the files"): the two programs, the licenses, the notices, README.txt, icons\ and help\ (the help, ADR-0031;
+; the uninstaller removes it with the other files).
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]

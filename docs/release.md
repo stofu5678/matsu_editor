@@ -5,7 +5,7 @@
 | ファイル | 役割 |
 |---|---|
 | `.github/workflows/release.yml` | main への push のたびに動く。リリース PR の更新、毎日版の公開、版のリリースへの添付 |
-| `.github/workflows/package.yml` | 5 つの対象で `matsu` と `matsu-script` をリリースビルドして、アーカイブにする（再利用する部品。公開はしない） |
+| `.github/workflows/package.yml` | ヘルプを 1 度作り、5 つの対象で `matsu` と `matsu-script` をリリースビルドして、ヘルプと一緒にアーカイブにする（再利用する部品。公開はしない） |
 | `.github/workflows/package-check.yml` | リリース関係のファイルを変える PR で、`package.yml` と Windows のインストーラの試験を動かす（公開しない） |
 | `release-please-config.json`・`.release-please-manifest.json` | release-please の設定と、今の版 |
 
@@ -33,6 +33,20 @@
 Linux には、tar.gz のほかに `.deb` と `.rpm` を付ける（ADR-0032 の段階 A。`scripts/package-linux.sh`）。`matsu` と `matsu-script` は `/usr/lib/matsu-editor/` に並べ、`/usr/bin/matsu` はそこへのシンボリックリンク（`matsu` は `current_exe`、つまり実体のパスの隣の `matsu-script` を使う）。`.desktop`（`MimeType=text/plain;` だけで、関連付けは奪わない）、AppStream の metainfo、`hicolor` のアイコン、ライセンス類（`/usr/share/doc/matsu-editor/`）も入る。依存する共有ライブラリは、`.deb` は `dpkg-shlibdeps`、`.rpm` は rpm が実行ファイルから求める。インストール・削除のスクリプトは持たず、設定のフォルダー（`~/.config/matsu-editor`）に触れない。`.deb` は作った環境（Ubuntu 24.04）の glibc などを要求するので、それより古い配布版には入らない。CI（`package.yml`）が `.deb` を入れて外し、利用者のファイルが残ることを確かめ、`.rpm` は Fedora のコンテナで同じことを確かめる（`.github/scripts/test-linux-install.sh`）。署名はない。
 
 macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `MATSU Editor.app` に入れる（`scripts/package-mac-app.sh`）。裸の実行ファイルを Finder で開くと Terminal.app が起動して黒い画面が出るため（ユーザーの依頼、2026-10-22）。`matsu` と `matsu-script` は `MATSU Editor.app/Contents/MacOS/` に並べる（`matsu` が自分の隣の `matsu-script` を使うので変わらない）。`.dmg`（ADR-0032 の段階 A。`scripts/package-mac-dmg.sh`）は、ボリューム名「MATSU Editor」で、`MATSU Editor.app` と `/Applications` へのリンクだけを入れる（UDZO。arm64 の macOS ならどれでも読め、他の OS の展開ツールも読める。ULFO は小さいが 10.11 以降だけ）。アプリはアドホック署名のまま、`.dmg` には署名しない。`.dmg` は何もインストールしないので、`~/Library/Application Support/matsu-editor` には触れない。ほかは同じで、`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`、`icons/`、`README.txt`（初回の開き方つき）は `MATSU Editor.app` と同じ階層に置く。`Contents/Info.plist` の識別子は `io.github.stofu5678.matsu-editor`、最低の macOS は 11.0（arm64 が動く最も古い版）、アイコンは `assets/icons` の Mac 用の PNG（`matsu_editor_mac_*.png`）から作った `.icns`。ライセンス類（`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`）は `Contents/Resources/` にも入れる（アプリだけを Applications に移しても、第三者のコードの表示が離れないように）。ターミナルからは `MATSU Editor.app/Contents/MacOS/matsu ファイル` で使える。`matsu.ini` の場所と多重起動の判定は、実行ファイルの場所に依らない（macOS は `~/Library/Application Support/matsu-editor/matsu.ini` だけ）ので変わらない。ファイルの種類の関連づけ（`CFBundleDocumentTypes`）は、テキストとソースコードを「別の選択肢」（`LSHandlerRank` が `Alternate`）として入れた。「このアプリで開く」に出るだけで、既定のアプリは奪わない。Finder から開く処理（`on_open_urls`）は `crates/matsu-ui/src/app.rs` にあるが、バンドルからの動作は Mac で確かめていない。
+
+## パッケージに入れるヘルプ
+
+ADR-0031 のヘルプ（`docs/help/`）は、`package.yml` の `help` ジョブが Linux で 1 度だけ作り（mdBook と Pagefind は `tools/help/install-tools.sh` の固定の版。`ci.yml` の `help` ジョブも同じ `tools/help/` の 3 つのスクリプトを呼ぶ）、artifact `help-site-<prefix>` にして、各パッケージのジョブが取り出す。名前を `package-*`・`release-*` にしないのは、`release.yml` がその名前の artifact をすべてパッケージとして公開するため。本の中身は OS によらないので、5 つの対象で同じファイルを入れる。置き場所は、本体（`index.html` が一番上にあるフォルダー）を `help` という名前で次のように置く。マツエディタは、この順に `index.html` を探す（`<実行ファイルの場所>/help`、`<実行ファイルの場所>/../Resources/help`、`<実行ファイルの場所>/../share/matsu-editor/help`）。
+
+| パッケージ | 置き場所 |
+|---|---|
+| Windows の zip・インストーラ | `matsu.exe` の隣の `help\`（インストーラは zip と同じファイルを入れ、アンインストールで消す） |
+| macOS の `.app`（tar.gz・`.dmg`） | `MATSU Editor.app/Contents/Resources/help/`（署名の前に入れる）。tar.gz にも `.dmg` にも `.app` の外の `help/` は置かない（隣に実行ファイルがなく、同じものが二重になるため） |
+| Linux の tar.gz | 実行ファイルの隣の `help/` |
+| Linux の `.deb`・`.rpm` | `/usr/share/matsu-editor/help/`。実行ファイルは `/usr/lib/matsu-editor/` にあり、`../share/...` は `/usr/lib/share/...` になってしまうため、`/usr/lib/matsu-editor/help` から `../../share/matsu-editor/help` へのシンボリックリンクを置く（実行ファイルの隣の `help` として見つかる） |
+
+- 各パッケージのジョブは、`help-site` の `index.html` があることを確かめる。macOS は `.app` の署名の確認の前に `Contents/Resources/help/index.html` を、Linux は `.deb`・`.rpm` を入れて、`/usr/lib/matsu-editor/help/index.html` と検索の索引があること、外したあとに `/usr/share/matsu-editor` が残らないことを確かめる。Windows のインストーラの試験は、インストール先に `help\index.html` があることと、アンインストールで `help\` が消えることを確かめる
+- 大きさ（ヘルプと各パッケージ）は、ジョブの要約（Step Summary）に出る。ヘルプが約 30 MB を超えると、`help` ジョブが警告を出す
 
 ## Windows のインストーラ
 
