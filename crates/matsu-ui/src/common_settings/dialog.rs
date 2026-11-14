@@ -427,6 +427,9 @@ impl CommonSettingsDialog {
             }
             Target::Type(_) => type_settings::remember_page(cx, index),
         }
+        if matches!(&self.target, Target::Common) && Page::ALL.get(index) == Some(&Page::Plugin) {
+            super::pages::plugin::page_shown(self, cx);
+        }
         cx.notify();
     }
 

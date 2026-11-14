@@ -587,11 +587,45 @@ pub(super) fn run_test(
         notice(window, cx, "プラグインを動かす文書のウィンドウがありません");
         return;
     };
+    let saved = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of).enabled;
+    if let Some(message) = enable_words(enabled(dialog.values()), saved) {
+        notice(window, cx, message);
+        return;
+    }
     match crate::macros::plugin_call::prepare_command(cx, &dirs, &folder, 1) {
         Ok(prepared) => {
             crate::macros::plugin_call::run(&editor, prepared, cx);
         }
-        Err(message) => notice(window, cx, &message),
+        Err(message) => {
+            notice(window, cx, &message);
+            // A refusal for changed files: the list says so too.
+            refresh_states(dialog, cx);
+        }
+    }
+}
+
+/// Why 試しに実行 cannot start because of the check box 「プラグインを有効にする」: it is not
+/// checked on the page, or it is checked but not saved yet (the host reads the saved setting).
+pub(super) fn enable_words(checked: bool, saved: bool) -> Option<&'static str> {
+    match (checked, saved) {
+        (false, _) => Some(
+            "「プラグインを有効にする」が入っていません。入れて OK で保存してから試してください",
+        ),
+        (true, false) => Some("「プラグインを有効にする」を OK で保存してから試してください"),
+        (true, true) => None,
+    }
+}
+
+/// Sets the 状態 of the list against the folders as they are now (the page was loaded earlier).
+pub(super) fn refresh_states(
+    dialog: &mut CommonSettingsDialog,
+    cx: &mut Context<CommonSettingsDialog>,
+) {
+    let dirs = super::search_dirs(cx);
+    let saved = rows::consent_of(dirs.as_ref());
+    let mut list = dialog.values().rows(LIST).to_vec();
+    if rows::refresh_consent(&mut list, dirs.as_ref(), &saved) {
+        dialog.set_rows(LIST, list, cx);
     }
 }
 

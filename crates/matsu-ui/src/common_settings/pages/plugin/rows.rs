@@ -242,6 +242,50 @@ pub(super) fn row_of(
     row
 }
 
+/// Sets the rows that say 有効, 変更あり or 停止 against the folders as they are now, for a page
+/// that was loaded earlier: a plugin whose files changed since says 変更あり（停止）, and one whose
+/// files are the agreed ones again says 有効. What was agreed is the manifest of the row (enabled in
+/// this dialog) or the record in `plugins.ini`. The folders are read through the cached fingerprint,
+/// so a folder that did not change is not hashed again. Returns whether a row changed.
+pub(super) fn refresh_consent(
+    rows: &mut [Row],
+    dirs: Option<&SearchDirs>,
+    saved: &ConsentFile,
+) -> bool {
+    let mut changed = false;
+    for row in rows.iter_mut() {
+        if !has_plugin(row) || !matches!(row[CONSENT].as_str(), "on" | "changed" | "stopped") {
+            continue;
+        }
+        let agreed = if row[MANIFEST].is_empty() {
+            match saved.record(&row[ID]) {
+                Some(record) => record.files,
+                None => continue,
+            }
+        } else {
+            consent::parse_manifest(&row[MANIFEST])
+        };
+        let now = dirs
+            .and_then(|dirs| dirs.plugin_dir(&row[FOLDER]))
+            .and_then(|dir| consent::fingerprint_cached(&dir).ok())
+            .unwrap_or_default();
+        let same = consent::compare(&agreed, &now).is_empty();
+        let code = match (same, row[CONSENT].as_str()) {
+            (false, _) => "changed",
+            // What `row_of` shows for files that match: the stop by failures stays.
+            (true, "changed") if crate::macros::plugin_call::is_stopped(&row[ID]) => "stopped",
+            (true, "changed") => "on",
+            (true, kept) => kept,
+        };
+        if row[CONSENT] != code {
+            row[CONSENT] = code.to_owned();
+            refresh_state(row);
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// The 40 rows for the table.
 pub(in crate::common_settings) fn rows_of(
     settings: &PluginSettings,
@@ -327,7 +371,10 @@ pub(in crate::common_settings) fn write_consent(rows: &[Row], file: &mut Consent
             PluginState::None => {}
             PluginState::Deleted => changed |= file.disable(id),
             _ => match text(CONSENT) {
-                "on" if !text(MANIFEST).is_empty() => {
+                // An agreement made on this page is saved whatever the row shows (on, changed or
+                // stopped: those are the state of the files and of the run); only 無効にする and 削除
+                // clear it. The run-time check refuses until the files match it.
+                "on" | "changed" | "stopped" if !text(MANIFEST).is_empty() => {
                     let files = consent::parse_manifest(text(MANIFEST));
                     // An ID that the file cannot hold is not recorded (and does not run).
                     changed |= file
