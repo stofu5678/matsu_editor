@@ -289,7 +289,7 @@ async function servePlugin(identity) {
   // by their file URL. `module.registerHooks` (22.15, 23.5) gives every `import` and `require`
   // from a plugin file these texts and nothing from the disk; a file that is not here (outside
   // the folder, a package, a file added later) is refused.
-  const { pathToFileURL } = require('url');
+  const { pathToFileURL, fileURLToPath } = require('url');
   const verified = new Map();
   const modules = new Map();
   let hooked = false;
@@ -348,7 +348,8 @@ async function servePlugin(identity) {
     if (specifier.startsWith('node:') || Module.isBuiltin(specifier)) {
       return nextResolve(specifier, context);
     }
-    if (!/^(\.{1,2}\/|\/|file:)/.test(specifier)) {
+    const windowsPath = process.platform === 'win32' && /^(\.{1,2}\\|[A-Za-z]:[\\/])/.test(specifier);
+    if (!windowsPath && !/^(\.{1,2}\/|\/|file:)/.test(specifier)) {
       throw Object.assign(
         new Error(
           specifier + ' はパッケージです。プラグインは、自分のフォルダーのファイルと Node.js の標準のモジュールだけ読み込めます',
@@ -357,11 +358,15 @@ async function servePlugin(identity) {
       );
     }
     const base = context.parentURL || pathToFileURL(identity.dir + path.sep).href;
-    const target = new URL(specifier, base);
+    const target = windowsPath
+      ? pathToFileURL(path.resolve(path.dirname(fileURLToPath(base)), specifier))
+      : new URL(specifier, base);
     target.search = '';
     target.hash = '';
     const candidates = [target.href];
-    if (Array.isArray(context.conditions) && context.conditions.includes('require')) {
+    // Node.js hands the conditions over as an array or, in some versions, as a Set.
+    const conditions = context.conditions;
+    if (Array.isArray(conditions) ? conditions.includes('require') : conditions instanceof Set && conditions.has('require')) {
       // The CommonJS way: no extension, or a folder.
       for (const ext of EXTENSIONS) candidates.push(target.href + ext);
       for (const ext of EXTENSIONS) candidates.push(target.href.replace(/\/?$/, '/index') + ext);
@@ -420,7 +425,7 @@ async function servePlugin(identity) {
     if (Array.isArray(invoke.files)) {
       installVerifiedFiles(invoke.files);
     }
-    if (/\.(mjs|ts)$/.test(name)) {
+    if (/\.mjs$/i.test(name) || /\.ts$/.test(name)) {
       // An ES module or a TypeScript file: loaded once (the first call), and its default export,
       // a function, is called for each call. Nothing is read from the disk: the hooks serve the
       // text the editor checked.

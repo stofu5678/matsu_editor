@@ -676,6 +676,26 @@ fn a_timer_callback_gets_its_receiver_and_arguments() {
 
 // ---- ES modules and TypeScript (ADR-0026, PR 10) ----
 
+/// Node.js with `module.registerHooks` (22.15, 23.5): the plugin host serves `.mjs` and `.ts`, and
+/// `require` of the plugin folder, only there.
+fn module_hooks() -> bool {
+    if !available(Language::JavaScript) {
+        return false;
+    }
+    let output = std::process::Command::new("node")
+        .args(["-p", "typeof require('module').registerHooks"])
+        .output()
+        .expect("node runs");
+    let has = String::from_utf8_lossy(&output.stdout).trim() == "function";
+    if !has {
+        eprintln!("SKIP: this Node.js has no module.registerHooks");
+        if std::env::var_os("MATSU_REQUIRE_INTERPRETERS").is_some_and(|v| !v.is_empty()) {
+            panic!("module.registerHooks is required here (MATSU_REQUIRE_INTERPRETERS)");
+        }
+    }
+    has
+}
+
 /// The agreement of the user for the files in `dir`, as `plugins.ini` keeps it.
 fn agreed(dir: &Path) -> Vec<(String, String)> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
@@ -707,7 +727,7 @@ fn host_with_agreement(dir: &Path, language: Language, resident: bool) -> Plugin
 
 #[test]
 fn an_mjs_handler_is_loaded_once_and_its_default_export_is_called_for_each_call() {
-    if !available(Language::JavaScript) {
+    if !module_hooks() {
         return;
     }
     let dir = plugin_dir(&[
@@ -783,7 +803,7 @@ export const twice = (n: number): number => n * 2;",
 
 #[test]
 fn imports_come_from_the_text_that_was_checked_not_from_the_disk() {
-    if !available(Language::JavaScript) {
+    if !module_hooks() {
         return;
     }
     let dir = plugin_dir(&[
@@ -852,7 +872,7 @@ fn a_file_that_changed_since_the_agreement_is_refused_before_anything_runs() {
 
 #[test]
 fn imports_outside_the_folder_and_packages_are_refused() {
-    if !available(Language::JavaScript) {
+    if !module_hooks() {
         return;
     }
     let outside = plugin_dir(&[("secret.mjs", "export const secret = 'x';")]);
@@ -901,7 +921,7 @@ fn imports_outside_the_folder_and_packages_are_refused() {
 
 #[test]
 fn a_cjs_handler_requires_files_of_its_folder_from_the_checked_text_too() {
-    if !available(Language::JavaScript) {
+    if !module_hooks() {
         return;
     }
     let dir = plugin_dir(&[
@@ -929,7 +949,7 @@ fn a_cjs_handler_requires_files_of_its_folder_from_the_checked_text_too() {
 
 #[test]
 fn the_memory_of_a_resident_node_host_stays_flat_over_many_calls() {
-    if !available(Language::JavaScript) {
+    if !module_hooks() {
         return;
     }
     let dir = plugin_dir(&[(
@@ -969,7 +989,7 @@ export default function () {
 
 #[test]
 fn the_timer_rules_hold_for_module_handlers() {
-    if !available(Language::JavaScript) {
+    if !module_hooks() {
         return;
     }
     let dir = plugin_dir(&[

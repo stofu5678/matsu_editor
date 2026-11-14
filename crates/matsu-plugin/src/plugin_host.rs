@@ -20,7 +20,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
@@ -404,10 +404,15 @@ impl PluginHost {
         let mut total = 0_usize;
         let mut files = Vec::new();
         for (relative, path) in found {
-            let bytes = std::fs::read(&path).map_err(|source| BeginError::Handler {
-                path: path.clone(),
-                source,
-            })?;
+            // At most what is left of the limit (and one byte more, to see it is over) is read.
+            let left = MAX_MODULE_BYTES - total;
+            let mut bytes = Vec::new();
+            std::fs::File::open(&path)
+                .and_then(|file| file.take(left as u64 + 1).read_to_end(&mut bytes))
+                .map_err(|source| BeginError::Handler {
+                    path: path.clone(),
+                    source,
+                })?;
             total += bytes.len();
             if total > MAX_MODULE_BYTES {
                 return Err(BeginError::Bundle {
@@ -660,6 +665,9 @@ fn decode_handler(bytes: &[u8]) -> io::Result<String> {
 /// The most bytes of module files that go to a Node.js plugin process.
 const MAX_MODULE_BYTES: usize = 16 * 1024 * 1024;
 
+/// The most module files that go to a Node.js plugin process.
+const MAX_MODULE_FILES: usize = 5000;
+
 /// The extensions of the files that Node.js can import (the host sends the text of these).
 const MODULE_EXTENSIONS: &[&str] = &["mjs", "cjs", "js", "ts", "mts", "cts", "json"];
 
@@ -694,11 +702,6 @@ fn collect_module_files(
         let relative = format!("{prefix}{name}");
         let kind = entry.file_type().map_err(unreadable)?;
         if kind.is_dir() {
-            if out.len() > 5000 {
-                return Err(BeginError::Bundle {
-                    reason: "ファイルが多すぎます".into(),
-                });
-            }
             collect_module_files(&path, &format!("{relative}/"), out)?;
         } else if kind.is_file()
             && path
@@ -706,6 +709,11 @@ fn collect_module_files(
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| MODULE_EXTENSIONS.iter().any(|m| m.eq_ignore_ascii_case(e)))
         {
+            if out.len() >= MAX_MODULE_FILES {
+                return Err(BeginError::Bundle {
+                    reason: "ファイルが多すぎます".into(),
+                });
+            }
             out.push((relative, path));
         }
     }
