@@ -342,13 +342,12 @@ fn a_script_cannot_give_arguments_to_a_command_that_ignores_them(cx: &mut TestAp
     assert_eq!(f.lines(cx), ["aaa"]);
 }
 
+type PagingResult = (String, usize, Option<(Pos, Pos)>);
+
 /// The outcome (`ran` or `refused`), the caret line and the selection of the window after a script
 /// that called a paging function with a row count (`PageDown(3)`; the count is
 /// `CMacro::HandleCommand`'s `lparam1`).
-fn run_paging_script(
-    cx: &mut TestAppContext,
-    call: &str,
-) -> Option<(String, usize, Option<(Pos, Pos)>)> {
+fn run_paging_script(cx: &mut TestAppContext, call: &str) -> Option<PagingResult> {
     if !available(Language::JavaScript) {
         return None;
     }
