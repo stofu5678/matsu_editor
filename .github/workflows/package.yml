@@ -145,7 +145,7 @@ jobs:
       - name: Check that FreeType was not bundled
         if: runner.os == 'Linux'
         run: |
-          if find target -name 'libfreetype2.a' | grep -q .; then
+          if [ -n "$(find target -name 'libfreetype2.a')" ]; then
             echo "::error::freetype-sys built its bundled FreeType. Install libfreetype-dev."
             exit 1
           fi
