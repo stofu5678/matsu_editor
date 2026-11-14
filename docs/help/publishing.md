@@ -26,9 +26,11 @@
 
 ## ワークフロー（`.github/workflows/help-pages.yml`）の動き
 
-- 動くとき: main に push され、ヘルプに関係するファイル（`docs/help/**`、`tools/help/**`、ヘルプが取り込むサンプルの `crates/matsu-plugin/samples/**`）が変わったとき。手でも動かせる（`workflow_dispatch`）
+- 動くとき: main に push され、ヘルプに関係するファイル（`docs/help/**`、`tools/help/**`、ヘルプが取り込むサンプルの `crates/matsu-plugin/samples/**`、ワークフロー自身）が変わったとき。手でも動かせる（`workflow_dispatch`）
 - 本を作る: `tools/help/install-tools.sh`（版と SHA-256 を固定した mdBook と Pagefind を取る）と `tools/help/build.sh`（本、検索の索引、1 ページ版の `search.html`）。CI の `help` ジョブと配布物のジョブと同じ道具
-- 公開する: `actions/upload-pages-artifact` で本を渡し、`actions/deploy-pages` で `github-pages` の環境に出す。権限は `pages: write` と `id-token: write` だけ
+- 公開する: 本を作る `build` ジョブが `actions/upload-pages-artifact`（v5）で本を渡し、続く `deploy` ジョブが `actions/deploy-pages`（v5）で `github-pages` の環境に出す。権限は `contents: read`、`pages: write`、`id-token: write` だけ（`pages: write` と `id-token: write` は `deploy` ジョブにだけ付く）
+- 変数 `HELP_PAGES` が `on` でないとき、`deploy` ジョブは動かない（`build` ジョブまでで終わる）
+- 同時に動くのは 1 つ（`concurrency` の `help-pages`）。公開の途中のものは、あとから来たものに取り消されない
 - PR では動かない（main の最新だけを出すため）。PR のヘルプは、今までどおり CI の `help` ジョブが作って確かめる
 
 ## 公開のあとにすること
