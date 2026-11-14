@@ -148,13 +148,14 @@ impl Language {
     }
 
     /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
-    /// (only `.cjs`: the caller refuses `.mjs`, and `.ts` is not served), Python, Ruby and PHP. The
-    /// other languages are not served yet.
+    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`), Python, Ruby and PHP. The other
+    /// languages are not served yet.
     pub fn serves_plugins(self) -> bool {
         matches!(
             self,
             Self::Bundled(Engine::QuickJs)
                 | Self::JavaScript
+                | Self::TypeScript
                 | Self::Python
                 | Self::Ruby
                 | Self::Php
@@ -401,7 +402,7 @@ impl std::fmt::Display for StartError {
             ),
             Self::PluginNotSupported { language } => write!(
                 f,
-                "{} のプラグインはまだ動かせません (今は .js、.cjs、.py、.rb、.php だけです)",
+                "{} のプラグインはまだ動かせません (今は .js、.cjs、.mjs、.ts、.py、.rb、.php だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
