@@ -194,7 +194,7 @@ pub fn expand_parameter_limited(
     page: Option<&PageInfo<'_>>,
     max_units: usize,
 ) -> String {
-    let mut out = expand(form, ctx, page);
+    let mut out = expand(form, ctx, page, max_units);
     limit_units(&mut out, max_units);
     out
 }
@@ -214,11 +214,27 @@ fn limit_units(text: &mut String, max: usize) {
     }
 }
 
-fn expand(form: &str, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> String {
+/// Expands `form`, and stops as soon as the result has `max_units` UTF-16 units or more (the
+/// caller cuts the last piece), so a long format of big codes does not build a text that is
+/// thrown away.
+fn expand(
+    form: &str,
+    ctx: &HeaderContext,
+    page: Option<&PageInfo<'_>>,
+    max_units: usize,
+) -> String {
     let src: Vec<char> = form.chars().collect();
     let mut out = String::new();
+    let mut units = 0;
+    let mut counted = 0;
     let mut p = 0;
     while p < src.len() {
+        // Only the text added by the last step is counted: every step adds a bounded piece.
+        units += out[counted..].encode_utf16().count();
+        counted = out.len();
+        if units >= max_units {
+            break;
+        }
         if src[p] != '$' {
             out.push(src[p]);
             p += 1;
@@ -450,6 +466,29 @@ mod tests {
             file_path: Some(r"D:\source\Main.cpp".into()),
             ..HeaderContext::default()
         }
+    }
+
+    #[test]
+    fn a_long_format_is_cut_at_the_limit_and_stops_early() {
+        let ctx = HeaderContext {
+            selected_text: "あ".repeat(259),
+            ..HeaderContext::default()
+        };
+        // 1_000_000 codes would make 259 million characters; the work stops at the limit
+        let form = "$C".repeat(1_000_000);
+        let out = expand_parameter_limited(&form, &ctx, None, 2047);
+        assert_eq!(out.encode_utf16().count(), 2047);
+        let emoji = HeaderContext {
+            selected_text: "😀".repeat(100),
+            ..HeaderContext::default()
+        };
+        let out = expand_parameter_limited(&form, &emoji, None, 2047);
+        assert_eq!(out.chars().count(), 1023);
+        // the default limit
+        assert_eq!(
+            expand_parameter(&form, &ctx, None).encode_utf16().count(),
+            1024
+        );
     }
 
     fn ex(form: &str, ctx: &HeaderContext) -> String {
