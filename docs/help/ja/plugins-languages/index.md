@@ -34,8 +34,8 @@
 | [mruby](lang-mruby.md) | 同梱 |
 | [JavaScript（Node.js）と TypeScript](lang-node.md) | 外部。プラグインも動かせる |
 | [Python](lang-python.md) | 外部。プラグインも動かせる |
-| [Ruby](lang-ruby.md) | 外部 |
-| [PHP](lang-php.md) | 外部 |
+| [Ruby](lang-ruby.md) | 外部。プラグインも動かせる |
+| [PHP](lang-php.md) | 外部。プラグインも動かせる |
 | [PowerShell](lang-powershell.md) | 外部 |
 | [Perl](lang-perl.md) | 外部 |
 | [Emacs Lisp](lang-emacs-lisp.md) | 外部 |
