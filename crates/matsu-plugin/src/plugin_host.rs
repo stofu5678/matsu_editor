@@ -309,7 +309,15 @@ impl PluginHost {
         // A new call replaces the end of the one that `shutdown` cut off: nobody follows that
         // one any more, and its end must not be taken for this call's.
         self.interrupted = false;
-        let path = handler_path(&self.settings.dir, handler)?;
+        let mut path = handler_path(&self.settings.dir, handler)?;
+        // The spelling of the handler in the agreement (the one on the disk): a file system that
+        // ignores case opens `Command.cjs` for `command.cjs`, and the record has the latter.
+        let mut key = relative_name(handler);
+        if let Some(agreed) = &self.settings.verified {
+            key = agreed_key(agreed, &key, CASE_INSENSITIVE_FS)
+                .ok_or(BeginError::Changed { path: key })?;
+            path = handler_path(&self.settings.dir, &key)?;
+        }
         // Node.js gets the verified text of every module file of the folder once, with the first
         // call of its process: its hooks serve imports from that text (`boot.cjs`), so no file is
         // read from the disk after the check.
@@ -328,7 +336,7 @@ impl PluginHost {
         let source = if node && is_module_handler(handler) {
             None
         } else {
-            Some(self.read_verified(&path, handler)?)
+            Some(self.read_verified(&path, &key)?)
         };
         if self.process.is_none() {
             self.process = Some(self.start_process().map_err(BeginError::Start)?);
@@ -368,12 +376,12 @@ impl PluginHost {
     }
 
     /// The text of a handler, checked against the agreed files when there are any.
-    fn read_verified(&self, path: &Path, handler: &str) -> Result<String, BeginError> {
+    fn read_verified(&self, path: &Path, key: &str) -> Result<String, BeginError> {
         let bytes = std::fs::read(path).map_err(|source| BeginError::Handler {
             path: path.to_owned(),
             source,
         })?;
-        self.check_agreed(&relative_name(handler), &bytes)?;
+        self.check_agreed(key, &bytes)?;
         decode_handler(&bytes).map_err(|source| BeginError::Handler {
             path: path.to_owned(),
             source,
@@ -677,6 +685,30 @@ fn is_module_handler(handler: &str) -> bool {
     ext.is_some_and(|e| e.eq_ignore_ascii_case("mjs") || e == "ts")
 }
 
+/// Whether the file system of this OS ignores case in names (Windows, and macOS by default).
+const CASE_INSENSITIVE_FS: bool = cfg!(any(windows, target_os = "macos"));
+
+/// The name of `relative` in the agreement. The exact spelling first. Where the file system ignores
+/// case (`case_insensitive`), a name that differs only in case is the same file: the one agreed
+/// name that equals it ignoring case, if there is exactly one (two that differ only in case are
+/// refused). `None` when there is none.
+fn agreed_key(
+    agreed: &BTreeMap<String, String>,
+    relative: &str,
+    case_insensitive: bool,
+) -> Option<String> {
+    if agreed.contains_key(relative) {
+        return Some(relative.to_owned());
+    }
+    if !case_insensitive {
+        return None;
+    }
+    let lower = relative.to_lowercase();
+    let mut same = agreed.keys().filter(|key| key.to_lowercase() == lower);
+    let found = same.next()?;
+    same.next().is_none().then(|| found.clone())
+}
+
 /// The path of a handler from the plugin folder, with `/` (the spelling of `plugins.ini`).
 fn relative_name(handler: &str) -> String {
     handler.replace('\\', "/")
@@ -787,6 +819,57 @@ pub fn respond(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn agreed(names: &[&str]) -> BTreeMap<String, String> {
+        names
+            .iter()
+            .map(|name| ((*name).to_owned(), sha256_hex(name.as_bytes())))
+            .collect()
+    }
+
+    #[test]
+    fn the_agreed_name_is_the_exact_one_and_case_differences_count_only_where_the_disk_ignores_case()
+     {
+        let files = agreed(&["command.cjs", "lib/Word.mjs"]);
+        // The exact spelling, with and without the flag.
+        for flag in [false, true] {
+            assert_eq!(
+                agreed_key(&files, "command.cjs", flag).as_deref(),
+                Some("command.cjs")
+            );
+        }
+        // A different case: only where the file system ignores case; the key is the agreed one.
+        assert_eq!(
+            agreed_key(&files, "Command.CJS", true).as_deref(),
+            Some("command.cjs")
+        );
+        assert_eq!(
+            agreed_key(&files, "LIB/word.mjs", true).as_deref(),
+            Some("lib/Word.mjs")
+        );
+        assert_eq!(agreed_key(&files, "Command.cjs", false), None);
+        assert_eq!(agreed_key(&files, "other.cjs", true), None);
+        // Two agreed names that differ only in case: not decidable, refused; the exact one is fine.
+        let two = agreed(&["a.cjs", "A.cjs"]);
+        assert_eq!(agreed_key(&two, "A.CJS", true), None);
+        assert_eq!(agreed_key(&two, "a.cjs", true).as_deref(), Some("a.cjs"));
+    }
+
+    #[test]
+    fn a_file_is_accepted_only_with_the_hash_of_its_agreed_name() {
+        let dir = std::path::Path::new("/nowhere");
+        let host = PluginHost::new(
+            HostSettings::new("p", dir, Language::JavaScript, false)
+                .with_verified(agreed(&["command.cjs"])),
+        );
+        assert!(host.check_agreed("command.cjs", b"command.cjs").is_ok());
+        assert!(matches!(
+            host.check_agreed("command.cjs", b"changed"),
+            Err(BeginError::Changed { .. })
+        ));
+        // `check_agreed` takes the agreed spelling; another spelling is not looked up here.
+        assert!(host.check_agreed("Command.cjs", b"command.cjs").is_err());
+    }
 
     #[test]
     fn every_jack_has_a_limit_and_an_unknown_one_has_the_default() {

@@ -292,6 +292,9 @@ async function servePlugin(identity) {
   const { pathToFileURL, fileURLToPath } = require('url');
   const verified = new Map();
   const modules = new Map();
+  // Windows and macOS (by default) ignore case in file names; Linux does not.
+  const ignoresCase = process.platform === 'win32' || process.platform === 'darwin';
+  const byLowerCase = new Map();
   let hooked = false;
   const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
   const strips =
@@ -378,6 +381,14 @@ async function servePlugin(identity) {
     for (const url of candidates) {
       if (verified.has(url)) return { url, shortCircuit: true };
     }
+    if (ignoresCase) {
+      // The file system ignores case: `./Lib/Greeting.mjs` opens `lib/greeting.mjs` there, so it
+      // does here. Only when exactly one verified file matches.
+      for (const url of candidates) {
+        const same = byLowerCase.get(url.toLowerCase());
+        if (same !== undefined && same.length === 1) return { url: same[0], shortCircuit: true };
+      }
+    }
     throw Object.assign(
       new Error(specifier + ' は、同意したプラグインのフォルダーにありません。同意したファイルだけ読み込めます'),
       { code: 'ERR_MODULE_NOT_FOUND' },
@@ -397,7 +408,12 @@ async function servePlugin(identity) {
 
   function installVerifiedFiles(files) {
     for (const file of files) {
-      verified.set(pathToFileURL(file.path).href, file.source);
+      const href = pathToFileURL(file.path).href;
+      verified.set(href, file.source);
+      const lower = href.toLowerCase();
+      const same = byLowerCase.get(lower) || [];
+      if (!same.includes(href)) same.push(href);
+      byLowerCase.set(lower, same);
     }
     if (!hooked && typeof Module.registerHooks === 'function') {
       Module.registerHooks({ resolve: resolveVerified, load: loadVerified });
