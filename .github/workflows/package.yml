@@ -292,7 +292,10 @@ jobs:
         run: |
           {
             echo "### ${{ matrix.name }}"
-            ls -l dist | awk 'NF>=9 && $9 ~ /\.(zip|tar\.gz|dmg|deb|rpm|exe)$/ {printf "- %s: %.1f MiB\n", $9, $5/1048576}'
+            for f in dist/*.zip dist/*.tar.gz dist/*.dmg dist/*.deb dist/*.rpm dist/*-setup.exe; do
+              [ -f "$f" ] || continue
+              echo "- $(basename "$f"): $(( $(wc -c < "$f") / 1024 )) KiB"
+            done
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
