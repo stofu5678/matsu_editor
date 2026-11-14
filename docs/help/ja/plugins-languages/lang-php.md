@@ -48,6 +48,7 @@
 - ハンドラの文面は、`eval` で、グローバルの場所で動きます。ファイルは、ふつうの PHP のファイルと同じく、`<?php` で始めます（`declare(strict_types=1);` も書けます）。行番号は、ファイルのものです。
 - `Editor`、`EditorError`、`Plugin`、`Outline`、`Complement`、`Indent` は、クラスです。静的メソッドで呼びます（`Plugin::GetOption('節', 'キー')`。ジャックの名前は `Plugin::$jack`、引数は `Plugin::$args`）。`Indent::GetChar()` は、`SmartIndent` のときだけ、打った文字を返します（ほかの場面では空の文字列です）。`require` は要りません（[ハンドラの中で使えるもの](plugin-api.md)）。
 - 変数は、グローバル変数です。プロセスが残っている（`UseCache=1` か `Resident=1`）間、次の呼び出しに引き継ぎます。ファイルごとには分けません。文面は呼び出しのたびに最初から動くので、前の呼び出しの値は、`$count = ($count ?? 0) + 1` のようにして読みます。
+- `$_matsu_` で始まる名前の変数は、MATSU Editor の側のものです。ハンドラでは使わないでください。`return` は、そのハンドラを終えるだけです。
 - ハンドラの中で `function` や `class` を宣言すると、2 回目の呼び出しで、PHP が「Cannot redeclare」で止まります（プロセスが終わり、失敗になります）。宣言は別のファイルに書いて、`require_once` してください。
 - `require_once` などの探す場所（`include_path`）の先頭は、プラグインのフォルダーです。`require_once 'lib/word.php';` のように、フォルダーの中のファイルを読めます。
 - `exit` と `die` は、PHP のプロセスを終わらせます。ハンドラの終わりには使わないでください（失敗になります）。

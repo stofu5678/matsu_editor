@@ -169,6 +169,53 @@ fn a_ruby_or_php_handler_that_raises_fails_with_its_place_and_the_host_stays() {
 }
 
 #[test]
+fn a_ruby_handler_cannot_overwrite_the_hosts_variables() {
+    if !available(RUBY) {
+        return;
+    }
+    // The names are those of the locals of the host's loop.
+    let dir = plugin_dir(&[
+        (
+            "clobber.rb",
+            "message = 'hello'\nplugin = 1\nspaces = 2\nparams = 3\nname = 4\nfailure = 5\nEditor.InsText('c')\n",
+        ),
+        ("ok.rb", "Editor.InsText('o')\n"),
+    ]);
+    let mut host = host(dir.path(), RUBY, true);
+    let mut world = World::new("");
+    for name in ["clobber.rb", "ok.rb", "clobber.rb"] {
+        let report = world.call(&mut host, name);
+        assert_eq!(report.outcome, Outcome::Ok, "{name}: {:?}", report.output);
+    }
+    assert_eq!(world.doc.text(), "coc");
+    host.shutdown();
+}
+
+#[test]
+fn a_ruby_return_ends_only_the_handler() {
+    if !available(RUBY) {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "early.rb",
+            "Editor.InsText('a')\nreturn\nEditor.InsText('b')\n",
+        ),
+        ("ok.rb", "Editor.InsText('o')\n"),
+    ]);
+    let mut host = host(dir.path(), RUBY, true);
+    let mut world = World::new("");
+    let pid = {
+        assert_eq!(world.call(&mut host, "early.rb").outcome, Outcome::Ok);
+        host.process_id().expect("it stays")
+    };
+    assert_eq!(world.call(&mut host, "ok.rb").outcome, Outcome::Ok);
+    assert_eq!(host.process_id(), Some(pid), "the host did not end");
+    assert_eq!(world.doc.text(), "ao");
+    host.shutdown();
+}
+
+#[test]
 fn a_ruby_exit_ends_the_handler_and_is_not_a_failure() {
     if !available(RUBY) {
         return;

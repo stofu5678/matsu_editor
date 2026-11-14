@@ -159,6 +159,14 @@ module MatsuPlugin
     text.lines.reject { |line| line.include?(__FILE__) }.join.rstrip
   end
 
+  # Runs the handler in a method of its own. A string `instance_eval` sees the local variables of
+  # its caller, so in `serve` a handler that assigns `message` or `plugin` would overwrite the
+  # host's, and a `return` in the handler would return from `serve` and end the host. Here the only
+  # locals are the parameters, and `return` ends only the handler.
+  def self.evaluate(space, source, name)
+    space.instance_eval(source, name, 1)
+  end
+
   def self.serve(info)
     identity = info.delete('plugin') || {}
     plugin = PluginClass.new
@@ -202,7 +210,7 @@ module MatsuPlugin
       end
       failure = nil
       begin
-        (spaces[name] ||= Object.new).instance_eval(params['source'].to_s, name, 1)
+        evaluate(spaces[name] ||= Object.new, params['source'].to_s, name)
       rescue SystemExit
         # `exit` in a handler ends the handler, not the host.
         nil
