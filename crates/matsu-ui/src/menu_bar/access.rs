@@ -11,18 +11,10 @@ use gpui::{Modifiers, OwnedMenuItem};
 /// The access key of an item, upper-cased, read from the `(K)` mark of its name.
 pub(super) fn item_key(item: &OwnedMenuItem) -> Option<char> {
     match item {
-        OwnedMenuItem::Action { name, .. } => leading_key(name).or_else(|| key_hint(name)),
+        OwnedMenuItem::Action { name, .. } => key_hint(name),
         OwnedMenuItem::Submenu(submenu) => key_hint(&submenu.name),
         OwnedMenuItem::Separator | OwnedMenuItem::SystemMenu(_) => None,
     }
-}
-
-/// The access key of a list item, which starts with it (`1 (無題)`, `A memo.txt`: the window list and the
-/// recent files; Sakura writes `&1 ...`), upper-cased.
-fn leading_key(name: &str) -> Option<char> {
-    let mut chars = name.chars();
-    let (key, space) = (chars.next()?, chars.next()?);
-    (space == ' ' && key.is_ascii_alphanumeric()).then(|| key.to_ascii_uppercase())
 }
 
 /// The items as the popup menu holds them, so that an index here is an index there: it drops what
