@@ -1,8 +1,8 @@
 //! `F_HELP_CONTENTS`: shows the table of contents of the help.
 //!
 //! Sakura: `CViewCommander::Command_HELP_CONTENTS` (`sakura_core/cmd/CViewCommander_Support.cpp`)
-//! opens its own help file at the contents. MATSU Editor has no help file; it opens the documents of
-//! the project on the web ([`crate::support::help::CONTENTS_URL`]).
+//! opens its own help file at the contents. MATSU Editor opens the `index.html` of the help that comes
+//! with the program, else the contents on the web ([`crate::support::help::plan_contents`]).
 
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, Result};

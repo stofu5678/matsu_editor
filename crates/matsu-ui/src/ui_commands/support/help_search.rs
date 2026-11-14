@@ -1,8 +1,8 @@
 //! `F_HELP_SEARCH`: shows the index of the help for a keyword search.
 //!
 //! Sakura: `CViewCommander::Command_HELP_SEARCH` (`sakura_core/cmd/CViewCommander_Support.cpp`)
-//! opens its own help file at the index. MATSU Editor has no help file; it opens the list of the
-//! decisions of the project on the web ([`crate::support::help::INDEX_URL`]).
+//! opens its own help file at the index. MATSU Editor searches the help on the web for the selection
+//! or the word at the caret ([`crate::support::help::plan_search`]).
 
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, Result};

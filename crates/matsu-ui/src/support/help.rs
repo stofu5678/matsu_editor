@@ -14,8 +14,12 @@
 //! * The HTML help is opened at the word under the caret or the selection. Windows does that
 //!   (`HtmlHelp`, [`matsu_platform::help`]); the other systems have no such viewer, so the file is
 //!   opened with the OS and the word is not looked up (the status bar says so).
-//! * Sakura has its own help file. MATSU Editor has none; `F_HELP_CONTENTS` and `F_HELP_SEARCH`
-//!   open the documents of the project on the web.
+//! * Sakura has its own help file (`sakura.chm`). MATSU Editor's help is a built book (ADR-0031):
+//!   `F_HELP_CONTENTS` opens the copy that comes with the program ([`local_dir`]) and, when there
+//!   is none, the same pages on the web ([`ONLINE_BASE`]). `F_HELP_SEARCH` opens a search on the
+//!   web: the local copy has no search (see [`plan_search`]).
+//! * [`PAGES`] is the one table from a function to its page; the help buttons of the dialogs
+//!   (`MyWinHelp( ..., FuncID_To_HelpContextID( F_... ) )` in Sakura) read it.
 
 use std::path::{Path, PathBuf};
 
@@ -24,14 +28,231 @@ use matsu_config::settings::TypeSettings;
 
 use super::prefs::HelperPrefs;
 
-/// The documents of the project: what `F_HELP_CONTENTS` opens in place of the table of contents of
-/// Sakura's help.
-pub(crate) const CONTENTS_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/tree/main/docs");
-/// The list of the decisions, which stands for the index that `F_HELP_SEARCH` opens in Sakura.
-pub(crate) const INDEX_URL: &str = concat!(
-    env!("CARGO_PKG_REPOSITORY"),
-    "/blob/main/docs/adr/README.md"
-);
+/// The pages of the help on the web, until GitHub Pages is on (ADR-0031, PR order 20): the sources
+/// on GitHub, which show Markdown. Switch only this constant then.
+pub(crate) const ONLINE_BASE: &str =
+    concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/docs/help/ja/");
+/// The table of contents of the help on the web (the book's `SUMMARY.md`).
+pub(crate) const ONLINE_CONTENTS_PAGE: &str = "SUMMARY.md";
+/// The place of the help in the repository, for the search of GitHub.
+const ONLINE_SEARCH_PATH: &str = "docs/help";
+/// The start of the search on the web; the query follows.
+const ONLINE_SEARCH_URL: &str = "https://github.com/search?type=code&q=";
+/// The longest query sent to the search (characters). A longer selection is cut.
+const MAX_QUERY_CHARS: usize = 100;
+
+/// The folder of the help that comes with the program has this file.
+const LOCAL_INDEX: &str = "index.html";
+
+/// Function name to the page of the help (a path under `docs/help/ja/`, with `.md`), as in
+/// Sakura's `FuncID_To_HelpContextID` (`sakura_core/func/Funccode.cpp`). A renamed page is found by
+/// the test `every_page_of_the_table_exists`.
+pub(crate) const PAGES: &[(&str, &str)] = &[
+    // `CDlgFileTree`: `IDC_BUTTON_HELP` is `FuncID_To_HelpContextID( F_FILETREE )`
+    ("F_FILETREE", "search/file-tree.md"),
+    // `CDlgTypeList`: `FuncID_To_HelpContextID( F_TYPE_LIST )`
+    ("F_TYPE_LIST", "type-settings-window/type-list.md"),
+    ("F_OPTION", "common-settings/menu-common-settings.md"),
+    ("F_HELP_CONTENTS", "help-other/help-contents.md"),
+    ("F_HELP_SEARCH", "help-other/help-search.md"),
+];
+
+/// The page of the help of a function, if it has one.
+pub(crate) fn page_of(function: &str) -> Option<&'static str> {
+    PAGES
+        .iter()
+        .find(|(name, _)| *name == function)
+        .map(|(_, page)| *page)
+}
+
+/// The page for a page of the common settings: the help button of the dialog opens the page of the
+/// sheet that is shown (each page of Sakura's sheet has its own topic).
+pub(crate) fn common_settings_page(page: crate::common_settings::Page) -> Option<&'static str> {
+    use crate::common_settings::Page;
+    Some(match page {
+        Page::General => "common-settings/page-general.md",
+        Page::Window => "common-settings/page-window.md",
+        Page::MainMenu => "common-settings/page-main-menu.md",
+        Page::Toolbar => "common-settings/page-toolbar.md",
+        Page::Tab => "common-settings/page-tab.md",
+        Page::StatusBar => "common-settings/page-status-bar.md",
+        Page::Edit => "common-settings/page-edit.md",
+        Page::File => "common-settings/page-file.md",
+        Page::FileName => "common-settings/page-file-name.md",
+        Page::Backup => "common-settings/page-backup.md",
+        Page::Format => "common-settings/page-format.md",
+        Page::Search => "common-settings/page-search.md",
+        Page::Keys => "common-settings/page-keys.md",
+        Page::CustomMenu => "common-settings/page-custom-menu.md",
+        Page::Keyword => "common-settings/page-keyword.md",
+        Page::Support => "common-settings/page-support.md",
+        Page::Macro => "common-settings/page-macro.md",
+        Page::Plugin => "common-settings/page-plugin.md",
+        Page::OneLiner => "common-settings/page-oneliner.md",
+        // the shell has no page yet
+        Page::Terminal => return None,
+    })
+}
+
+/// The page of the dialogs 「文字色統一」 and 「背景色統一」 (`CDlgSameColor`: `HLP000316`).
+pub(crate) const SAME_COLOR_PAGE: &str = "type-settings-window/type-page-color.md";
+
+/// Every page the code opens, for the test that they exist.
+#[cfg(test)]
+pub(crate) fn all_pages() -> Vec<&'static str> {
+    PAGES
+        .iter()
+        .map(|(_, page)| *page)
+        .chain(
+            crate::common_settings::Page::ALL
+                .into_iter()
+                .filter_map(common_settings_page),
+        )
+        .chain([SAME_COLOR_PAGE, ONLINE_CONTENTS_PAGE])
+        .collect()
+}
+
+/// The folder of the help that comes with the program, if it is there: the first of the places
+/// where the packages put it that has an `index.html` (ADR-0031, 決めたこと 6).
+///
+/// 1. `help` next to the program (the Windows zip and installer, the tar.gz of macOS and Linux)
+/// 2. `../Resources/help` (the macOS app: `Contents/MacOS` next to `Contents/Resources`)
+/// 3. `../share/matsu-editor/help` (`.deb` and `.rpm`: the program is in `/usr/bin`)
+pub(crate) fn local_dir(exe_dir: Option<&Path>) -> Option<PathBuf> {
+    let exe_dir = exe_dir?;
+    let up = exe_dir.parent();
+    [
+        Some(exe_dir.join("help")),
+        up.map(|up| up.join("Resources").join("help")),
+        up.map(|up| up.join("share").join("matsu-editor").join("help")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|dir| dir.join(LOCAL_INDEX).is_file())
+}
+
+/// Whether a `#anchor` survives when a page is opened as a `file://` URL.
+///
+/// Not checked on any system yet: GPUI's `open_url` and `open_with_system` both go to
+/// `ShellExecuteW` on Windows (and a path with `#` is a file name there), and to the system's
+/// opener elsewhere; whether the browser gets the fragment was not measured. Until it is, a page
+/// is opened without the anchor. [`plan_page`] and [`file_url`] are ready for the day this is true.
+const LOCAL_ANCHOR_KEPT: bool = false;
+
+/// The help page `page` (a path under `docs/help/ja/`, ending in `.md`): the built page of the
+/// local help if there is one, else the page on the web. The anchor is a heading id; it goes only
+/// to the local page (GitHub makes its own ids for the headings of Markdown).
+pub(crate) fn plan_page(local: Option<&Path>, page: &str, anchor: Option<&str>) -> Opening {
+    if let Some(dir) = local {
+        let built = match page.strip_suffix(".md") {
+            Some(stem) => format!("{stem}.html"),
+            None => page.to_owned(),
+        };
+        let file = dir.join(built);
+        if file.is_file() {
+            return match anchor.filter(|_| LOCAL_ANCHOR_KEPT) {
+                Some(anchor) => Opening::Url(format!("{}#{anchor}", file_url(&file))),
+                None => Opening::File(file),
+            };
+        }
+    }
+    Opening::Url(format!("{ONLINE_BASE}{page}"))
+}
+
+/// What `Command_HELP_CONTENTS` opens: the `index.html` of the local help, else the contents on
+/// the web.
+pub(crate) fn plan_contents(local: Option<&Path>) -> Opening {
+    match local {
+        Some(dir) => Opening::File(dir.join(LOCAL_INDEX)),
+        None => Opening::Url(format!("{ONLINE_BASE}{ONLINE_CONTENTS_PAGE}")),
+    }
+}
+
+/// What `Command_HELP_SEARCH` opens: a search on the web, in the help of the repository, for
+/// `query` (the selection or the word at the caret). Without a query there is nothing to look
+/// for, and the contents open instead.
+///
+/// The local help is not used: Pagefind reads its index with `fetch`, which browsers do not allow
+/// for a page opened as `file://`. This is what is known of Chromium-based browsers; it was not
+/// tried here (Pagefind is not installed where this was written), and the book has no search page
+/// yet. ADR-0031 (決めたこと 8) has no server for it.
+pub(crate) fn plan_search(local: Option<&Path>, query: &str) -> Opening {
+    let query: String = query
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .take(MAX_QUERY_CHARS)
+        .collect();
+    if query.is_empty() {
+        return plan_contents(local);
+    }
+    let scope = format!("repo:{} path:{ONLINE_SEARCH_PATH}", repo_slug());
+    Opening::Url(format!(
+        "{ONLINE_SEARCH_URL}{}",
+        percent_encode(&format!("{query} {scope}"))
+    ))
+}
+
+/// `owner/name` of the repository, from `CARGO_PKG_REPOSITORY`.
+fn repo_slug() -> &'static str {
+    let url = env!("CARGO_PKG_REPOSITORY");
+    url.strip_prefix("https://github.com/")
+        .unwrap_or(url)
+        .trim_end_matches('/')
+}
+
+/// Escapes every byte of `text` that is not an unreserved character of RFC 3986.
+fn percent_encode(text: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
+}
+
+/// A `file://` URL of a path: `/` separators, `file:///C:/...` for a path with a drive, and the
+/// bytes outside the unreserved characters escaped.
+pub(crate) fn file_url(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let escaped = text
+        .split('/')
+        .map(|part| {
+            // the `C:` of a drive stays
+            if part.len() == 2 && part.ends_with(':') {
+                part.to_owned()
+            } else {
+                percent_encode(part)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    if escaped.starts_with('/') {
+        format!("file://{escaped}")
+    } else {
+        format!("file:///{escaped}")
+    }
+}
+
+/// Opens the help page of a function (the help button of a dialog). Does nothing for a function
+/// without a page.
+pub(crate) fn open_function_page(cx: &mut App, function: &str) {
+    if let Some(page) = page_of(function) {
+        open_page(cx, page, None);
+    }
+}
+
+/// Opens a help page, from the local help if the program has it.
+pub(crate) fn open_page(cx: &mut App, page: &str, anchor: Option<&str>) {
+    let local = local_dir(exe_dir().as_deref());
+    perform(cx, plan_page(local.as_deref(), page, anchor));
+}
 
 /// The status bar says this when the HTML help is opened without the word.
 pub(crate) const NO_KEYWORD_LOOKUP: &str =
@@ -293,10 +514,179 @@ mod tests {
         ));
     }
 
+    /// Makes `<root>/<sub>/index.html` and returns the root.
+    fn root_with_help(sub: &str) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(sub);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), b"").unwrap();
+        root
+    }
+
     #[test]
-    fn the_urls_are_the_documents_of_the_project() {
-        assert!(CONTENTS_URL.starts_with("https://github.com/stofu5678/matsu_editor/"));
-        assert!(CONTENTS_URL.ends_with("/docs"));
-        assert!(INDEX_URL.ends_with("/docs/adr/README.md"));
+    fn the_local_help_is_looked_for_in_the_places_of_the_packages() {
+        // the Windows zip, the tar.gz: `help` next to the program
+        let root = root_with_help("bin/help");
+        assert_eq!(
+            local_dir(Some(&root.path().join("bin"))),
+            Some(root.path().join("bin/help"))
+        );
+        // the macOS app
+        let root = root_with_help("Contents/Resources/help");
+        assert_eq!(
+            local_dir(Some(&root.path().join("Contents/MacOS"))),
+            Some(root.path().join("Contents/Resources/help"))
+        );
+        // `.deb` and `.rpm`
+        let root = root_with_help("usr/share/matsu-editor/help");
+        assert_eq!(
+            local_dir(Some(&root.path().join("usr/bin"))),
+            Some(root.path().join("usr/share/matsu-editor/help"))
+        );
+    }
+
+    /// The Linux packages: `/usr/bin/matsu` is a link and `current_exe` gives the real folder
+    /// `/usr/lib/matsu-editor`, which holds a link `help` to `../../share/matsu-editor/help`.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_the_help_in_the_folder_of_the_program_is_followed() {
+        let root = root_with_help("usr/share/matsu-editor/help");
+        let exe = root.path().join("usr/lib/matsu-editor");
+        std::fs::create_dir_all(&exe).unwrap();
+        std::os::unix::fs::symlink("../../share/matsu-editor/help", exe.join("help")).unwrap();
+        assert_eq!(local_dir(Some(&exe)), Some(exe.join("help")));
+    }
+
+    #[test]
+    fn the_first_place_with_an_index_wins_and_a_folder_without_one_is_skipped() {
+        let root = root_with_help("bin/help");
+        let other = root.path().join("share/matsu-editor/help");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("index.html"), b"").unwrap();
+        assert_eq!(
+            local_dir(Some(&root.path().join("bin"))),
+            Some(root.path().join("bin/help"))
+        );
+        // `help` without `index.html` is not the help
+        std::fs::remove_file(root.path().join("bin/help/index.html")).unwrap();
+        assert_eq!(local_dir(Some(&root.path().join("bin"))), Some(other));
+    }
+
+    #[test]
+    fn there_is_no_local_help_without_the_folder() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(local_dir(Some(root.path())), None);
+        assert_eq!(local_dir(None), None);
+        // a program with no parent folder
+        assert_eq!(local_dir(Some(Path::new("/"))), None);
+    }
+
+    #[test]
+    fn the_contents_are_the_local_index_else_the_page_on_the_web() {
+        let root = root_with_help("help");
+        let dir = root.path().join("help");
+        assert_eq!(
+            plan_contents(Some(&dir)),
+            Opening::File(dir.join("index.html"))
+        );
+        assert_eq!(
+            plan_contents(None),
+            Opening::Url(
+                "https://github.com/stofu5678/matsu_editor/blob/main/docs/help/ja/SUMMARY.md"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_page_is_the_built_file_when_it_is_there_else_the_page_on_the_web() {
+        let root = root_with_help("help");
+        let dir = root.path().join("help");
+        std::fs::create_dir_all(dir.join("search")).unwrap();
+        std::fs::write(dir.join("search/file-tree.html"), b"").unwrap();
+        assert_eq!(
+            plan_page(Some(&dir), "search/file-tree.md", Some("anchor")),
+            Opening::File(dir.join("search/file-tree.html"))
+        );
+        // a page the local build lacks (an older help) is read on the web
+        assert_eq!(
+            plan_page(Some(&dir), "search/grep.md", Some("anchor")),
+            Opening::Url(format!("{ONLINE_BASE}search/grep.md"))
+        );
+        assert_eq!(
+            plan_page(None, "search/grep.md", None),
+            Opening::Url(format!("{ONLINE_BASE}search/grep.md"))
+        );
+    }
+
+    #[test]
+    fn the_search_is_a_code_search_of_the_help_for_the_word() {
+        let Opening::Url(url) = plan_search(None, "grep の 検索") else {
+            panic!("a URL")
+        };
+        assert_eq!(
+            url,
+            "https://github.com/search?type=code&q=grep%20%E3%81%AE%20%E6%A4%9C%E7%B4%A2\
+             %20repo%3Astofu5678%2Fmatsu_editor%20path%3Adocs%2Fhelp"
+        );
+        // only the first line, trimmed, at most 100 characters
+        let Opening::Url(url) = plan_search(None, "  one \ntwo") else {
+            panic!("a URL")
+        };
+        assert!(url.contains("q=one%20repo"), "{url}");
+        let Opening::Url(url) = plan_search(None, &"a".repeat(300)) else {
+            panic!("a URL")
+        };
+        assert!(
+            url.contains(&format!("q={}%20repo", "a".repeat(100))),
+            "{url}"
+        );
+    }
+
+    #[test]
+    fn a_search_without_a_word_opens_the_contents() {
+        assert_eq!(plan_search(None, " \n"), plan_contents(None));
+        assert_eq!(plan_search(None, ""), plan_contents(None));
+    }
+
+    #[test]
+    fn a_file_url_keeps_a_drive_and_escapes_the_rest() {
+        assert_eq!(
+            file_url(Path::new(r"C:\Program Files\MATSU Editor\help\a b.html")),
+            "file:///C:/Program%20Files/MATSU%20Editor/help/a%20b.html"
+        );
+        assert_eq!(
+            file_url(Path::new("/usr/share/matsu-editor/help/日本.html")),
+            "file:///usr/share/matsu-editor/help/%E6%97%A5%E6%9C%AC.html"
+        );
+    }
+
+    #[test]
+    fn the_table_finds_the_page_of_a_function() {
+        assert_eq!(page_of("F_FILETREE"), Some("search/file-tree.md"));
+        assert_eq!(page_of("F_FILEOPEN"), None);
+    }
+
+    #[test]
+    fn every_page_of_the_table_exists() {
+        // so that a renamed or removed page breaks the build
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/help/ja");
+        let missing: Vec<_> = all_pages()
+            .into_iter()
+            .filter(|page| !root.join(page).is_file())
+            .collect();
+        assert!(missing.is_empty(), "pages that do not exist: {missing:?}");
+    }
+
+    #[test]
+    fn the_functions_of_the_table_exist() {
+        for (name, _) in PAGES {
+            assert!(
+                matsu_commands::sakura::FUNCTIONS
+                    .iter()
+                    .any(|f| f.name == *name),
+                "{name}"
+            );
+        }
     }
 }

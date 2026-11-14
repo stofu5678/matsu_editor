@@ -194,6 +194,8 @@
   - [ウィンドウ: 再描画](type-settings-window/redraw.md)
   - [ウィンドウ: アウトプット](type-settings-window/win-output.md)
 - [コマンド: ヘルプとメニューに入っていないコマンド]()
+  - [ヘルプ目次](help-other/help-contents.md)
+  - [ヘルプキーワード検索](help-other/help-search.md)
 - [仕様等と正規表現](specs-regex/index.md)
   - [正規表現の構文](specs-regex/regex-syntax.md)
   - [置換文字列の書き方](specs-regex/regex-replace.md)
