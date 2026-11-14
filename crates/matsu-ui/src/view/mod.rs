@@ -979,6 +979,10 @@ impl EditorView {
         cx.bind_keys([
             gpui::KeyBinding::new("tab", gpui::NoAction, Some("Editor")),
             gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("Editor")),
+            // The confirmation before text goes to an AI is a sibling of the editor, not inside its context: its
+            // own Tab handling (`crate::ai_confirm`) needs the key as well.
+            gpui::KeyBinding::new("tab", gpui::NoAction, Some("AiConfirmDialog")),
+            gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("AiConfirmDialog")),
         ]);
     }
 

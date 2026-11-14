@@ -35,19 +35,26 @@ pub(crate) struct LogText {
 }
 
 impl LogText {
-    pub(crate) fn new(mut text: String) -> Self {
-        if text.len() <= MAX_TEXT_BYTES {
+    pub(crate) fn new(text: String) -> Self {
+        Self::sized(text, None)
+    }
+
+    /// `text` is the head of a text that has `whole` bytes (`None`: `text` is all of it).
+    pub(crate) fn sized(mut text: String, whole: Option<usize>) -> Self {
+        let original = whole.unwrap_or(text.len()).max(text.len());
+        if original <= MAX_TEXT_BYTES {
             return Self {
                 text,
                 cut_from: None,
             };
         }
-        let original = text.len();
-        let mut end = MAX_TEXT_BYTES;
-        while !text.is_char_boundary(end) {
-            end -= 1;
+        if text.len() > MAX_TEXT_BYTES {
+            let mut end = MAX_TEXT_BYTES;
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
         }
-        text.truncate(end);
         // `truncate` keeps the allocation of the whole text; the limit is for the memory the log holds.
         text.shrink_to_fit();
         Self {
@@ -75,6 +82,9 @@ pub(crate) struct Started {
     pub(crate) command_line: String,
     /// The text sent to the command's stdin.
     pub(crate) input: String,
+    /// The size of the whole input when `input` is only its head (a text that is read up to a limit); `None` when
+    /// `input` is all of it.
+    pub(crate) input_size: Option<usize>,
     pub(crate) started_at: DateTime<Local>,
 }
 
@@ -141,7 +151,7 @@ impl Log {
             id,
             name: started.name,
             command_line: LogText::new(started.command_line),
-            input: LogText::new(started.input),
+            input: LogText::sized(started.input, started.input_size),
             started_at: started.started_at,
             result: None,
         });
@@ -299,6 +309,7 @@ mod tests {
             name: name.to_owned(),
             command_line: "claude -p".to_owned(),
             input: "こんにちは".to_owned(),
+            input_size: None,
             started_at: at(),
         }
     }
@@ -383,6 +394,17 @@ mod tests {
         let shown = log.markdown();
         assert!(shown.contains("長いので、先頭の 256 KiB だけを残しました"));
         assert!(shown.contains(&format!("元は {} バイト", text.len())));
+    }
+
+    #[test]
+    fn a_head_that_was_read_up_to_a_limit_reports_the_size_of_the_whole() {
+        let head = "a".repeat(MAX_TEXT_BYTES + 10);
+        let cut = LogText::sized(head, Some(5_000_000));
+        assert_eq!(cut.as_str().len(), MAX_TEXT_BYTES);
+        assert_eq!(cut.cut_from(), Some(5_000_000));
+        // a whole text that is short stays whole, whatever the size says
+        let whole = LogText::sized("abc".to_owned(), None);
+        assert_eq!(whole.cut_from(), None);
     }
 
     #[test]
