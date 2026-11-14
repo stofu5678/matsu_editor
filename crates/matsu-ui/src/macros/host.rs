@@ -77,6 +77,16 @@ impl EditorView {
             let types = crate::doc_types::with_user(cx, |user| user.shared_types());
             env.type_of_ext = Some(Box::new(move |ext| types.type_index_for_ext(ext)));
         }
+        // `ExpandParameter` gives a macro what the title gets: the window's own state for the codes
+        // that a macro cannot change (the document type, the time stamp of the file, the settings
+        // file, the profile, the Grep key, the print setting, ...). `$B` and `$Q` make the
+        // context read the type and the print setting; the position, the selection and the time
+        // are read by the function itself. The exec flow and `TraceOut` pass no line.
+        if message.is_empty() || message.contains("ExpandParameter") {
+            env.header = Some(self.header_context_for(Some("$B$Q"), cx));
+            let names = crate::file_names::current(cx);
+            env.short_name = Some(Box::new(move |path| names.transform(path, true)));
+        }
         env
     }
 

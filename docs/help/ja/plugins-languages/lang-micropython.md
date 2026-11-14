@@ -11,7 +11,7 @@
 | 版 | MicroPython 1.29.0 |
 | 作り | 公式の embed ポートで作った C のソースを、一緒にビルドしたもの（クレート `matsu-micropython-sys`） |
 | ライセンス | MIT。正規表現のエンジン（re1.5）は BSD-3-Clause |
-| プラグイン | 動かせません（今は QuickJS だけです） |
+| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python です） |
 | ヒープ | 64 MiB に固定。超えると `MemoryError` |
 
 言語の範囲は、CPython ではなく、MicroPython のものです。CPython にあって MicroPython にない機能は、使えません。

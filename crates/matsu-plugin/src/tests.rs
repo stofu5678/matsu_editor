@@ -38,7 +38,7 @@ fn emacs_has_json(interpreter: &std::ffi::OsStr) -> bool {
 }
 
 /// Whether the interpreter starts. Prints why not if it does not.
-fn available(language: Language) -> bool {
+pub(crate) fn available(language: Language) -> bool {
     // osascript is part of macOS only: no other OS has it, and none is expected to.
     if language == Language::AppleScript && !cfg!(target_os = "macos") {
         eprintln!("SKIP: AppleScript runs only on macOS");

@@ -785,3 +785,20 @@ fn the_case_of_the_readme_name_does_not_matter_and_a_folder_is_not_a_readme() {
     touch(&dir.path().join("plugins/Q/ReadMe.txt"));
     assert_eq!(dirs.readme_file("P"), None);
 }
+
+#[test]
+fn an_es_module_or_typescript_handler_is_not_supported_yet_and_cjs_and_python_are() {
+    let mjs = def("[Plugin]\r\nType=wsh\r\n[Command]\r\nC[1]=a.cjs\r\nC[2]=dir/b.mjs\r\n");
+    assert_eq!(
+        mjs.unsupported(),
+        Some(Unsupported::EsModule("dir/b.mjs".into()))
+    );
+    let ts = def("[Plugin]\r\nType=wsh\r\n[Plug]\r\nOutline=out.ts\r\n");
+    assert_eq!(
+        ts.unsupported(),
+        Some(Unsupported::EsModule("out.ts".into()))
+    );
+    // `.cjs` and `.py` are served.
+    let ok = def("[Plugin]\r\nType=wsh\r\n[Plug]\r\nOutline=a.cjs\r\nDocumentOpen=b.py\r\n");
+    assert_eq!(ok.unsupported(), None);
+}

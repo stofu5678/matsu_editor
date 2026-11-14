@@ -6,7 +6,7 @@
 
 サクラエディタの操作感を macOS・Windows・Linux で再現するテキストエディタ。Rust で書き、MIT OR Apache-2.0 で公開する。
 
-- 製品名は、2026-10-22 に「MATSU Editor」に改めた（[ADR-0021](docs/adr/0021-rename-to-matsu.md)）。名前の書き方は、その表に従う。古い名前を戻さないための検査が `crates/matsu/tests/leftover_names.rs` にある（歴史の記録は除く）
+- 製品名は、2026-10-22 に「MATSU Editor」に改めた（[ADR-0021](docs/adr/0021-rename-to-matsu.md)）。名前の書き方は、その表に従う。古い名前を戻さないための検査が `xtask/src/names_check.rs`（`cargo xtask names-check`。CI の lint ジョブが、文書だけの PR でも回す）にある（歴史の記録は除く）
 - 名前は、英字で書く場所では「MATSU Editor」とする（SAKURA Editor に合わせる）。ウィンドウのタイトル、メニュー、README、文書の中の製品名など。小文字しか使えない場所や慣習で小文字にする場所（リポジトリ名の `matsu_editor`、クレート名の `matsu-*`、アプリの識別子（例: `io.github.stofu5678.matsu-editor`））はそのままにする
 - カタカナで書く場所では「マツエディタ」とする（サクラエディタに合わせる。2026-10-17 にユーザーが判断）。サクラの表示名に「サクラエディタ」が入るもの（メニューの「サクラエディタの全終了」など）は、「マツエディタ」に置き換える
 - 計画と現在のフェーズ: [docs/roadmap.md](docs/roadmap.md)

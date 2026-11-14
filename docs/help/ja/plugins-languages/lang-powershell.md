@@ -9,7 +9,7 @@
 | 起動する名前 | `pwsh`（PowerShell 7）。Windows で `pwsh.exe` が `PATH` になければ、`powershell`（Windows PowerShell 5.1） |
 | 版 | 7 と 5.1 のどちらでも動きます |
 | 起動の時間 | ほかの外部の言語より、1 桁遅い（Linux ARM64 の PowerShell 7 で、690〜980 ミリ秒と測りました） |
-| プラグイン | 動かせません（今は QuickJS だけです） |
+| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python です） |
 
 ## 動き方
 

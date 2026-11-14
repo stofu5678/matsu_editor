@@ -14,6 +14,7 @@ dnf install -y --setopt=install_weak_deps=False "$rpm_file"
 test -x /usr/lib/matsu-editor/matsu || fail "matsu is missing"
 test "$(readlink -f /usr/bin/matsu)" = /usr/lib/matsu-editor/matsu || fail "the symlink is wrong"
 test -f "/usr/share/applications/$app_id.desktop" || fail "the desktop file is missing"
+test -f /usr/lib/matsu-editor/help/index.html || fail "the help is not found next to the program"
 if ldd /usr/lib/matsu-editor/matsu | grep 'not found'; then fail "matsu misses a shared library"; fi
 if ldd /usr/lib/matsu-editor/matsu-script | grep 'not found'; then fail "matsu-script misses a shared library"; fi
 set +e
@@ -28,7 +29,7 @@ printf '[Window]\nWidth=123\n' > "$config/matsu.ini"
 printf 'unsaved text\n' > "$config/unsaved/x.txt"
 before=$(cd "$config" && find . -type f -exec sha256sum {} + | sort)
 dnf remove -y matsu-editor
-for p in /usr/lib/matsu-editor /usr/bin/matsu "/usr/share/applications/$app_id.desktop" /usr/share/doc/matsu-editor; do
+for p in /usr/lib/matsu-editor /usr/bin/matsu "/usr/share/applications/$app_id.desktop" /usr/share/doc/matsu-editor /usr/share/matsu-editor; do
   test ! -e "$p" && test ! -L "$p" || fail "$p is still there"
 done
 after=$(cd "$config" && find . -type f -exec sha256sum {} + | sort)

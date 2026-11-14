@@ -26,8 +26,8 @@
 | `WordRight_Sel` | なし | なし | 次の単語の先頭へ動いて、選択を広げる。 | する | 記録なし |
 | `GoLineTop_Sel` | 整数（行頭移動のフラグ） | なし | 表示行の行頭へ動いて、選択を広げる。フラグなし（0）では、インデントの次の文字へ先に止まり、もう一度で行頭へ行く。フラグは下の「フラグ」を見る。 | する | 記録なし |
 | `GoLineEnd_Sel` | 整数（行末移動のフラグ） | なし | 表示行の行末へ動いて、選択を広げる。フラグは下の「フラグ」を見る。 | する | 記録なし |
-| `HalfPageUp_Sel` | 整数（動く行数） | なし | 半ページ上へ動いて、選択を広げる。 | する | 引数の扱いに疑問がある（下の「ページ移動の引数」）。 |
-| `HalfPageDown_Sel` | 整数（動く行数） | なし | 半ページ下へ動いて、選択を広げる。 | する | 同上 |
+| `HalfPageUp_Sel` | 整数（動く行数） | なし | 半ページ上へ動いて、選択を広げる。 | する | 違いなし。 |
+| `HalfPageDown_Sel` | 整数（動く行数） | なし | 半ページ下へ動いて、選択を広げる。 | する | 違いなし |
 | `PageUp_Sel`、`1PageUp_Sel` | 整数（動く行数） | なし | 1 ページ上へ動いて、選択を広げる。ページの行数から 1 を引いた行だけ、キャレットと表示が動く。 | する | 同上 |
 | `PageDown_Sel`、`1PageDown_Sel` | 整数（動く行数） | なし | 1 ページ下へ動いて、選択を広げる。 | する | 同上 |
 | `GoFileTop_Sel` | なし | なし | 文書の先頭へ動いて、選択を広げる。 | する | 記録なし |
@@ -51,12 +51,7 @@
 
 `HalfPageUp_Sel` などの引数は、動く行数です。0 以下や省略では、既定（半ページ、または 1 ページから 1 行引いた数）を使います。`int` を超える数は、範囲に切り詰めます。
 
-コードの中で、2 つの道が食い違っています。
-
-- コマンド本体は、この引数を読みます（試験があります）。
-- スクリプトから引数を付けて呼ぶ道は、「引数をまだ使わない」というエラーを返す一覧に、この関数を入れています。
-
-スクリプトからは、いまは引数なしで呼ぶのが確かです。この食い違いは、PR の「残っていること」に書きました。
+スクリプトから引数を付けて呼んでも、行数が効きます（試験: `a_script_gives_the_row_count_to_the_paging_functions`）。
 
 ## 根拠
 
@@ -70,5 +65,5 @@
   - `ui_commands/cursor/half_page_up_sel.rs` ほか `ui_commands/cursor/*page*_sel.rs`
   - `ui_commands/select/modifyline_next_sel.rs`、`modifyline_prev_sel.rs`
   - `view/paging.rs`（`rows_arg`）
-  - `macros/ui_calls.rs`（`IGNORES_ARGUMENTS`: スクリプトからの呼び出しが引数を断る場所）
+  - `macros/ui_calls.rs`（スクリプトからの呼び出しが引数を断る場所。ページ移動は入っていない）
 - 試験: `crates/matsu-commands/src/commands/select/` の各ファイルの `tests`、`crates/matsu-ui/src/view/paging_tests.rs`（`the_page_commands_take_the_number_of_rows_of_the_macro`）

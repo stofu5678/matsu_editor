@@ -17,7 +17,7 @@
 | 起動する名前 | `node`（`PATH` から探します） |
 | 版 | `.mjs` と `.cjs` は、版の下限を確かめません。`.ts` は Node.js 22.18 以降（22 系）、23.6 以降（23 系）、または 24 以降 |
 | 試した版 | Node.js v24、v25、22.23（根拠に挙げた記録と CI） |
-| プラグイン | 動かせません（今は QuickJS だけです） |
+| プラグイン | `.cjs` だけ動かせます。`.mjs` と `.ts` は、まだ動かせません。下の「プラグインとして動かすとき」 |
 
 `.ts` を、古い Node.js で動かそうとすると、「TypeScript のマクロには Node.js 22.18 以降が要ります (見つかったのは vX)」と出て、終わります。
 
@@ -42,10 +42,33 @@
 
 受けなかったエラーは、Node.js の形で、スタックつきで標準エラーに出ます。スクリプトは、終了コード 1 で終わります。
 
+## プラグインとして動かすとき
+
+ハンドラの拡張子が `.cjs` のとき、利用者の Node.js が動かします。`.js` は QuickJS です。
+
+- `Editor`、`EditorError`、`console` のほか、`Plugin`、`Outline`、`Complement`、`Indent` が、グローバルにあります（[ハンドラの中で使えるもの](plugin-api.md)）。`Editor` などの書き足しは要りません。隣のファイルは `require('./名前.cjs')` で読めます。
+- 呼び出しのたびに、同意したときに読んだ文面を、新しい CommonJS のモジュールとして、最初から動かします。
+- 次の呼び出しまで残したいものは、`globalThis` に置きます。プロセスが残っている（`UseCache=1` か `Resident=1`）間だけ、残ります。ハンドラのファイルごとの別の実行環境は、ありません。別のファイルの `globalThis` の値も見えます。
+- 誰も受けなかった Promise の拒否が残ると、その呼び出しは失敗になります。
+- ハンドラが始めたタイマー（`setTimeout`）は、その呼び出しの中で、すべて終わるまで待ちます。タイマーの中で `Editor` を呼んでも、その呼び出しの文書に対して動きます。終わらないタイマー（`setInterval`）があると、その呼び出しは時間切れになります。タイマーの中で出た例外は、その呼び出しの失敗です。
+- 呼び出しの間、Node.js のイベントループは進みません。`Editor` などの呼び出しは、マクロと同じく、答えが返るまで待ちます。
+
+### `.mjs` と `.ts` は、まだ動かせません
+
+`.mjs`（ES モジュール）と `.ts`（TypeScript）のハンドラを持つプラグインは、一覧に「`<ファイル名>` は使えません」と出て、有効にできません。コマンドなどで呼んだときも、状態バーに、どのファイルが動かせないかと、`.cjs` にするよう出ます。
+
+理由は、2 つあります。
+
+- Node.js は、ES モジュールを、ファイルから読み直します。同意を確かめたあとでファイルが書き換えられると、書き換えたものが動いてしまいます。同意した文面だけを Node.js に渡す仕組みが、まだありません。
+- 呼び出しのたびに新しいモジュールとして読むと、Node.js はそれを捨てないので、メモリが増え続けます（1 回あたり約 11 KB）。
+
+あとで、同意した文面だけを渡し、モジュールを 1 回だけ読む仕組みを足して、動かせるようにする予定です。
+
 ## 根拠
 
 - 起動の引数と名前: `crates/matsu-plugin/src/session.rs` の `Language::default_interpreter`、`start`（`--require`）、`node_strips_types`、`Language::of_file`
 - 型の取り除きと版の確認: `crates/matsu-plugin/src/boot/boot.cjs`。`docs/adr/0025-script-languages.md`
 - 同期の呼び出し、出力: `boot.cjs`（冒頭の説明）
 - 試した版: `docs/poc/json-rpc.md`（「確かめたこと」）。`.github/workflows/ci.yml`（Node.js 22.23）
+- プラグインの待ち受け: `boot.cjs` の `servePlugin`。`.mjs` と `.ts` を断る所: `crates/matsu-config/src/plugins/def.rs` の `PluginDef::unsupported`（`Unsupported::EsModule`）、`crates/matsu-ui/src/macros/plugin_call.rs` の `prepare`。試験は `crates/matsu-plugin/src/external_plugin_tests.rs`、サンプルは `crates/matsu-plugin/samples/plugins/HelloNode`
 - 試験: `crates/matsu-plugin/src/tests.rs`、`crates/matsu-script/tests/quickjs.rs` の `node_extensions_stay_on_node`

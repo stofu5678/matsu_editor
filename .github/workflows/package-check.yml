@@ -16,6 +16,8 @@ on:
       - scripts/package-mac-dmg.sh
       - scripts/check-mac-dmg.sh
       - scripts/package-linux.sh
+      - tools/help/**
+      - .github/scripts/help-check-index.py
       - packaging/linux/**
       - .github/scripts/test-linux-install.sh
       - .github/scripts/test-rpm-in-fedora.sh

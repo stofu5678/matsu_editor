@@ -344,6 +344,28 @@ fn save_as_with_arguments_changes_the_encoding_and_the_line_ending(cx: &mut Test
 }
 
 #[gpui::test]
+fn save_as_dialog_starts_in_the_folder_of_the_default_name(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = setup(cx);
+    cx.simulate_input("a");
+    // F_FILESAVEAS_DIALOG: the first argument is the default name (`Command_FILESAVEAS_DIALOG`'s
+    // `fileNameDef`); its folder is where the dialog starts when it exists.
+    let given = dir.path("given.txt").to_string_lossy().into_owned();
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[Arg::Text(given)]);
+    let chosen = target.clone();
+    let expected = dir.0.clone();
+    cx.simulate_new_path_selection(move |start| {
+        assert_eq!(start, expected.as_path());
+        Some(chosen)
+    });
+    cx.run_until_parked();
+    // the fallback dialog asks for the options after the path
+    f.keys(cx, "enter");
+    assert_eq!(read(&target), b"a");
+}
+
+#[gpui::test]
 fn save_as_without_a_dialog_takes_the_name_and_the_line_ending(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let target = dir.path("c.txt");

@@ -12,6 +12,7 @@
 //! * [`list`] is the window list: the popup of `F_WINLIST` and the dialog of `F_DLGWINLIST`.
 
 pub(crate) mod list;
+pub(crate) mod menu_list;
 
 use gpui::{AnyWindowHandle, App, AsyncWindowContext, Entity, Window};
 use matsu_commands::command::CommandError;

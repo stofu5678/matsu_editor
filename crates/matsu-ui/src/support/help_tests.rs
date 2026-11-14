@@ -13,7 +13,7 @@ use matsu_commands::sakura::FUNCTIONS;
 use matsu_core::buffer::Document;
 use matsu_core::model::DocumentModel;
 
-use super::help::{CONTENTS_URL, INDEX_URL, NO_KEYWORD_LOOKUP, OPENED, Opening};
+use super::help::{NO_KEYWORD_LOOKUP, ONLINE_BASE, OPENED, Opening};
 use super::prefs::HelperPrefs;
 use crate::document::SharedDocument;
 use crate::settings::UserSettings;
@@ -246,17 +246,43 @@ fn exthtmlhelp_without_a_file_asks(cx: &mut TestAppContext) {
 // ---- F_HELP_CONTENTS and F_HELP_SEARCH ----
 
 #[gpui::test]
-fn the_help_of_the_program_is_the_documents_of_the_project(cx: &mut TestAppContext) {
+fn the_contents_open_the_help_on_the_web_when_the_program_has_none(cx: &mut TestAppContext) {
+    // the test program has no `help` folder next to it
     let (f, cx) = setup(cx, "hello", "", HelperPrefs::default());
     f.run(cx, "F_HELP_CONTENTS", &[]);
-    f.run(cx, "F_HELP_SEARCH", &[]);
-    assert_eq!(
-        opened(),
-        [
-            Opening::Url(CONTENTS_URL.to_owned()),
-            Opening::Url(INDEX_URL.to_owned())
-        ]
-    );
+    assert_eq!(opened(), [Opening::Url(format!("{ONLINE_BASE}SUMMARY.md"))]);
     // nothing is lost: no notice
     assert_eq!(f.notice(cx), None);
+}
+
+#[gpui::test]
+fn the_search_looks_for_the_word_at_the_caret_in_the_help(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "hello world", "", HelperPrefs::default());
+    f.run(cx, "F_HELP_SEARCH", &[]);
+    let Opening::Url(url) = opened().remove(0) else {
+        panic!("a URL")
+    };
+    assert!(url.contains("q=%22hello%22%20repo%3A"), "{url}");
+    assert!(url.contains("path%3Adocs%2Fhelp"), "{url}");
+    assert_eq!(f.notice(cx), None);
+}
+
+#[gpui::test]
+fn the_search_takes_the_selection_as_the_query(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "hello world", "", HelperPrefs::default());
+    cx.simulate_keystrokes(
+        "shift-right shift-right shift-right shift-right shift-right shift-right shift-right",
+    );
+    f.run(cx, "F_HELP_SEARCH", &[]);
+    let Opening::Url(url) = opened().remove(0) else {
+        panic!("a URL")
+    };
+    assert!(url.contains("q=%22hello%20w%22%20repo%3A"), "{url}");
+}
+
+#[gpui::test]
+fn the_search_without_a_word_opens_the_contents(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "", "", HelperPrefs::default());
+    f.run(cx, "F_HELP_SEARCH", &[]);
+    assert_eq!(opened(), [Opening::Url(format!("{ONLINE_BASE}SUMMARY.md"))]);
 }
