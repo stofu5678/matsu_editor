@@ -35,6 +35,12 @@
 //! for Alt+letter and the tap of Alt, and `BarMenu::on_key_down` for the letters in an open menu.
 
 mod access;
+
+/// The access key of a menu item, for the tests of other modules.
+#[cfg(test)]
+pub(crate) fn access_key_of(item: &gpui::OwnedMenuItem) -> Option<char> {
+    access::item_key(item)
+}
 mod keys;
 pub(crate) mod popup_keys;
 

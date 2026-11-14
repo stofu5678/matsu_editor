@@ -141,3 +141,38 @@ fn the_menus_follow_the_windows_that_open(cx: &mut TestAppContext) {
     let names = menu_names(cx);
     assert!(names.iter().any(|n| n.starts_with("2 (無題)")), "{names:?}");
 }
+
+#[gpui::test]
+fn the_digit_of_an_item_is_its_access_key(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        crate::app::set_key_map(cx, matsu_commands::keymap::KeyMap::default());
+        crate::app::refresh_menus(cx);
+    });
+    open(cx);
+    open(cx);
+    let keys = cx.update(|cx| {
+        let menus = crate::app::KindMenus::of(cx, crate::tabs::content::MenuKind::Editor).unwrap();
+        let mut keys = Vec::new();
+        fn walk(items: &[gpui::OwnedMenuItem], keys: &mut Vec<(String, Option<char>)>) {
+            for item in items {
+                match item {
+                    gpui::OwnedMenuItem::Action { name, .. }
+                        if name.contains(" (無題)")
+                            && name.chars().next().is_some_and(|c| c.is_ascii_digit()) =>
+                    {
+                        keys.push((name.clone(), crate::menu_bar::access_key_of(item)));
+                    }
+                    gpui::OwnedMenuItem::Submenu(menu) => walk(&menu.items, keys),
+                    _ => {}
+                }
+            }
+        }
+        for menu in &menus {
+            walk(&menu.items, &mut keys);
+        }
+        keys
+    });
+    let keys: Vec<_> = keys.into_iter().map(|(_, key)| key).collect();
+    assert_eq!(keys, vec![Some('1'), Some('2')]);
+}
