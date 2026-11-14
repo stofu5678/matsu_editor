@@ -109,6 +109,9 @@ pub struct HeaderContext {
     pub macro_path: Option<String>,
     /// The name of the profile, empty for the default one (`$<profile>`).
     pub profile: String,
+    /// The name of the print setting of the document's type (`$Q`; `m_szPrintSettingName` of
+    /// `m_nCurrentPrintSetting`). While a page is printed, the setting of the page is used.
+    pub print_setting_name: String,
     /// `${R?...}`.
     pub write_state: WriteState,
     /// The document has changes not saved (`${U?...}`).
@@ -141,6 +144,7 @@ impl Default for HeaderContext {
             ini_path: String::new(),
             macro_path: None,
             profile: String::new(),
+            print_setting_name: String::new(),
             write_state: WriteState::Writable,
             modified: false,
             recording_macro: false,
@@ -178,8 +182,20 @@ pub struct PageInfo<'a> {
 /// Other `$` sequences stay as they are. The result is cut at 1024 UTF-16 units, like Sakura's
 /// buffer (`DrawHeaderFooter` gives `nWorkLen` 1024), without splitting a character.
 pub fn expand_parameter(form: &str, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> String {
+    expand_parameter_limited(form, ctx, page, MAX_EXPANDED_UNITS)
+}
+
+/// [`expand_parameter`] with the result cut at `max_units` UTF-16 units instead of 1024: the
+/// size of the buffer the caller of `ExpandParameter` gives (a macro: 2047, `Command_EXECCOMMAND`:
+/// 1024).
+pub fn expand_parameter_limited(
+    form: &str,
+    ctx: &HeaderContext,
+    page: Option<&PageInfo<'_>>,
+    max_units: usize,
+) -> String {
     let mut out = expand(form, ctx, page);
-    limit_units(&mut out, MAX_EXPANDED_UNITS);
+    limit_units(&mut out, max_units);
     out
 }
 
@@ -296,7 +312,10 @@ fn expand_one(c: char, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> Opti
         // Sakura shows the name of the type unless it is the basic one.
         'B' => ctx.type_name.clone().unwrap_or_default(),
         'b' => path.map(extension).unwrap_or_default().to_string(),
-        'Q' => page.map_or_else(String::new, |p| p.setting_name.to_string()),
+        'Q' => page.map_or_else(
+            || ctx.print_setting_name.clone(),
+            |p| p.setting_name.to_string(),
+        ),
         'C' => ctx.selected_text.clone(),
         'x' => ctx.caret_x.to_string(),
         'y' => ctx.caret_y.to_string(),

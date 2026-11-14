@@ -60,7 +60,9 @@ mod setting;
 mod source;
 mod style;
 
-pub use header::{HeaderContext, PageInfo, WindowKind, WriteState, expand_parameter};
+pub use header::{
+    HeaderContext, PageInfo, WindowKind, WriteState, expand_parameter, expand_parameter_limited,
+};
 pub use layout::{LINENUMWIDTH_MIN, Layout, LineTerm, PrintError, TypeOptions, line_number_cells};
 pub use page::{FontKind, HAlign, Page, PlacedText, Rgb, Rule, TextStyle};
 pub use setting::{

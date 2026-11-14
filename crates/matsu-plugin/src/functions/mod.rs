@@ -142,6 +142,7 @@ pub(crate) mod testing {
         /// The file a save will write, for the macro that runs before a save.
         pub save_path: Option<std::path::PathBuf>,
         pub overwrite: bool,
+        pub view_mode: bool,
     }
 
     impl Fixture {
@@ -162,6 +163,7 @@ pub(crate) mod testing {
                 path: None,
                 save_path: None,
                 overwrite: false,
+                view_mode: false,
             }
         }
 
@@ -180,7 +182,8 @@ pub(crate) mod testing {
             )
             .with_clipboard(&mut self.clipboard)
             .with_save_path(self.save_path.as_deref())
-            .with_overwrite(self.overwrite);
+            .with_overwrite(self.overwrite)
+            .with_view_mode(self.view_mode);
             let mut editor = Editor {
                 cx: &mut cx,
                 env: &mut self.env,

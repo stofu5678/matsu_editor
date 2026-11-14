@@ -931,6 +931,9 @@ impl EditorView {
                     .map(|t| t.type_name.clone())
             });
         }
+        if wants("$Q") {
+            ctx.print_setting_name = self.current_print_setting(cx).name;
+        }
         if wants("$d") || wants("$t") {
             let options = matsu_commands::format_options::get();
             let now = matsu_commands::convert::datetime::Clock::now(
