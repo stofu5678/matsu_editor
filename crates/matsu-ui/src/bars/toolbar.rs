@@ -133,7 +133,7 @@ fn buttons(cx: &App) -> ToolbarButtons {
 
 /// A button of the toolbar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Button {
+pub(crate) struct Button {
     /// The number in the settings file.
     pub number: u16,
     /// The function the button stands for (0: none, a button that is always gray).
@@ -189,6 +189,23 @@ pub(crate) fn plugin_icon() -> Option<usize> {
 
 /// `F_PLUGCOMMAND`.
 const F_PLUGCOMMAND: u16 = 3;
+
+/// `F_WINCLOSE`: 閉じる.
+const WINCLOSE: u16 = 31320;
+
+/// The close button of the toolbar row of a tab that is not an editor: Sakura's button of
+/// `F_WINCLOSE`, with its picture.
+pub(crate) fn own_tab_close_button() -> Button {
+    let index = FUNCTIONS_OF_BUTTONS
+        .iter()
+        .position(|&c| c == WINCLOSE)
+        .expect("F_WINCLOSE is in the table of the toolbar buttons");
+    Button {
+        number: (index + 1) as u16,
+        code: WINCLOSE,
+        icon: Some(index),
+    }
+}
 
 /// `CMenuDrawer::getButton`: what a number stands for. A number outside the table is an undefined
 /// button (gray, no picture).
@@ -313,6 +330,36 @@ impl Workspace {
         }
         let lines = arrange(&buttons(cx).0);
         let states = self.func_states(topmost, cx.entity_id(), cx);
+        self.toolbar_element(lines, &states, scale_factor, cx)
+    }
+
+    /// The toolbar row of a tab that is not an editor (a preview, a shell, the AI log): as many
+    /// lines as the toolbar has, so the content below starts at the same place on every kind of
+    /// tab, with a button that closes the tab (`F_WINCLOSE`, which closes the active tab there; see
+    /// `Workspace::run_after_event`). The buttons of the editor do not apply to these tabs.
+    pub(crate) fn render_own_toolbar_at_scale(
+        &self,
+        topmost: bool,
+        scale_factor: f32,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        if !super::current(cx).toolbar {
+            return None;
+        }
+        let close = Item::Button(own_tab_close_button());
+        let mut lines: Vec<Vec<Item>> = vec![Vec::new(); arrange(&buttons(cx).0).len().max(1)];
+        lines[0].push(close);
+        let states = self.func_states(topmost, cx.entity_id(), cx);
+        self.toolbar_element(lines, &states, scale_factor, cx)
+    }
+
+    fn toolbar_element(
+        &self,
+        lines: Vec<Vec<Item>>,
+        states: &crate::menu_state::FuncStates,
+        scale_factor: f32,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         let mut bar = super::semantics::toolbar(div().id("tool-bar"))
             .debug_selector(|| "tool-bar".into())
             .flex()
@@ -329,7 +376,7 @@ impl Workspace {
                     Item::Separator => div().w(px(8.)).into_any_element(),
                     Item::SearchBox => self.search_box.clone().into_any_element(),
                     Item::Button(button) => {
-                        self.render_tool_button(row, column, button, &states, scale_factor, cx)
+                        self.render_tool_button(row, column, button, states, scale_factor, cx)
                     }
                 });
             }
