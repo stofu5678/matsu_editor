@@ -155,6 +155,6 @@ MATSU Editor が足した項目です。サクラエディタは、このセク�
 - 言語ファイルの名前: `crates/matsu-config/src/plugins.rs` の `DEFAULT_LANGUAGE`、`SearchDirs::load_def`
 - オプションの値の形: `crates/matsu-config/src/plugins/options.rs`
 - 試験: `crates/matsu-config/src/plugins/tests.rs`
-- サンプル: `crates/matsu-plugin/samples/plugins/`（`HelloJs`、`HelloCommands`、`HelloEvents`、`HelloOutline`、`HelloComplement`、`SmartIndentJs`、`HelloVbs`）
+- サンプル: `crates/matsu-plugin/samples/plugins/`（`HelloJs`、`HelloCommands`、`HelloEvents`、`HelloOutline`、`HelloComplement`、`SmartIndentJs`、`HelloVbs`、`HelloNode`、`HelloModule`）
 - サクラのソース: `sakura_core/plugin/CPlugin.cpp` の `ReadPluginDefCommon`、`ReadPluginDefPlug`、`ReadPluginDefCommand`、`ReadPluginDefOption`、`ReadPluginDefString`。`sakura_core/config/maxdata.h`（上限）
 - `docs/adr/0026-resident-plugins.md` の 1 章と 2 章

@@ -148,12 +148,12 @@ impl Language {
     }
 
     /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
-    /// (only `.cjs`: the caller refuses `.mjs`, and `.ts` is not served) and Python. The other
+    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`) and Python. The other
     /// languages are not served yet.
     pub fn serves_plugins(self) -> bool {
         matches!(
             self,
-            Self::Bundled(Engine::QuickJs) | Self::JavaScript | Self::Python
+            Self::Bundled(Engine::QuickJs) | Self::JavaScript | Self::TypeScript | Self::Python
         )
     }
 

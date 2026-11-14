@@ -626,9 +626,8 @@ fn prepare(
         return Err(crate::common_settings::plugin_unsupported_text(&why));
     }
     let plugin_dir = dirs.plugin_dir(folder);
-    match ConsentFile::load(&dirs.consent_file())
-        .consent_for_dir_cached(&def.id, plugin_dir.as_deref())
-    {
+    let consent_file = ConsentFile::load(&dirs.consent_file());
+    match consent_file.consent_for_dir_cached(&def.id, plugin_dir.as_deref()) {
         Consent::On => {}
         Consent::Off => {
             return Err(
@@ -641,6 +640,18 @@ fn prepare(
             );
         }
     }
+    // The files the user agreed to: the host hashes what it reads against these, and hands Node.js
+    // only that text (a file that changed after the check above is refused there).
+    let agreed: std::collections::BTreeMap<String, String> = consent_file
+        .record(&def.id)
+        .map(|record| {
+            record
+                .files
+                .into_iter()
+                .map(|file| (file.path, file.sha256))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut event_jack = None;
     let (jack, handler, command, event) = match target {
         Target::Command { command, handler } => {
@@ -675,24 +686,11 @@ fn prepare(
             (jack.name(), handler, 0, true)
         }
     };
-    // An ES module and a TypeScript file would have Node.js read the file again after the user's
-    // agreement was checked, so they are refused for now (the same words as the settings page).
-    if matches!(
-        Language::of_file(Path::new(&handler)),
-        Some(Language::TypeScript)
-    ) || Path::new(&handler)
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("mjs"))
-    {
-        return Err(format!(
-            "{handler} は動かせません。.mjs と .ts のプラグインは、まだ動かせません。.cjs にしてください"
-        ));
-    }
     let language = match Language::of_file(Path::new(&handler)) {
         Some(language) if language.serves_plugins() && language.runs_here() => language,
         _ => {
             return Err(format!(
-                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.py のどれかにしてください"
+                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py のどれかにしてください"
             ));
         }
     };
@@ -707,6 +705,9 @@ fn prepare(
             // A plugin that was replaced by another folder gets a host of its own folder.
             host.settings().resident == want_resident
                 && Some(&host.settings().dir) == plugin_dir.as_ref()
+                // A plugin that was agreed to again with other files starts a new process: the old
+                // one holds the modules of the old files.
+                && host.settings().verified.as_ref() == Some(&agreed)
         })
         .cloned();
     let host = match reuse {
@@ -720,7 +721,8 @@ fn prepare(
                 &plugin_dir.unwrap_or_default(),
                 language,
                 want_resident,
-            );
+            )
+            .with_verified(agreed);
             if language == Language::Bundled(Engine::QuickJs)
                 && let Some(path) = test_interpreter()
             {

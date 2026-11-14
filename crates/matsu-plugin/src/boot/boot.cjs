@@ -285,6 +285,117 @@ async function servePlugin(identity) {
     pending.clear();
   }
 
+  // The files of the plugin folder, as the editor checked them (the text the user agreed to),
+  // by their file URL. `module.registerHooks` (22.15, 23.5) gives every `import` and `require`
+  // from a plugin file these texts and nothing from the disk; a file that is not here (outside
+  // the folder, a package, a file added later) is refused.
+  const { pathToFileURL } = require('url');
+  const verified = new Map();
+  const modules = new Map();
+  let hooked = false;
+  const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+  const strips =
+    nodeMajor > 23 || (nodeMajor === 23 && nodeMinor >= 6) || (nodeMajor === 22 && nodeMinor >= 18);
+
+  function packageType(url) {
+    let dir = new URL('.', url);
+    for (;;) {
+      const text = verified.get(new URL('package.json', dir).href);
+      if (text !== undefined) {
+        try {
+          return JSON.parse(text).type;
+        } catch (err) {
+          return undefined;
+        }
+      }
+      const up = new URL('..', dir);
+      if (up.href === dir.href) return undefined;
+      dir = up;
+    }
+  }
+
+  function formatOf(url) {
+    const file = url.slice(url.lastIndexOf('/') + 1);
+    const ext = file.slice(file.lastIndexOf('.')).toLowerCase();
+    switch (ext) {
+      case '.mjs':
+        return 'module';
+      case '.cjs':
+        return 'commonjs';
+      case '.json':
+        return 'json';
+      case '.js':
+        return packageType(url) === 'module' ? 'module' : 'commonjs';
+      case '.ts':
+      case '.mts':
+      case '.cts':
+        if (!strips) {
+          throw new Error(
+            'TypeScript には Node.js 22.18 以降（23 系は 23.6 以降）が要ります (見つかったのは v' +
+              process.versions.node +
+              ')',
+          );
+        }
+        // A `.ts` file is an ES module, as the examples of the help; `.cts` is CommonJS.
+        return ext === '.cts' ? 'commonjs-typescript' : 'module-typescript';
+      default:
+        throw new Error(url + ' は読み込めません');
+    }
+  }
+
+  const EXTENSIONS = ['.js', '.cjs', '.json', '.ts'];
+  function resolveVerified(specifier, context, nextResolve) {
+    if (specifier.startsWith('node:') || Module.isBuiltin(specifier)) {
+      return nextResolve(specifier, context);
+    }
+    if (!/^(\.{1,2}\/|\/|file:)/.test(specifier)) {
+      throw Object.assign(
+        new Error(
+          specifier + ' はパッケージです。プラグインは、自分のフォルダーのファイルと Node.js の標準のモジュールだけ読み込めます',
+        ),
+        { code: 'ERR_MODULE_NOT_FOUND' },
+      );
+    }
+    const base = context.parentURL || pathToFileURL(identity.dir + path.sep).href;
+    const target = new URL(specifier, base);
+    target.search = '';
+    target.hash = '';
+    const candidates = [target.href];
+    if (Array.isArray(context.conditions) && context.conditions.includes('require')) {
+      // The CommonJS way: no extension, or a folder.
+      for (const ext of EXTENSIONS) candidates.push(target.href + ext);
+      for (const ext of EXTENSIONS) candidates.push(target.href.replace(/\/?$/, '/index') + ext);
+    }
+    for (const url of candidates) {
+      if (verified.has(url)) return { url, shortCircuit: true };
+    }
+    throw Object.assign(
+      new Error(specifier + ' は、同意したプラグインのフォルダーにありません。同意したファイルだけ読み込めます'),
+      { code: 'ERR_MODULE_NOT_FOUND' },
+    );
+  }
+
+  function loadVerified(url, context, nextLoad) {
+    if (url.startsWith('node:')) return nextLoad(url, context);
+    const source = verified.get(url);
+    if (source === undefined) {
+      throw Object.assign(new Error(url + ' は、同意したプラグインのフォルダーにありません'), {
+        code: 'ERR_MODULE_NOT_FOUND',
+      });
+    }
+    return { format: formatOf(url), source, shortCircuit: true };
+  }
+
+  function installVerifiedFiles(files) {
+    for (const file of files) {
+      verified.set(pathToFileURL(file.path).href, file.source);
+    }
+    if (!hooked && typeof Module.registerHooks === 'function') {
+      Module.registerHooks({ resolve: resolveVerified, load: loadVerified });
+      hooked = true;
+    }
+  }
+
   // A promise that is rejected and that nobody handles fails the call (as in the QuickJS host).
   let unhandled = null;
   process.on('unhandledRejection', (reason) => {
@@ -305,17 +416,43 @@ async function servePlugin(identity) {
       delete globalThis.Indent;
     }
     const name = invoke.name;
-    // Only CommonJS (`.cjs`) is served for now: an ES module or a TypeScript file would have
-    // Node.js read the file again after the editor checked what the user agreed to.
-    if (!/\.cjs$/i.test(name)) {
-      throw new Error(name + ' は動かせません。Node.js のプラグインは .cjs だけです');
+    // The editor sends the module files of the folder, as it checked them, with the first call.
+    if (Array.isArray(invoke.files)) {
+      installVerifiedFiles(invoke.files);
     }
-    // The text the editor read (the one that the user agreed to) is what runs. A fresh module for
-    // each call, so that it runs again; what it keeps goes in `globalThis`.
-    const mod = new Module(name, null);
-    mod.filename = name;
-    mod.paths = Module._nodeModulePaths(path.dirname(name));
-    mod._compile(invoke.source, name);
+    if (/\.(mjs|ts)$/.test(name)) {
+      // An ES module or a TypeScript file: loaded once (the first call), and its default export,
+      // a function, is called for each call. Nothing is read from the disk: the hooks serve the
+      // text the editor checked.
+      if (!hooked) {
+        throw new Error(
+          name +
+            ' は動かせません。.mjs と .ts のプラグインには、Node.js 22.15 以降（23 系は 23.5 以降）が要ります (見つかったのは v' +
+            process.versions.node +
+            ')',
+        );
+      }
+      const href = pathToFileURL(name).href;
+      let loaded = modules.get(href);
+      if (loaded === undefined) {
+        loaded = await import(href);
+        modules.set(href, loaded);
+      }
+      if (typeof loaded.default !== 'function') {
+        throw new Error(name + ' は、関数を default で export してください (export default function () { ... })');
+      }
+      await loaded.default(Plugin.args);
+    } else {
+      if (!/\.cjs$/i.test(name)) {
+        throw new Error(name + ' は動かせません。Node.js のプラグインは .cjs、.mjs、.ts のどれかです');
+      }
+      // The text the editor read (the one that the user agreed to) is what runs. A fresh module
+      // for each call, so that it runs again; what it keeps goes in `globalThis`.
+      const mod = new Module(name, null);
+      mod.filename = name;
+      mod.paths = Module._nodeModulePaths(path.dirname(name));
+      mod._compile(invoke.source, name);
+    }
     // The call ends when the handler's own work is done: the timers that it started (a callback of
     // `setTimeout` may call `Editor`) run first, within the time limit that the editor holds (a
     // timer that never ends, a `setInterval`, makes the call time out). Otherwise the callback would
