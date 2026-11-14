@@ -709,9 +709,16 @@ fn agreed_key(
     same.next().is_none().then(|| found.clone())
 }
 
-/// The path of a handler from the plugin folder, with `/` (the spelling of `plugins.ini`).
+/// The path of a handler from the plugin folder, with `/` (the spelling of `plugins.ini`):
+/// `\` becomes `/`, and empty and `.` components are dropped (`lib/./a.mjs`, `lib//a.mjs`,
+/// `.\lib\a.mjs`). `..` stays: `handler_path` refuses it.
 fn relative_name(handler: &str) -> String {
-    handler.replace('\\', "/")
+    handler
+        .replace('\\', "/")
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// The module files under `dir`: (the path from the plugin folder with `/`, the path on disk).
@@ -853,6 +860,30 @@ mod tests {
         let two = agreed(&["a.cjs", "A.cjs"]);
         assert_eq!(agreed_key(&two, "A.CJS", true), None);
         assert_eq!(agreed_key(&two, "a.cjs", true).as_deref(), Some("a.cjs"));
+    }
+
+    #[test]
+    fn a_handler_name_loses_redundant_components_before_the_lookup() {
+        for spelled in [
+            "lib/main.mjs",
+            "lib/./main.mjs",
+            "lib//main.mjs",
+            "./lib/main.mjs",
+            "lib\\main.mjs",
+            ".\\lib\\main.mjs",
+            "lib\\.\\main.mjs",
+        ] {
+            assert_eq!(relative_name(spelled), "lib/main.mjs", "{spelled}");
+        }
+        let files = agreed(&["lib/main.cjs"]);
+        for spelled in ["lib/./main.cjs", "lib//main.cjs", ".\\lib\\main.cjs"] {
+            assert_eq!(
+                agreed_key(&files, &relative_name(spelled), false).as_deref(),
+                Some("lib/main.cjs"),
+                "{spelled}"
+            );
+        }
+        assert_eq!(relative_name("a/../b.cjs"), "a/../b.cjs");
     }
 
     #[test]
