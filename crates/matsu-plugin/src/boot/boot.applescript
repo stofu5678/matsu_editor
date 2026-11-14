@@ -278,8 +278,8 @@ on pluginBootText()
 end pluginBootText
 
 -- The line of the handler (from 1) where an error is; -1 if its range is known and is not in the
--- handler (an error raised inside the boot's `editorCall`, say: AppleScript has no call stack, so
--- the line of the call in the handler cannot be known); 0 if the range is not known. `errorInfo` is
+-- handler (an error raised inside a helper of the boot, `editorCall` say: AppleScript has no call
+-- stack, so the line of the call in the handler cannot be known); 0 if the range is not known. `errorInfo` is
 -- the dictionary of NSAppleScript; its range counts UTF-16 units of the program.
 on pluginErrorLine(errorInfo, programString, linesBefore, userLines)
 	try
@@ -306,7 +306,13 @@ on pluginFailure(kindName, errorInfo, handlerName, programString, linesBefore, u
 	if lineNumber > 0 then
 		set failureText to failureText & ":" & lineNumber
 	else if lineNumber is -1 then
-		set failureText to failureText & " (in an editor call)"
+		-- `editorCall` raises "EditorError CODE: ..." when the editor answers with an error. Any other
+		-- error whose range is in the boot comes from another helper of this text (`editorInfo`, ...).
+		if errorMessage starts with "EditorError " then
+			set failureText to failureText & " (in an editor call)"
+		else
+			set failureText to failureText & " (in a MATSU Editor helper)"
+		end if
 	else
 		-- The range is not known: say what NSAppleScript gave, so that one log tells.
 		set rangeText to "none"

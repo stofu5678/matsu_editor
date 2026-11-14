@@ -539,7 +539,7 @@ fn an_applescript_handler_may_run_a_file_of_its_folder() {
     let dir = plugin_dir(&[
         (
             "req.applescript",
-            "set theWord to run script (read (POSIX file (pluginDir() & \"/plugin_lib/word.applescript\")) as \u{ab}class utf8\u{bb})\neditorCall(\"InsText\", {theWord})\n",
+            "set theWord to run script (read ((pluginDir() & \"/plugin_lib/word.applescript\") as POSIX file) as \u{ab}class utf8\u{bb})\neditorCall(\"InsText\", {theWord})\n",
         ),
         ("plugin_lib/word.applescript", "return \"word\"\n"),
     ]);
