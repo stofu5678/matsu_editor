@@ -608,3 +608,25 @@ fn an_error_while_timers_run_ends_the_call_at_once_and_cancels_the_rest() {
         assert_eq!(world.doc.text(), after, "{name}");
     }
 }
+
+#[test]
+fn a_timer_callback_gets_its_receiver_and_arguments() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = plugin_dir(&[(
+        "this.cjs",
+        "let n = 0;\nsetInterval(function (a, b) { n += 1; if (n === 3) { Editor.InsText(a + b + typeof this.refresh); clearInterval(this); } }, 5, 'p', 'q');",
+    )]);
+    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    let report = world.call_jack(
+        &mut host,
+        "Command",
+        "this.cjs",
+        &Value::Null,
+        Duration::from_secs(30),
+    );
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(world.doc.text(), "pqfunction");
+}

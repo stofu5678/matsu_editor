@@ -262,9 +262,11 @@ async function servePlugin(identity) {
   const track = (start, release) =>
     function (callback, ...rest) {
       let handle;
-      const wrapped = (...args) => {
+      // A `function`, so that the receiver (Node.js hands the timer to a callback as `this`) and
+      // the arguments reach the handler's callback as they would without the wrapper.
+      const wrapped = function (...args) {
         if (release === 'once') pending.delete(handle);
-        return callback(...args);
+        return callback.apply(this, args);
       };
       handle = start(wrapped, ...rest);
       pending.add(handle);
