@@ -126,6 +126,14 @@ mod tests {
     use crate::a11y::node_of;
 
     #[test]
+    fn the_three_copies_with_a_line_break_all_have_a_menu_picture() {
+        for code in [30603, 32700, 32701] {
+            assert!(picture(code, 1.0).is_some(), "function {code}");
+            assert!(picture(code, 2.0).is_some(), "function {code}");
+        }
+    }
+
+    #[test]
     fn an_item_with_an_icon_has_its_name_check_and_gray_state() {
         let item = content("折り返し(W)    Ctrl+W".into(), None, true, true, 1.0);
         let node = node_of(&item).unwrap();
