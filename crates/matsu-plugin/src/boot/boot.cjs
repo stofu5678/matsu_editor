@@ -254,6 +254,35 @@ async function servePlugin(identity) {
   globalThis.Outline = Outline;
   globalThis.Complement = Complement;
 
+  // The timers that the handler starts are known, so that a failed call can cancel them. The
+  // boot's own waiting uses the real functions.
+  const realSetImmediate = setImmediate;
+  const realSetTimeout = setTimeout;
+  const pending = new Set();
+  const track = (start, release) =>
+    function (callback, ...rest) {
+      let handle;
+      const wrapped = (...args) => {
+        if (release === 'once') pending.delete(handle);
+        return callback(...args);
+      };
+      handle = start(wrapped, ...rest);
+      pending.add(handle);
+      return handle;
+    };
+  const realClearTimeout = clearTimeout;
+  const realClearImmediate = clearImmediate;
+  globalThis.setTimeout = track(realSetTimeout, 'once');
+  globalThis.setInterval = track(setInterval, 'repeat');
+  globalThis.setImmediate = track(realSetImmediate, 'once');
+  function cancelPending() {
+    for (const handle of pending) {
+      realClearTimeout(handle);
+      realClearImmediate(handle);
+    }
+    pending.clear();
+  }
+
   // A promise that is rejected and that nobody handles fails the call (as in the QuickJS host).
   let unhandled = null;
   process.on('unhandledRejection', (reason) => {
@@ -289,15 +318,19 @@ async function servePlugin(identity) {
     // `setTimeout` may call `Editor`) run first, within the time limit that the editor holds (a
     // timer that never ends, a `setInterval`, makes the call time out). Otherwise the callback would
     // wait while this loop blocks for the next call, and then run in that call, on its document.
-    // One more turn lets the rejections of promises that nobody waits for be reported.
+    // An error (a rejection that nobody handles, an exception in a callback) ends the call at once,
+    // and the callbacks that are still waiting are cancelled.
     for (;;) {
-      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => realSetImmediate(resolve));
+      if (unhandled !== null) break;
       const timers = process
         .getActiveResourcesInfo()
         .some((type) => type === 'Timeout' || type === 'Immediate');
       if (!timers) break;
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await new Promise((resolve) => realSetTimeout(resolve, 1));
+      if (unhandled !== null) break;
     }
+    cancelPending();
     if (unhandled !== null) {
       const { reason } = unhandled;
       unhandled = null;

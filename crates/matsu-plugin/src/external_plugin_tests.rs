@@ -567,3 +567,44 @@ print(copy.x, sys.modules['__main__'].Point is Point, Box(Point(1)).n)
     };
     assert!(text.contains("NameError"), "{text}");
 }
+
+#[test]
+fn an_error_while_timers_run_ends_the_call_at_once_and_cancels_the_rest() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "reject.cjs",
+            "setInterval(() => Editor.InsText('i'), 10);\nPromise.reject(new Error('はじかれた'));",
+        ),
+        (
+            "throw.cjs",
+            "setInterval(() => Editor.InsText('i'), 5);\nsetTimeout(() => { throw new Error('遅い'); }, 40);",
+        ),
+    ]);
+    for (name, needle) in [("reject.cjs", "はじかれた"), ("throw.cjs", "遅い")] {
+        let mut host = host(dir.path(), Language::JavaScript, true);
+        let mut world = World::new("");
+        let started = std::time::Instant::now();
+        let report = world.call_jack(
+            &mut host,
+            "Command",
+            name,
+            &Value::Null,
+            Duration::from_secs(60),
+        );
+        let Outcome::Failed(text) = &report.outcome else {
+            panic!("{name}: {:?}", report.outcome);
+        };
+        assert!(text.contains(needle), "{name}: {text}");
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{name}: not at the deadline"
+        );
+        // Nothing edits the document after the call has ended.
+        let after = world.doc.text();
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(world.doc.text(), after, "{name}");
+    }
+}

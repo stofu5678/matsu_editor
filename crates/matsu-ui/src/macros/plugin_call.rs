@@ -123,6 +123,14 @@ impl Runtime {
 
 impl Global for Runtime {}
 
+/// A success of the plugin starts the failure count of every host of it over: only the count of
+/// the plugin stops it, so the hosts' own counts (which stop a host alone) must never get ahead of it.
+fn forgive_hosts(cx: &mut App, id: &str) {
+    for host in cx.default_global::<Runtime>().of(id) {
+        host.borrow_mut().reset();
+    }
+}
+
 /// The user enabled the plugin again: the failures start over.
 pub(crate) fn reset(cx: &mut App, id: &str) {
     set_stopped(id, false);
@@ -1195,6 +1203,10 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                 }
                 Progress::Done(outcome) => {
                     let stopped = note_outcome(&api.def.id, &outcome);
+                    if outcome == Outcome::Ok {
+                        let id = api.def.id.clone();
+                        cx.update(|app| forgive_hosts(app, &id));
+                    }
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.macros.plugin_event = false;

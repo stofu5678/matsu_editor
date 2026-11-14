@@ -991,3 +991,33 @@ fn failures_are_counted_for_the_plugin_over_all_the_languages_of_its_hosts() {
     assert!(!note_outcome(id, &Outcome::Failed("x".into())));
     FAILURES.with(|map| map.borrow_mut().remove(id));
 }
+
+#[gpui::test]
+fn a_success_of_the_plugin_starts_the_count_of_every_host_over(cx: &mut TestAppContext) {
+    use matsu_plugin::plugin_host::{HostSettings, Outcome, PluginHost};
+    let id = "jp.example.forgive";
+    cx.update(|app| {
+        let mut hosts = Vec::new();
+        for language in [Language::Python, Language::JavaScript] {
+            let settings = HostSettings::new(id, Path::new("/nowhere"), language, true);
+            let host = Rc::new(RefCell::new(PluginHost::new(settings)));
+            app.default_global::<Runtime>()
+                .hosts
+                .insert((id.to_owned(), language), host.clone());
+            hosts.push(host);
+        }
+        // Python fails, JavaScript succeeds, and so on: the plugin never fails three times in a row.
+        for _ in 0..2 {
+            hosts[0].borrow_mut().note(&Outcome::Failed("py".into()));
+            note_outcome(id, &Outcome::Failed("py".into()));
+            hosts[1].borrow_mut().note(&Outcome::Ok);
+            note_outcome(id, &Outcome::Ok);
+            forgive_hosts(app, id);
+        }
+        hosts[0].borrow_mut().note(&Outcome::Failed("py".into()));
+        assert!(!note_outcome(id, &Outcome::Failed("py".into())));
+        assert!(!hosts[0].borrow().is_stopped());
+        assert_eq!(hosts[0].borrow().failures(), 1);
+        shutdown(app, id);
+    });
+}
