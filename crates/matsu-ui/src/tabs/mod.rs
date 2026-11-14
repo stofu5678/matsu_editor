@@ -47,6 +47,8 @@ mod look_tests;
 mod menu_tests;
 pub(crate) mod order;
 #[cfg(test)]
+mod own_toolbar_tests;
+#[cfg(test)]
 mod pending_tests;
 #[cfg(test)]
 mod popup_key_tests;
