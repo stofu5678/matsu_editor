@@ -169,11 +169,21 @@ pub(crate) fn plan_contents(local: Option<&Path>) -> Opening {
     }
 }
 
-/// The one-page version of the book (mdBook's `print.html`, `book.toml`).
-const LOCAL_ONE_PAGE: &str = "print.html";
+/// The one-page version of the book for the search: the same book as mdBook's `print.html`, written
+/// next to it by the help build without the automatic `window.print()` that `print.html` runs on
+/// load. A bundle without it (an older one) gets the search on the web.
+const LOCAL_ONE_PAGE: &str = "search.html";
 
 /// The status bar says this when the one-page version is opened for the search.
-pub(crate) const SEARCH_IN_PAGE: &str = "ヘルプ全体を 1 ページで開きました。ブラウザーの検索（Ctrl+F、macOS は Command+F）で探してください";
+pub(crate) fn search_in_page_message() -> String {
+    // the key of this system only
+    let key = if cfg!(target_os = "macos") {
+        "Command+F"
+    } else {
+        "Ctrl+F"
+    };
+    format!("ヘルプ全体を 1 ページで開きました。ブラウザーの検索（{key}）で探してください")
+}
 
 /// Whether `opening` is the one-page version opened for the search ([`plan_search`]).
 pub(crate) fn is_one_page(opening: &Opening) -> bool {
@@ -680,17 +690,27 @@ mod tests {
     fn the_search_opens_the_one_page_book_when_the_program_has_the_help() {
         let root = root_with_help("help");
         let dir = root.path().join("help");
-        // no `print.html`: the web
+        // no `search.html`: the web
         assert!(matches!(plan_search(Some(&dir), "word"), Opening::Url(_)));
+        // `print.html` alone is not used: it prints on load
         std::fs::write(dir.join("print.html"), b"").unwrap();
+        assert!(matches!(plan_search(Some(&dir), "word"), Opening::Url(_)));
+        std::fs::write(dir.join("search.html"), b"").unwrap();
         // with or without a word, the one page; the word is not needed
         for query in ["word", ""] {
             let opening = plan_search(Some(&dir), query);
-            assert_eq!(opening, Opening::File(dir.join("print.html")));
+            assert_eq!(opening, Opening::File(dir.join("search.html")));
             assert!(is_one_page(&opening));
         }
         assert!(!is_one_page(&plan_contents(Some(&dir))));
         assert!(!is_one_page(&plan_search(None, "word")));
+        let message = search_in_page_message();
+        assert_eq!(
+            message.contains("Command+F"),
+            cfg!(target_os = "macos"),
+            "{message}"
+        );
+        assert_eq!(message.contains("Ctrl+F"), !cfg!(target_os = "macos"));
     }
 
     #[test]

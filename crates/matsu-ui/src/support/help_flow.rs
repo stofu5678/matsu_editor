@@ -93,7 +93,7 @@ impl EditorView {
         let one_page = help::is_one_page(&opening);
         self.open_help(opening, cx);
         if one_page {
-            self.notice = Some(help::SEARCH_IN_PAGE.to_owned());
+            self.notice = Some(help::search_in_page_message());
             cx.notify();
         }
     }
