@@ -351,6 +351,12 @@ function global:Get-MatsuHandlerFailure([string]$Name, $Record) {
     while ($ex.InnerException -and $ex -is [System.Management.Automation.MethodInvocationException]) { $ex = $ex.InnerException }
     $kind = $ex.GetType().Name
     $message = $ex.Message
+    # The record that the exception came with may carry the text that PowerShell shows (ErrorDetails),
+    # or the record of the catch itself.
+    $exRecord = $null
+    if ($ex.PSObject.Properties['ErrorRecord']) { $exRecord = $ex.ErrorRecord }
+    $message = Get-MatsuRecordMessage $exRecord $message
+    $message = Get-MatsuRecordMessage $Record $message
     $line = 0
     if ($ex.PSObject.Properties['Errors'] -and $ex.Errors.Count -gt 0) {
         $kind = 'ParseError'
@@ -370,7 +376,13 @@ function global:Format-MatsuErrorRecord([string]$Name, $Record) {
     $line = 0
     if ($Record.ScriptStackTrace -match '<No file>: line (\d+)') { $line = [int]$Matches[1] }
     elseif ($Record.InvocationInfo) { $line = [int]$Record.InvocationInfo.ScriptLineNumber }
-    Format-MatsuPluginFailure $Name $line $Record.Exception.GetType().Name $Record.Exception.Message
+    Format-MatsuPluginFailure $Name $line $Record.Exception.GetType().Name (Get-MatsuRecordMessage $Record $Record.Exception.Message)
+}
+
+# The text that PowerShell shows for a record: its ErrorDetails message when it has one, else `$Default`.
+function global:Get-MatsuRecordMessage($Record, [string]$Default) {
+    if ($Record -and $Record.ErrorDetails -and $Record.ErrorDetails.Message) { return [string]$Record.ErrorDetails.Message }
+    $Default
 }
 
 # Runs one handler; the failure text, or $null. The names of the locals start with `mp`.

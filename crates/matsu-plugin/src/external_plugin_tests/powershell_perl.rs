@@ -656,3 +656,31 @@ fn an_output_that_cannot_be_written_fails_the_call_and_the_host_still_answers() 
     assert_eq!(world.doc.text(), "ok");
     host.shutdown();
 }
+
+#[test]
+fn the_error_details_text_is_shown_for_soft_errors_and_for_failures() {
+    if !available(PS) {
+        return;
+    }
+    let make = "$e = [System.Management.Automation.ErrorRecord]::new([System.Exception]::new('underlying'), 'Id', 'NotSpecified', $null)\n$e.ErrorDetails = [System.Management.Automation.ErrorDetails]::new('actionable reason')\n";
+    let soft = format!("{make}Write-Error -ErrorRecord $e -ErrorAction Continue\n");
+    let hard = format!("{make}throw $e\n");
+    let dir = plugin_dir(&[("soft.ps1", &soft), ("hard.ps1", &hard)]);
+    let mut host = host(dir.path(), PS, true);
+    let mut world = World::new("");
+    let report = call(&mut world, &mut host, "soft.ps1");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    let lines: Vec<&str> = report.output.iter().map(|(_, l)| l.as_str()).collect();
+    assert!(
+        lines.iter().any(|l| l.contains("actionable reason")),
+        "{lines:?}"
+    );
+    assert!(!lines.iter().any(|l| l.contains("underlying")), "{lines:?}");
+    let report = call(&mut world, &mut host, "hard.ps1");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains("actionable reason"), "{text}");
+    assert!(!text.contains("underlying"), "{text}");
+    host.shutdown();
+}
