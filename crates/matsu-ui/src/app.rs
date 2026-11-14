@@ -809,7 +809,12 @@ impl Render for Workspace {
         let minimap = minimap_shown.then(|| self.minimap.clone());
         let topmost = crate::window_ops::is_topmost(window, cx);
         let (toolbar, funckeys_top, funckeys_bottom) = if own {
-            (None, None, None)
+            // The toolbar row keeps the top of the window where it is on every kind of tab.
+            (
+                self.render_own_toolbar_at_scale(topmost, window.scale_factor(), cx),
+                None,
+                None,
+            )
         } else {
             (
                 self.render_toolbar_at_scale(topmost, window.scale_factor(), cx),

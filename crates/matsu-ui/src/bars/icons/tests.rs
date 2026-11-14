@@ -1,7 +1,7 @@
 use super::*;
 
 /// The tests change the process-wide bitmap: one at a time.
-fn serial() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn serial() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -187,4 +187,165 @@ fn bitmaps_of_other_depths_and_top_down_ones_are_read() {
     eight.extend_from_slice(&[0, 1, 0, 0]);
     let sheet = decode_bmp(&eight).unwrap();
     assert_eq!(&sheet.rgba[4..8], &[0, 255, 0, 255]);
+}
+
+#[test]
+fn the_lf_and_cr_copies_have_icons_made_from_the_crlf_one() {
+    let _g = serial();
+    install_from(None, None);
+    // The functions map to the two pictures after Sakura's table.
+    assert_eq!(super::super::icon_of_function(32700), Some(ICON_COPY_LF));
+    assert_eq!(super::super::icon_of_function(32701), Some(ICON_COPY_CR));
+    assert_eq!(super::super::button_function(ICON_COPY_LF), Some(32700));
+    assert_eq!(super::super::button_function(ICON_COPY_CR), Some(32701));
+    let crlf = icon_pixels(
+        builtin().unwrap(),
+        super::super::icon_of_function(30603).unwrap(),
+    )
+    .unwrap();
+    let lf = extra_pixels(ICON_COPY_LF).unwrap();
+    let cr = extra_pixels(ICON_COPY_CR).unwrap();
+    assert_eq!((lf.len(), cr.len()), (crlf.len(), crlf.len()));
+    assert_ne!(lf, crlf);
+    assert_ne!(cr, crlf);
+    assert_ne!(lf, cr);
+    // The top left part is still the CRLF picture; the plate is opaque.
+    let at = |p: &[u8], x: usize, y: usize| p[(y * ICON_SIZE + x) * 4..][..4].to_vec();
+    assert_eq!(at(&lf, 1, 1), at(&crlf, 1, 1));
+    assert_eq!(at(&cr, 5, 3), at(&crlf, 5, 3));
+    assert_eq!(at(&lf, 8, 10), [0, 0, 128, 255]); // the top left dot of the "L"
+    assert_eq!(at(&cr, 9, 11), [255, 255, 255, 255]); // inside the "C"
+    assert!(extra_pixels(0).is_none() && extra_pixels(480).is_none());
+    // They can be drawn at every size.
+    for factor in 1..=3 {
+        assert!(icon(ICON_COPY_LF, factor).is_some());
+        assert!(icon(ICON_COPY_CR, factor).is_some());
+    }
+    assert!(icon(480, 1).is_none() && icon(483, 1).is_none());
+}
+
+#[test]
+fn the_lf_and_cr_icons_do_not_depend_on_my_icons_bmp() {
+    let _g = serial();
+    install_from(None, None);
+    let built_in = scaled_pixels(ICON_COPY_CR, 1).unwrap();
+    let dir = std::env::temp_dir().join(format!("matsu-icons-extra-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(FILE_NAME), bmp24(528, 240, |_, _| [9, 9, 9])).unwrap();
+    install_from(Some(&dir), None);
+    let with_external = scaled_pixels(ICON_COPY_CR, 1);
+    install_from(None, None);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(with_external, Some(built_in));
+}
+
+// ---- the icons of plugin commands (ADR-0026, PR 11) ----
+
+#[test]
+fn a_plugin_icon_must_stay_in_the_folder_of_the_plugin() {
+    let dir = Path::new("plugins/P");
+    assert_eq!(
+        plugin_icon_path(dir, "icon.bmp"),
+        Some(dir.join("icon.bmp"))
+    );
+    assert_eq!(
+        plugin_icon_path(dir, "img/a.bmp"),
+        Some(dir.join("img/a.bmp"))
+    );
+    for bad in [
+        "",
+        "  ",
+        "../a.bmp",
+        "img/../../a.bmp",
+        "/etc/a.bmp",
+        "\\a.bmp",
+        "C:a.bmp",
+        "C:\\a.bmp",
+        "img//a.bmp",
+        "..\\a.bmp",
+    ] {
+        assert_eq!(plugin_icon_path(dir, bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_plugin_bitmap_is_made_16_by_16_and_must_be_square() {
+    // 32x32: the top left pixel (red) is transparent; from column 16 on the pixels are blue.
+    let bytes = bmp24(
+        32,
+        32,
+        |x, _| {
+            if x >= 16 { [0, 0, 255] } else { [255, 0, 0] }
+        },
+    );
+    let pixels = plugin_icon_pixels(&bytes).unwrap();
+    assert_eq!(pixels.len(), 16 * 16 * 4);
+    assert_eq!(pixels[3], 0, "the top left colour is transparent");
+    // Column 8 of 16 is column 16 of 32: blue and opaque.
+    assert_eq!(&pixels[8 * 4..8 * 4 + 4], &[0, 0, 255, 255]);
+    // A bitmap that is not square is refused (`nWidth != nHeight`), and so is a file that is no bitmap.
+    assert!(plugin_icon_pixels(&bmp24(16, 8, |_, _| [1, 2, 3])).is_none());
+    assert!(plugin_icon_pixels(b"not a bitmap").is_none());
+    // A small bitmap is stretched.
+    assert_eq!(
+        plugin_icon_pixels(&bmp24(4, 4, |_, _| [9, 9, 9]))
+            .unwrap()
+            .len(),
+        16 * 16 * 4
+    );
+}
+
+#[test]
+fn a_plugin_command_gets_its_bitmap_or_the_default_picture() {
+    let _guard = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.bmp");
+    std::fs::write(&file, bmp24(16, 16, |x, y| [x as u8 * 10, y as u8 * 10, 7])).unwrap();
+    let code = matsu_commands::plugin_commands::FIRST + 105;
+    sync_plugin_icons(&[(code, file.clone())], &[code]);
+    let index = plugin_icon_index(code).expect("the command has an icon of its own");
+    assert!(index >= PLUGIN_ICON_BASE);
+    assert!(index > ICON_COPY_CR);
+    assert_eq!(crate::bars::icon_of_function(code), Some(index));
+    assert!(icon(index, 1).is_some());
+    assert!(icon(index, 2).is_some());
+    // A file that is gone gives back the default picture of a plugin command.
+    sync_plugin_icons(&[(code, dir.path().join("none.bmp"))], &[code]);
+    assert_eq!(plugin_icon_index(code), None);
+    assert!(icon(index, 1).is_none());
+    // The command has no picture while it is not loaded, and the default one when it is.
+    assert_eq!(crate::bars::icon_of_function(code), None);
+    matsu_commands::plugin_commands::add_command(matsu_commands::plugin_commands::CommandInfo {
+        code,
+        slot: 1,
+        plug: 6,
+        plugin_id: "p".into(),
+        plugin_name: "p".into(),
+        label: "l".into(),
+        handler: "h.js".into(),
+        icon: String::new(),
+        added: false,
+    });
+    assert_eq!(
+        crate::bars::icon_of_function(code),
+        crate::bars::toolbar::plugin_icon()
+    );
+    // The icon of a command that a plugin added stays when the table is made again, and goes with
+    // the command.
+    set_plugin_icon(code, &file);
+    assert!(plugin_icon_index(code).is_some());
+    sync_plugin_icons(&[], &[code]);
+    assert!(plugin_icon_index(code).is_some());
+    sync_plugin_icons(&[], &[]);
+    assert!(plugin_icon_index(code).is_none());
+}
+
+#[test]
+fn a_huge_plugin_bitmap_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("big.bmp");
+    let f = std::fs::File::create(&file).unwrap();
+    f.set_len(MAX_PLUGIN_ICON_BYTES + 1).unwrap();
+    assert!(load_plugin_icon(&file).is_none());
+    assert!(load_plugin_icon(dir.path()).is_none(), "a folder");
 }

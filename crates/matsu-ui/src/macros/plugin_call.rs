@@ -272,9 +272,12 @@ impl DefApi {
             },
             label,
             handler: handler.to_owned(),
-            icon,
+            icon: icon.clone(),
             added: true,
         });
+        if let Some(file) = crate::bars::icons::plugin_icon_path(&self.dir, &icon) {
+            crate::bars::icons::set_plugin_icon(code, &file);
+        }
         Ok(Value::Null)
     }
 }
@@ -690,7 +693,7 @@ fn prepare(
         Some(language) if language.serves_plugins() && language.runs_here() => language,
         _ => {
             return Err(format!(
-                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py のどれかにしてください"
+                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php のどれかにしてください"
             ));
         }
     };

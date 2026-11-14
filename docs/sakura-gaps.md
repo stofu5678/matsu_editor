@@ -32,7 +32,7 @@
 | マクロ | 2 | `Jump` の PL/SQL と折り返し行番号、再生中の分割コマンド |
 | 設定 | 10 | 共通設定の灰色の部品 17 個とタイプ別設定の灰色の部品 3 個（IME の状態・入力モード・文書アイコンが Windows 以外。型 B）。コマンドが設定を読まず、サクラの既定の値で動くもの |
 | ダイアログ | 8 | プロファイル、タイプ一覧のファイルの関連付け |
-| プラグイン | 4 | ADR-0026 の PR 10〜11（外部の言語、ZIP）。PR 1〜9（`plugin.def`、同意、常駐のホスト、`Command` ジャック、オプションのダイアログ、イベントのジャック、`Outline`・補完・スマートインデントのジャック）は入った |
+| プラグイン | 4 | ADR-0026 の PR 10（外部の言語）。PR 1〜9 と PR 11（ZIP、ReadMe、アイコン）（`plugin.def`、同意、常駐のホスト、`Command` ジャック、オプションのダイアログ、イベントのジャック、`Outline`・補完・スマートインデントのジャック）は入った |
 | 検索 | 6 | Migemo、複数行の照合の細部、Grep 置換と `:HWND:` の組み合わせ（MATSU は断る） |
 | ファイル | 9 | 巨大ファイルの残り（ADR-0020 の追記の「まだ入っていないもの」）、コードページ 51932/20932、ベストフィット表 |
 | 表示と編集 | 12 | マウス操作の残り（ウィンドウをまたぐドラッグ&ドロップ、右ボタンのドロップ、カーソルの形）、フリーカーソルの残り（マウスのドラッグ中のキャレット、折り返し行の途中の隙間）、行番号付きコピーの番号と桁数、送り幅が合わないフォントでのまれな文字の並べ方、Mac の既定のフォントが GPUI に読まれない件、アウトラインのフローティング（型 B） |
@@ -47,7 +47,7 @@
 
 | 波 | 項目 | 台帳の表 |
 |---|---|---|
-| 2 | プラグインの続き（ADR-0026 の PR 10〜11: 外部の言語、ZIP） | プラグイン |
+| 2 | プラグインの続き（ADR-0026 の PR 10: 外部の言語） | プラグイン |
 
 ユーザーの判断が先に要る（上の表の外）: Migemo、プロファイル、ファイルの関連付け、表示の言語、ベストフィット表、CP51932/20932、署名。タスクトレイとダークモードは、GPUI でできるかを先に調べる（型 B）。「止まっているもの」に理由を書いた。
 
@@ -109,7 +109,7 @@
 | 共通設定「ウィンドウ」の灰色 2 個: ダークモード、言語 | `CPropComWin.cpp` | ルーラーの高さ・隙間と行番号の隙間（`settings/view_settings.rs`、`view/element.rs`）、位置と大きさの設定のダイアログ（`win_size_dialog/`）、水平スクロールバー（`view/hscroll.rs`。範囲・ページ・矢印・つまみは `CEditView_Scroll.cpp` どおり）、縦のバーの矢印・矢印とトラックの押し続けの繰り返し（`view/vscroll.rs`、`view/scroll_repeat.rs`）、右下の角と分割ボックス（`view/split_box.rs`、`panes/mod.rs`）はつないだ。残りは灰色 | C | M | 言語は ADR 要（利用者向けの文言の多言語化） |
 | 共通設定「検索」の灰色 2 個（他のビューの条件を引き継ぐ、正規表現ライブラリ。下の「検索」の表の型 B）。「マクロ」の Python フォルダー（マクロのホストが Python を自分で探す。ADR-0007） | `CPropComSearch.cpp` ほか | ツールバーのフラットなボタン（`bars/toolbar.rs`。フラットでないときは、ボタンをいつも枠付きで描く。型 B）、Grep のリアルタイム表示、Enter とダブルクリックのタグジャンプ、マクロのキャンセル確認の待ち時間（スクリプトの開始から待ってから、箱で聞く）はつないだ。残りは灰色 | B | S | なし |
 | 共通設定「ファイル」の排他制御以外の不足 | `CPropComFile.cpp` | 排他制御は #145 で入った。「名前を付けて保存」の全ファイル表示 2 つは、保存ダイアログの絞り込みに依存（#137） | C | S | ファイルダイアログの絞り込み |
-| 共通設定「プラグイン」のページ | `CPropComPlugin.cpp` | 有効のチェック、40 個の一覧、新規プラグインを追加、削除、フォルダーを開く、配布元（ADR-0026 の PR 1）。ZIP の導入、ReadMe は後の PR。設定のダイアログは入った（ADR-0026 の PR 5） | D | M | ADR-0026 の PR 2〜 |
+| 共通設定「プラグイン」のページ | `CPropComPlugin.cpp` | 有効のチェック、40 個の一覧、新規プラグインを追加、削除、フォルダーを開く、配布元（ADR-0026 の PR 1）。設定のダイアログは入った（ADR-0026 の PR 5）。ZIP の導入と ReadMe のボタンは入った（PR 11。オプションのダイアログの ReadMe は残り） | D | M | ADR-0026 の PR 2〜 |
 | タイプ別設定「画面」の灰色: 自動インデントなど（文字の間隔、行の間隔、TSV モードは入った） | `CPropTypesScreen.cpp` | 文字の間隔・行の間隔・TSV モードは入った（`geometry.rs`、`view/element.rs`、`view/settings.rs`、`matsu-layout/src/tsv.rs`）。入力側（自動インデント・全角空白も・スマートインデント・インデント対象文字・改行時に末尾の空白を削除・SPACE の挿入）は入った。禁則（句読点ぶら下げ・行頭・行末の文字）、折り返し行インデント、TAB の表示（文字指定・短い矢印・長い矢印）も入った（`ViewSettings` の `kinsoku`・`wrap_indent`・`tab_mark`。印刷もタイプのタブ幅・インデント・禁則の文字を使う）。矢印は線ではなく文字（→ と ─）で描く。本文は、字の送り幅が桁と合わないとき 1 文字ずつ桁の位置に置く（#354。型 C） | C | S | なし |
 | タイプ別設定「ウィンドウ」の灰色: IME の状態と入力モード、文書アイコン（Windows 以外） | `CPropTypesWindow.cpp` | 文字コードの既定、CP、CESU-8 優先、折り返し単位、桁数、縦線、背景画像（パス、位置、繰り返し、スクロール、透明度）は入った。IME の状態・入力モードと文書アイコンは Windows だけで効き、macOS・Linux は灰色のまま（型 B。理由は画面に書いた） | B | － | なし |
 | 設定ファイルに保存しない状態（残り）: 位置を持てないダイアログの位置（`rcOpenDialog`、`rcDiffDialog`、`rcCompareDialog`、`rcTagJumpDialog`、`rcWindowListDialog`。OS 標準のダイアログか、編集ウィンドウの中のパネル。型 B）。検索の条件（`bSearch*` 7 個）、Grep・Grep 置換の選択肢（`bGrep*`、`nGrepCharSet`）、DIFF・タグファイルの作成・タグジャンプ一覧の選択肢（`nDiffFlgOpt`、`nTagsOpt`、`szTagsCmdLine`、`m_bTagJumpICase`、`m_bTagJumpAnyWhere`）、「履歴とお気に入りの管理」の位置（`rcFavoriteDialog`）、アウトラインの窓の位置と大きさ（`bRememberOutlineWindowPos`、`xOutlineWindowPos`、`yOutlineWindowPos`、`widthOutlineWindow`、`heightOutlineWindow`。ドッキング位置・幅・並べ替えも。`outline/dock.rs`）、ウィンドウの位置と大きさ（`bSaveWindowSize` `nWinSizeType` `nWinSizeCX` `nWinSizeCY` `nSaveWindowPos` `nWinPosX` `nWinPosY`）は保存する（`saved_state/`）。保存の方式（継承・直接指定）は、共通設定「ウィンドウ」の「位置と大きさの設定」で選ぶ | `CShareData_IO.cpp`、`CEditWnd.cpp` | 位置を持てないダイアログの位置は、実行中だけ（`rc*Dialog` は ini の値を残す） | C | M | 既存のキーを使うので、形式の判断は要らない。新しいキーなら要る |
@@ -133,7 +133,7 @@
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
 | プラグインの仕組み: `plugin.def`、ジャック（Outline、SmartIndent、Complement、DocumentOpen/Close/BeforeSave/AfterSave、CommandPlugin）、`F_PLUGCOMMAND`、`F_PLUGIN_LIST` | `sakura_core/plugin/` | ADR-0026 の PR 1〜3 で、`plugin.def` の読み込み、有効にする前の確認と変更の検出、常駐のホスト（`plugin/invoke`、遅延起動、時間の制限、3 回失敗で停止）が入った（#275、#279、#282）。`Command` ジャック（PR 4）も入った（`F_PLUGCOMMAND`、`F_PLUGIN_LIST`、`Plugin.AddCommand`。下の行）。イベントのジャック 6 つ（PR 6）も入った。イベントは、閉じるすべての道（タブの ×、タグジャンプ、`Exit`、すべて終了）と、Grep の起動（`EditorStart`、`DocumentOpen` は Grep のあと）で呼ぶ。閉じかけのウィンドウが残ったときは `EditorStart` を出し直す（#337）。`Outline` ジャック（PR 7）も入った（`Outline` オブジェクト、タイプ別設定の選択肢、10 秒の制限、失敗したときは空の一覧と理由）。補完のジャック（PR 8）も入った（`ComplementGlobal` と、タイプ別「支援」で選ぶ `Complement`。`plugin_complement.rs`）。スマートインデントのジャック（PR 9）も入った（常駐のプラグインだけ、改行と `SmartIndent.Chars` の文字で呼ぶ。タイプ別設定の選択肢に出る）。残り: マクロが保存や読み込みをする間はイベントを配らない（イベント用の窓の状態が別にいる）。OS が直接終わらせる道（Dock の終了、ログアウト）ではイベントを呼ばない。`-GREPDLG` はダイアログのあとに呼ばない | ADR-0026 の順 | L | ADR-0026 の PR 10、11 |
-| プラグインのメニュー・ツールバー・キー割り当て・補完・アウトラインの項目 | `CPluginManager.cpp` ほか | 有効なプラグインの `[Command]` と `Plugin.AddCommand` のコマンドを、実行時に `F_PLUGCOMMAND` の番号（サクラの割り当て: `CPlug::GetPluginFunctionCode`）で登録する。種別「プラグイン」（キー割り当て・メインメニュー・カスタムメニュー・ツールバー）の一覧、`F_PLUGIN_LIST`（プラグインごとの副メニュー）、保存した `<ID>/NN` の読み書きが入った。残り: コマンドのアイコン（BMP）は既定の絵のまま、`EditorStart` で `AddCommand` するプラグインのコマンドは、ウィンドウができたときに現れ、保存済みのキーとボタンが効く、無効なプラグインの項目は「（不明）」の文字列のまま（ツールバーは未解決の印）。アウトラインの項目は入った（タイプ別「スクリーン」のアウトライン解析方法に、動くプラグインの `Outline` が並ぶ。値はプラグの関数コード）。補完の候補元は入った（タイプ別「支援」の `nHokanType`。無効なプラグインを指す値も保つ）。差: 補完の絞り込みでプラグインを呼び直さない（呼ぶのは補完を開くときの 1 回。ADR-0026 で決定済み） | ADR-0026 | M | ADR-0026 |
+| プラグインのメニュー・ツールバー・キー割り当て・補完・アウトラインの項目 | `CPluginManager.cpp` ほか | 有効なプラグインの `[Command]` と `Plugin.AddCommand` のコマンドを、実行時に `F_PLUGCOMMAND` の番号（サクラの割り当て: `CPlug::GetPluginFunctionCode`）で登録する。種別「プラグイン」（キー割り当て・メインメニュー・カスタムメニュー・ツールバー）の一覧、`F_PLUGIN_LIST`（プラグインごとの副メニュー）、保存した `<ID>/NN` の読み書きが入った。コマンドのアイコン（BMP）は入った（ADR-0026 の PR 11。ツールバーとメニュー。`plugin.def` と `AddCommand` の指定）。残り: `EditorStart` で `AddCommand` するプラグインのコマンドは、ウィンドウができたときに現れ、保存済みのキーとボタンが効く、無効なプラグインの項目は「（不明）」の文字列のまま（ツールバーは未解決の印）。アウトラインの項目は入った（タイプ別「スクリーン」のアウトライン解析方法に、動くプラグインの `Outline` が並ぶ。値はプラグの関数コード）。補完の候補元は入った（タイプ別「支援」の `nHokanType`。無効なプラグインを指す値も保つ）。差: 補完の絞り込みでプラグインを呼び直さない（呼ぶのは補完を開くときの 1 回。ADR-0026 で決定済み） | ADR-0026 | M | ADR-0026 |
 | プラグインの設定ページとオプション | `CPropComPlugin.cpp`、`CDlgPluginOption.cpp` | ページは PR 1 で入った。`plugin.def` と `plugins\<名前>.ini` の読み書きも入った（`matsu-config/src/plugins/`）。オプションのダイアログ（`plugin_options/`、5 つの型、OK で書き、キャンセルでは書かない、再起動は求めない）は入った。ダイアログの ReadMe とヘルプのボタン、ヘッダーのコメント行は残る | D | S | ADR-0026 の PR 11（ReadMe の表示） |
 | スマートインデントのプラグインを呼ぶ時機 | `CPluginManager.cpp`、`CType_Cpp.cpp` | サクラが文字ごとに同期で呼ぶのに対して、MATSU は改行と宣言した文字（`SmartIndent.Chars`）だけ、別プロセスで、コマンドのあとに呼ぶ。マクロの再生中は呼ばない（型 B。ADR-0026） | B | － | ADR-0026 |
 

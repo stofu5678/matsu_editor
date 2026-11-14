@@ -13,6 +13,23 @@
 - サクラエディタと同じ正規表現エンジン（Onigmo）
 - Python や Ruby で書けるマクロとプラグイン
 
+## インストール
+
+[リリース](https://github.com/stofu5678/matsu_editor/releases)のページから、使う OS のファイルを取ります（`<版>` は `v0.14.0` のような版）。署名はまだないので、初回は OS の警告が出ます。
+
+| OS | ファイル | 入れ方 |
+|---|---|---|
+| Windows | `matsu-<版>-windows-x64-setup.exe`（ARM64 は `windows-arm64`） | インストーラ。既定は利用者ごと（管理者権限は要りません）。最初のダイアログで全利用者も選べます。Windows の表示言語が日本語なら、画面も日本語です。SmartScreen が止めたら「詳細情報」から実行します |
+| Windows | `matsu-<版>-windows-x64.zip` | 好きなフォルダーに展開して `matsu.exe` を起動します（持ち運び用） |
+| macOS（Apple Silicon） | `matsu-<版>-macos-arm64.dmg` | 開いて、`MATSU Editor.app` を `Applications` にドラッグします。アドホック署名だけなので、初回は右クリックの「開く」で開くか、`xattr -dr com.apple.quarantine "/Applications/MATSU Editor.app"` で隔離属性を外します。（`.tar.gz` も同じ中身です） |
+| Linux | `matsu-<版>-linux-x64.deb`（ARM64 は `linux-arm64`） | `sudo apt install ./matsu-<版>-linux-x64.deb` |
+| Linux | `matsu-<版>-linux-x64.rpm` | `sudo dnf install ./matsu-<版>-linux-x64.rpm` |
+| Linux | `matsu-<版>-linux-x64.tar.gz` | 展開して `matsu` を起動します |
+
+Homebrew・Scoop・winget での入れ方は、公開の準備ができてから載せます（そのためのファイルは `packaging/` にあります）。
+
+アンインストールしても、設定（`matsu.ini` など）と未保存の文書は残ります。Windows は `%APPDATA%\matsu-editor`、macOS は `~/Library/Application Support/matsu-editor`、Linux は `~/.config/matsu-editor` にあります。消したいときは、そのフォルダーを自分で消してください。インストールで入れたファイルの一覧と、何に触れるかは [docs/release.md](docs/release.md) にあります。
+
 ## 起動のしかた
 
 ```sh

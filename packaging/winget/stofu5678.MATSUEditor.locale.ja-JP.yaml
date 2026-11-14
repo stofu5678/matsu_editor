@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
+PackageIdentifier: stofu5678.MATSUEditor
+PackageVersion: 0.0.0
+PackageLocale: ja-JP
+Publisher: stofu5678
+PublisherUrl: https://github.com/stofu5678
+PublisherSupportUrl: https://github.com/stofu5678/matsu_editor/issues
+Author: stofu5678
+PackageName: マツエディタ
+PackageUrl: https://github.com/stofu5678/matsu_editor
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/stofu5678/matsu_editor/blob/main/LICENSE-MIT
+Copyright: Copyright (c) 2026 stofu5678
+ShortDescription: サクラエディタの操作感を Windows・macOS・Linux で使えるようにしたテキストエディタ。
+Description: マツエディタ（MATSU Editor）は、Rust で書いたテキストエディタです。サクラエディタのキー割り当てと操作感を再現し、巨大なファイルも軽快に開けます。
+Tags:
+  - エディタ
+  - テキストエディタ
+  - サクラエディタ
+ManifestType: locale
+ManifestVersion: 1.28.0

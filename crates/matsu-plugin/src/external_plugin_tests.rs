@@ -1020,3 +1020,5 @@ fn the_timer_rules_hold_for_module_handlers() {
         host.reset();
     }
 }
+
+mod ruby_php;

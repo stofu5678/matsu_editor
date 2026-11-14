@@ -5,7 +5,8 @@
 //! the handler, the arguments), the plugin runs the handler, asks the editor for what it needs
 //! while it runs (`Editor.*`, `Plugin.*`), and answers the invoke. The messages are those of the
 //! macro protocol (`docs/poc/json-rpc.md`); the host is `matsu-script --engine quickjs` for
-//! `.js`, and the boot of the macro (`boot.cjs`, `boot.py`) in plugin mode for Node.js and Python.
+//! `.js`, and the boot of the macro (`boot.cjs`, `boot.py`, `boot.rb`, `boot.php`) in plugin mode for Node.js,
+//! Python, Ruby and PHP.
 //!
 //! * One host for one plugin and one language ([`PluginHost`]); it starts when the first call is
 //!   made (lazily), never before.

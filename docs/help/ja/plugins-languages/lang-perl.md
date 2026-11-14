@@ -8,7 +8,7 @@
 |---|---|
 | 起動する名前 | `perl`（`PATH` から探します） |
 | 版 | JSON を扱うために、Perl 5.14 から標準に入った `JSON::PP` を使います。それより古い Perl は、確かめていません |
-| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python です） |
+| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP です） |
 
 ## 動き方
 

@@ -1,0 +1,37 @@
+; Sample plugin whose handlers run on the user's PHP (ADR-0026, PR 10): a command, an event, and
+; the jacks Outline, Complement and SmartIndent. Put the folder HelloPHP in the folder "plugins"
+; next to matsu.ini, then use Common settings > Plugin > Add a new plugin. PHP has to be
+; installed.
+[Plugin]
+Id=io.github.stofu5678.matsu-editor.sample.hello-php
+Name=Hello (PHP)
+Description=A command, an event, an outline, a completion and a smart indent written in PHP.
+Author=MATSU Editor
+Version=1.0.0.0
+Url=https://github.com/stofu5678/matsu_editor
+Type=wsh
+
+[Plug]
+DocumentOpen=opened.php
+DocumentOpen.Label=Count the opens (PHP)
+Outline=outline.php
+Outline.Label=Markdown headings (PHP sample)
+Complement=complement.php
+Complement.Label=Hello words (PHP sample)
+SmartIndent=indent.php
+SmartIndent.Label=Indent 4 spaces after a colon (PHP sample)
+
+[Command]
+C[1]=command.php
+C[1].Label=Insert a greeting (PHP)
+
+[Option]
+O[1].Section=Hello
+O[1].Key=Greeting
+O[1].Label=Greeting
+O[1].Type=Str
+O[1].Default=Hello
+
+[Wsh]
+; Keep the process. The jack SmartIndent is called by a key press and needs it.
+UseCache=1

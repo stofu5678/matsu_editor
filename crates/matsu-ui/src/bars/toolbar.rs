@@ -133,7 +133,7 @@ fn buttons(cx: &App) -> ToolbarButtons {
 
 /// A button of the toolbar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Button {
+pub(crate) struct Button {
     /// The number in the settings file.
     pub number: u16,
     /// The function the button stands for (0: none, a button that is always gray).
@@ -190,6 +190,23 @@ pub(crate) fn plugin_icon() -> Option<usize> {
 /// `F_PLUGCOMMAND`.
 const F_PLUGCOMMAND: u16 = 3;
 
+/// `F_WINCLOSE`: 閉じる.
+const WINCLOSE: u16 = 31320;
+
+/// The close button of the toolbar row of a tab that is not an editor: Sakura's button of
+/// `F_WINCLOSE`, with its picture.
+pub(crate) fn own_tab_close_button() -> Button {
+    let index = FUNCTIONS_OF_BUTTONS
+        .iter()
+        .position(|&c| c == WINCLOSE)
+        .expect("F_WINCLOSE is in the table of the toolbar buttons");
+    Button {
+        number: (index + 1) as u16,
+        code: WINCLOSE,
+        icon: Some(index),
+    }
+}
+
 /// `CMenuDrawer::getButton`: what a number stands for. A number outside the table is an undefined
 /// button (gray, no picture).
 fn item_of(number: i32) -> Item {
@@ -209,7 +226,8 @@ fn item_of(number: i32) -> Item {
         return Item::Button(Button {
             number: code,
             code,
-            icon: plugin_icon(),
+            // A button of a plugin command that is not loaded keeps the default picture, gray.
+            icon: super::icon_of_function(code).or_else(plugin_icon),
         });
     }
     let Some(index) = usize::try_from(number - 1)
@@ -313,6 +331,43 @@ impl Workspace {
         }
         let lines = arrange(&buttons(cx).0);
         let states = self.func_states(topmost, cx.entity_id(), cx);
+        self.toolbar_element(lines, &states, scale_factor, cx)
+    }
+
+    /// The toolbar row of a tab that is not an editor (a preview, a shell, the AI log): as many
+    /// lines as the toolbar has, so the content below starts at the same place on every kind of
+    /// tab, with a button that closes the tab (`F_WINCLOSE`, which closes the active tab there; see
+    /// `Workspace::run_after_event`). The buttons of the editor do not apply to these tabs.
+    pub(crate) fn render_own_toolbar_at_scale(
+        &self,
+        topmost: bool,
+        scale_factor: f32,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        if !super::current(cx).toolbar {
+            return None;
+        }
+        let close = Item::Button(own_tab_close_button());
+        let mut lines: Vec<Vec<Item>> = vec![Vec::new(); arrange(&buttons(cx).0).len().max(1)];
+        lines[0].push(close);
+        let states = self.func_states(topmost, cx.entity_id(), cx);
+        self.toolbar_element(lines, &states, scale_factor, cx)
+    }
+
+    fn toolbar_element(
+        &self,
+        lines: Vec<Vec<Item>>,
+        states: &crate::menu_state::FuncStates,
+        scale_factor: f32,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        // A toolbar without buttons still keeps one line of height, so the content below does not
+        // move between an editor and the other kinds of tab.
+        let lines = if lines.is_empty() {
+            vec![Vec::new()]
+        } else {
+            lines
+        };
         let mut bar = super::semantics::toolbar(div().id("tool-bar"))
             .debug_selector(|| "tool-bar".into())
             .flex()
@@ -329,7 +384,7 @@ impl Workspace {
                     Item::Separator => div().w(px(8.)).into_any_element(),
                     Item::SearchBox => self.search_box.clone().into_any_element(),
                     Item::Button(button) => {
-                        self.render_tool_button(row, column, button, &states, scale_factor, cx)
+                        self.render_tool_button(row, column, button, states, scale_factor, cx)
                     }
                 });
             }
@@ -599,5 +654,16 @@ mod tests {
             panic!()
         };
         assert_eq!((free.code, free.icon), (0, None));
+        // MATSU's own buttons after Sakura's table: the LF and the CR copies, with pictures.
+        for (number, code) in [(482, 32700), (483, 32701)] {
+            let Item::Button(own) = item_of(number) else {
+                panic!()
+            };
+            assert_eq!((own.code, own.icon), (code, Some(number as usize - 1)));
+        }
+        let Item::Button(past) = item_of(484) else {
+            panic!()
+        };
+        assert_eq!((past.code, past.icon), (0, None));
     }
 }

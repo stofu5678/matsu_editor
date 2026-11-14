@@ -91,7 +91,7 @@ Outline[1].Label=Another outline
 |---|---|
 | `C[1]` から `C[49]` | ハンドラのファイル。1 から続けて書きます。途中で抜けると、そこから先は読みません |
 | `C[n].Label` | メニューなどに出す名前。なければハンドラのファイル名 |
-| `C[n].Icon` | アイコンのファイル名。読みますが、まだ使っていません。コマンドの絵は、既定のものです |
+| `C[n].Icon` | アイコン（BMP）のファイル名。プラグインのフォルダーからの相対パスで、フォルダーの外は指せません。縦横が同じ大きさの BMP を 16×16 に縮めて、ツールバーとメニューに使います。左上の点の色が透明になります。なかったり、読めなかったり、縦横が違ったりするときは、既定の絵です |
 
 ## `[Option]`
 
@@ -146,7 +146,7 @@ MATSU Editor が足した項目です。サクラエディタは、このセク�
 ## サクラエディタとの違い
 
 - `[Matsu]` と `Type=script` は、MATSU Editor が足したものです。
-- `[Wsh]` の `UseCache` は、サクラエディタではスクリプトを覚える設定です。MATSU Editor では、プロセスを残す設定です。残したプロセスの中の、ハンドラの実行環境については、[JavaScript（QuickJS）](lang-quickjs.md)、[JavaScript（Node.js）と TypeScript](lang-node.md)、[Python](lang-python.md)にあります。
+- `[Wsh]` の `UseCache` は、サクラエディタではスクリプトを覚える設定です。MATSU Editor では、プロセスを残す設定です。残したプロセスの中の、ハンドラの実行環境については、[JavaScript（QuickJS）](lang-quickjs.md)、[JavaScript（Node.js）と TypeScript](lang-node.md)、[Python](lang-python.md)、[Ruby](lang-ruby.md)、[PHP](lang-php.md)にあります。
 - `Type=dll` は動かしません。
 
 ## 根拠
