@@ -189,18 +189,18 @@ else:
 }
 
 #[test]
-fn the_boot_refuses_a_handler_that_is_not_cjs() {
+fn the_boot_refuses_a_handler_that_is_not_a_node_module() {
     if !available(Language::JavaScript) {
         return;
     }
-    let dir = plugin_dir(&[("a.mjs", "Editor.InsText('x');")]);
+    let dir = plugin_dir(&[("a.txt", "Editor.InsText('x');")]);
     let mut host = host(dir.path(), Language::JavaScript, false);
     let mut world = World::new("");
-    let report = world.call(&mut host, "a.mjs");
+    let report = world.call(&mut host, "a.txt");
     let Outcome::Failed(text) = &report.outcome else {
         panic!("{:?}", report.outcome);
     };
-    assert!(text.contains(".cjs だけ"), "{text}");
+    assert!(text.contains(".cjs、.mjs、.ts"), "{text}");
     assert_eq!(world.doc.text(), "");
 }
 
@@ -522,6 +522,49 @@ fn the_sample_plugins_run() {
 }
 
 #[test]
+fn the_module_sample_plugin_runs_its_mjs_and_ts_handlers() {
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/plugins/HelloModule");
+    let text = "# 見出し\n本文\n## 小見出し\n";
+    if available(Language::JavaScript) {
+        let mut host = host_with_agreement(&samples, Language::JavaScript, true);
+        let mut world = World::new(text);
+        for _ in 0..2 {
+            let opened =
+                world.call_jack(&mut host, "DocumentOpen", "opened.mjs", &json!({}), PATIENT);
+            assert_eq!(opened.outcome, Outcome::Ok, "{:?}", opened.output);
+        }
+        let report = world.call(&mut host, "command.mjs");
+        assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+        // The command and the jack share the module `opened.mjs`: it was loaded once.
+        assert!(
+            world
+                .doc
+                .text()
+                .starts_with("Hello (Command, opened 2 times, ES module)"),
+            "{}",
+            world.doc.text()
+        );
+        host.shutdown();
+    }
+    if available(Language::TypeScript) {
+        let mut host = host_with_agreement(&samples, Language::TypeScript, true);
+        let mut world = World::new(text);
+        let report = world.call_jack(&mut host, "Outline", "outline.ts", &json!({}), PATIENT);
+        assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+        assert!(
+            world
+                .api
+                .outline
+                .iter()
+                .any(|c| c.contains("\"小見出し\",1")),
+            "{:?}",
+            world.api.outline
+        );
+        host.shutdown();
+    }
+}
+
+#[test]
 fn a_node_timer_of_a_handler_finishes_inside_its_own_call() {
     if !available(Language::JavaScript) {
         return;
@@ -665,6 +708,353 @@ fn a_timer_callback_gets_its_receiver_and_arguments() {
     );
     assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
     assert_eq!(world.doc.text(), "pqfunction");
+}
+
+// ---- ES modules and TypeScript (ADR-0026, PR 10) ----
+
+/// Node.js with `module.registerHooks` (22.15, 23.5): the plugin host serves `.mjs` and `.ts`, and
+/// `require` of the plugin folder, only there.
+fn module_hooks() -> bool {
+    if !available(Language::JavaScript) {
+        return false;
+    }
+    let output = std::process::Command::new("node")
+        .args(["-p", "typeof require('module').registerHooks"])
+        .output()
+        .expect("node runs");
+    let has = String::from_utf8_lossy(&output.stdout).trim() == "function";
+    if !has {
+        eprintln!("SKIP: this Node.js has no module.registerHooks");
+        if std::env::var_os("MATSU_REQUIRE_INTERPRETERS").is_some_and(|v| !v.is_empty()) {
+            panic!("module.registerHooks is required here (MATSU_REQUIRE_INTERPRETERS)");
+        }
+    }
+    has
+}
+
+/// The agreement of the user for the files in `dir`, as `plugins.ini` keeps it.
+fn agreed(dir: &Path) -> Vec<(String, String)> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                let relative = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let hash = crate::plugin_host::sha256_hex(&std::fs::read(&path).unwrap());
+                out.push((relative, hash));
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(dir, dir, &mut files);
+    files
+}
+
+fn host_with_agreement(dir: &Path, language: Language, resident: bool) -> PluginHost {
+    PluginHost::new(
+        HostSettings::new("jp.example.test", dir, language, resident).with_verified(agreed(dir)),
+    )
+}
+
+#[test]
+fn an_mjs_handler_is_loaded_once_and_its_default_export_is_called_for_each_call() {
+    if !module_hooks() {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "h.mjs",
+            "import { word } from './lib/word.mjs';
+import data from './lib/data.json' with { type: 'json' };
+import { readFileSync } from 'node:fs';
+globalThis.loads = (globalThis.loads ?? 0) + 1;
+let calls = 0;
+export default async function (args) {
+  calls += 1;
+  console.log(Plugin.jack, JSON.stringify(args), word, data.n, typeof readFileSync, 'loads=' + globalThis.loads, 'calls=' + calls);
+  Editor.InsText(word);
+}",
+        ),
+        ("lib/word.mjs", "export const word = 'こと';"),
+        ("lib/data.json", "{\"n\": 7}"),
+    ]);
+    let mut host = host_with_agreement(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    let first = world.call(&mut host, "h.mjs");
+    assert_eq!(first.outcome, Outcome::Ok, "{:?}", first.output);
+    let pid = host.process_id().expect("it stays");
+    let second = world.call(&mut host, "h.mjs");
+    assert_eq!(second.outcome, Outcome::Ok, "{:?}", second.output);
+    assert_eq!(host.process_id(), Some(pid));
+    assert_eq!(
+        stdout(&first),
+        ["Command {\"n\":1} こと 7 function loads=1 calls=1"]
+    );
+    // The module ran once: the second call is the same module, and its state stays.
+    assert_eq!(
+        stdout(&second),
+        ["Command {\"n\":1} こと 7 function loads=1 calls=2"]
+    );
+    assert_eq!(world.doc.text(), "ことこと");
+    host.shutdown();
+}
+
+#[test]
+fn a_ts_handler_runs_with_its_types_stripped_and_imports_other_ts_files() {
+    if !available(Language::TypeScript) {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "h.ts",
+            "import { twice } from './util.ts';
+import type { Shape } from './util.ts';
+export default function (args: { n: number }): void {
+  const shape: Shape = { w: args.n };
+  Editor.InsText(String(twice(shape.w)));
+  throw new Error('line 6');
+}",
+        ),
+        (
+            "util.ts",
+            "export interface Shape { w: number }
+export const twice = (n: number): number => n * 2;",
+        ),
+    ]);
+    let mut host = host_with_agreement(dir.path(), Language::TypeScript, false);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "h.ts");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    // The types became blanks: the error is on the same line of the file.
+    assert!(text.contains("line 6") && text.contains("h.ts:6"), "{text}");
+    assert_eq!(world.doc.text(), "2");
+}
+
+#[test]
+fn imports_come_from_the_text_that_was_checked_not_from_the_disk() {
+    if !module_hooks() {
+        return;
+    }
+    let dir = plugin_dir(&[
+        ("a.mjs", "export default function () { console.log('a'); }"),
+        (
+            "b.mjs",
+            "import { word } from './later.mjs';
+export default function () { console.log(word); }",
+        ),
+        ("later.mjs", "export const word = 'checked';"),
+    ]);
+    let mut host = host_with_agreement(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    assert_eq!(world.call(&mut host, "a.mjs").outcome, Outcome::Ok);
+    // The files change after the process got them (after the check, before b.mjs is loaded).
+    std::fs::write(dir.path().join("later.mjs"), "export const word = 'EVIL';").unwrap();
+    std::fs::write(
+        dir.path().join("b.mjs"),
+        "export default function () { console.log('EVIL'); }",
+    )
+    .unwrap();
+    let report = world.call(&mut host, "b.mjs");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(stdout(&report), ["checked"]);
+    host.shutdown();
+}
+
+#[test]
+fn a_file_that_changed_since_the_agreement_is_refused_before_anything_runs() {
+    let dir = plugin_dir(&[
+        (
+            "h.mjs",
+            "import './dep.mjs'; export default function () { Editor.InsText('ran'); }",
+        ),
+        ("dep.mjs", "export {};"),
+        ("old.cjs", "Editor.InsText('cjs');"),
+    ]);
+    let mut host = host_with_agreement(dir.path(), Language::JavaScript, false);
+    std::fs::write(
+        dir.path().join("dep.mjs"),
+        "Editor.InsText('EVIL'); export {};",
+    )
+    .unwrap();
+    let error = host
+        .begin("Command", "h.mjs", &Value::Null, PATIENT)
+        .unwrap_err();
+    assert!(
+        matches!(&error, crate::plugin_host::BeginError::Changed { path } if path == "dep.mjs"),
+        "{error}"
+    );
+    assert!(!host.is_running(), "no process was started");
+    // A handler of another kind is checked too, and a file that was added is a change.
+    std::fs::write(dir.path().join("old.cjs"), "Editor.InsText('EVIL');").unwrap();
+    assert!(matches!(
+        host.begin("Command", "old.cjs", &Value::Null, PATIENT),
+        Err(crate::plugin_host::BeginError::Changed { .. })
+    ));
+    std::fs::write(dir.path().join("dep.mjs"), "export {};").unwrap();
+    std::fs::write(dir.path().join("added.mjs"), "export {};").unwrap();
+    assert!(matches!(
+        host.begin("Command", "h.mjs", &Value::Null, PATIENT),
+        Err(crate::plugin_host::BeginError::Changed { path }) if path == "added.mjs"
+    ));
+    assert!(!host.is_running());
+}
+
+#[test]
+fn imports_outside_the_folder_and_packages_are_refused() {
+    if !module_hooks() {
+        return;
+    }
+    let outside = plugin_dir(&[("secret.mjs", "export const secret = 'x';")]);
+    let outside_url = format!(
+        "file://{}/secret.mjs",
+        outside.path().display().to_string().replace('\\', "/")
+    );
+    let url_handler =
+        format!("export default async function () {{ await import('{outside_url}'); }}");
+    let dir = plugin_dir(&[
+        (
+            "up.mjs",
+            "export default async function () { await import('../secret.mjs'); }",
+        ),
+        ("url.mjs", &url_handler),
+        (
+            "pkg.mjs",
+            "export default async function () { await import('left-pad'); }",
+        ),
+        (
+            "none.mjs",
+            "export default async function () { await import('./missing.mjs'); }",
+        ),
+        ("nofn.mjs", "export const x = 1;"),
+        ("ok.mjs", "export default () => Editor.InsText('ok');"),
+    ]);
+    let mut host = host_with_agreement(dir.path(), Language::JavaScript, false);
+    let mut world = World::new("");
+    for (file, needle) in [
+        ("up.mjs", "同意したプラグインのフォルダーにありません"),
+        ("url.mjs", "同意したプラグインのフォルダーにありません"),
+        ("pkg.mjs", "パッケージ"),
+        ("none.mjs", "同意したプラグインのフォルダーにありません"),
+        ("nofn.mjs", "default で export"),
+    ] {
+        let report = world.call(&mut host, file);
+        let Outcome::Failed(text) = &report.outcome else {
+            panic!("{file}: {:?}", report.outcome);
+        };
+        assert!(text.contains(needle), "{file}: {text}");
+        host.reset();
+    }
+    assert_eq!(world.call(&mut host, "ok.mjs").outcome, Outcome::Ok);
+    assert_eq!(world.doc.text(), "ok");
+}
+
+#[test]
+fn a_cjs_handler_requires_files_of_its_folder_from_the_checked_text_too() {
+    if !module_hooks() {
+        return;
+    }
+    let dir = plugin_dir(&[
+        ("first.cjs", "Editor.InsText(require('./lib/word').word);"),
+        (
+            "second.cjs",
+            "Editor.InsText(require('./lib2/word.cjs').word); require('left-pad');",
+        ),
+        ("lib/word.cjs", "exports.word = 'a';"),
+        ("lib2/word.cjs", "exports.word = 'b';"),
+    ]);
+    let mut host = host_with_agreement(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    // No extension: the way of CommonJS.
+    assert_eq!(world.call(&mut host, "first.cjs").outcome, Outcome::Ok);
+    std::fs::write(dir.path().join("lib2/word.cjs"), "exports.word = 'EVIL';").unwrap();
+    let report = world.call(&mut host, "second.cjs");
+    // `b` came from the text that was checked; the package is refused.
+    assert_eq!(world.doc.text(), "ab");
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains("パッケージ"), "{text}");
+}
+
+#[test]
+fn the_memory_of_a_resident_node_host_stays_flat_over_many_calls() {
+    if !module_hooks() {
+        return;
+    }
+    let dir = plugin_dir(&[(
+        "h.mjs",
+        "import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
+setFlagsFromString('--expose-gc');
+const gc = runInNewContext('gc');
+let calls = 0;
+let base = 0;
+export default function () {
+  calls += 1;
+  if (calls === 300) { gc(); base = process.memoryUsage().heapUsed; }
+  if (calls === 3000) {
+    gc();
+    console.log('grown=' + (process.memoryUsage().heapUsed - base));
+  }
+}",
+    )]);
+    let mut host = host_with_agreement(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    let mut grown = None;
+    for _ in 0..3000 {
+        let report = world.call_jack(&mut host, "Command", "h.mjs", &Value::Null, PATIENT);
+        assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+        if let Some(line) = stdout(&report).first() {
+            grown = line
+                .strip_prefix("grown=")
+                .and_then(|n| n.parse::<i64>().ok());
+        }
+    }
+    // An import() for each call would keep about 11 KB for each: 30 MB over these calls.
+    let grown = grown.expect("the last call reports");
+    assert!(grown < 2 * 1024 * 1024, "the heap grew by {grown} bytes");
+    host.shutdown();
+}
+
+#[test]
+fn the_timer_rules_hold_for_module_handlers() {
+    if !module_hooks() {
+        return;
+    }
+    let dir = plugin_dir(&[
+        (
+            "timer.mjs",
+            "export default function () { setTimeout(() => Editor.InsText('t'), 50); }",
+        ),
+        (
+            "late.mjs",
+            "export default function () { setTimeout(() => { throw new Error('遅い'); }, 20); }",
+        ),
+        (
+            "reject.mjs",
+            "export default async function () { throw new Error('はじかれた'); }",
+        ),
+    ]);
+    let mut host = host_with_agreement(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "timer.mjs");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(world.doc.text(), "t", "the call ended after its timer");
+    for (file, needle) in [("late.mjs", "遅い"), ("reject.mjs", "はじかれた")] {
+        let report = world.call(&mut host, file);
+        let Outcome::Failed(text) = &report.outcome else {
+            panic!("{file}: {:?}", report.outcome);
+        };
+        assert!(text.contains(needle), "{file}: {text}");
+        host.reset();
+    }
 }
 
 mod ruby_php;
