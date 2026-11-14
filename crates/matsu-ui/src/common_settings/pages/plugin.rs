@@ -46,6 +46,14 @@ pub(in crate::common_settings) fn refresh_dirs(cx: &App) {
     set_search_dirs(search_dirs(cx));
 }
 
+/// The page is shown: the 状態 of the list is set against the folders as they are now.
+pub(in crate::common_settings) fn page_shown(
+    dialog: &mut super::super::dialog::CommonSettingsDialog,
+    cx: &mut gpui::Context<super::super::dialog::CommonSettingsDialog>,
+) {
+    list::refresh_states(dialog, cx);
+}
+
 /// `IDD_PROP_PLUGIN`. The controls with the prefix `plugin_` hold only the state of the page.
 pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
     Some(vec![

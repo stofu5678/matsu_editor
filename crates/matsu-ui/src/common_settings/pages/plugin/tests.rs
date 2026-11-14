@@ -1133,3 +1133,78 @@ fn the_readme_pressed_twice_before_it_has_loaded_is_read_only_in_both_windows(
         );
     }
 }
+
+// ---- the words of 試しに実行 and the state after a change ----
+
+#[test]
+fn the_test_run_tells_an_unchecked_box_from_one_that_is_not_saved() {
+    let unchecked = super::list::enable_words(false, false).unwrap();
+    assert!(unchecked.contains("が入っていません"));
+    // Checked on the page, not saved yet: the box is not said to be empty.
+    let unsaved = super::list::enable_words(true, false).unwrap();
+    assert!(!unsaved.contains("入っていません"));
+    assert!(unsaved.contains("OK で保存"));
+    assert_eq!(super::list::enable_words(true, true), None);
+}
+
+#[test]
+fn the_state_follows_the_files_when_the_rows_are_refreshed() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let files = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    let mut consent = ConsentFile::default();
+    consent.enable(HELLO_JS_ID, "HelloJs", &files, "d").unwrap();
+    consent.save(&dirs.consent_file()).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    assert_eq!(rows[0][STATE], "有効");
+    assert!(!rows::refresh_consent(&mut rows, Some(&dirs), &consent));
+
+    // A file changes after the page was loaded.
+    fs::write(
+        plugin_dir.join("command.js"),
+        "Editor.InsText('changed, longer');",
+    )
+    .unwrap();
+    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &consent));
+    assert_eq!(rows[0][STATE], "変更あり（停止）");
+    assert_eq!(rows[0][CONSENT], "changed");
+    assert!(row_can_enable(&rows[0]));
+
+    // Agreed again in the dialog: the manifest of the row is what was agreed.
+    let now = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    rows::set_consent(
+        &mut rows[0],
+        true,
+        &matsu_config::plugins::consent::manifest_text(&now),
+    );
+    assert_eq!(rows[0][STATE], "有効");
+    assert!(!rows::refresh_consent(&mut rows, Some(&dirs), &consent));
+    assert_eq!(rows[0][STATE], "有効");
+}
+
+#[gpui::test]
+fn showing_the_page_again_shows_the_state_of_the_files_now(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    enable(cx, 0).unwrap();
+    ok(cx);
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+
+    // The files change while the dialog is open; showing the page sets the state.
+    fs::write(
+        dir_of(&ini).join("plugins/HelloJs/command.js"),
+        "Editor.InsText('changed, longer');",
+    )
+    .unwrap();
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::General, dcx));
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
+    assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
+    cancel(cx);
+}
