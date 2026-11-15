@@ -159,7 +159,7 @@ impl Workspace {
                 f32::from(window.viewport_size().height)
             }
         };
-        pane.read(cx).note_drawn(side);
+        pane.update(cx, |pane, _| pane.note_drawn(place));
         let size_side = side.size_side();
         let size = ideal_size(place.size_of(size_side), max_of(size_side.is_vertical()));
         let measure = canvas(
@@ -255,7 +255,7 @@ impl Workspace {
                     max_of(false),
                     size,
                 );
-                pane.read(cx).set_float_shown(rect);
+                pane.update(cx, |pane, _| pane.set_float_shown(rect));
                 let bottom = div()
                     .id("outline-float-bottom")
                     .debug_selector(|| "outline-float-bottom".to_owned())
