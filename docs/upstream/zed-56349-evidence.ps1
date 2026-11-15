@@ -15,7 +15,9 @@ The script was written with Claude Code (an AI) and reviewed with Codex (an AI o
 company). It does this:
 
 1. Records the machine (Windows build, model, CPU, GPU and driver, display scale, ClearType,
-   Rust) and reads crates/gpui_windows/src/directx_atlas.rs on Zed's main from GitHub.
+   Rust) and reads crates/gpui_windows/src/directx_atlas.rs on Zed's main from GitHub. After
+   step 2 finds the published crate, it compares that file with src/directx_atlas.rs in the
+   crate, which the three builds start from.
 2. Takes the prototype at commit 97908ca (poc/gpui-textview, gpui-pre 0.3.8) out of the clone
    with git archive and builds it three ways:
      gpui  as published (cargo build --release --locked);
@@ -77,6 +79,8 @@ $Plan = New-Object System.Collections.Generic.List[object]
 $Samples = New-Object System.Collections.Generic.List[object]
 $Runs = New-Object System.Collections.Generic.List[object]
 $Missing = @()
+$ZedAtlas = $null
+$ZedSame = 'not compared'
 
 # Window pictures and their comparison. PrintWindow with PW_RENDERFULLCONTENT also gets what
 # DirectX draws; the thread is made per-monitor DPI aware so that the sizes are real pixels.
@@ -374,7 +378,9 @@ function Get-ZedMain {
         $sha = [string]$commit.sha
         $date = [string]$commit.commit.committer.date
         $file = Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/zed-industries/zed/$sha/crates/gpui_windows/src/directx_atlas.rs" -Headers $headers -TimeoutSec 30
-        $lines = ([string]$file.Content) -split "`n"
+        # Kept for Compare-ZedAtlas.
+        $script:ZedAtlas = [string]$file.Content
+        $lines = $script:ZedAtlas -split "`n"
         $calls = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '\bUpdateSubresource\(') { $i + 1 } })
         $staging = @($lines | Where-Object { $_ -match 'D3D11_USAGE_STAGING' }).Count
         $where = 'no UpdateSubresource( call'
@@ -383,6 +389,31 @@ function Get-ZedMain {
     } catch {
         'not checked: ' + $_.Exception.Message
     }
+}
+
+# Whether the file that Get-ZedMain read is the one the builds here start from (line ends aside).
+# That file has the atlas and its uploads; the other files of the crate are not compared.
+function Compare-ZedAtlas {
+    $published = 'src/directx_atlas.rs in the published gpui-pre-windows 0.3.8, which the three builds start from'
+    if ($null -eq $ZedAtlas) { return (Fmt 'Zed main''s file was not read, so it was not compared with {0}.' $published) }
+    # Only an extra check: a failure is written down and the run goes on.
+    $dir = Join-Path $WorkDir 'crate-pristine'
+    try {
+        Remove-WorkItem $dir
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        $member = 'gpui-pre-windows-0.3.8/src/directx_atlas.rs'
+        $null = Invoke-Native $Tar @('-xzf', $Crate, '-C', $dir, $member) -Quiet
+        $ours = [IO.File]::ReadAllText((Join-Path $dir $member.Replace('/', '\'))).Replace("`r`n", "`n").TrimStart([char]0xFEFF)
+    } catch {
+        return (Fmt 'Zed main''s file was not compared with {0}: {1}' $published $_.Exception.Message)
+    } finally {
+        # A folder left by a failure here would only be removed by the next run.
+        try { Remove-WorkItem $dir } catch { Write-Log ('  could not remove ' + $dir + ': ' + $_.Exception.Message) }
+    }
+    # -ceq: -eq ignores the case of letters.
+    if ($ZedAtlas.Replace("`r`n", "`n").TrimStart([char]0xFEFF) -ceq $ours) { return (Fmt 'The file is the same as {0} (line ends aside).' $published) }
+    [IO.File]::WriteAllText((Join-Path $Out 'zed-main-directx_atlas.rs'), $ZedAtlas, $Utf8)
+    Fmt 'The file differs from {0}; Zed main''s file is saved as zed-main-directx_atlas.rs.' $published
 }
 
 # git archive gives the committed bytes (core.autocrlf=false) and leaves the clone as it is.
@@ -804,6 +835,7 @@ function Write-Summary {
     $md.Add('## 6. Zed main')
     $md.Add('')
     $md.Add('- ' + $Machine['Zed main'])
+    $md.Add('- ' + $ZedSame)
     $md.Add('')
 
     $md.Add('## Runs')
@@ -981,6 +1013,8 @@ try {
     }
     if (-not $Crate) { throw "no gpui-pre-windows-0.3.8.crate with SHA-256 $CrateSha in $CargoHome\registry\cache" }
     Write-Log ('Published crate: ' + $Crate + ' (SHA-256 matches Cargo.lock)')
+    $ZedSame = Compare-ZedAtlas
+    Write-Log ('  Zed main: ' + $ZedSame)
     $FixCrate = New-PatchedCrate 'fix' $FixPatch 'D3D11_USAGE_STAGING'
     $DiagCrate = New-PatchedCrate 'diag' $DiagPatch 'POC_ATLAS_UPLOAD'
     $ZedRev = '?'
@@ -1010,6 +1044,7 @@ try {
     $Versions.Add('gpui-pre-windows-0.3.8.crate: SHA-256 ' + $CrateSha)
     $Versions.Add('fix patch: SHA-256 ' + $FixSha)
     $Versions.Add('diag patch: SHA-256 ' + $DiagSha)
+    $Versions.Add('Zed main directx_atlas.rs: ' + $ZedSame)
     $Machines = New-Object System.Collections.Generic.List[string]
     foreach ($build in 'gpui', 'fix', 'diag') {
         foreach ($bin in 'minimal', $Poc) {
