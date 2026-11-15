@@ -52,7 +52,7 @@ Rust の「だれが値を持つか」「状態をどう持つか」「長く生
 
 よい clone（理由を書かなくてよい）:
 
-- 安い持ち手: `Entity`・`WeakEntity`・`Rc`・`Arc`・`SharedString`・`FocusHandle`。ただし、`Rc`・`Arc` は `Rc::clone(&x)` の形で書く（Clippy の `clone_on_ref_ptr`。持ち手の複製だと読み取れる）
+- 安い持ち手: `Entity`・`WeakEntity`・`Rc`・`Arc`・`SharedString`・`FocusHandle`
 - 小さな `Copy` に近いデータ（数、短い enum、`Pos` など）
 - 値を作り直して別の持ち主に渡す、本当の複製（保存用の写し、やり直しの記録）
 
