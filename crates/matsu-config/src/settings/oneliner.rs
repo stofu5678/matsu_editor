@@ -147,6 +147,13 @@ impl OneLiner {
         !self.command.trim().is_empty()
     }
 
+    /// A registered slot that still has `AI=1`. ADR-0035 moves such slots to `[AI]` ([`super::ai::migrate`]);
+    /// while one is left (the move did not fit), it must not run as an ordinary one-liner, because that would
+    /// send the text to a generative AI without the confirmation window.
+    pub fn is_ai_marked(&self) -> bool {
+        self.ai && self.is_registered()
+    }
+
     /// The name, or the command when there is no name.
     pub fn title(&self) -> &str {
         if self.name.is_empty() {
@@ -204,7 +211,7 @@ impl Default for OneLiners {
 }
 
 /// `Name[003]`: the key of slot `index`.
-fn key(prefix: &str, index: usize) -> String {
+pub(super) fn key(prefix: &str, index: usize) -> String {
     format!("{prefix}[{index:03}]")
 }
 
@@ -213,16 +220,16 @@ fn recent_key(index: usize) -> String {
     format!("Recent[{index:02}]")
 }
 
-fn units(text: &str) -> usize {
+pub(super) fn units(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
-fn has_break(text: &str) -> bool {
+pub(super) fn has_break(text: &str) -> bool {
     text.contains(['\r', '\n'])
 }
 
 /// `text` cut to fewer than [`NAME_MAX_UNITS`] UTF-16 units, at a character.
-fn cut_name(text: &str) -> String {
+pub(super) fn cut_name(text: &str) -> String {
     let mut out = String::new();
     let mut used = 0;
     for c in text.chars() {
@@ -248,7 +255,7 @@ fn flag(profile: &Profile, name: &str, default: bool) -> bool {
     }
 }
 
-fn check(key: &str, value: &str, limit: usize) -> Result<(), OneLinerError> {
+pub(super) fn check(key: &str, value: &str, limit: usize) -> Result<(), OneLinerError> {
     if has_break(value) {
         return Err(OneLinerError::LineBreak {
             key: key.to_owned(),
@@ -301,6 +308,13 @@ impl OneLiners {
     /// The one-liner `index`, if it is in the table.
     pub fn get(&self, index: usize) -> Option<&OneLiner> {
         self.slots.get(index)
+    }
+
+    /// The numbers of the slots that are [`OneLiner::is_ai_marked`], in order.
+    pub fn ai_marked(&self) -> Vec<usize> {
+        (0..self.slots.len())
+            .filter(|&i| self.slots[i].is_ai_marked())
+            .collect()
     }
 
     /// The one-liner that the function `code` runs.

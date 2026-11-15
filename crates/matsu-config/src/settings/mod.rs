@@ -5,6 +5,7 @@
 //!
 //! Everything else in the file stays in the [`Profile`](crate::Profile) as raw entries.
 
+pub mod ai;
 pub mod builtin_types;
 pub mod color;
 pub mod custom_menu;
