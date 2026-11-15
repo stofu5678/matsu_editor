@@ -164,6 +164,8 @@ pub(crate) type Advance = (char, Result<f32, String>);
 pub(crate) struct AdvanceTable {
     /// Why this font is in the table: "drawn with", "proportional" or "monospaced".
     pub kind: &'static str,
+    /// What was measured, as written in the report: a quoted family, or for the font the text is
+    /// drawn with the description of the font chosen (family, fallbacks and why).
     pub family: String,
     /// The advance of the half-width digit `0` in pixels: the unit of the ratios.
     pub half: f32,
@@ -393,7 +395,7 @@ pub(crate) fn render(facts: &Facts) -> String {
     }
     for table in &facts.advance_tables {
         line(format!(
-            "advance table ({}) {:?}: pixels at {} px = units of 1/64 of the half-width advance '0' ({:.3} px):",
+            "advance table ({}) {}: pixels at {} px = units of 1/64 of the half-width advance '0' ({:.3} px):",
             table.kind, table.family, facts.font_size, table.half
         ));
         for (label, advances) in &table.groups {
@@ -508,7 +510,9 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
     let mut tables = vec![advance_table(
         system,
         "drawn with",
-        &asked_family,
+        // What is measured is the font the text is drawn with (`used_id`), which is not the
+        // asked family when that is missing (macOS): label it as `TextFont::describe` does.
+        &used_font,
         used_id,
         size,
     )];
@@ -518,7 +522,13 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
     ] {
         for family in installed_among(&all_names, candidates, max) {
             let id = system.resolve_font(&gpui::font(family.clone()));
-            tables.push(advance_table(system, kind, &family, id, size));
+            tables.push(advance_table(
+                system,
+                kind,
+                &format!("{family:?}"),
+                id,
+                size,
+            ));
         }
     }
 
@@ -766,7 +776,7 @@ mod tests {
         let mut f = facts(1, 3);
         f.advance_tables = vec![AdvanceTable {
             kind: "proportional",
-            family: "Noto Sans JP".into(),
+            family: "\"Noto Sans JP\"".into(),
             half: 8.0,
             groups: vec![("lowercase", vec![('i', 3.0), ('m', 12.0)])],
         }];
@@ -776,6 +786,30 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("  lowercase: i 3.0=24 m 12.0=96"), "{text}");
+    }
+
+    #[test]
+    fn the_drawn_font_table_is_labeled_with_the_font_that_was_measured() {
+        // On a Mac without the asked family the text is drawn with Menlo and Hiragino Sans: the
+        // table must say so, not name the missing family.
+        let mut f = facts(1, 3);
+        f.advance_tables = vec![AdvanceTable {
+            kind: "drawn with",
+            family: f.used_font.clone(),
+            half: 8.0,
+            groups: Vec::new(),
+        }];
+        let text = render(&f);
+        assert!(
+            text.contains(
+                "advance table (drawn with) \"Menlo\" with fallbacks [\"Hiragino Sans\"]"
+            ),
+            "{text}"
+        );
+        assert!(
+            !text.contains("advance table (drawn with) \"BIZ UDGothic\""),
+            "{text}"
+        );
     }
 
     fn facts(asked_id: usize, missing_id: usize) -> Facts {
