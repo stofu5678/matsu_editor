@@ -35,8 +35,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_A, VK_CONTROL, VK_MENU,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GA_ROOT, GetAncestor, GetDlgCtrlID,
-    GetForegroundWindow, GetParent, SendMessageW, SetForegroundWindow, WM_COMMAND, WM_SETTEXT,
+    CB_FINDSTRINGEXACT, CB_GETCOUNT, CB_GETLBTEXT, CB_GETLBTEXTLEN, CB_SETCURSEL, CBN_SELCHANGE,
+    GA_ROOT, GetAncestor, GetDlgCtrlID, GetForegroundWindow, GetParent, SendMessageW,
+    SetForegroundWindow, WM_COMMAND, WM_SETTEXT,
 };
 use windows::core::{BSTR, HSTRING};
 
@@ -479,6 +480,34 @@ impl Element {
                 Some(WPARAM((CBN_SELCHANGE as usize) << 16 | id)),
                 Some(LPARAM(combo.0 as isize)),
             );
+        }
+    }
+
+    /// Every item text of a combo box of a classic dialog (`CB_GETLBTEXT`): the list, whether or not
+    /// it is dropped down.
+    pub fn classic_items(&self) -> Vec<String> {
+        // SAFETY: the window is a combo box of a dialog of this process; each buffer is as long as
+        // the item text that `CB_GETLBTEXTLEN` reported, plus the terminating zero.
+        unsafe {
+            let combo = self
+                .0
+                .CurrentNativeWindowHandle()
+                .unwrap_or_else(|e| panic!("{} has no window: {e}", self.describe()));
+            let count = SendMessageW(combo, CB_GETCOUNT, None, None).0.max(0) as usize;
+            (0..count)
+                .filter_map(|i| {
+                    let len = SendMessageW(combo, CB_GETLBTEXTLEN, Some(WPARAM(i)), None).0;
+                    let len = usize::try_from(len).ok()?;
+                    let mut buffer = vec![0u16; len + 1];
+                    SendMessageW(
+                        combo,
+                        CB_GETLBTEXT,
+                        Some(WPARAM(i)),
+                        Some(LPARAM(buffer.as_mut_ptr() as isize)),
+                    );
+                    Some(String::from_utf16_lossy(&buffer[..len]))
+                })
+                .collect()
         }
     }
 

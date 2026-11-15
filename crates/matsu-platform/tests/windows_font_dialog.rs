@@ -124,3 +124,20 @@ fn cancel_returns_nothing() {
         assert!(matches!(running.finish(), Ok(None)));
     });
 }
+
+/// MATSU Editor draws horizontally with DirectWrite: the list has no GDI vertical faces (`@Name`,
+/// `CF_NOVERTFONTS`) and no raster fonts (`CF_SCALABLEONLY`).
+#[test]
+fn the_face_list_has_no_vertical_or_raster_fonts() {
+    with_dialog(|uia, fields, running| {
+        let faces = fields.face.classic_items();
+        assert!(!faces.is_empty(), "the face list is empty");
+        let vertical: Vec<_> = faces.iter().filter(|f| f.starts_with('@')).collect();
+        assert!(vertical.is_empty(), "vertical faces: {vertical:?}");
+        for raster in ["Terminal", "Fixedsys", "System"] {
+            assert!(!faces.iter().any(|f| f == raster), "{raster} is listed");
+        }
+        button(uia, &fields.window, "2").invoke();
+        assert!(matches!(running.finish(), Ok(None)));
+    });
+}
