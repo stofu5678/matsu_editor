@@ -54,13 +54,19 @@ pub(crate) fn install_from_env() -> bool {
     install(std::env::var_os(ENV_NAME).as_deref())
 }
 
+/// Installs the logger (once; a second call changes nothing). `MATSU_GPU_DIAGNOSTICS` uses it too,
+/// to see GPUI's debug records, without turning the font report on.
+pub(crate) fn install_logger() {
+    if log::set_logger(&LOGGER).is_ok() {
+        log::set_max_level(LevelFilter::Debug);
+    }
+}
+
 fn install(value: Option<&OsStr>) -> bool {
     if !is_on(value) {
         return false;
     }
-    if log::set_logger(&LOGGER).is_ok() {
-        log::set_max_level(LevelFilter::Debug);
-    }
+    install_logger();
     ENABLED.store(true, Ordering::Relaxed);
     log::info!(target: "matsu::font_diagnostics", "{ENV_NAME} is set: logging to the standard error");
     true

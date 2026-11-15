@@ -127,6 +127,8 @@ pub fn launch(args: Vec<OsString>) {
     // Before anything that GPUI logs: `MATSU_FONT_DIAGNOSTICS` installs the logger (and nothing
     // otherwise).
     let diagnostics = crate::font_diagnostics::install_from_env();
+    // `MATSU_GPU_DIAGNOSTICS`: the same logger, and a line about the graphics memory (see `report`).
+    let diagnostics = crate::gpu_diagnostics::install_from_env() || diagnostics;
     let (separate, args) = split_options(args);
     // Saves ask the OS for the free space before they write (ADR-0020, chapter 4).
     matsu_core::file::set_default_free_space_probe(Some(matsu_core::file::FreeSpaceProbe(
