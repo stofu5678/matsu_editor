@@ -68,7 +68,9 @@ $input | Sort-Object -Unique
 ```
 
 - 行の最初のコマンドが、入力を絞り込むか整えるだけのもの（`ForEach-Object`（`%`、`foreach`）、`Where-Object`（`?`、`where`）、`Sort-Object`（`sort`）、`Select-Object`（`select`）、`Select-String`（`sls`）、`Group-Object`（`group`）、`Measure-Object`（`measure`）、`Get-Unique`（`gu`）、`Format-Table`（`ft`）、`Format-List`（`fl`）、`Format-Wide`（`fw`）、`Format-Custom`（`fc`）、`Out-String`、`ConvertTo-Json`、`ConvertTo-Csv`、`ConvertFrom-Json`、`ConvertFrom-Csv`）のときは、行の先頭に `$input | ` があるものとして、選択範囲をそのコマンドへ流します。`ForEach-Object { $_.ToUpper() }` だけで書けます。大文字と小文字は区別せず、行の頭の空白は読み飛ばします。
-- 次の場合は、流しません。行のどこかに `$input` がある。最初のコマンドが上の一覧にない（`Get-Content`、`Remove-Item` などに、選択範囲が経路や命令として渡るのを避けるためです）。`foreach ($x in ...) { }` の文。`-Path` か `-LiteralPath` のある `Select-String`（ファイルを読むため）。そのときは、`$input` で自分で渡します。
+- 流すかどうかは、PowerShell 自身の構文解析で決めます。行の最初の文が、パイプラインで、その最初の要素が上の一覧のコマンドのときだけ流します。コメント、文字列、ヒアストリング、2 つ目以降の文は、見ません。
+- 次の場合は、流しません。行のどこかで変数 `$input` を使っている。最初のコマンドが上の一覧にない（`Get-Content`、`Remove-Item` などに、選択範囲が経路や命令として渡るのを避けるためです）。最初の文が `foreach ($x in ...) { }` のようなパイプラインでない文。最初のコマンドに `-InputObject`（3 文字以上の省略形を含む）がある。`Select-String` に、`-Path`、`-LiteralPath`、位置で渡したファイル名がある（ファイルを読むため）。そのときは、`$input` で自分で渡します。
+- 構文として読めない行は、流さず、構文解析のエラーを標準エラー出力に出して、終了コード 1 で終わります。
 - 画面（ログ、マクロの出力）に出る行は、書いたままです。`$input | ` を足すのは、動かすときだけです。
 - `$input` を使わずに失敗した行には、標準エラー出力に「選択範囲は $input で読めます（例: $input | ForEach-Object { $_.ToUpper() }）」の 1 行が付きます。出力の置き場所が「置き換える」でも、文書には入りません（アウトプットに出ます）。
 

@@ -53,16 +53,6 @@ fn the_encoded_command_is_the_script_in_utf16le() {
 }
 
 #[test]
-fn the_script_is_the_prelude_the_line_and_the_epilogue() {
-    let line = "$input | % { $_.ToUpper() }";
-    let text = script(line).replace("\r\n", "\n");
-    let want = format!("{PRELUDE}{line}{}", EPILOGUE.replace("@@HINT@@", HINT));
-    assert_eq!(text, want.replace("\r\n", "\n"));
-    // the line is on a line of its own, so that a comment at its end cannot take the brace
-    assert!(text.contains(&format!("\n{line}\n")));
-}
-
-#[test]
 fn the_script_has_windows_line_breaks_only() {
     let text = script("a\nb\r\nc");
     assert!(!text.replace("\r\n", "").contains('\n'));
@@ -96,154 +86,57 @@ fn the_epilogue_keeps_the_code_of_a_native_program() {
 }
 
 #[test]
-fn a_line_that_starts_with_a_filter_is_piped_the_text() {
+fn the_line_is_carried_as_base64_and_never_as_code() {
     for line in [
-        "ForEach-Object { $_.ToUpper() }",
-        "% { $_ * 2 }",
-        "%{ $_ }",
-        "foreach { $_ }",
-        "Where-Object { $_ -like 'a*' }",
-        "? { $_ }",
-        "?{ $_ }",
-        "where { $_ }",
-        "Sort-Object -Unique",
-        "sort -Descending",
-        "Select-Object -First 2",
-        "select -Last 1",
-        "Select-String a",
-        "sls a",
-        "Group-Object",
-        "group",
-        "Measure-Object -Line",
-        "measure",
-        "Get-Unique",
-        "gu",
-        "Format-Table",
-        "ft",
-        "Format-List",
-        "fl",
-        "format-wide",
-        "fw",
-        "format-custom",
-        "fc",
-        "Out-String",
-        "ConvertTo-Json",
-        "ConvertTo-Csv",
-        "ConvertFrom-Json",
-        "ConvertFrom-Csv",
-        "sort | select -First 1",
-    ] {
-        assert!(pipes_input(line), "{line:?}");
-    }
-}
-
-#[test]
-fn the_match_ignores_case_and_leading_spaces() {
-    for line in [
-        "  sort",
-        "\tFOREACH-OBJECT { $_ }",
-        "  Where-Object {$_}",
-        "SELECT -First 1",
-    ] {
-        assert!(pipes_input(line), "{line:?}");
-    }
-}
-
-#[test]
-fn a_line_that_uses_input_or_starts_with_something_else_is_left_alone() {
-    for line in [
-        "",
         "Get-Date",
-        "Get-ChildItem",
-        "Remove-Item foo",
-        "Get-Content a.txt | Sort-Object",
-        "Tee-Object -FilePath a.txt",
-        "Write-Output hi",
-        "echo hi",
-        "$input | Sort-Object",
-        "$INPUT | % { $_ }",
-        "Sort-Object { $input.Count }",
-        "foreach ($x in 1..3) { $x }",
-        "foreach($x in 1..3) { $x }",
-        "Select-String a -Path b.txt",
-        "sls a -LiteralPath b.txt",
-        "& sort",
-        "sorted",
-        "foreachobject",
-        "wherever { }",
+        "'quoted' \"double\" `tick $x",
+        "日本語 😀",
+        "a\nb",
     ] {
-        assert!(!pipes_input(line), "{line:?}");
+        let text = script(line).replace("\r\n", "\n");
+        assert!(
+            text.contains(&format!("FromBase64String('{}')", base64(line.as_bytes()))),
+            "{line:?}"
+        );
+        if line.len() > 8 {
+            assert!(!text.contains(line), "{line:?}");
+        }
     }
 }
 
 #[test]
-fn a_piped_line_has_the_prefix_only_in_the_script() {
-    let text = script("ForEach-Object { $_.ToUpper() }").replace("\r\n", "\n");
-    assert!(text.contains("\n$input | ForEach-Object { $_.ToUpper() }\n"));
-    assert!(!text.contains("$global:__matsu_hint = $true"));
-}
-
-#[test]
-fn the_hint_is_armed_only_for_a_line_without_input() {
-    let armed = |line: &str| {
-        script(line)
-            .replace("\r\n", "\n")
-            .contains("$global:__matsu_hint = $true\n")
-    };
-    assert!(armed("Get-Date"));
-    assert!(armed(""));
-    assert!(!armed("$input | Sort-Object"));
-    assert!(!armed("Sort-Object"));
-    assert!(!armed("Select-Object { $INPUT }"));
-    // the hint text is in the script, and no placeholder is left
-    let text = script("Get-Date");
+fn the_script_has_the_parts_in_order_and_no_placeholder() {
+    let text = script("Get-Date").replace("\r\n", "\n");
+    let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle}"));
+    assert!(at(PRELUDE) < at("FromBase64String"));
+    assert!(at("FromBase64String") < at(DECIDE));
+    assert!(at(DECIDE) < at(RUN));
+    assert!(at(RUN) < at("Out-Default"));
     assert!(text.contains(HINT));
     assert!(!text.contains("@@HINT@@"));
     assert!(!HINT.contains('\''));
 }
 
 #[test]
-fn a_line_that_gives_its_input_itself_is_not_piped() {
-    for line in [
-        "Sort-Object -InputObject @(3,2,1)",
-        "sort -inputobject 3,2,1",
-        "Sort-Object -InputO @(3,2,1)",
-        "Sort-Object -inp @(3,2,1)",
-        "ForEach-Object -InputObject 1 { $_ }",
-        "Select-Object -InputObject:$x -First 1",
-        "Select-String a -Path b.txt",
-        "Select-String a -LiteralPath b.txt",
-        "sls a -Lit b.txt",
-    ] {
-        assert!(!pipes_input(line), "{line:?}");
-    }
-    // not the input: a script block, a string, the operator -in, a parameter that only starts alike
-    for line in [
-        "Where-Object { $_ -in 'a','b' }",
-        "Where-Object Name -in a,b",
-        "ForEach-Object { Sort-Object -InputObject $_ }",
-        "Select-String '-InputObject' -CaseSensitive",
-        "Select-String a -Pattern b",
-        "Sort-Object -Property Length",
-    ] {
-        assert!(pipes_input(line), "{line:?}");
+fn the_filter_names_are_lower_case_and_listed_once() {
+    let mut seen = std::collections::HashSet::new();
+    for name in FILTERS {
+        assert_eq!(*name, name.to_lowercase());
+        assert!(seen.insert(*name), "{name}");
+        assert!(script("x").contains(&format!("'{name}'")), "{name}");
     }
 }
 
 #[test]
-fn the_line_starts_its_script_block_with_its_own_text() {
-    for line in [
-        "process { $_.ToUpper() }",
-        "param(); 'ok'",
-        "[CmdletBinding()] param(); 'ok'",
-        "Get-Date",
-        "ForEach-Object { $_ }",
+fn the_decision_is_made_by_the_parser_of_powershell() {
+    for needed in [
+        "[System.Management.Automation.Language.Parser]::ParseInput(",
+        "VariablePath.UserPath -ieq 'input'",
+        "[scriptblock]::Create($__matsu_text)",
+        "'$input | ' + $__matsu_line",
     ] {
-        let text = script(line).replace("\r\n", "\n");
-        let (head, _) = text.split_once(line).unwrap();
-        let head = head.strip_suffix("$input | ").unwrap_or(head);
-        assert!(head.ends_with("$__matsu_lines | & {\n"), "{line:?}");
+        assert!(DECIDE.contains(needed) || RUN.contains(needed), "{needed}");
     }
-    let armed = script("Get-Date").replace("\r\n", "\n");
-    assert!(armed.contains("\n$global:__matsu_hint = $true\n"));
+    // the hint flag is set outside the script block of the line
+    assert!(!RUN.contains("__matsu_hint"));
 }

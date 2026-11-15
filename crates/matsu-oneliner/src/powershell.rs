@@ -3,7 +3,7 @@
 //! The arguments are `-NoProfile -NonInteractive -EncodedCommand <Base64 of UTF-16LE>`.
 //! `-EncodedCommand` needs no quoting of the line, and unlike `-Command -` it leaves the standard
 //! input to the text (`-Command -` reads the script from it). The script is
-//! [`PRELUDE`], the line of the user, [`EPILOGUE`].
+//! [`PRELUDE`], the line of the user (as Base64), [`DECIDE`], [`RUN`], [`EPILOGUE`].
 //!
 //! What it does, as measured on Windows PowerShell 5.1 (docs/poc/oneliner.md):
 //!
@@ -32,17 +32,33 @@
 //!   (as the script does), and a `return` in the line skips whatever the script puts after the
 //!   line. A mid-line failure is therefore a failure even when a later command succeeds: the
 //!   caller changes nothing and shows the error, which is the safe side for a filter.
-//! * A line that starts with a command that only filters or reshapes its input (`ForEach-Object`,
-//!   `Where-Object`, `Sort-Object`, ...: [`FILTERS`]) is run as if it began with `$input | `
-//!   (decision of 2026-11-16: `ForEach-Object { $_.ToUpper() }` got no input and `$_` was null).
-//!   The line of the user is not changed in what is shown; only the script has the prefix.
-//!   Every other line gets no pipeline input, so that `Remove-Item` or `Get-ChildItem` never
-//!   take the text as paths.
-//! * A line that does not mention `$input`, was not piped like that and fails gets one more line
-//!   on the standard error ([`HINT`]) that says the selection is read with `$input`. The standard
+//! * The line is not put into the script as code: it is carried as Base64 (UTF-8) and the script
+//!   makes the script block of the line at run time with `[scriptblock]::Create`. That is so that
+//!   PowerShell's own parser can look at the line first (the next two items), and so that the
+//!   block starts with the text of the user (`param()`, `process { }`).
+//! * A line whose first command only filters or reshapes its input (`ForEach-Object`,
+//!   `Where-Object`, `Sort-Object`, ...: [`FILTERS`], with their aliases) is run as if it began
+//!   with `$input | ` (decision of 2026-11-16: `ForEach-Object { $_.ToUpper() }` got no input and
+//!   `$_` was null). Every other line gets no pipeline input, so that `Remove-Item` or
+//!   `Get-ChildItem` never take the text as paths. The decision is made by the parser of
+//!   PowerShell (`[System.Management.Automation.Language.Parser]::ParseInput`, in 5.1 and 7), not
+//!   by looking at the text, which would keep missing its grammar (here-strings, comments,
+//!   sub-expressions, quotes). The line is piped when its first statement is a pipeline whose
+//!   first element is a command of the list, unless
+//!   * the line uses the variable `$input` anywhere (the user reads the text himself),
+//!   * the command is given `-InputObject` (or an unambiguous prefix of 3 letters or more; `-i`
+//!     and `-in` are ambiguous or the operator `-in` of `Where-Object`, so they do not count),
+//!   * for `Select-String`: it has `-Path` or `-LiteralPath`, or the path by position (the second
+//!     positional argument, or the first when `-Pattern` is named).
+//!
+//!   A line that does not parse is not piped; the messages of the parser go to the standard error
+//!   and the exit code is 1. What the user sees (the log, `#CmdLine`) is the line as it was
+//!   written; only the script block has the `$input | ` in front.
+//! * A line that does not use `$input`, was not piped like that and fails gets one more line on
+//!   the standard error ([`HINT`]) that says the selection is read with `$input`. The standard
 //!   error is shown in the output window and never goes into the document.
 
-/// What comes before the line of the user.
+/// What comes before the line of the user: the settings, and the text read into `$__matsu_lines`.
 pub const PRELUDE: &str = r#"$ProgressPreference = 'SilentlyContinue'
 try { if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' } } catch {}
 try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
@@ -58,13 +74,74 @@ $__matsu_lines = [string[]]@()
 if ($__matsu_raw.EndsWith("`n")) { $__matsu_raw = $__matsu_raw.Substring(0, $__matsu_raw.Length - 1) }
 $__matsu_lines = [string[]]$__matsu_raw.Split([char]10)
 }
-try {
-$__matsu_lines | & {
 "#;
 
+/// The decision whether to pipe the text into the line, with PowerShell's parser. It needs
+/// `$__matsu_line` (the line) and `$__matsu_filters` (the names of [`FILTERS`]) and leaves
+/// `$__matsu_text` (the text of the script block) and `$global:__matsu_hint`.
+pub const DECIDE: &str = r#"$__matsu_ns = 'System.Management.Automation.Language'
+$__matsu_tokens = $null
+$__matsu_errors = $null
+$__matsu_ast = [System.Management.Automation.Language.Parser]::ParseInput($__matsu_line, [ref]$__matsu_tokens, [ref]$__matsu_errors)
+if ($__matsu_errors.Count -gt 0) {
+foreach ($__matsu_e in $__matsu_errors) { [Console]::Error.WriteLine($__matsu_e.Message + ' (' + $__matsu_e.Extent.Text + ')') }
+exit 1
+}
+$__matsu_uses = $__matsu_ast.FindAll({ param($n) ($n -is [System.Management.Automation.Language.VariableExpressionAst]) -and ($n.VariablePath.UserPath -ieq 'input') }, $true).Count -gt 0
+$__matsu_pipe = $false
+$__matsu_end = $__matsu_ast.EndBlock
+if ((-not $__matsu_uses) -and $__matsu_end -and $__matsu_end.Unnamed -and ($null -eq $__matsu_ast.ParamBlock) -and ($null -eq $__matsu_ast.BeginBlock) -and ($null -eq $__matsu_ast.ProcessBlock) -and ($null -eq $__matsu_ast.DynamicParamBlock) -and ($__matsu_end.Statements.Count -gt 0)) {
+$__matsu_first = $__matsu_end.Statements[0]
+if ($__matsu_first -is [System.Management.Automation.Language.PipelineAst]) {
+$__matsu_cmd = $__matsu_first.PipelineElements[0]
+if (($__matsu_cmd -is [System.Management.Automation.Language.CommandAst]) -and ($__matsu_cmd.InvocationOperator -eq 'Unknown')) {
+$__matsu_name = $__matsu_cmd.GetCommandName()
+if ($__matsu_name -and ($__matsu_filters -contains $__matsu_name.ToLowerInvariant())) {
+$__matsu_pipe = $true
+$__matsu_sls = ($__matsu_name -ieq 'select-string') -or ($__matsu_name -ieq 'sls')
+$__matsu_positional = 0
+$__matsu_pattern_named = $false
+$__matsu_elements = $__matsu_cmd.CommandElements
+for ($__matsu_i = 1; $__matsu_i -lt $__matsu_elements.Count; $__matsu_i++) {
+$__matsu_el = $__matsu_elements[$__matsu_i]
+if ($__matsu_el -is [System.Management.Automation.Language.CommandParameterAst]) {
+$__matsu_pname = $__matsu_el.ParameterName.ToLowerInvariant()
+if (($__matsu_pname.Length -ge 3) -and 'inputobject'.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_pipe = $false; break }
+if ($__matsu_sls) {
+if (($__matsu_pname -eq 'path') -or (($__matsu_pname.Length -ge 2) -and 'literalpath'.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal))) { $__matsu_pipe = $false; break }
+if (($__matsu_pname.Length -ge 4) -and 'pattern'.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_pattern_named = $true }
+if ($null -eq $__matsu_el.Argument) {
+$__matsu_switch = $false
+foreach ($__matsu_s in 'casesensitive', 'simplematch', 'quiet', 'list', 'allmatches', 'notmatch', 'raw', 'noemphasis', 'verbose', 'debug') { if ($__matsu_s.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_switch = $true } }
+foreach ($__matsu_s in 'pattern', 'path', 'literalpath', 'include', 'exclude', 'encoding', 'context', 'culture', 'erroraction', 'warningaction', 'informationaction', 'errorvariable', 'warningvariable', 'informationvariable', 'outvariable', 'outbuffer', 'pipelinevariable') { if ($__matsu_s.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_switch = $false } }
+if ((-not $__matsu_switch) -and (($__matsu_i + 1) -lt $__matsu_elements.Count) -and -not ($__matsu_elements[$__matsu_i + 1] -is [System.Management.Automation.Language.CommandParameterAst])) { $__matsu_i++ }
+}
+}
+} else {
+$__matsu_positional++
+}
+}
+if ($__matsu_pipe -and $__matsu_sls) {
+$__matsu_path_at = 2
+if ($__matsu_pattern_named) { $__matsu_path_at = 1 }
+if ($__matsu_positional -ge $__matsu_path_at) { $__matsu_pipe = $false }
+}
+}
+}
+}
+}
+$global:__matsu_hint = (-not $__matsu_uses) -and (-not $__matsu_pipe)
+$__matsu_text = $__matsu_line
+if ($__matsu_pipe) { $__matsu_text = '$input | ' + $__matsu_line }
+"#;
+
+/// Between the decision and the epilogue: the block of the line gets the text as its input.
+pub const RUN: &str = r#"try {
+$__matsu_block = [scriptblock]::Create($__matsu_text)
+$__matsu_lines | & $__matsu_block"#;
+
 /// What comes after the line of the user. `@@HINT@@` is replaced by [`HINT`].
-pub const EPILOGUE: &str = r#"
-} *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { if ($_.FullyQualifiedErrorId -notlike 'NativeCommandError*') { $global:__matsu_other = $true }; [Console]::Error.WriteLine($_.ToString()) } elseif ($_ -is [System.Management.Automation.WarningRecord]) { [Console]::Error.WriteLine('WARNING: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.VerboseRecord]) { [Console]::Error.WriteLine('VERBOSE: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.DebugRecord]) { [Console]::Error.WriteLine('DEBUG: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.InformationRecord]) { [Console]::Error.WriteLine([string]$_.MessageData) } else { $_ } } | Out-Default
+pub const EPILOGUE: &str = r#" *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { if ($_.FullyQualifiedErrorId -notlike 'NativeCommandError*') { $global:__matsu_other = $true }; [Console]::Error.WriteLine($_.ToString()) } elseif ($_ -is [System.Management.Automation.WarningRecord]) { [Console]::Error.WriteLine('WARNING: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.VerboseRecord]) { [Console]::Error.WriteLine('VERBOSE: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.DebugRecord]) { [Console]::Error.WriteLine('DEBUG: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.InformationRecord]) { [Console]::Error.WriteLine([string]$_.MessageData) } else { $_ } } | Out-Default
 } catch { [Console]::Error.WriteLine($_.ToString()); if ($global:__matsu_hint) { [Console]::Error.WriteLine('@@HINT@@') }; exit 1 }
 $__matsu_code = $global:LASTEXITCODE
 if (($__matsu_code -is [int]) -and ($__matsu_code -ne 0)) { if ($global:__matsu_hint) { [Console]::Error.WriteLine('@@HINT@@') }; exit $__matsu_code }
@@ -78,8 +155,8 @@ pub const HINT: &str =
     "選択範囲は $input で読めます（例: $input | ForEach-Object { $_.ToUpper() }）";
 
 /// The commands, and their aliases in Windows PowerShell 5.1 and PowerShell 7, that only filter or
-/// reshape what they are piped, in lower case. A line that starts with one is given the text as
-/// its pipeline input.
+/// reshape what they are piped, in lower case. A line whose first command is one of them is given
+/// the text as its pipeline input (see the module documentation for the exceptions).
 ///
 /// Left out on purpose:
 ///
@@ -128,125 +205,26 @@ pub const FILTERS: &[&str] = &[
     "convertfrom-csv",
 ];
 
-/// Whether `line` mentions `$input` (any case) anywhere.
-pub fn mentions_input(line: &str) -> bool {
-    line.to_ascii_lowercase().contains("$input")
-}
-
-/// Whether the text is piped into `line` as if it began with `$input | `: it does not mention
-/// `$input` and its first command is one of [`FILTERS`].
-pub fn pipes_input(line: &str) -> bool {
-    if mentions_input(line) {
-        return false;
-    }
-    let line = line.trim_start();
-    let end = line
-        .find(|c: char| c.is_whitespace() || matches!(c, '{' | '(' | '|' | ';' | '&'))
-        .unwrap_or(line.len());
-    let (word, rest) = line.split_at(end);
-    let word = word.to_ascii_lowercase();
-    if !FILTERS.contains(&word.as_str()) {
-        return false;
-    }
-    // `foreach ($x in $list) { }` is the statement, not the alias of ForEach-Object
-    if word == "foreach" && rest.trim_start().starts_with('(') {
-        return false;
-    }
-    // The line gives its input itself (`Sort-Object -InputObject 3,2,1`; `Select-String a -Path
-    // file` reads the file): the text on top of it would be a parameter-binding error. What is
-    // checked is the parameters that supply the input of the commands of [`FILTERS`]:
-    // `-InputObject` (every command of the list has it; PowerShell binds any unambiguous
-    // prefix, so `-InputO`, `-inp`, ... count) and, for `Select-String`, `-Path` (`-Pat` is
-    // ambiguous with `-Pattern`, so only the full name) and `-LiteralPath` (the ways it is given
-    // files; `-Include`/`-Exclude` only narrow them). `-i` and `-in` bind `-InputObject` in some
-    // commands, are ambiguous in others and are the operator `-in` of `Where-Object`: they are
-    // not counted, so such a line is piped the text and fails; write `-InputObject` in full.
-    // Only the words outside `{ }`, `( )` and `[ ]` and quotes are looked at, so that a
-    // script block does not count.
-    for name in top_level_parameters(rest) {
-        if name.len() >= 3 && "inputobject".starts_with(name.as_str()) {
-            return false;
-        }
-        if matches!(word.as_str(), "select-string" | "sls")
-            && (name == "path" || (name.len() >= 2 && "literalpath".starts_with(name.as_str())))
-        {
-            return false;
-        }
-    }
-    true
-}
-
-/// The names (lower case, without the dash, up to a `:`) of the parameters written as words of
-/// `text` outside any `{ }`, `( )` and `[ ]` and outside quotes.
-fn top_level_parameters(text: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut depth = 0usize;
-    let mut quote: Option<char> = None;
-    let mut word = String::new();
-    let flush = |word: &mut String, names: &mut Vec<String>| {
-        if let Some(name) = word.strip_prefix('-') {
-            let name = name.split(':').next().unwrap_or("");
-            if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphabetic()) {
-                names.push(name.to_ascii_lowercase());
-            }
-        }
-        word.clear();
-    };
-    for c in text.chars() {
-        if let Some(q) = quote {
-            if c == q {
-                quote = None;
-            }
-            continue;
-        }
-        match c {
-            '\'' | '"' => {
-                quote = Some(c);
-                word.clear();
-            }
-            '{' | '(' | '[' => {
-                if depth == 0 {
-                    flush(&mut word, &mut names);
-                }
-                depth += 1;
-            }
-            '}' | ')' | ']' => depth = depth.saturating_sub(1),
-            c if c.is_whitespace() || c == '|' || c == ';' => {
-                if depth == 0 {
-                    flush(&mut word, &mut names);
-                }
-            }
-            c if depth == 0 => word.push(c),
-            _ => {}
-        }
-    }
-    flush(&mut word, &mut names);
-    names
-}
-
-/// Whether the hint is armed for `line`: it does not mention `$input` and was not piped.
-fn hint_applies(line: &str) -> bool {
-    !mentions_input(line) && !pipes_input(line)
-}
-
-/// The whole script for `line`. A line break before the epilogue keeps a `#` comment at the end of
-/// the line from taking the closing brace with it.
+/// The whole script for `line`. The line is inside it as Base64 of its UTF-8, so it needs no
+/// quoting.
 pub fn script(line: &str) -> String {
-    let mut text = String::with_capacity(PRELUDE.len() + line.len() + EPILOGUE.len());
-    // The flag is set in the prelude, outside the script block of the line, so that the block
-    // starts with the text of the user (`param()`, `process { }` must be the first thing in it).
-    text.push_str(&PRELUDE.replace(
-        "$global:__matsu_hint = $false",
-        if hint_applies(line) {
-            "$global:__matsu_hint = $true"
-        } else {
-            "$global:__matsu_hint = $false"
-        },
-    ));
-    if pipes_input(line) {
-        text.push_str("$input | ");
+    let mut text =
+        String::with_capacity(PRELUDE.len() + DECIDE.len() + EPILOGUE.len() + line.len() * 2);
+    text.push_str(PRELUDE);
+    text.push_str("$__matsu_line = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('");
+    text.push_str(&base64(line.as_bytes()));
+    text.push_str("'))\n$__matsu_filters = @(");
+    for (i, name) in FILTERS.iter().enumerate() {
+        if i > 0 {
+            text.push_str(", ");
+        }
+        text.push('\'');
+        text.push_str(name);
+        text.push('\'');
     }
-    text.push_str(line);
+    text.push_str(")\n");
+    text.push_str(DECIDE);
+    text.push_str(RUN);
     text.push_str(&EPILOGUE.replace("@@HINT@@", HINT));
     // PowerShell takes either; the line breaks of Windows are what its own files have
     text.replace("\r\n", "\n").replace('\n', "\r\n")

@@ -565,6 +565,148 @@ mod powershell {
         }
     }
 
+    /// The cases of the parser's decision: (line, text, the output that replaces the text). The
+    /// text is piped into a line when the output shows it; an input given by the line itself, a
+    /// comment, a here-string, a second statement and a statement that is not a pipeline must not
+    /// change that.
+    #[test]
+    fn the_parser_decides_whether_the_text_is_piped() {
+        let manifest = format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR"));
+        let select_path = format!("Select-String '^name = ' '{manifest}' | % {{ $_.Line }}");
+        let select_pattern =
+            format!("Select-String -Pattern '^name = ' '{manifest}' | % {{ $_.Line }}");
+        let select_dash_path =
+            format!("Select-String '^name = ' -Path '{manifest}' | % {{ $_.Line }}");
+        let cases: Vec<(String, &str, &str)> = vec![
+            // piped: each kind of first command, case and spaces
+            ("ForEach-Object { $_.ToUpper() }".into(), "b\na", "B\nA"),
+            ("  % { $_ + '!' }".into(), "b\na", "b!\na!"),
+            ("%{ $_ }".into(), "b\na", "b\na"),
+            ("FOREACH-OBJECT { $_ }".into(), "b", "b"),
+            ("? { $_ -like 'a*' }".into(), "b\na", "a"),
+            ("where { $_ -ne 'b' }".into(), "b\na", "a"),
+            ("Where-Object { $_ -in 'a','z' }".into(), "b\na", "a"),
+            ("Sort-Object".into(), "b\na", "a\nb"),
+            ("sort".into(), "b\na", "a\nb"),
+            ("Select-Object -First 1".into(), "b\na", "b"),
+            ("select -Last 1".into(), "b\na", "a"),
+            ("Select-String a | % { $_.Line }".into(), "b\na", "a"),
+            ("sls b | % { $_.Line }".into(), "b\na", "b"),
+            (
+                "Select-String -Pattern b | % { $_.Line }".into(),
+                "b\na",
+                "b",
+            ),
+            (
+                "Group-Object | ForEach-Object { $_.Name }".into(),
+                "b\na",
+                "a\nb",
+            ),
+            (
+                "Measure-Object -Line | ForEach-Object { $_.Lines }".into(),
+                "b\na",
+                "2",
+            ),
+            ("group | % { $_.Count }".into(), "b\nb", "2"),
+            ("measure | % { $_.Count }".into(), "b\na", "2"),
+            ("Get-Unique".into(), "b\nb\na", "b\na"),
+            ("gu".into(), "b\nb", "b"),
+            ("ConvertTo-Json -Compress".into(), "b\na", "[\"b\",\"a\"]"),
+            ("ConvertFrom-Json | % { $_.x }".into(), "{\"x\":5}", "5"),
+            ("ConvertFrom-Csv | % { $_.x }".into(), "x\n1\n2", "1\n2"),
+            ("ConvertTo-Csv | Select-Object -Skip 1".into(), "b", "\"1\""),
+            (
+                "ft | Out-String | % { $_.Length -gt 0 }".into(),
+                "b",
+                "True",
+            ),
+            (
+                "fl | Out-String | % { $_.Length -gt 0 }".into(),
+                "b",
+                "True",
+            ),
+            (
+                "fw | Out-String | % { $_.Length -gt 0 }".into(),
+                "b",
+                "True",
+            ),
+            (
+                "fc | Out-String | % { $_.Length -gt 0 }".into(),
+                "b",
+                "True",
+            ),
+            ("Out-String | % { $_.Trim() }".into(), "b", "b"),
+            // piped although later statements and commands mention -InputObject
+            (
+                "Sort-Object; Write-Output -InputObject done".into(),
+                "b\na",
+                "a\nb\ndone",
+            ),
+            (
+                "Sort-Object # -InputObject is intentionally omitted".into(),
+                "b\na",
+                "a\nb",
+            ),
+            (
+                "ForEach-Object { Write-Output -InputObject $_ }".into(),
+                "b\na",
+                "b\na",
+            ),
+            (
+                "ForEach-Object { @'\n-InputObject\n'@ + $_ }".into(),
+                "x",
+                "-InputObjectx",
+            ),
+            (
+                "Select-String -Pattern x -CaseSensitive | % { $_.Line }".into(),
+                "x\ny",
+                "x",
+            ),
+            // not piped: the line gives its input, or reads the text with $input
+            ("Sort-Object -InputObject @(3,2,1)".into(), "b", "3\n2\n1"),
+            ("Sort-Object -inputo @(3,2,1)".into(), "b", "3\n2\n1"),
+            ("Sort-Object -inp @(3,2,1)".into(), "b", "3\n2\n1"),
+            ("Sort-Object -InputObject:'foo'".into(), "b", "foo"),
+            ("$input | Sort-Object".into(), "b\na", "a\nb"),
+            ("Sort-Object -InputObject \"$input\"".into(), "b", "b"),
+            ("% { $_ } # $input is in a comment".into(), "b\na", "b\na"),
+            ("foreach ($x in 1..2) { $x }".into(), "b", "1\n2"),
+            ("Get-Date -Format yyyy | % { $_.Length }".into(), "b", "4"),
+            ("@'\n-InputObject\n'@".into(), "b", "-InputObject"),
+            // Select-String with the file by position, by name, and -Path
+            (select_path, "b", "name = \"matsu-oneliner\""),
+            (select_pattern, "b", "name = \"matsu-oneliner\""),
+            (select_dash_path, "b", "name = \"matsu-oneliner\""),
+            // block declarations: the block must start with the text of the line
+            ("process { $_.ToUpper() }".into(), "x", "X"),
+            ("param(); 'ok'".into(), "x", "ok"),
+            (
+                "[CmdletBinding()] param([Parameter(ValueFromPipeline)]$x) process { \"$x!\" }"
+                    .into(),
+                "x",
+                "x!",
+            ),
+        ];
+        for (line, text, want) in &cases {
+            for (shell, done, output) in ps(line, text, OutputKind::Replace) {
+                assert_eq!(done.exit.code, Some(0), "{shell}: {line:?}: {}", done.error);
+                assert_eq!(output.trim_end(), *want, "{shell}: {line:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_that_does_not_parse_is_not_piped_and_fails_with_the_parser_message() {
+        for line in ["ForEach-Object { $_ ", "Sort-Object )", "% { 'unclosed }"] {
+            for (shell, done, output) in ps(line, "b", OutputKind::Replace) {
+                assert_eq!(done.exit.code, Some(1), "{shell}: {line:?}");
+                assert!(output.is_empty(), "{shell}: {line:?}: {output:?}");
+                assert!(!done.error.is_empty(), "{shell}: {line:?}");
+                assert!(!done.error.contains("CLIXML"), "{shell}: {line:?}");
+            }
+        }
+    }
+
     #[test]
     fn a_failing_line_without_input_gets_the_hint() {
         let hint = matsu_oneliner::powershell::HINT;
