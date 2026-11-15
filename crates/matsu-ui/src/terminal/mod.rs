@@ -137,7 +137,8 @@ pub(crate) fn start(
     let program = program_name(shell.as_ref());
     let tooltip = view::tooltip_text(&program, directory.as_ref());
     let look = Look {
-        font: start.font,
+        // The grid has equal cells: a proportional editor font is replaced by a monospaced one.
+        font: crate::view::text_font::for_shell(start.font, cx),
         size: start.font_size,
         palette: Palette::new(start.foreground, start.background),
     };

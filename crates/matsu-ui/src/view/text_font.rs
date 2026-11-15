@@ -32,6 +32,11 @@ pub(crate) enum Reason {
     DefaultFamily { missing: String },
     /// Neither is installed: Menlo with Hiragino Sans.
     SystemFonts { missing: String },
+    /// The shell tab: the editor's font is not monospaced, so a monospaced one is used instead.
+    ShellMonospaced { editor: String },
+    /// The shell tab: the editor's font is not monospaced and no monospaced font was found, so the
+    /// editor's font is used.
+    ShellNoMonospaced { editor: String },
 }
 
 /// The family and the fallback fonts to draw the text with.
@@ -71,6 +76,12 @@ impl TextFont {
             Reason::SystemFonts { missing } => {
                 format!("{fonts} ({missing:?} is not installed: Menlo with Hiragino Sans)")
             }
+            Reason::ShellMonospaced { editor } => format!(
+                "{fonts} (the shell tab: the editor's font {editor:?} is not monospaced, so a monospaced font is used)"
+            ),
+            Reason::ShellNoMonospaced { editor } => format!(
+                "{fonts} (the shell tab: the editor's font {editor:?} is not monospaced, but no monospaced font was found)"
+            ),
         }
     }
 }
@@ -103,6 +114,129 @@ pub(crate) fn choose(
         fallbacks: Some(vec![MAC_FALLBACK_JAPANESE.to_owned()]),
         reason: Reason::SystemFonts { missing },
     }
+}
+
+/// The characters whose advances tell whether a font is monospaced.
+#[cfg(not(test))]
+const MONOSPACE_PROBES: [char; 5] = ['i', 'm', 'W', '0', '.'];
+
+/// The size the probes are measured at, in pixels.
+#[cfg(not(test))]
+const MEASURE_SIZE: f32 = 100.0;
+
+/// How much the advances of the probes may differ, relative to the widest, in a monospaced font
+/// (measuring noise from hinting and rounding).
+const MONOSPACE_TOLERANCE: f32 = 0.02;
+
+/// Whether the advances (of the probe characters) are equal within the tolerance. Fewer than two
+/// advances cannot tell, so they count as monospaced: the font is then left as it is.
+pub(crate) fn advances_are_monospaced(advances: &[f32]) -> bool {
+    let widest = advances.iter().copied().fold(0.0_f32, f32::max);
+    let narrowest = advances.iter().copied().fold(f32::INFINITY, f32::min);
+    advances.len() < 2 || widest <= 0.0 || (widest - narrowest) <= widest * MONOSPACE_TOLERANCE
+}
+
+/// The monospaced fonts to try for the shell tab, in order, as (family, fallbacks for what the family
+/// does not draw). Windows: BIZ UDGothic and MS Gothic (`ＭＳ ゴシック`) draw Japanese themselves;
+/// Consolas does not, so Japanese fonts are named for it. macOS: Menlo with Hiragino Sans, as above.
+/// Linux: the CJK monospaced families of the common packages (Noto CJK, Source Han Code, IPA, VL),
+/// then DejaVu Sans Mono (the Latin monospaced font of every common distribution; GPUI's fallback
+/// draws Japanese).
+fn shell_candidates(os: Os) -> Vec<(&'static str, Option<Vec<String>>)> {
+    let some = |list: &[&str]| Some(list.iter().map(|s| (*s).to_owned()).collect());
+    match os {
+        Os::Windows => vec![
+            ("BIZ UDGothic", None),
+            ("ＭＳ ゴシック", None),
+            ("Consolas", some(&["Yu Gothic", "Meiryo"])),
+        ],
+        Os::MacOs => vec![(MAC_FALLBACK_FAMILY, some(&[MAC_FALLBACK_JAPANESE]))],
+        Os::Linux => vec![
+            ("Noto Sans Mono CJK JP", None),
+            ("Source Han Code JP", None),
+            ("IPAGothic", None),
+            ("VL Gothic", None),
+            ("DejaVu Sans Mono", None),
+        ],
+    }
+}
+
+/// The font for the shell tab. The shell draws on a grid of equal cells, so the editor's font is
+/// kept when it is monospaced; when it is not, the first installed monospaced font is used.
+/// `monospaced` tells whether the editor's font is (by its measured advances).
+pub(crate) fn for_shell_with(
+    os: Os,
+    editor: TextFont,
+    monospaced: impl FnOnce(&TextFont) -> bool,
+    mut installed: impl FnMut(&str) -> bool,
+) -> TextFont {
+    if monospaced(&editor) {
+        return editor;
+    }
+    let editor_name = editor.family.to_string();
+    for (family, fallbacks) in shell_candidates(os) {
+        if family != editor.family.as_ref() && installed(family) {
+            return TextFont {
+                family: family.into(),
+                fallbacks,
+                reason: Reason::ShellMonospaced {
+                    editor: editor_name,
+                },
+            };
+        }
+    }
+    TextFont {
+        reason: Reason::ShellNoMonospaced {
+            editor: editor_name,
+        },
+        ..editor
+    }
+}
+
+/// The font for the shell tab, on this OS. Whether the editor's font is monospaced is measured
+/// once per family.
+pub(crate) fn for_shell(editor: TextFont, cx: &App) -> TextFont {
+    for_shell_with(
+        Os::current(),
+        editor,
+        |font| is_monospaced(font, cx),
+        |family| installed(family, cx),
+    )
+}
+
+/// In tests the text system has no real fonts: every font counts as monospaced, so the shell tab
+/// has the font it was given. The decision is tested through [`for_shell_with`].
+#[cfg(test)]
+fn is_monospaced(_font: &TextFont, _cx: &App) -> bool {
+    true
+}
+
+#[cfg(not(test))]
+/// The advances are measured at one fixed size ([`MEASURE_SIZE`], large so that hinting and rounding
+/// are small against the advances), whatever size the shell is drawn at, so the family alone decides
+/// the answer and is the cache key. A cached answer never goes stale within a process: the answer for
+/// a family at that size does not change while the program runs (a font installed meanwhile is not
+/// noticed until the next start, as with `installed`).
+#[cfg(not(test))]
+fn is_monospaced(font: &TextFont, cx: &App) -> bool {
+    static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = font.family.to_string();
+    if let Some(known) = cache.lock().ok().and_then(|c| c.get(&key).copied()) {
+        return known;
+    }
+    let system = cx.text_system();
+    let id = system.resolve_font(&font.font());
+    let advances: Vec<f32> = MONOSPACE_PROBES
+        .iter()
+        .filter_map(|&ch| system.advance(id, gpui::px(MEASURE_SIZE), ch).ok())
+        .map(|s| f32::from(s.width))
+        .collect();
+    let result = advances_are_monospaced(&advances);
+    if let Ok(mut c) = cache.lock() {
+        c.insert(key, result);
+    }
+    result
 }
 
 /// The font for the family asked for, on this OS. What GPUI can load is asked once per family.
@@ -252,5 +386,71 @@ mod tests {
             Some(vec!["Hiragino Sans".to_owned()])
         );
         assert_eq!(style.font_weight, Some(gpui::FontWeight::BOLD));
+    }
+
+    #[test]
+    fn equal_advances_are_monospaced_and_different_ones_are_not() {
+        assert!(advances_are_monospaced(&[9.6, 9.6, 9.6, 9.6, 9.6]));
+        assert!(advances_are_monospaced(&[9.6, 9.62, 9.6]));
+        // A proportional font: `i` is narrow, `m` and `W` are wide.
+        assert!(!advances_are_monospaced(&[4.0, 14.0, 15.0, 9.0, 4.5]));
+        assert!(advances_are_monospaced(&[]));
+        assert!(advances_are_monospaced(&[9.6]));
+    }
+
+    fn editor(family: &str) -> TextFont {
+        TextFont {
+            family: family.to_owned().into(),
+            fallbacks: None,
+            reason: Reason::AsAsked,
+        }
+    }
+
+    #[test]
+    fn the_shell_keeps_a_monospaced_editor_font() {
+        let font = editor("Noto Sans Mono CJK JP");
+        let got = for_shell_with(Os::Linux, font.clone(), |_| true, |_| panic!("not asked"));
+        assert_eq!(got, font);
+    }
+
+    #[test]
+    fn the_shell_uses_the_first_installed_monospaced_font_for_a_proportional_one() {
+        let font = editor("Noto Sans JP");
+        let got = for_shell_with(
+            Os::Windows,
+            font.clone(),
+            |_| false,
+            only(&["ＭＳ ゴシック", "Consolas"]),
+        );
+        assert_eq!(got.family.as_ref(), "ＭＳ ゴシック");
+        assert!(matches!(got.reason, Reason::ShellMonospaced { .. }));
+        let got = for_shell_with(Os::Windows, font.clone(), |_| false, only(&["Consolas"]));
+        assert_eq!(got.family.as_ref(), "Consolas");
+        assert_eq!(
+            got.fallbacks,
+            Some(vec!["Yu Gothic".to_owned(), "Meiryo".to_owned()])
+        );
+        let got = for_shell_with(Os::MacOs, font.clone(), |_| false, |_| true);
+        assert_eq!(got.family.as_ref(), "Menlo");
+        assert_eq!(got.fallbacks, Some(vec!["Hiragino Sans".to_owned()]));
+        let got = for_shell_with(Os::Linux, font, |_| false, only(&["DejaVu Sans Mono"]));
+        assert_eq!(got.family.as_ref(), "DejaVu Sans Mono");
+        assert!(got.describe().contains("not monospaced"));
+    }
+
+    #[test]
+    fn the_shell_keeps_the_editor_font_when_no_monospaced_font_is_installed() {
+        let font = editor("Noto Sans JP");
+        let got = for_shell_with(Os::Linux, font, |_| false, only(&[]));
+        assert_eq!(got.family.as_ref(), "Noto Sans JP");
+        assert!(matches!(got.reason, Reason::ShellNoMonospaced { .. }));
+    }
+
+    #[test]
+    fn choosing_the_shell_font_leaves_the_editor_font_as_it_was() {
+        let font = editor("Noto Sans JP");
+        let before = font.clone();
+        let _ = for_shell_with(Os::Linux, font.clone(), |_| false, |_| true);
+        assert_eq!(font, before);
     }
 }
