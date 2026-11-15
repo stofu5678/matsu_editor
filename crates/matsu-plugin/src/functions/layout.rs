@@ -130,7 +130,8 @@ fn layout_to_logic(cx: &CommandContext, row: usize, col: i64) -> Result<(usize, 
         .row_start_at(cx.doc(), row)
         .map_err(command)?
         .ok_or_else(|| RpcError::invalid_params("there is no such layout line"))?;
-    let x = X::from_raw(u32::try_from(col).unwrap_or(0));
+    // negative counts as 0; an oversized column saturates, so it still means the end of the row
+    let x = X::from_raw(u32::try_from(col.max(0)).unwrap_or(u32::MAX));
     let pos = cx.layout().pos_at_x(cx.doc(), start, x).map_err(command)?;
     let text = cx
         .doc()
@@ -500,6 +501,19 @@ mod tests {
         // the end of a selection
         f.select((0, 0), (0, "日a".len()));
         assert_eq!(f.ok("GetSelectColumnTo", json!([])), json!(3 * 64 + 1));
+    }
+
+    #[test]
+    fn an_oversized_column_means_the_end_of_the_row_and_a_negative_one_the_start() {
+        let mut f = Fixture::new("abc");
+        for col in [4_294_967_297_i64, 4_294_967_296, i64::MAX] {
+            assert_eq!(
+                f.ok("LineColumnToIndex", json!([1, col])),
+                json!(4),
+                "{col}"
+            );
+        }
+        assert_eq!(f.ok("LineColumnToIndex", json!([1, -5])), json!(1));
     }
 
     #[test]
