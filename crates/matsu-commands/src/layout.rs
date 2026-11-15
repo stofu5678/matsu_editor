@@ -7,10 +7,13 @@
 //!
 //! A *row* is one line on the screen. With wrapping one line of the document has several rows;
 //! without it a row is a line. Sakura calls them layout lines (`CLayout`) and logical lines
-//! (`CDocLine`). Positions are always buffer positions ([`Pos`]); only *display columns* are in
-//! cells.
+//! (`CDocLine`). Positions are always buffer positions ([`Pos`]); the horizontal position on a row
+//! is an [`X`] (ADR-0034), the unit of the layout, which is Sakura's layout X (`CLayoutXInt`).
+//! A half-width column is [`Layout::column_x`] of them. Code that moves "one column" adds
+//! `column_x`, and code that counts characters multiplies; a bare number is never an `X`.
 
 use matsu_core::buffer::{Document, Pos, Result};
+pub use matsu_layout::X;
 
 use crate::context::TextChange;
 
@@ -30,8 +33,9 @@ pub trait Layout {
     /// known: lay out `doc` again.
     fn reset(&mut self, doc: &Document);
 
-    /// The display column of `pos` counted from the start of its row, in cells.
-    fn display_col(&self, doc: &Document, pos: Pos) -> Result<usize>;
+    /// The horizontal position of `pos` counted from the left edge of the screen, so the indent
+    /// of a wrapped row is included (Sakura: the layout X of the caret).
+    fn display_x(&self, doc: &Document, pos: Pos) -> Result<X>;
 
     /// The first position of the row that contains `pos`.
     fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos>;
@@ -44,24 +48,39 @@ pub trait Layout {
     /// row. The empty row after a final line ending counts as a row.
     fn next_row_start(&self, doc: &Document, pos: Pos) -> Result<Option<Pos>>;
 
-    /// The position on the row of `row_pos` that is at display column `col`: the char that
-    /// covers the column (the start of it), or the row end if the column is past the text.
-    fn pos_at_col(&self, doc: &Document, row_pos: Pos, col: usize) -> Result<Pos>;
+    /// The position on the row of `row_pos` that is at `x`: the char that covers it (the start
+    /// of it), or the row end if `x` is past the text.
+    fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> Result<Pos>;
 
     /// Moves `rows` rows down (negative: up) from `pos`, stopping at the first and the last row,
-    /// and returns the position at display column `goal_col` there. Sakura moves to the goal
-    /// column of the same row when it cannot move further (`CCaret::Cursor_UPDOWN`).
-    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal_col: usize) -> Result<Pos>;
+    /// and returns the position at `goal` there. Sakura moves to the goal of the same row when it
+    /// cannot move further (`CCaret::Cursor_UPDOWN`).
+    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> Result<Pos>;
 
-    /// The width of a tab stop in display columns, at least 1: the tab width of the document
-    /// type that the layout uses (`CLayoutMgr::GetTabSpaceKetas`). It must be the width that
-    /// [`display_col`](Self::display_col) counts tabs with.
+    /// The width of a tab stop in columns, at least 1: the tab width of the document type that
+    /// the layout uses (`CLayoutMgr::GetTabSpaceKetas`). It is the number of spaces that a soft
+    /// tab is made of. [`tab_x`](Self::tab_x) is the same width as an `X`.
     fn tab_width(&self) -> usize;
 
-    /// The number of cells of a char other than a tab (`CharWidthCache` in Sakura). The default
-    /// is the short table of [`PlainLayout`]; a real layout answers with its own width table.
+    /// The width of a tab stop as an `X`: the stop that [`display_x`](Self::display_x) counts
+    /// tabs with (`CLayoutMgr::GetTabSpace`).
+    fn tab_x(&self) -> X;
+
+    /// One half-width column as an `X`, the space that the caret moves over where there is no
+    /// text (`CTextMetrics::GetLayoutXDefault`, ADR-0034 `per_column`).
+    fn column_x(&self) -> X;
+
+    /// The number of columns of a char other than a tab: 1 or 2 (`CNativeW::GetKetaOfChar`). The
+    /// default is the short table of [`PlainLayout`]; a real layout answers with its own rule.
     fn char_columns(&self, c: char) -> usize {
         char_width(c)
+    }
+
+    /// The width of a char other than a tab as an `X` (`CNativeW::GetColmOfChar`): the columns
+    /// times [`column_x`](Self::column_x) on a fixed grid; a layout that measures each char
+    /// answers with the width of the char.
+    fn char_x(&self, c: char) -> X {
+        self.column_x().saturating_mul(self.char_columns(c) as u32)
     }
 
     /// The index of the row that contains `pos`, counted from 0 over the whole document (Sakura:
@@ -103,11 +122,17 @@ pub trait Layout {
 #[derive(Clone, Copy, Debug)]
 pub struct PlainLayout {
     pub tab_width: usize,
+    /// `X` in one column. 1 gives the layout that counts in columns; a larger one is the same
+    /// layout in finer units (ADR-0034: the tests run both and expect the same text).
+    pub per_column: u32,
 }
 
 impl Default for PlainLayout {
     fn default() -> Self {
-        Self { tab_width: 4 }
+        Self {
+            tab_width: 4,
+            per_column: 1,
+        }
     }
 }
 
@@ -128,13 +153,21 @@ fn char_width(c: char) -> usize {
 }
 
 impl PlainLayout {
-    /// The column after `c` when it starts at column `col`.
-    fn advance(self, col: usize, c: char) -> usize {
+    /// The layout with `per_column` `X` in a column.
+    pub fn scaled(per_column: u32) -> Self {
+        Self {
+            per_column,
+            ..Self::default()
+        }
+    }
+
+    /// The position after `c` when it starts at `x`.
+    fn advance(self, x: X, c: char) -> X {
         if c == '\t' {
-            let w = self.tab_width.max(1);
-            (col / w + 1) * w
+            let w = self.tab_x();
+            x + (w - x % w)
         } else {
-            col + char_width(c)
+            x + self.char_x(c)
         }
     }
 
@@ -153,16 +186,24 @@ impl Layout for PlainLayout {
         self.tab_width.max(1)
     }
 
+    fn tab_x(&self) -> X {
+        self.column_x().saturating_mul(self.tab_width() as u32)
+    }
+
+    fn column_x(&self) -> X {
+        X::from_raw(self.per_column.max(1))
+    }
+
     // Rows are computed from the document on every call, so there is nothing to update.
     fn edited(&mut self, _doc: &Document, _change: &TextChange) {}
 
     fn reset(&mut self, _doc: &Document) {}
 
-    fn display_col(&self, doc: &Document, pos: Pos) -> Result<usize> {
+    fn display_x(&self, doc: &Document, pos: Pos) -> Result<X> {
         let pos = doc.clamp_pos(pos)?;
         let text = Self::line_text(doc, pos.line)?;
         let upto = text.get(..pos.col).unwrap_or(&text);
-        Ok(upto.chars().fold(0, |col, c| self.advance(col, c)))
+        Ok(upto.chars().fold(X::ZERO, |x, c| self.advance(x, c)))
     }
 
     fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos> {
@@ -179,13 +220,13 @@ impl Layout for PlainLayout {
         Ok((line < Self::last_row(doc)?).then(|| Pos::new(line + 1, 0)))
     }
 
-    fn pos_at_col(&self, doc: &Document, row_pos: Pos, col: usize) -> Result<Pos> {
+    fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> Result<Pos> {
         let line = doc.clamp_pos(row_pos)?.line;
         let text = Self::line_text(doc, line)?;
-        let mut at = 0;
+        let mut at = X::ZERO;
         for (i, c) in text.char_indices() {
             let next = self.advance(at, c);
-            if next > col {
+            if next > x {
                 return Ok(Pos::new(line, i));
             }
             at = next;
@@ -193,10 +234,10 @@ impl Layout for PlainLayout {
         Ok(Pos::new(line, text.len()))
     }
 
-    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal_col: usize) -> Result<Pos> {
+    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> Result<Pos> {
         let line = doc.clamp_pos(pos)?.line;
         let target = line.saturating_add_signed(rows).min(Self::last_row(doc)?);
-        self.pos_at_col(doc, Pos::new(target, 0), goal_col)
+        self.pos_at_x(doc, Pos::new(target, 0), goal)
     }
 }
 
@@ -208,49 +249,79 @@ mod tests {
         Document::from_utf8(s.as_bytes().to_vec()).unwrap()
     }
 
-    #[test]
-    fn display_columns_count_tabs_and_full_width_chars() {
-        let d = doc("a\tb日c");
-        let l = PlainLayout::default();
-        let cols: Vec<_> = [0, 1, 2, 3, 6, 7]
-            .iter()
-            .map(|&c| l.display_col(&d, Pos::new(0, c)).unwrap())
-            .collect();
-        assert_eq!(cols, [0, 1, 4, 5, 7, 8]);
+    /// The layouts that must agree in columns: one `X` for a column, and the finer unit that the
+    /// screen will use (ADR-0034).
+    const PER_COLUMN: [u32; 2] = [1, 64];
+
+    fn x(l: &PlainLayout, columns: u32) -> X {
+        X::from_raw(columns * l.per_column)
     }
 
     #[test]
-    fn pos_at_col_picks_the_char_that_covers_the_column() {
+    fn display_columns_count_tabs_and_full_width_chars() {
         let d = doc("a\tb日c");
-        let l = PlainLayout::default();
-        let at = |col| l.pos_at_col(&d, Pos::new(0, 0), col).unwrap().col;
-        assert_eq!(at(0), 0);
-        assert_eq!(at(1), 1); // the tab covers columns 1..4
-        assert_eq!(at(3), 1);
-        assert_eq!(at(4), 2);
-        assert_eq!(at(5), 3); // the full-width char covers columns 5..7
-        assert_eq!(at(6), 3);
-        assert_eq!(at(7), 6);
-        assert_eq!(at(99), 7);
+        for per_column in PER_COLUMN {
+            let l = PlainLayout::scaled(per_column);
+            let cols: Vec<_> = [0, 1, 2, 3, 6, 7]
+                .iter()
+                .map(|&c| l.display_x(&d, Pos::new(0, c)).unwrap())
+                .collect();
+            let want: Vec<_> = [0, 1, 4, 5, 7, 8].iter().map(|&c| x(&l, c)).collect();
+            assert_eq!(cols, want, "per_column {per_column}");
+        }
+    }
+
+    #[test]
+    fn pos_at_x_picks_the_char_that_covers_the_position() {
+        let d = doc("a\tb日c");
+        for per_column in PER_COLUMN {
+            let l = PlainLayout::scaled(per_column);
+            let at = |col| l.pos_at_x(&d, Pos::new(0, 0), x(&l, col)).unwrap().col;
+            assert_eq!(at(0), 0);
+            assert_eq!(at(1), 1); // the tab covers columns 1..4
+            assert_eq!(at(3), 1);
+            assert_eq!(at(4), 2);
+            assert_eq!(at(5), 3); // the full-width char covers columns 5..7
+            assert_eq!(at(6), 3);
+            assert_eq!(at(7), 6);
+            assert_eq!(at(99), 7);
+        }
+    }
+
+    #[test]
+    fn a_position_inside_a_column_belongs_to_the_char_that_covers_it() {
+        let d = doc("a\tb日c");
+        let l = PlainLayout::scaled(64);
+        // the last unit of the tab (columns 1..4) and the first of the full-width char (5..7)
+        let at = |raw| {
+            l.pos_at_x(&d, Pos::new(0, 0), X::from_raw(raw))
+                .unwrap()
+                .col
+        };
+        assert_eq!(at(64 * 4 - 1), 1);
+        assert_eq!(at(64 * 5 + 1), 3);
+        assert_eq!(at(64 * 7 - 1), 3);
     }
 
     #[test]
     fn rows_include_the_empty_line_after_a_final_line_ending() {
         let d = doc("ab\n");
-        let l = PlainLayout::default();
-        assert_eq!(
-            l.next_row_start(&d, Pos::new(0, 1)).unwrap(),
-            Some(Pos::new(1, 0))
-        );
-        assert_eq!(l.next_row_start(&d, Pos::new(1, 0)).unwrap(), None);
-        assert_eq!(
-            l.move_rows(&d, Pos::new(0, 2), 5, 2).unwrap(),
-            Pos::new(1, 0)
-        );
-        assert_eq!(
-            l.move_rows(&d, Pos::new(1, 0), -9, 1).unwrap(),
-            Pos::new(0, 1)
-        );
+        for per_column in PER_COLUMN {
+            let l = PlainLayout::scaled(per_column);
+            assert_eq!(
+                l.next_row_start(&d, Pos::new(0, 1)).unwrap(),
+                Some(Pos::new(1, 0))
+            );
+            assert_eq!(l.next_row_start(&d, Pos::new(1, 0)).unwrap(), None);
+            assert_eq!(
+                l.move_rows(&d, Pos::new(0, 2), 5, x(&l, 2)).unwrap(),
+                Pos::new(1, 0)
+            );
+            assert_eq!(
+                l.move_rows(&d, Pos::new(1, 0), -9, x(&l, 1)).unwrap(),
+                Pos::new(0, 1)
+            );
+        }
     }
 
     #[test]

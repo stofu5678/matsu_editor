@@ -31,8 +31,10 @@ mod tests {
     use matsu_core::buffer::Pos;
     use matsu_core::cursor::Cursor;
 
-    use crate::context::MAX_BOX_COL;
+    use crate::context::MAX_BOX_COLUMNS;
     use crate::testing::{Editor, check_box};
+
+    const MAX_BOX_COL: usize = MAX_BOX_COLUMNS as usize;
 
     #[test]
     fn moves_right_and_begins_the_box() {

@@ -34,7 +34,7 @@ impl CommandContext<'_> {
                 return Ok(false);
             };
             let row = self.layout.row_start(self.doc(), at)?;
-            let col = self.layout.display_col(self.doc(), at)?;
+            let col = self.layout.display_x(self.doc(), at)?;
             // `++rcSel.bottom`, then `++rcSel.right` (or `++rcSel.left` with Ctrl) for `PtInRect`
             let across = if copy {
                 col > rect.left && col < rect.right
@@ -132,7 +132,7 @@ mod tests {
     use matsu_core::buffer::Pos;
     use matsu_core::cursor::Cursor;
 
-    use crate::layout::{Layout, PlainLayout};
+    use crate::layout::{Layout, PlainLayout, X};
     use crate::testing::Editor;
 
     fn drop_at(e: &mut Editor, at: Pos, copy: bool) -> bool {
@@ -216,7 +216,7 @@ mod tests {
         let layout = PlainLayout::default();
         let pos = |(line, col): (usize, usize)| {
             layout
-                .pos_at_col(&doc, Pos::new(line, 0), col)
+                .pos_at_x(&doc, Pos::new(line, 0), X::from_raw(col as u32))
                 .expect("a position")
         };
         let mut cursor = Cursor::default();

@@ -328,10 +328,10 @@ impl CommandContext<'_> {
         self.copy_text(text, kind)?;
         // The same as `F_DELETE_LINE`: the caret keeps its display column on the row that
         // takes the place of the deleted one.
-        let col = self.caret_display_col()?;
+        let col = self.caret_display_x()?;
         self.delete_range(start, end)?;
         if start.line < self.doc().line_count() {
-            let pos = self.layout().pos_at_col(self.doc(), start, col)?;
+            let pos = self.layout().pos_at_x(self.doc(), start, col)?;
             self.move_caret(pos, false)?;
         }
         Ok(())

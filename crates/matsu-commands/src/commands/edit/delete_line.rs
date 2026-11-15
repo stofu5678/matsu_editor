@@ -27,7 +27,7 @@ impl Command for DeleteLine {
             cx.beep();
             return Ok(());
         }
-        let col = cx.caret_display_col()?;
+        let col = cx.caret_display_x()?;
         let start = cx.layout().row_start(cx.doc(), caret)?;
         let end = match cx.layout().next_row_start(cx.doc(), caret)? {
             Some(next) => next,
@@ -36,7 +36,7 @@ impl Command for DeleteLine {
         cx.delete_range(start, end)?;
         // keep the display column on the row that took the place of the deleted one
         if start.line < cx.doc().line_count() {
-            let pos = cx.layout().pos_at_col(cx.doc(), start, col)?;
+            let pos = cx.layout().pos_at_x(cx.doc(), start, col)?;
             cx.move_caret(pos, false)?;
         }
         Ok(())

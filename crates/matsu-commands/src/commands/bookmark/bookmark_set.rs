@@ -31,7 +31,7 @@ mod tests {
     use matsu_core::model::DocumentModel;
 
     use crate::context::{CommandContext, TextChange};
-    use crate::layout::{Layout, PlainLayout};
+    use crate::layout::{Layout, PlainLayout, X};
     use crate::testing::Editor;
 
     fn marked(e: &Editor) -> Vec<usize> {
@@ -153,8 +153,8 @@ mod tests {
         fn reset(&mut self, doc: &Document) {
             self.0.reset(doc);
         }
-        fn display_col(&self, _: &Document, pos: Pos) -> R<usize> {
-            Ok(pos.col % 3)
+        fn display_x(&self, _: &Document, pos: Pos) -> R<X> {
+            Ok(X::from_raw((pos.col % 3) as u32))
         }
         fn row_start(&self, _: &Document, pos: Pos) -> R<Pos> {
             Ok(Pos::new(pos.line, pos.col / 3 * 3))
@@ -165,14 +165,20 @@ mod tests {
         fn next_row_start(&self, doc: &Document, pos: Pos) -> R<Option<Pos>> {
             self.0.next_row_start(doc, pos)
         }
-        fn pos_at_col(&self, doc: &Document, row_pos: Pos, col: usize) -> R<Pos> {
-            self.0.pos_at_col(doc, row_pos, col)
+        fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> R<Pos> {
+            self.0.pos_at_x(doc, row_pos, x)
         }
-        fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: usize) -> R<Pos> {
+        fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> R<Pos> {
             self.0.move_rows(doc, pos, rows, goal)
         }
         fn tab_width(&self) -> usize {
             4
+        }
+        fn tab_x(&self) -> X {
+            self.0.tab_x()
+        }
+        fn column_x(&self) -> X {
+            self.0.column_x()
         }
     }
 

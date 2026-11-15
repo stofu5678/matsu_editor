@@ -33,7 +33,7 @@ impl Command for DeleteBack {
         }
         // `Command_LEFT` first: through the gap of the free cursor mode it moves one column and
         // nothing is deleted.
-        if cx.caret_free_col()?.is_some() {
+        if cx.caret_free_x()?.is_some() {
             return cx.move_left(false);
         }
         let caret = cx.caret();

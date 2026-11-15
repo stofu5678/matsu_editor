@@ -1,7 +1,7 @@
 //! Editing a box selection (Sakura's 矩形選択): copy, delete, typing, indent, conversions and
 //! pasting a box.
 //!
-//! A box is the rows between two display columns (see [`boxsel`](super::boxsel)). The edits here
+//! A box is the rows between two horizontal positions, `X` (see [`boxsel`](super::boxsel)). The edits here
 //! work on it row by row; each is one edit of the document, so a command is one undo step. The
 //! edits drop the box mode first (the low-level [`replace`](CommandContext::replace) refuses to
 //! edit while a box is selected, so that a command that does not know boxes cannot take the
@@ -31,15 +31,16 @@
 use matsu_core::buffer::{Edit, Pos};
 use matsu_core::cursor::char_left;
 
-use super::{CommandContext, MAX_BOX_COL};
+use super::CommandContext;
 use crate::command::Result;
+use crate::layout::X;
 
 /// The corners of a box selection, as the rectangle that Sakura's `TwoPointToRect` makes.
 pub(super) struct BoxRect {
-    /// The first display column of the box.
-    pub left: usize,
-    /// The column after the last one of the box.
-    pub right: usize,
+    /// The first `X` of the box.
+    pub left: X,
+    /// The `X` after the last one of the box.
+    pub right: X,
     /// The first position of each row of the box, top to bottom.
     pub rows: Vec<Pos>,
 }
@@ -50,8 +51,8 @@ struct RowInfo {
     eof: bool,
     /// The end of the text of the row (before the line ending, or at the wrap point).
     end: Pos,
-    /// The display column of `end`.
-    width: usize,
+    /// The `X` of `end`.
+    width: X,
 }
 
 /// One insertion of the text into a row of a box.
@@ -59,8 +60,8 @@ struct Insertion {
     /// Where the text goes, after `pad` spaces.
     at: Pos,
     pad: usize,
-    /// The display column where the text starts.
-    col: usize,
+    /// The `X` where the text starts (after the spaces).
+    x: X,
 }
 
 /// Whether Sakura's `Command_INDENT` skips a char when it checks the left side of the box
@@ -74,7 +75,7 @@ impl CommandContext<'_> {
 
     /// The rectangle of the box selection, or `None` if no box covers anything.
     pub(super) fn box_rect(&self) -> Result<Option<BoxRect>> {
-        let Some(((a, a_col), (c, c_col))) = self.cursor.box_corners() else {
+        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
             return Ok(None);
         };
         let first = self.layout.row_start(self.doc(), a.min(c))?;
@@ -87,8 +88,8 @@ impl CommandContext<'_> {
             rows.push(next);
         }
         Ok(Some(BoxRect {
-            left: a_col.min(c_col),
-            right: a_col.max(c_col),
+            left: a_x.min(c_x),
+            right: a_x.max(c_x),
             rows,
         }))
     }
@@ -98,23 +99,20 @@ impl CommandContext<'_> {
             return Ok(RowInfo {
                 eof: true,
                 end: row,
-                width: 0,
+                width: X::ZERO,
             });
         }
         let end = self.layout.row_end(self.doc(), row)?;
         let width = if self.row_is_wrapped(row)? {
             // The end of a wrapped row is the start of the next row for a position, so its
-            // column may be that of the next row: take the first column that reaches the end.
-            let mut width = match char_left(self.doc(), end)? {
-                Some(last) if last >= row => self.layout.display_col(self.doc(), last)?,
-                _ => 0,
+            // `X` may be that of the next row: take the first `X` that reaches the end.
+            let last_x = match char_left(self.doc(), end)? {
+                Some(last) if last >= row => self.layout.display_x(self.doc(), last)?,
+                _ => X::ZERO,
             };
-            while self.layout.pos_at_col(self.doc(), row, width)? < end {
-                width += 1;
-            }
-            width
+            self.first_x_reaching(row, last_x, end)?
         } else {
-            self.layout.display_col(self.doc(), end)?
+            self.layout.display_x(self.doc(), end)?
         };
         Ok(RowInfo {
             eof: false,
@@ -123,25 +121,25 @@ impl CommandContext<'_> {
         })
     }
 
-    /// The text of `row` from the char that covers column `left` to the char that covers column
-    /// `right`, as positions, without the line ending (Sakura: `LineColumnToIndex`).
-    pub(super) fn box_row_range(&self, row: Pos, left: usize, right: usize) -> Result<(Pos, Pos)> {
+    /// The text of `row` from the char that covers `left` to the char that covers `right`, as
+    /// positions, without the line ending (Sakura: `LineColumnToIndex`).
+    pub(super) fn box_row_range(&self, row: Pos, left: X, right: X) -> Result<(Pos, Pos)> {
         if self.box_row_info(row)?.eof {
             return Ok((row, row));
         }
-        let from = self.layout.pos_at_col(self.doc(), row, left)?;
-        let to = self.layout.pos_at_col(self.doc(), row, right)?;
+        let from = self.layout.pos_at_x(self.doc(), row, left)?;
+        let to = self.layout.pos_at_x(self.doc(), row, right)?;
         Ok((from, to.max(from)))
     }
 
-    /// The position of the box corner at display column `col` of `row`: the char that covers the
-    /// column, the end of the text if the column is past it, and on a wrapped row the last char.
-    pub(super) fn box_corner_pos(&self, row: Pos, col: usize) -> Result<Pos> {
+    /// The position of the box corner at `x` of `row`: the char that covers it, the end of the
+    /// text if `x` is past it, and on a wrapped row the last char.
+    pub(super) fn box_corner_pos(&self, row: Pos, x: X) -> Result<Pos> {
         let info = self.box_row_info(row)?;
         if info.eof {
             return Ok(row);
         }
-        let pos = self.layout.pos_at_col(self.doc(), row, col)?;
+        let pos = self.layout.pos_at_x(self.doc(), row, x)?;
         if pos == info.end
             && self.row_is_wrapped(row)?
             && let Some(last) = char_left(self.doc(), info.end)?
@@ -152,13 +150,13 @@ impl CommandContext<'_> {
         Ok(pos)
     }
 
-    /// Makes a box selection with the given corners (position and display column), keeping the
-    /// lock of the plain moves as it was.
-    pub(super) fn set_box(&mut self, anchor: (Pos, usize), caret: (Pos, usize), lock: bool) {
+    /// Makes a box selection with the given corners (position and `X`), keeping the lock of the
+    /// plain moves as it was.
+    pub(super) fn set_box(&mut self, anchor: (Pos, X), caret: (Pos, X), lock: bool) {
         self.cursor.clear_selection();
         self.cursor.move_to(anchor.0, false);
-        self.cursor.begin_box(anchor.1, lock);
-        self.cursor.move_box_to(caret.0, caret.1);
+        self.begin_box_at(anchor.1, lock);
+        self.set_box_caret(caret.0, caret.1);
     }
 
     // ---- copy and delete ----
@@ -191,11 +189,11 @@ impl CommandContext<'_> {
     pub fn box_first_row_text(&self) -> Result<Option<String>> {
         // The rows are not listed: only the first one is needed, and a box can cover the whole
         // document.
-        let Some(((a, a_col), (c, c_col))) = self.cursor.box_corners() else {
+        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
             return Ok(None);
         };
         let row = self.layout.row_start(self.doc(), a.min(c))?;
-        let (from, to) = self.box_row_range(row, a_col.min(c_col), a_col.max(c_col))?;
+        let (from, to) = self.box_row_range(row, a_x.min(c_x), a_x.max(c_x))?;
         Ok(Some(self.doc().text_between(from, to)?))
     }
 
@@ -230,7 +228,7 @@ impl CommandContext<'_> {
         let Some(rect) = self.box_rect()? else {
             return Ok(());
         };
-        let Some((anchor, caret)) = self.cursor.box_corners() else {
+        let Some((anchor, caret)) = self.box_corner_xs() else {
             return Ok(());
         };
         let lock = self.cursor.selecting_lock();
@@ -272,9 +270,8 @@ impl CommandContext<'_> {
     pub(super) fn insert_in_empty_space(&mut self, text: &str) -> Result<Edit> {
         self.refuse_in_view_mode()?;
         let caret = self.caret();
-        let pad = self
-            .box_caret_col()?
-            .saturating_sub(self.caret_display_col()?);
+        let gap = self.box_caret_x()?.saturating_sub(self.caret_display_x()?);
+        let pad = self.spaces_to_fill(gap);
         self.cursor.clear_selection();
         let padded = format!("{}{text}", " ".repeat(pad));
         let edit = self.replace(caret, caret, &padded)?;
@@ -318,10 +315,12 @@ impl CommandContext<'_> {
             let info = self.box_row_info(row)?;
             let (from, to) = self.box_row_range(row, left, right)?;
             // `from` and `to` are the chars at the two columns; past the text both are the end.
-            let (at, pad, col) = if left >= info.width {
-                (info.end, left - info.width, left)
+            let (at, pad, x) = if left >= info.width {
+                // the spaces fill the gap and may reach a little past `left`
+                let pad = self.spaces_to_fill(left - info.width);
+                (info.end, pad, info.width + self.width_of_spaces(pad))
             } else {
-                (from, 0, self.layout.display_col(self.doc(), from)?)
+                (from, 0, self.layout.display_x(self.doc(), from)?)
             };
             if indent.is_some() {
                 // Nothing to indent in an empty row, or to the right of the text.
@@ -336,12 +335,12 @@ impl CommandContext<'_> {
                 }
                 // The left side of a full-width char fits the box exactly, or the char is an
                 // indent char: no insertion, so the indents line up.
-                if align && (col == left || on_indent_char) {
+                if align && (x == left || on_indent_char) {
                     aligned = true;
                     continue;
                 }
             }
-            plan.push(Insertion { at, pad, col });
+            plan.push(Insertion { at, pad, x });
         }
         Ok((plan, aligned))
     }
@@ -374,9 +373,12 @@ impl CommandContext<'_> {
         // The left side of a full-width char is aligned when the box starts on a tab stop (tab)
         // or is one column wide (space). If that skips every row, the indent is done again
         // without it. (`alignFullWidthChar` in `Command_INDENT`.)
+        // Sakura: `0 == from.x % GetTabSpace()` and `1 == to.x - from.x` (`Command_INDENT`). The
+        // second one compares with 1 `X` and not with a column, which is a pixel in Sakura and
+        // can only be meant as "one column wide": that is what is checked here.
         let align = match indent {
-            Some('\t') => rect.left % self.layout.tab_width().max(1) == 0,
-            Some(' ') => rect.right - rect.left == 1,
+            Some('\t') => rect.left % self.layout.tab_x() == X::ZERO,
+            Some(' ') => rect.right - rect.left == self.layout.column_x(),
             _ => false,
         };
         let (mut plan, mut aligned) = self.plan_box_insertions(&rect, indent, align)?;
@@ -387,30 +389,28 @@ impl CommandContext<'_> {
         // From the bottom up: the rows above do not move.
         // `shift` is how far the text pushed the chars right, the least over the rows (0 if a
         // row was left alone for the alignment); the box moves by it.
-        let mut shift = if aligned { Some(0) } else { None };
+        let mut shift = if aligned { Some(X::ZERO) } else { None };
         for ins in plan.iter().rev() {
             let text = if soft_tab {
-                self.soft_tab_at(ins.col)
+                self.soft_tab_at(ins.x)
             } else {
                 text.to_owned()
             };
             let padded = format!("{}{text}", " ".repeat(ins.pad));
             let edit = self.replace(ins.at, ins.at, &padded)?;
-            let end_col = self.layout.display_col(self.doc(), edit.end)?;
+            let end_x = self.layout.display_x(self.doc(), edit.end)?;
             // The text reached the wrap point: the end is on the next row. Sakura then counts
-            // the columns to the right edge (`GetMaxLineLayout()` minus the start column).
-            let width = if end_col >= ins.col {
-                end_col - ins.col
+            // the width to the right edge (`GetMaxLineLayout()` minus the start).
+            let width = if end_x >= ins.x {
+                end_x - ins.x
             } else {
-                MAX_BOX_COL.saturating_sub(ins.col)
+                self.max_box_x().saturating_sub(ins.x)
             };
-            shift = Some(shift.map_or(width, |s: usize| s.min(width)));
+            shift = Some(shift.map_or(width, |s: X| s.min(width)));
         }
-        let shift = shift.unwrap_or(0);
-        let (left, right) = (
-            (rect.left + shift).min(MAX_BOX_COL),
-            (rect.right + shift).min(MAX_BOX_COL),
-        );
+        let shift = shift.unwrap_or(X::ZERO);
+        let max = self.max_box_x();
+        let (left, right) = ((rect.left + shift).min(max), (rect.right + shift).min(max));
         let (top, bottom) = (rect.rows[0], rect.rows[rect.rows.len() - 1]);
         let caret = (self.box_corner_pos(top, left)?, left);
         let anchor = (self.box_corner_pos(bottom, right)?, right);
@@ -423,10 +423,11 @@ impl CommandContext<'_> {
     /// `unit` goes before the box in each row that has text there (a soft tab is spaces up to the
     /// next tab stop, counted per row).
     pub(super) fn indent_box(&mut self, unit: char) -> Result<()> {
-        let (anchor, caret) = (self.cursor.box_anchor_col(), self.cursor.box_caret_col());
-        if anchor == caret {
+        // A box that covers nothing has corners too (`box_corner_xs` has none then): only
+        // whether they are the same is asked, which the stored numbers answer.
+        if self.cursor.box_anchor_col() == self.cursor.box_caret_col() {
             let row = self.layout.row_start(self.doc(), self.caret())?;
-            return self.box_move_to_col(row, MAX_BOX_COL);
+            return self.box_move_to_x(row, self.max_box_x());
         }
         let mut utf8 = [0; 4];
         let soft_tab = self.is_soft_tab(unit);
@@ -435,7 +436,7 @@ impl CommandContext<'_> {
 
     /// `Command_PASTEBOX`: pastes `text` as a box with its top left corner at the caret. The
     /// selection, a box or not, is deleted first. Each line of `text` goes into the next row at
-    /// the caret's display column; a row shorter than that is padded with spaces, and a row that
+    /// the caret's `X`; a row shorter than that is padded with spaces, and a row that
     /// does not exist is added (a row that has no line ending gets one, as Sakura does for the
     /// last line). The caret ends where it started.
     pub(crate) fn paste_box(&mut self, text: &str) -> Result<()> {
@@ -447,11 +448,11 @@ impl CommandContext<'_> {
         } else {
             self.delete_selection()?;
         }
-        let col = if self.cursor.is_box() {
-            self.box_caret_col()?
+        let x = if self.cursor.is_box() {
+            self.box_caret_x()?
         } else {
             // the free cursor mode: the rectangle starts where the caret is shown
-            self.caret_col_with_free()?
+            self.caret_x_with_free()?
         };
         let first_row = self.layout.row_start(self.doc(), self.caret())?;
         self.cursor.clear_selection();
@@ -482,7 +483,7 @@ impl CommandContext<'_> {
                     .unwrap_or(self.doc().end_pos()?);
             }
             if !piece.is_empty() {
-                self.insert_at_col(row, col, piece)?;
+                self.insert_at_x(row, x, piece)?;
             }
             // Sakura: a row that does not end with a line ending gets one (the last line of the
             // document, the empty row at the end, and also a wrapped row).
@@ -498,19 +499,19 @@ impl CommandContext<'_> {
                 self.replace(end, end, new_line)?;
             }
         }
-        let caret = self.box_corner_pos(first_row, col)?;
+        let caret = self.box_corner_pos(first_row, x)?;
         self.cursor.move_to(caret, false);
         Ok(())
     }
 
-    /// Inserts `text` into `row` at display column `col`, after the padding that a column past
-    /// the end of the text needs (Sakura: `InsertData_CEditView`).
-    fn insert_at_col(&mut self, row: Pos, col: usize, text: &str) -> Result<Edit> {
+    /// Inserts `text` into `row` at `x`, after the padding that an `X` past the end of the text
+    /// needs (Sakura: `InsertData_CEditView`, counted by [`spaces_to_fill`](Self::spaces_to_fill)).
+    fn insert_at_x(&mut self, row: Pos, x: X, text: &str) -> Result<Edit> {
         let info = self.box_row_info(row)?;
-        let (at, pad) = if col >= info.width {
-            (info.end, col - info.width)
+        let (at, pad) = if x >= info.width {
+            (info.end, self.spaces_to_fill(x - info.width))
         } else {
-            (self.layout.pos_at_col(self.doc(), row, col)?, 0)
+            (self.layout.pos_at_x(self.doc(), row, x)?, 0)
         };
         self.replace(at, at, &format!("{}{text}", " ".repeat(pad)))
     }
@@ -540,7 +541,7 @@ impl CommandContext<'_> {
                 continue;
             }
             let old = self.doc().text_between(from, to)?;
-            let start_col = self.layout.display_col(self.doc(), from)?;
+            let start_col = self.whole_columns(self.layout.display_x(self.doc(), from)?);
             let new = convert(&old, tab_width, start_col);
             if new != old {
                 self.replace(from, to, &new)?;

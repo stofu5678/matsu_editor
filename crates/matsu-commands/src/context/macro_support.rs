@@ -11,6 +11,7 @@ use matsu_core::buffer::Pos;
 
 use super::CommandContext;
 use crate::command::{CommandError, Result};
+use crate::layout::X;
 
 /// The bits of the option of `MoveCursor` and `MoveCursorLayout`
 /// (`help/macro/source/reference/cursor/S_MoveCursor.html`).
@@ -59,8 +60,8 @@ impl CommandContext<'_> {
             Pos::new(line, byte_offset_for_utf16(&text, unit))
         };
         let row_start = self.layout.row_start(self.doc(), pos)?;
-        let col = self.layout.display_col(self.doc(), pos)?;
-        self.move_macro_caret(row_start, pos, col, option)
+        let x = self.layout.display_x(self.doc(), pos)?;
+        self.move_macro_caret(row_start, pos, x, option)
     }
 
     /// `MoveCursor` with the box option for a caller that has a position of the text, not the
@@ -69,42 +70,38 @@ impl CommandContext<'_> {
     pub fn move_caret_selecting_box(&mut self, pos: Pos) -> Result<()> {
         let pos = self.doc().clamp_pos(pos)?;
         let row_start = self.layout.row_start(self.doc(), pos)?;
-        let col = self.layout.display_col(self.doc(), pos)?;
-        self.move_macro_caret(row_start, pos, col, move_option::BOX)
+        let x = self.layout.display_x(self.doc(), pos)?;
+        self.move_macro_caret(row_start, pos, x, move_option::BOX)
     }
 
-    /// `Command_MOVECURSORLAYOUT`: moves the caret to a row and a display column of the layout,
-    /// both counted from 0. A row past the last one is the end of the text. The column is
-    /// counted in cells of the layout (a tab and a full-width character take more than one). In
-    /// a box selection the caret can be in the empty space right of the text; otherwise it stops
-    /// at the end of the row. A negative number beeps and does nothing.
-    pub fn move_cursor_layout(&mut self, row: i64, col: i64, option: i64) -> Result<()> {
-        let (Ok(row), Ok(col)) = (usize::try_from(row), usize::try_from(col)) else {
+    /// `Command_MOVECURSORLAYOUT`: moves the caret to a row and a horizontal position of the
+    /// layout, both counted from 0. A row past the last one is the end of the text. The position
+    /// is the layout's X (`CLayoutPoint`, in the unit of `GetDefaultCharLength`, not in columns;
+    /// a tab and a full-width character take more than one column). In a box selection the caret
+    /// can be in the empty space right of the text; otherwise it stops at the end of the row. A
+    /// negative number beeps and does nothing.
+    pub fn move_cursor_layout(&mut self, row: i64, x: i64, option: i64) -> Result<()> {
+        let (Ok(row), Ok(x)) = (usize::try_from(row), usize::try_from(x)) else {
             self.beep();
             return Ok(());
         };
-        let (row_start, pos, col) = match self.layout.row_start_at(self.doc(), row)? {
-            Some(start) => (start, self.layout.pos_at_col(self.doc(), start, col)?, col),
+        let x = super::units::x_of(x);
+        let (row_start, pos, x) = match self.layout.row_start_at(self.doc(), row)? {
+            Some(start) => (start, self.layout.pos_at_x(self.doc(), start, x)?, x),
             None => {
                 // past the last row: the end of the text, and its column for a box
                 let end = self.doc().end_pos()?;
-                let at = self.layout.display_col(self.doc(), end)?;
+                let at = self.layout.display_x(self.doc(), end)?;
                 (self.layout.row_start(self.doc(), end)?, end, at)
             }
         };
-        self.move_macro_caret(row_start, pos, col, option)
+        self.move_macro_caret(row_start, pos, x, option)
     }
 
     /// The part that `Command_MOVECURSORLAYOUT` shares: the selection first, then the move.
-    /// `row_start` is the first position of the target row, `pos` the target and `col` the display
-    /// column that a box caret goes to.
-    fn move_macro_caret(
-        &mut self,
-        row_start: Pos,
-        pos: Pos,
-        col: usize,
-        option: i64,
-    ) -> Result<()> {
+    /// `row_start` is the first position of the target row, `pos` the target and `x` the position
+    /// that a box caret goes to.
+    fn move_macro_caret(&mut self, row_start: Pos, pos: Pos, x: X, option: i64) -> Result<()> {
         let select = option & move_option::SELECT != 0;
         let boxed = option & move_option::BOX != 0;
         if select || boxed {
@@ -119,7 +116,7 @@ impl CommandContext<'_> {
             self.cursor.clear_selection();
         }
         if (select || boxed) && self.cursor.is_box() {
-            return self.box_move_to_col(row_start, col);
+            return self.box_move_to_x(row_start, x);
         }
         self.move_caret(pos, select)
     }

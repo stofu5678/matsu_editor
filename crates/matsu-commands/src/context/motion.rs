@@ -36,8 +36,8 @@ impl CommandContext<'_> {
     pub fn move_caret(&mut self, pos: Pos, extend: bool) -> Result<()> {
         let pos = self.doc().clamp_pos(pos)?;
         if extend && self.cursor.is_box() {
-            let col = self.layout.display_col(self.doc(), pos)?;
-            self.cursor.move_box_to(pos, col);
+            let x = self.layout.display_x(self.doc(), pos)?;
+            self.set_box_caret(pos, x);
         } else {
             self.cursor.move_to(pos, extend);
         }
@@ -88,7 +88,7 @@ impl CommandContext<'_> {
     /// it (Sakura: `Command_RIGHT`, `Command_CANCEL_MODE(2)`).
     ///
     /// In a box selection the caret goes on through the empty space to the right of the text, up
-    /// to [`MAX_BOX_COL`](super::boxsel::MAX_BOX_COL) (Sakura: `Command_RIGHT`).
+    /// to [`max_box_x`](CommandContext::max_box_x) (Sakura: `Command_RIGHT`).
     pub fn move_right(&mut self, extend: bool) -> Result<()> {
         let extend = self.extends(extend);
         if extend && self.cursor.is_box() {
@@ -119,9 +119,9 @@ impl CommandContext<'_> {
         if extend && self.cursor.is_box() {
             return self.box_vertical(rows);
         }
-        let goal = match self.cursor.goal_col() {
+        let goal = match self.goal_x() {
             Some(goal) => goal,
-            None => self.caret_col_with_free()?,
+            None => self.caret_x_with_free()?,
         };
         let target = self
             .layout
@@ -130,7 +130,7 @@ impl CommandContext<'_> {
         // The free cursor mode keeps the goal column on a row that is shorter
         // (`m_bIsFreeCursorMode` in `CCaret::Cursor_UPDOWN`).
         self.stand_free(goal)?;
-        self.cursor.set_goal_col(Some(goal));
+        self.set_goal_x(Some(goal));
         Ok(())
     }
 
@@ -206,8 +206,8 @@ impl CommandContext<'_> {
         self.add_to_jump_history();
         let extend = self.extends(extend);
         if extend && self.cursor.is_box() {
-            let col = self.box_caret_col()?;
-            return self.box_move_to_col(Pos::new(0, 0), col);
+            let x = self.box_caret_x()?;
+            return self.box_move_to_x(Pos::new(0, 0), x);
         }
         self.move_caret(Pos::new(0, 0), extend)
     }
@@ -223,8 +223,8 @@ impl CommandContext<'_> {
         if extend && self.cursor.is_box() {
             self.box_vertical(isize::MAX)?;
             if !self.cursor.has_selection() {
-                let col = self.box_caret_col()?;
-                self.cursor.set_goal_col(Some(col));
+                let x = self.box_caret_x()?;
+                self.set_goal_x(Some(x));
             }
             return Ok(());
         }

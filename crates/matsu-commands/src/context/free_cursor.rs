@@ -20,9 +20,9 @@
 //! caret left through the gap and deletes nothing.
 
 use super::CommandContext;
-use super::boxsel::MAX_BOX_COL;
 use crate::command::Result;
 use crate::edit_options;
+use crate::layout::X;
 
 impl CommandContext<'_> {
     /// Whether the free cursor mode is on (`m_bIsFreeCursorMode`).
@@ -40,65 +40,66 @@ impl CommandContext<'_> {
             && !self.row_is_wrapped(pos)?)
     }
 
-    /// The display column the caret stands at when it is to the right of the end of its line, if
-    /// the mode is on and it is.
-    pub fn caret_free_col(&self) -> Result<Option<usize>> {
-        let Some(col) = self.cursor.free_col().filter(|_| self.is_free_cursor()) else {
+    /// The `X` the caret stands at when it is to the right of the end of its line, if the mode is
+    /// on and it is.
+    pub fn caret_free_x(&self) -> Result<Option<X>> {
+        let Some(x) = self.stored_free_x().filter(|_| self.is_free_cursor()) else {
             return Ok(None);
         };
         let caret = self.caret();
-        Ok((self.can_stand_free(caret)? && col > self.caret_display_col()?).then_some(col))
+        Ok((self.can_stand_free(caret)? && x > self.caret_display_x()?).then_some(x))
     }
 
-    /// The display column of the caret, counting the space to the right of the text.
-    pub fn caret_col_with_free(&self) -> Result<usize> {
-        let at = self.caret_display_col()?;
-        Ok(self.caret_free_col()?.map_or(at, |c| c.max(at)))
+    /// The `X` of the caret, counting the space to the right of the text.
+    pub fn caret_x_with_free(&self) -> Result<X> {
+        let at = self.caret_display_x()?;
+        Ok(self.caret_free_x()?.map_or(at, |c| c.max(at)))
     }
 
-    /// Lets the caret, which is at a position already, stand at display column `col` if that is
-    /// to the right of the text of its row and the mode is on. The column goes up to the longest
-    /// line ([`MAX_BOX_COL`]).
-    pub(super) fn stand_free(&mut self, col: usize) -> Result<()> {
+    /// Lets the caret, which is at a position already, stand at `x` if that is to the right of
+    /// the text of its row and the mode is on. `x` goes up to the longest line
+    /// ([`max_box_x`](Self::max_box_x)).
+    pub(super) fn stand_free(&mut self, x: X) -> Result<()> {
         if self.is_free_cursor()
             && self.can_stand_free(self.caret())?
-            && col > self.caret_display_col()?
+            && x > self.caret_display_x()?
         {
-            self.cursor.set_free_col(Some(col.min(MAX_BOX_COL)));
+            self.set_free_x(Some(x.min(self.max_box_x())));
         }
         Ok(())
     }
 
-    /// Moves the caret to `pos`, and to display column `col` if that is to the right of the text
-    /// there and the mode is on (a click to the right of a row, `CCaret::MoveCursorProperly`).
+    /// Moves the caret to `pos`, and to `x` if that is to the right of the text there and the
+    /// mode is on (a click to the right of a row, `CCaret::MoveCursorProperly`).
     pub fn move_caret_free(
         &mut self,
         pos: matsu_core::buffer::Pos,
-        col: usize,
+        x: X,
         extend: bool,
     ) -> Result<()> {
         self.move_caret(pos, extend)?;
         if !(extend && self.cursor.is_box()) {
-            self.stand_free(col)?;
+            self.stand_free(x)?;
         }
         Ok(())
     }
 
     /// `Command_RIGHT` in the free cursor mode, at the end of the text of a row: one column to the
-    /// right through the empty space. At the right edge (the longest line) the caret goes to the
-    /// start of the next line, and stops there on the last line (`on_x_max`,
+    /// right through the empty space (`to_x = x + dx_default`, where `dx_default` is
+    /// [`column_x`](crate::layout::Layout::column_x)). At the right edge (the longest line) the caret goes to
+    /// the start of the next line, and stops there on the last line (`on_x_max`,
     /// `MOVE_NEXTLINE_IMMEDIATELY` and `STOP`). Returns `false` when the move is not a free one
     /// (the caret is not at the end of a row, or it goes to the next line).
     pub(super) fn free_right(&mut self, extend: bool) -> Result<bool> {
         if !self.is_free_cursor() || !self.can_stand_free(self.caret())? {
             return Ok(false);
         }
-        let next = self.caret_col_with_free()? + 1;
+        let next = self.caret_x_with_free()? + self.layout.column_x();
         let has_next_line = matsu_core::cursor::char_right(self.doc(), self.caret())?.is_some();
-        if next >= MAX_BOX_COL && has_next_line {
+        if next >= self.max_box_x() && has_next_line {
             return Ok(false);
         }
-        if next > MAX_BOX_COL {
+        if next > self.max_box_x() {
             return Ok(true);
         }
         self.move_caret_free(self.caret(), next, extend)?;
@@ -107,25 +108,30 @@ impl CommandContext<'_> {
 
     /// `Command_LEFT` while the caret stands to the right of the text: one column back, and onto
     /// the text at its end. Returns `false` when the caret is not there.
+    ///
+    /// Sakura: `x = max(x - dx_default, end of the text)` (`Command_LEFT`,
+    /// `sakura_core/cmd/CViewCommander_Cursor.cpp`): the caret does not go left of the text.
     pub(super) fn free_left(&mut self, extend: bool) -> Result<bool> {
-        let Some(col) = self.caret_free_col()? else {
+        let Some(x) = self.caret_free_x()? else {
             return Ok(false);
         };
-        self.move_caret_free(self.caret(), col - 1, extend)?;
+        let end = self.caret_display_x()?;
+        let back = x.saturating_sub(self.layout.column_x()).max(end);
+        self.move_caret_free(self.caret(), back, extend)?;
         Ok(true)
     }
 
     /// Fills the gap between the end of the text and the caret with spaces, so that the caret is
-    /// on the text again, before something is put there (`InsertData_CEditView`: one space per
-    /// column). Does nothing when the caret is not in the gap. A selection is not looked at: the
-    /// callers pad only without one.
+    /// on the text again, before something is put there (`InsertData_CEditView`, counted by
+    /// [`spaces_to_fill`](Self::spaces_to_fill)). Does nothing when the caret is not in the gap. A
+    /// selection is not looked at: the callers pad only without one.
     pub fn pad_free_caret(&mut self) -> Result<()> {
-        let Some(col) = self.caret_free_col()? else {
+        let Some(x) = self.caret_free_x()? else {
             return Ok(());
         };
         let caret = self.caret();
-        let gap = col - self.caret_display_col()?;
-        let edit = self.replace(caret, caret, &" ".repeat(gap))?;
+        let gap = x - self.caret_display_x()?;
+        let edit = self.replace(caret, caret, &" ".repeat(self.spaces_to_fill(gap)))?;
         self.cursor.move_to(edit.end, false);
         Ok(())
     }
@@ -218,18 +224,21 @@ mod tests {
     fn right_at_the_longest_line_goes_to_the_next_line() {
         with_options(free(), || {
             let mut e = Editor::new("ab|\ncd");
-            for _ in 0..super::MAX_BOX_COL - 3 {
+            for _ in 0..(crate::context::MAX_BOX_COLUMNS as usize) - 3 {
                 e.run("cursor_right");
             }
-            assert_eq!(col(&e), Some(super::MAX_BOX_COL - 1));
+            assert_eq!(
+                col(&e),
+                Some((crate::context::MAX_BOX_COLUMNS as usize) - 1)
+            );
             e.run("cursor_right");
             assert_eq!((e.cursor().caret(), col(&e)), (Pos::new(1, 0), None));
             // on the last line without a line ending it stops at the edge
             let mut e = Editor::new("ab|");
-            for _ in 0..super::MAX_BOX_COL + 5 {
+            for _ in 0..(crate::context::MAX_BOX_COLUMNS as usize) + 5 {
                 e.run("cursor_right");
             }
-            assert_eq!(col(&e), Some(super::MAX_BOX_COL));
+            assert_eq!(col(&e), Some(crate::context::MAX_BOX_COLUMNS as usize));
         });
     }
 

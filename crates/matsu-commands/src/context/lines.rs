@@ -8,7 +8,7 @@
 use matsu_core::buffer::Pos;
 use matsu_core::model::eol_text;
 
-use super::{CommandContext, MAX_BOX_COL};
+use super::CommandContext;
 use crate::command::Result;
 
 /// What counts as white space for `F_LTRIM` and `F_RTRIM`: a space, a tab, and the ideographic
@@ -120,10 +120,10 @@ impl CommandContext<'_> {
     /// except a later extending move).
     ///
     /// Difference: with a wrapping layout the columns count from the start of the line, but
-    /// `layout().pos_at_col` only looks at its first row, and the corners of the box go back to
+    /// `layout().pos_at_x` only looks at its first row, and the corners of the box go back to
     /// the first row of their line (Sakura keeps the layout row numbers).
     fn sort_box_lines(&mut self, ascending: bool) -> Result<()> {
-        let Some(((a, a_col), (c, c_col))) = self.cursor.box_corners() else {
+        let Some(((a, a_col), (c, c_col))) = self.box_corner_xs() else {
             return Ok(());
         };
         // `IsTextSelected` is false when both corners are the same.
@@ -131,7 +131,7 @@ impl CommandContext<'_> {
             return Ok(());
         }
         let (left, right) = if a_col == c_col {
-            (a_col, MAX_BOX_COL)
+            (a_col, self.max_box_x())
         } else {
             (a_col.min(c_col), a_col.max(c_col))
         };
