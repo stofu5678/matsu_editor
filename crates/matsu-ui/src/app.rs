@@ -208,6 +208,8 @@ pub(crate) fn run(
         gpui_component::init(cx);
         // `MATSU_FONT_DIAGNOSTICS`: how the text font is chosen (nothing without the variable).
         crate::font_diagnostics::report(cx, &user);
+        // `MATSU_GPU_DIAGNOSTICS`: what the windows should take of the graphics memory (nothing without it).
+        crate::gpu_diagnostics::start(cx);
         crate::view::EditorView::bind_keys(cx);
         crate::preview::bind_keys(cx);
         crate::ai_log::bind_keys(cx);

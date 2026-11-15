@@ -53,6 +53,7 @@ mod font_diagnostics;
 mod font_dialog;
 mod func_name;
 pub mod geometry;
+mod gpu_diagnostics;
 pub mod grep;
 mod history;
 pub mod hit;
