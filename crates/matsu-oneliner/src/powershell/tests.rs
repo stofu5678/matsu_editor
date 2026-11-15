@@ -133,7 +133,8 @@ fn the_decision_is_made_by_the_parser_of_powershell() {
         "[System.Management.Automation.Language.Parser]::ParseInput(",
         "VariablePath.UserPath -ieq 'input'",
         "[scriptblock]::Create($__matsu_text)",
-        "'$input | ' + $__matsu_line",
+        "$__matsu_line.Insert($__matsu_offset, '$input | ')",
+        "StaticParameterBinder]::BindCommand(",
     ] {
         assert!(DECIDE.contains(needed) || RUN.contains(needed), "{needed}");
     }

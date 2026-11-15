@@ -683,6 +683,37 @@ mod powershell {
             (select_path, "b", "name = \"matsu-oneliner\""),
             (select_pattern, "b", "name = \"matsu-oneliner\""),
             (select_dash_path, "b", "name = \"matsu-oneliner\""),
+            // the binder of PowerShell knows the aliases, the prefixes and the switches
+            (
+                format!("Select-String -Pattern '^name = ' -PSPath '{manifest}' | % {{ $_.Line }}"),
+                "b",
+                "name = \"matsu-oneliner\"",
+            ),
+            (
+                format!("Select-String '^name = ' -LiteralP '{manifest}' | % {{ $_.Line }}"),
+                "b",
+                "name = \"matsu-oneliner\"",
+            ),
+            (
+                format!("Select-String -vb '^name = ' '{manifest}' | % {{ $_.Line }}"),
+                "b",
+                "name = \"matsu-oneliner\"",
+            ),
+            // an input by position (`ConvertTo-Json x`, `ConvertFrom-Json x`)
+            ("ConvertTo-Json @(1,2) -Compress".into(), "b", "[1,2]"),
+            ("ConvertFrom-Json '{\"x\":5}' | % { $_.x }".into(), "b", "5"),
+            // a trap before the first statement stays in front of the prefix
+            ("trap { continue }; Sort-Object".into(), "b\na", "a\nb"),
+            (
+                "trap { continue }; ForEach-Object { $_.ToUpper() }".into(),
+                "b\na",
+                "B\nA",
+            ),
+            (
+                "trap { continue }; Get-Date -Format yyyy | % { $_.Length }".into(),
+                "b",
+                "4",
+            ),
             // block declarations: the block must start with the text of the line
             ("process { $_.ToUpper() }".into(), "x", "X"),
             ("param(); 'ok'".into(), "x", "ok"),
@@ -697,6 +728,18 @@ mod powershell {
             for (shell, done, output) in ps(line, text, OutputKind::Replace) {
                 assert_eq!(done.exit.code, Some(0), "{shell}: {line:?}: {}", done.error);
                 assert_eq!(output.trim_end(), *want, "{shell}: {line:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_that_cannot_be_bound_is_left_as_written() {
+        // an unknown parameter and an ambiguous prefix: the line fails by itself, with its own error
+        for line in ["Sort-Object -Bogus 1", "Select-Object -i 3"] {
+            for (shell, done, output) in ps(line, "b", OutputKind::Replace) {
+                assert_eq!(done.exit.code, Some(1), "{shell}: {line:?}");
+                assert!(output.is_empty(), "{shell}: {line:?}: {output:?}");
+                assert!(!done.error.is_empty(), "{shell}: {line:?}");
             }
         }
     }

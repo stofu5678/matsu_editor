@@ -46,14 +46,19 @@
 //!   sub-expressions, quotes). The line is piped when its first statement is a pipeline whose
 //!   first element is a command of the list, unless
 //!   * the line uses the variable `$input` anywhere (the user reads the text himself),
-//!   * the command is given `-InputObject` (or an unambiguous prefix of 3 letters or more; `-i`
-//!     and `-in` are ambiguous or the operator `-in` of `Where-Object`, so they do not count),
-//!   * for `Select-String`: it has `-Path` or `-LiteralPath`, or the path by position (the second
-//!     positional argument, or the first when `-Pattern` is named).
+//!   * the command is given an input itself: the first command is bound statically by
+//!     PowerShell (`StaticParameterBinder.BindCommand`, in 3.0 and later), which resolves
+//!     aliases (`-LP`, `-PSPath`), prefixes, switches and positions by the real rules, and
+//!     `InputObject`, `Path` or `LiteralPath` is among the bound parameters (`Select-String`
+//!     takes its file by position; `ConvertTo-Json x` takes `InputObject` by position),
+//!   * the binding fails (an unknown or ambiguous parameter, too many arguments): the line fails
+//!     anyway, and it is left as the user wrote it,
+//!   * an argument is splatted (`@args`): what it holds is not known.
 //!
 //!   A line that does not parse is not piped; the messages of the parser go to the standard error
 //!   and the exit code is 1. What the user sees (the log, `#CmdLine`) is the line as it was
-//!   written; only the script block has the `$input | ` in front.
+//!   written; only the script block has the `$input | ` in front, inserted where the first
+//!   statement starts (a `trap { }` before it stays in front: it is not in the statement list).
 //! * A line that does not use `$input`, was not piped like that and fails gets one more line on
 //!   the standard error ([`HINT`]) that says the selection is read with `$input`. The standard
 //!   error is shown in the output window and never goes into the document.
@@ -98,41 +103,22 @@ if (($__matsu_cmd -is [System.Management.Automation.Language.CommandAst]) -and (
 $__matsu_name = $__matsu_cmd.GetCommandName()
 if ($__matsu_name -and ($__matsu_filters -contains $__matsu_name.ToLowerInvariant())) {
 $__matsu_pipe = $true
-$__matsu_sls = ($__matsu_name -ieq 'select-string') -or ($__matsu_name -ieq 'sls')
-$__matsu_positional = 0
-$__matsu_pattern_named = $false
-$__matsu_elements = $__matsu_cmd.CommandElements
-for ($__matsu_i = 1; $__matsu_i -lt $__matsu_elements.Count; $__matsu_i++) {
-$__matsu_el = $__matsu_elements[$__matsu_i]
-if ($__matsu_el -is [System.Management.Automation.Language.CommandParameterAst]) {
-$__matsu_pname = $__matsu_el.ParameterName.ToLowerInvariant()
-if (($__matsu_pname.Length -ge 3) -and 'inputobject'.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_pipe = $false; break }
-if ($__matsu_sls) {
-if (($__matsu_pname -eq 'path') -or (($__matsu_pname.Length -ge 2) -and 'literalpath'.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal))) { $__matsu_pipe = $false; break }
-if (($__matsu_pname.Length -ge 4) -and 'pattern'.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_pattern_named = $true }
-if ($null -eq $__matsu_el.Argument) {
-$__matsu_switch = $false
-foreach ($__matsu_s in 'casesensitive', 'simplematch', 'quiet', 'list', 'allmatches', 'notmatch', 'raw', 'noemphasis', 'verbose', 'debug') { if ($__matsu_s.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_switch = $true } }
-foreach ($__matsu_s in 'pattern', 'path', 'literalpath', 'include', 'exclude', 'encoding', 'context', 'culture', 'erroraction', 'warningaction', 'informationaction', 'errorvariable', 'warningvariable', 'informationvariable', 'outvariable', 'outbuffer', 'pipelinevariable') { if ($__matsu_s.StartsWith($__matsu_pname, [System.StringComparison]::Ordinal)) { $__matsu_switch = $false } }
-if ((-not $__matsu_switch) -and (($__matsu_i + 1) -lt $__matsu_elements.Count) -and -not ($__matsu_elements[$__matsu_i + 1] -is [System.Management.Automation.Language.CommandParameterAst])) { $__matsu_i++ }
-}
-}
+$__matsu_bind = $null
+try { $__matsu_bind = [System.Management.Automation.Language.StaticParameterBinder]::BindCommand($__matsu_cmd, $true) } catch {}
+if (($null -eq $__matsu_bind) -or ($__matsu_bind.BindingExceptions.Count -gt 0)) {
+$__matsu_pipe = $false
 } else {
-$__matsu_positional++
+foreach ($__matsu_k in $__matsu_bind.BoundParameters.Keys) { if (($__matsu_k -ieq 'InputObject') -or ($__matsu_k -ieq 'Path') -or ($__matsu_k -ieq 'LiteralPath')) { $__matsu_pipe = $false } }
+foreach ($__matsu_el in $__matsu_cmd.CommandElements) { if (($__matsu_el -is [System.Management.Automation.Language.VariableExpressionAst]) -and $__matsu_el.Splatted) { $__matsu_pipe = $false } }
 }
-}
-if ($__matsu_pipe -and $__matsu_sls) {
-$__matsu_path_at = 2
-if ($__matsu_pattern_named) { $__matsu_path_at = 1 }
-if ($__matsu_positional -ge $__matsu_path_at) { $__matsu_pipe = $false }
-}
+$__matsu_offset = $__matsu_first.Extent.StartOffset
 }
 }
 }
 }
 $global:__matsu_hint = (-not $__matsu_uses) -and (-not $__matsu_pipe)
 $__matsu_text = $__matsu_line
-if ($__matsu_pipe) { $__matsu_text = '$input | ' + $__matsu_line }
+if ($__matsu_pipe) { $__matsu_text = $__matsu_line.Insert($__matsu_offset, '$input | ') }
 "#;
 
 /// Between the decision and the epilogue: the block of the line gets the text as its input.
