@@ -27,7 +27,7 @@ fn plain_label(label: &str) -> String {
 /// The text of an item of the menu: the label without its access key, cut if it is wider than
 /// the window (`menu_width`).
 fn shown(label: &str, window: &Window) -> String {
-    crate::menu_width::Fit::new(window).label(&plain_label(label))
+    crate::menu_width::Fit::new(window).owned(plain_label(label))
 }
 
 /// The `max_w` of the menu of `nodes`: as wide as its longest label, and wide enough for its
@@ -43,8 +43,9 @@ fn max_width_of(nodes: &[MenuNode], window: &Window) -> Pixels {
                 label, children, ..
             } => {
                 own = own.max(width_of(label));
+                // The items and the headings of the submenus in it.
                 for child in children {
-                    if let MenuNode::Item { label, .. } = child {
+                    if let MenuNode::Item { label, .. } | MenuNode::Submenu { label, .. } = child {
                         submenu = submenu.max(width_of(label));
                     }
                 }

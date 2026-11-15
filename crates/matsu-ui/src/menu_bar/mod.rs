@@ -57,6 +57,7 @@ use gpui_base::actions::{Cancel, SelectDown, SelectLeft, SelectRight, SelectUp};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::PopupMenu;
 use gpui_component::{GlobalState, InteractiveElementExt as _, Selectable, Sizable, h_flex};
+use std::borrow::Cow;
 use std::rc::Rc;
 
 /// The key context that `gpui_component::init` binds Escape, Left and Right to.
@@ -367,7 +368,7 @@ fn fit_width(items: Vec<OwnedMenuItem>, window: &Window) -> (Vec<OwnedMenuItem>,
                 checked,
                 disabled,
             } => {
-                let name = fit.label(&name);
+                let name = fit.owned(name);
                 own = own.max(fit.width_of(&name));
                 OwnedMenuItem::Action {
                     name,
@@ -378,21 +379,36 @@ fn fit_width(items: Vec<OwnedMenuItem>, window: &Window) -> (Vec<OwnedMenuItem>,
                 }
             }
             OwnedMenuItem::Submenu(mut menu) => {
-                let name = fit.label(&menu.name);
-                own = own.max(fit.width_of(&name));
-                menu.name = name.into();
-                // The labels of the submenu are cut when it is filled; its width is the same.
-                for item in &menu.items {
-                    if let OwnedMenuItem::Action { name, .. } = item {
-                        submenu = submenu.max(fit.width_of(&fit.label(name)));
-                    }
+                let cut = match fit.label(&menu.name) {
+                    Cow::Owned(cut) => Some(cut),
+                    Cow::Borrowed(_) => None,
+                };
+                if let Some(cut) = cut {
+                    menu.name = cut.into();
                 }
+                own = own.max(fit.width_of(&menu.name));
+                // The labels of the submenu are cut when it is filled; its width is the same.
+                submenu = submenu.max(widest_label(&menu.items, &fit));
                 OwnedMenuItem::Submenu(menu)
             }
             item => item,
         })
         .collect();
     (items, fit.max_width(own, submenu))
+}
+
+/// The width the widest label of `items` needs once cut: the items and the headings of the
+/// submenus in them (a heading takes room in the menu too).
+fn widest_label(items: &[OwnedMenuItem], fit: &crate::menu_width::Fit) -> Pixels {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            OwnedMenuItem::Action { name, .. } => Some(name.as_str()),
+            OwnedMenuItem::Submenu(menu) => Some(menu.name.as_ref()),
+            _ => None,
+        })
+        .map(|name| fit.width_of(&fit.label(name)))
+        .fold(Pixels::ZERO, Pixels::max)
 }
 
 /// The picture of the icon of the function an item runs, if it runs one that has an icon.
@@ -1056,6 +1072,18 @@ mod tests {
         let (_, max) = cx.update(|window, _| fit_width(vec![sub.owned()], window));
         // The submenu is wider than 500 px: its parent counts it, so that the side is chosen for
         // the width of the submenu.
+        assert!(max > px(500.), "{max:?}");
+    }
+
+    #[gpui::test]
+    fn a_long_heading_of_a_submenu_in_a_submenu_gives_the_menu_room_for_it(
+        cx: &mut TestAppContext,
+    ) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        let inner = MenuItem::submenu(Menu::new(LONG_PATH).items([MenuItem::action("x", Nothing)]));
+        let outer = MenuItem::submenu(Menu::new("sub").items([inner]));
+        let (_, max) = cx.update(|window, _| fit_width(vec![outer.owned()], window));
+        // Only the heading is long: the submenu is as wide as it, so the parent counts it.
         assert!(max > px(500.), "{max:?}");
     }
 

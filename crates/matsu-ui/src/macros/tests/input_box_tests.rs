@@ -225,6 +225,48 @@ fn create_menu_runs_the_item_of_a_submenu_by_its_access_key(cx: &mut TestAppCont
     assert_eq!(results(&output), ["4"], "{output}");
 }
 
+/// `CreateMenu` while the window is resized by `change` (given the size it has) once the menu is
+/// open: the popup is sized for the window it opened in, so the resize closes it and the macro
+/// gets 0.
+fn resized_while_open(
+    cx: &mut TestAppContext,
+    change: fn(gpui::Size<gpui::Pixels>) -> gpui::Size<gpui::Pixels>,
+) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    // The resize draws the popup, which needs the theme.
+    cx.update(gpui_component::init);
+    let (f, cx) = setup(cx, "ab\ncd");
+    let before = cx.update(|window, _| window.viewport_size());
+    let output = f.script_answering(
+        cx,
+        "console.log('r=' + Editor.CreateMenu(0, 'あ,い'));",
+        |cx| {
+            if f.menu_open(cx) {
+                cx.simulate_resize(change(before));
+                cx.run_until_parked();
+                assert!(!f.menu_open(cx));
+            }
+        },
+    );
+    assert_eq!(results(&output), ["0"], "{output}");
+}
+
+#[gpui::test]
+fn create_menu_answers_0_when_a_change_of_the_height_closes_it(cx: &mut TestAppContext) {
+    resized_while_open(cx, |size| {
+        gpui::size(size.width, size.height - gpui::px(100.))
+    });
+}
+
+#[gpui::test]
+fn create_menu_answers_0_when_a_change_of_the_width_closes_it(cx: &mut TestAppContext) {
+    resized_while_open(cx, |size| {
+        gpui::size(size.width - gpui::px(100.), size.height)
+    });
+}
+
 #[gpui::test]
 fn create_menu_without_an_item_answers_0_and_shows_nothing(cx: &mut TestAppContext) {
     if !available(Language::JavaScript) {

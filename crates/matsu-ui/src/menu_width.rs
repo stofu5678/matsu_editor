@@ -67,9 +67,18 @@ impl<'a> Fit<'a> {
             .width
     }
 
-    /// `label`, cut with `…` if it needs more than the window has.
-    pub(crate) fn label(&self, label: &str) -> String {
-        shorten(label, self.cap - px(SLACK), &|text| self.measure(text)).into_owned()
+    /// `label`, cut with `…` if it needs more than the window has; borrowed when it fits.
+    pub(crate) fn label<'l>(&self, label: &'l str) -> Cow<'l, str> {
+        shorten(label, self.cap - px(SLACK), &|text| self.measure(text))
+    }
+
+    /// [`label`](Self::label) for a text the caller owns: kept as it is when it fits, so that
+    /// nothing is copied.
+    pub(crate) fn owned(&self, label: String) -> String {
+        match self.label(&label) {
+            Cow::Owned(cut) => cut,
+            Cow::Borrowed(_) => label,
+        }
     }
 
     /// The width a menu needs for the (already shortened) label `label`.
