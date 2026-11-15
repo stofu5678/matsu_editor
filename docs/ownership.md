@@ -28,7 +28,7 @@ Rust の「だれが値を持つか」「状態をどう持つか」「長く生
   - 例: `crates/matsu-ui/src/document.rs` の `views: Vec<gpui::WeakEntity<EditorView>>`。文書は、見ているビューが閉じても、ビューを生かさない
   - 例: `crates/matsu-ui/src/file_ops/tag_jump.rs` の `Vec<(WeakEntity<EditorView>, Pos)>`
 - `Rc<RefCell<T>>` は、GPUI のコールバック（`'static` なクロージャ）が、`Entity` を通さずに同じ値を触る必要があるときだけ使う。例: `crates/matsu-ui/src/macros/plugin_call.rs` の `outline: Option<Rc<RefCell<Collected>>>`。まず `Entity` と `update` で足りないか考える
-- `Cell`・`RefCell` を、描画の最中に値を書き換えるために使うときは、なぜ `&mut self` ではだめかをコメントに書く（例: `crates/matsu-ui/src/outline/pane.rs` の `shown_place: Cell<Option<DockPlace>>` は描画中に書く。これは「直す候補」）
+- `Cell`・`RefCell` を、描画の最中に値を書き換えるために使うときは、なぜ `&mut self` ではだめかをコメントに書く。描画中に書く値でも、描画する側（`render`）が `&mut` を持つなら、`Entity::update` で書けば `Cell` は要らない（例: `crates/matsu-ui/src/outline/pane.rs` の `shown_place`・`float_shown`・`drawn_side` は、`Workspace::render_text_area` が `pane.update` で書く）
 - `Arc` は、スレッドをまたぐ共有と、変わらない大きなデータの共有にだけ使う。例: `crates/matsu-core/src/buffer/storage.rs` の `MemorySource(Arc<[u8]>)`（写すと中身が共有される）、`crates/matsu-core/src/tags_make.rs` の出力を集める `Arc<Mutex<Vec<u8>>>`（読むスレッドと共有）。UI のスレッドだけで使う値に `Arc` を使わない（`Rc` で足りる）
 - グローバル（`Global`・`thread_local!`）は、アプリに 1 つのものだけにする。値の持ち主を隠すために使わない
 
@@ -96,7 +96,6 @@ ownership のレビューは、変更された部分だけを、次の順で見�
 | もの | 場所 | 直し方 |
 |---|---|---|
 | プラグイン設定の行の状態（#449）。同意・停止・保存前の同意を文字列と行の文字列の列で持つ | `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs`（`row[CONSENT]`、`row[MANIFEST]`、`STOPPED`） | 行の状態を enum にする。表示の文字列は、描画するときだけ作る。保存前の同意（manifest）と、実行時の停止（`plugin_call::is_stopped`）は、行の外の持ち主に分ける |
-| アウトラインの窓の位置を `Cell` で持つ | `crates/matsu-ui/src/outline/pane.rs`（`shown_place`・`float_rect`・`float_shown`・`drawn_side`） | 描画中に書く値と、設定の値を分け、`&mut self` で更新できる所（描画の前後）に移す。どうしても描画中に書くものだけ、理由つきで `Cell` に残す |
 | アウトラインの `LineSource::line` が `Vec<char>` を返す | `crates/matsu-outline/src/source.rs`、`crates/matsu-ui/src/outline/pane.rs`（実装） | 印刷の `LineSource::read_line`（呼ぶ側のバッファを使い回す）に合わせる。解析が文字の位置で見る部分は、バッファの `Vec<char>` を呼ぶ側が持つ |
 | 印刷の設定ダイアログの下書きの二重の状態 | `crates/matsu-ui/src/print_setting/dialog.rs`（`settings`・`original`・`draft`・入力欄の `Entity<InputState>`） | 入力欄が持つ値と `draft` の値のどちらが正しいかを決める。今は `keep_current` で集めて `draft` と `settings` の両方に書く。正しいほうを 1 つにして、もう一方はそのつど読む |
 | `InputOptions` を、設定から 1 項目ずつ写している | `crates/matsu-ui/src/settings/view_settings.rs`（`input: InputOptions { ... }`）、`crates/matsu-commands/src/input_options.rs` | `InputOptions` を設定の側の型にして、写しをなくす。または、写しを作る時点（設定が変わったとき）を 1 か所にして、コメントで書く |
