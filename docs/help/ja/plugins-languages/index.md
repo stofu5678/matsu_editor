@@ -38,8 +38,8 @@
 | [PHP](lang-php.md) | 外部。プラグインも動かせる |
 | [PowerShell](lang-powershell.md) | 外部。プラグインも動かせる |
 | [Perl](lang-perl.md) | 外部。プラグインも動かせる |
-| [Emacs Lisp](lang-emacs-lisp.md) | 外部 |
-| [AppleScript](lang-applescript.md) | 外部（macOS だけ） |
+| [Emacs Lisp](lang-emacs-lisp.md) | 外部。プラグインも動かせる |
+| [AppleScript](lang-applescript.md) | 外部（macOS だけ）。プラグインも動かせる |
 
 ## 根拠
 

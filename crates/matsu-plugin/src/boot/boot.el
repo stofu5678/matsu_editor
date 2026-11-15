@@ -77,18 +77,22 @@
    (t (signal 'editor-error
               (list -32602 (format "cannot send %S to the editor" value))))))
 
+(defun editor--encode (object)
+  "OBJECT as one line of ASCII JSON (every character above ASCII is written as \\uXXXX)."
+  (let ((json (json-serialize object)))
+    ;; json-serialize answers UTF-8 bytes (a unibyte string): back to characters, and then every
+    ;; one above ASCII becomes \uXXXX.
+    (editor--ascii-json
+     (if (multibyte-string-p json) json (decode-coding-string json 'utf-8)))))
+
 (defun editor-call (method &rest args)
   "Call the editor's macro function METHOD (a string such as \"InsText\") with ARGS.
 Returns the result.  An error answer of the editor is signaled as `editor-error', whose data
 are the code and the message."
   (let* ((id editor--next-id)
          (params (vconcat (mapcar #'editor--argument args)))
-         (json (json-serialize `((jsonrpc . "2.0") (id . ,id) (method . ,method)
-                                 (params . ,params))))
-         ;; json-serialize answers UTF-8 bytes (a unibyte string): back to characters, and then
-         ;; every one above ASCII becomes \uXXXX.
-         (request (editor--ascii-json
-                   (if (multibyte-string-p json) json (decode-coding-string json 'utf-8)))))
+         (request (editor--encode `((jsonrpc . "2.0") (id . ,id) (method . ,method)
+                                    (params . ,params)))))
     (setq editor--next-id (1+ id))
     ;; To `t' (the standard output) whatever `standard-output' is bound to: a script may capture
     ;; its own output with `with-output-to-string'.
@@ -133,26 +137,194 @@ are the code and the message."
         (setq more nil)))
     (not (eobp))))
 
-(defun editor--run (name source)
-  "Evaluate the forms of SOURCE one at a time.  NAME is shown in the errors."
-  ;; The forms are read from one buffer and evaluated in another, so that what the script does
-  ;; to "the current buffer" (`goto-char', `set-buffer', `erase-buffer') cannot disturb the
-  ;; reading of the rest of it.
+;; Evaluates the forms of SOURCE one at a time.  The forms are read from one buffer and evaluated
+;; in another, so that what the script does to "the current buffer" (`goto-char', `set-buffer',
+;; `erase-buffer') cannot disturb the reading of the rest of it.  `(eval form t)' has an empty
+;; lexical environment: the script sees none of the variables of this function.
+(defun editor--eval-forms (source)
+  "Evaluate the forms of SOURCE.  Nil if all went well, else (LINE . ERROR-DATA): the line
+where the form that failed began, and what it signaled."
   (with-temp-buffer
     (insert source)
     (goto-char (point-min))
     (let ((reader (current-buffer))
           (work (generate-new-buffer " *macro*"))
           (line 1))
-      (condition-case err
-          (progn
-            (while (editor--skip-to-form)
-              (setq line (line-number-at-pos))
-              (let ((form (read reader)))
-                (with-current-buffer work
-                  (eval form t))))
-            t)
-        (error (editor--fail name line err))))))
+      (unwind-protect
+          (condition-case err
+              (progn
+                (while (editor--skip-to-form)
+                  (setq line (line-number-at-pos))
+                  (let ((form (read reader)))
+                    (with-current-buffer work
+                      (eval form t))))
+                nil)
+            ((error quit) (cons line err)))
+        (when (buffer-live-p work)
+          (kill-buffer work))))))
+
+(defun editor--run (name source)
+  "Evaluate the forms of SOURCE.  NAME is shown in the errors."
+  (let ((failure (editor--eval-forms source)))
+    (when failure
+      (editor--fail name (car failure) (cdr failure)))
+    t))
+
+;; ---- Plugin host -----------------------------------------------------------------------------
+;;
+;; A plugin host (ADR-0026): `initialize' says kind "plugin" and brings no script.  The editor
+;; sends `plugin/invoke' (the jack, the name and the text of the handler, the arguments) and
+;; waits for the answer; the process stays for the next call when the plugin is resident.  The
+;; handler is evaluated form by form like a macro (`editor--eval-forms'), in a work buffer of its
+;; own.  It sees the variables `plugin-id', `plugin-dir', `plugin-jack' and `plugin-args' and the
+;; functions `plugin-*' below.  The host's own state is in `plugin--' variables, and the locals of
+;; its loop are lexical, which the handler cannot see.
+
+(defvar plugin-id "" "The ID of the plugin whose handler runs.")
+(defvar plugin-dir "" "The folder of the plugin.")
+(defvar plugin-jack "" "The name of the jack that is called (\"Command\", \"Outline\", ...).")
+(defvar plugin-args nil "The arguments of the call: an alist (a JSON object) or a vector.")
+(defvar plugin--typed "" "The char that was typed, in the jack SmartIndent.")
+
+(defun plugin--trim (args)
+  "ARGS without the trailing nils (a trailing nil is a missing argument, not a null)."
+  (let ((rest (reverse args)))
+    (while (and rest (null (car rest)))
+      (pop rest))
+    (nreverse rest)))
+
+;; The calls of the objects: (plugin-get-option "Section" "Key") is the call "Plugin.GetOption".
+(dolist (spec '((plugin-get-plugin-dir . "Plugin.GetPluginDir")
+                (plugin-get-def . "Plugin.GetDef")
+                (plugin-get-option . "Plugin.GetOption")
+                (plugin-set-option . "Plugin.SetOption")
+                (plugin-get-string . "Plugin.GetString")
+                (plugin-get-command-no . "Plugin.GetCommandNo")
+                (plugin-add-command . "Plugin.AddCommand")
+                (plugin-outline-add-func-info . "Outline.AddFuncInfo")
+                (plugin-outline-add-func-info2 . "Outline.AddFuncInfo2")
+                (plugin-outline-add-func-info3 . "Outline.AddFuncInfo3")
+                (plugin-outline-add-func-info4 . "Outline.AddFuncInfo4")
+                (plugin-outline-set-title . "Outline.SetTitle")
+                (plugin-outline-set-list-type . "Outline.SetListType")
+                (plugin-outline-set-label . "Outline.SetLabel")))
+  (let ((method (cdr spec)))
+    (defalias (car spec)
+      (lambda (&rest args)
+        (apply #'editor-call method (plugin--trim args))))))
+
+(defun plugin--arg (key)
+  "The value of KEY in the arguments of the call, or nil."
+  (and (consp plugin-args) (alist-get key plugin-args)))
+
+(defun plugin-complement-get-current-word ()
+  "The word to complete (the jack Complement)."
+  (let ((word (plugin--arg 'word)))
+    (if (stringp word) word "")))
+
+(defun plugin-complement-get-option ()
+  "The option of the call (the jack Complement), an integer."
+  (let ((option (plugin--arg 'option)))
+    (if (integerp option) option 0)))
+
+(defun plugin-complement-add-list (&optional word)
+  "Add WORD to the candidates (the jack Complement).  The editor says whether it is new."
+  (apply #'editor-call "Complement.AddList" (and word (list word))))
+
+(defun plugin-indent-get-char ()
+  "The char that was typed (the jack SmartIndent); \"\" in the other jacks."
+  plugin--typed)
+
+(defun plugin--describe (name line err)
+  "The text of a failure for the editor: the kind, the message, and the place in the handler."
+  (let ((text (condition-case nil
+                  (if (eq (car-safe err) 'editor-error)
+                      (format "EditorError %s: %s" (nth 1 err) (nth 2 err))
+                    (format "%s: %s" (car-safe err) (error-message-string err)))
+                (error (format "%S" err)))))
+    (format "%s\n  at %s:%d" text name line)))
+
+(defun plugin--respond (id failure)
+  "Answer the invoke ID: ok, or the text FAILURE."
+  (let* ((id (or id :null))
+         (answer (if failure
+                     `((jsonrpc . "2.0") (id . ,id)
+                       (error . ((code . -32000) (message . ,failure))))
+                   `((jsonrpc . "2.0") (id . ,id) (result . ((ok . t)))))))
+    (princ (concat editor--rs
+                   (condition-case nil
+                       (editor--encode answer)
+                     ;; A text that cannot be written as JSON (raw bytes): the answer is still sent.
+                     (error
+                      (editor--encode
+                       `((jsonrpc . "2.0") (id . ,id)
+                         (error . ((code . -32000)
+                                   (message . "the handler failed (its text cannot be shown)")))))))
+                   "\n")
+           t)))
+
+(defvar native-comp-enable-subr-trampolines)
+
+(defun plugin--run-handler (name source)
+  "Run the handler SOURCE named NAME.  Nil, or the text of its failure.
+Its own endings end only the handler: `kill-emacs' and (throw 'plugin-exit nil) leave it, and
+a `quit' or any error is its failure."
+  (let ((failure nil)
+        (original (symbol-function 'kill-emacs)))
+    (unwind-protect
+        (progn
+          ;; No trampoline for the primitive that is redefined: the handler is interpreted, which
+          ;; calls through the symbol, and a trampoline would start the native compiler.
+          (let ((native-comp-enable-subr-trampolines nil))
+            (fset 'kill-emacs (lambda (&rest _) (throw 'plugin-exit nil))))
+          (catch 'plugin-exit
+            (let ((found (editor--eval-forms source)))
+              (when found
+                (setq failure (plugin--describe name (car found) (cdr found)))))))
+      (let ((native-comp-enable-subr-trampolines nil))
+        (fset 'kill-emacs original)))
+    failure))
+
+(defun plugin--invoke (message)
+  "Serve the `plugin/invoke' MESSAGE: run the handler, and answer."
+  (let* ((params (let ((p (alist-get 'params message))) (and (consp p) p)))
+         (text (lambda (key default)
+                 (let ((value (alist-get key params)))
+                   (if (stringp value) value default))))
+         (name (funcall text 'name "<plugin>"))
+         (source (funcall text 'source "")))
+    (setq plugin-jack (funcall text 'jack "")
+          plugin-args (alist-get 'args params)
+          plugin--typed (let ((char (and (equal plugin-jack "SmartIndent") (plugin--arg 'char))))
+                          (if (stringp char) char "")))
+    (plugin--respond (alist-get 'id message) (plugin--run-handler name source))))
+
+(defun plugin--serve (info)
+  "Serve the calls of the editor until it says shutdown or closes the input."
+  (let ((identity (alist-get 'plugin info)))
+    (when (consp identity)
+      (let ((id (alist-get 'id identity))
+            (dir (alist-get 'dir identity)))
+        (setq plugin-id (if (stringp id) id "")
+              plugin-dir (if (stringp dir) dir ""))))
+    ;; The folder of the plugin, so that a handler can `require' and `load' its own files.
+    (unless (string-empty-p plugin-dir)
+      (push plugin-dir load-path))
+    (catch 'plugin--done
+      (while t
+        (let ((line (editor--read-line)))
+          (unless line
+            (throw 'plugin--done nil))
+          (setq line (string-trim line))
+          (unless (string-empty-p line)
+            (let* ((message (condition-case nil
+                                (json-parse-string line :object-type 'alist
+                                                   :null-object nil :false-object nil)
+                              (error nil)))
+                   (method (and (consp message) (alist-get 'method message))))
+              (cond
+               ((equal method "plugin/shutdown") (throw 'plugin--done nil))
+               ((equal method "plugin/invoke") (plugin--invoke message))))))))))
 
 ;; The first line is the initialize notification.
 (let* ((first (editor--read-line))
@@ -163,11 +335,14 @@ are the code and the message."
                             (error nil))))
        (params (and (equal (alist-get 'method notification) "initialize")
                     (alist-get 'params notification)))
-       (script (alist-get 'script params)))
-  (unless script
+       (script (alist-get 'script params))
+       (plugin-host (equal (alist-get 'kind params) "plugin")))
+  (unless (or script plugin-host)
     (message "the editor did not send the script in initialize")
     (kill-emacs 1))
   (setq editor-info params)
   (load (expand-file-name "api_gen.el" (file-name-directory load-file-name)) nil t t)
-  (editor--run (alist-get 'name script) (alist-get 'source script))
+  (if plugin-host
+      (plugin--serve params)
+    (editor--run (alist-get 'name script) (alist-get 'source script)))
   (kill-emacs 0))

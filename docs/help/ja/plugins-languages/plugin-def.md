@@ -146,7 +146,7 @@ MATSU Editor が足した項目です。サクラエディタは、このセク�
 ## サクラエディタとの違い
 
 - `[Matsu]` と `Type=script` は、MATSU Editor が足したものです。
-- `[Wsh]` の `UseCache` は、サクラエディタではスクリプトを覚える設定です。MATSU Editor では、プロセスを残す設定です。残したプロセスの中の、ハンドラの実行環境については、[JavaScript（QuickJS）](lang-quickjs.md)、[JavaScript（Node.js）と TypeScript](lang-node.md)、[Python](lang-python.md)、[Ruby](lang-ruby.md)、[PHP](lang-php.md)、[PowerShell](lang-powershell.md)、[Perl](lang-perl.md)にあります。
+- `[Wsh]` の `UseCache` は、サクラエディタではスクリプトを覚える設定です。MATSU Editor では、プロセスを残す設定です。残したプロセスの中の、ハンドラの実行環境については、[JavaScript（QuickJS）](lang-quickjs.md)、[JavaScript（Node.js）と TypeScript](lang-node.md)、[Python](lang-python.md)、[Ruby](lang-ruby.md)、[PHP](lang-php.md)、[PowerShell](lang-powershell.md)、[Perl](lang-perl.md)、[Emacs Lisp](lang-emacs-lisp.md)、[AppleScript](lang-applescript.md)にあります。
 - `Type=dll` は動かしません。
 
 ## 根拠

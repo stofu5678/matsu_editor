@@ -492,6 +492,24 @@ fn a_perl_plugin_command_runs_end_to_end_on_the_users_perl(cx: &mut TestAppConte
     }
 }
 
+// Emacs is on the Linux x64 CI runner; osascript is part of macOS (it has no `--version`, so the
+// OS decides).
+#[gpui::test]
+fn an_emacs_lisp_plugin_command_runs_end_to_end_on_the_users_emacs(cx: &mut TestAppContext) {
+    if interpreter_is_installed("Emacs", "emacs") {
+        sample_command_runs_end_to_end(cx, "HelloEmacsLisp");
+    }
+}
+
+#[gpui::test]
+fn an_applescript_plugin_command_runs_end_to_end_on_macos(cx: &mut TestAppContext) {
+    if cfg!(target_os = "macos") {
+        sample_command_runs_end_to_end(cx, "HelloAppleScript");
+    } else {
+        eprintln!("SKIP: AppleScript runs only on macOS");
+    }
+}
+
 #[gpui::test]
 fn a_plugin_that_fails_three_times_is_stopped_and_shows_it(cx: &mut TestAppContext) {
     let Some(host) = script_host() else {

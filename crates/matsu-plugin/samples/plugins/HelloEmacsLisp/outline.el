@@ -1,0 +1,10 @@
+;; The jack Outline: a tree of the lines that start with "#".
+(plugin-outline-set-list-type 100)
+(plugin-outline-set-title "Headings (Emacs Lisp sample)")
+(dotimes (i (editor-get-line-count 0))
+  (let* ((n (1+ i))
+         (text (string-trim-right (editor-get-line-str n) "[\r\n]+")))
+    (when (string-match "\\`\\(#+\\)[ \t]*\\(.*\\)\\'" text)
+      (let ((title (match-string 2 text))
+            (level (1- (length (match-string 1 text)))))
+        (plugin-outline-add-func-info2 n 1 title level)))))

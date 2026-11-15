@@ -9,7 +9,7 @@
 | 版 | Lua 5.4 |
 | 作り | Rust のクレート `mlua` が、C のソースを取り込んで、一緒にビルドしたもの |
 | ライセンス | MIT |
-| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP、PowerShell、Perl です） |
+| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript（macOS だけ）です） |
 
 ## 標準ライブラリ
 

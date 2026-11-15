@@ -18,6 +18,9 @@ pub const PS_BOOT: &str = "boot.ps1";
 pub const PS_API: &str = "api_gen.ps1";
 pub const EL_BOOT: &str = "boot.el";
 pub const EL_API: &str = "api_gen.el";
+/// The boot text of the AppleScript macros: the same text is the first part of the program of a
+/// macro, and the first part of each handler that an AppleScript plugin host compiles.
+pub const AS_BOOT: &str = "boot.applescript";
 /// The file that osascript runs: written for each run (the user's script is in it).
 pub const AS_PROGRAM: &str = "macro.applescript";
 
@@ -32,7 +35,7 @@ pub const PERL_PROGRAM: &str = concat!(
     "\npackage main;\n__END__"
 );
 
-const FILES: [(&str, &str); 12] = [
+const FILES: [(&str, &str); 13] = [
     (JS_BOOT, include_str!("boot/boot.cjs")),
     (JS_API, include_str!("boot/api.gen.cjs")),
     (PY_BOOT, include_str!("boot/boot.py")),
@@ -45,6 +48,7 @@ const FILES: [(&str, &str); 12] = [
     (PS_API, include_str!("boot/api_gen.ps1")),
     (EL_BOOT, include_str!("boot/boot.el")),
     (EL_API, include_str!("boot/api_gen.el")),
+    (AS_BOOT, include_str!("boot/boot.applescript")),
 ];
 
 /// How many times the removal is tried, and the wait between the tries. On Windows a file that

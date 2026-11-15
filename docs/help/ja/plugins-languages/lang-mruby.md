@@ -11,7 +11,7 @@
 | 版 | mruby 4.0.0（上流のタグ `4.0.0`） |
 | 作り | C のソースと生成済みのファイルを、一緒にビルドしたもの（クレート `matsu-mruby-sys`） |
 | ライセンス | MIT |
-| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP、PowerShell、Perl です） |
+| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript（macOS だけ）です） |
 
 mruby は、組み込み向けの小さな Ruby です。CRuby と同じではありません。CRuby にある標準ライブラリの多くが、ありません。
 

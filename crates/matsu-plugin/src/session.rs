@@ -148,8 +148,8 @@ impl Language {
     }
 
     /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
-    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`), Python, Ruby, PHP, PowerShell and
-    /// Perl. The other languages are not served yet.
+    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`), Python, Ruby, PHP, PowerShell,
+    /// Perl, Emacs Lisp and AppleScript (macOS only). The other languages are not served yet.
     pub fn serves_plugins(self) -> bool {
         matches!(
             self,
@@ -161,6 +161,8 @@ impl Language {
                 | Self::Php
                 | Self::PowerShell
                 | Self::Perl
+                | Self::EmacsLisp
+                | Self::AppleScript
         )
     }
 
@@ -404,7 +406,7 @@ impl std::fmt::Display for StartError {
             ),
             Self::PluginNotSupported { language } => write!(
                 f,
-                "{} のプラグインはまだ動かせません (今は .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl だけです)",
+                "{} のプラグインはまだ動かせません (今は .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ) だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -566,15 +568,22 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
     }
     // AppleScript: the user's script goes into the program that osascript runs, so it is not sent in
     // `initialize`.
+    // A plugin host has no script of its own: its program serves the calls ([`applescript::Program::plugin`]).
     let program = if config.language == Language::AppleScript {
-        let user = read_script(&config.script)?;
-        Some(applescript::Program::build(&user.source, &user.name))
+        if config.plugin.is_some() {
+            Some(applescript::Program::plugin())
+        } else {
+            let user = read_script(&config.script)?;
+            Some(applescript::Program::build(&user.source, &user.name))
+        }
     } else {
         None
     };
     let script = match config.language {
         // A plugin host brings no script: the handlers come with each call.
-        Language::Bundled(_) | Language::PowerShell | Language::Perl if config.plugin.is_some() => {
+        Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp
+            if config.plugin.is_some() =>
+        {
             None
         }
         Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
@@ -661,8 +670,15 @@ pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
                 .arg(boot_files(boot::EL_BOOT));
         }
         Language::AppleScript => {
-            // One script file; the stdin and stdout are the conversation.
-            command.arg(boot_files(boot::AS_PROGRAM));
+            // One script file; the stdin and stdout are the conversation. A plugin host reads the
+            // boot text again for each handler (`boot::AS_BOOT`), from this folder.
+            command.arg(boot_files(boot::AS_PROGRAM)).env(
+                "MATSU_BOOT_DIR",
+                boot_dir
+                    .as_ref()
+                    .map(|dir| dir.path())
+                    .unwrap_or(Path::new("")),
+            );
         }
         Language::Perl => {
             // The program comes from the standard input (`-`); the rest of the input, after its
