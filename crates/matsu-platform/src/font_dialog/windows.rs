@@ -72,13 +72,8 @@ fn from_logfont(font: &LOGFONTW) -> LogFont {
 }
 
 /// The resolution that `ChooseFontW` turns the height into points with: the DPI of the monitor the
-/// dialog opens on, which is the one of its owner window (the window the dialog is centered on).
-///
-/// Not `GetDeviceCaps(GetDC(NULL), LOGPIXELSY)`: for a per-monitor DPI aware process (the manifest of
-/// GPUI's windows says PerMonitorV2, for the whole process) that is the *system* DPI, fixed when the
-/// user signed in, so it stays 96 when the display was set to 150 % afterwards, while the dialog
-/// itself works at the DPI of its monitor (144). The height then came out too small and the dialog
-/// started at 7 pt instead of 10 pt.
+/// dialog opens on, which is the one of its owner window (the window the dialog is centered on). With
+/// several monitors of different scales this is the monitor's DPI, not the system DPI.
 fn dialog_dpi(owner: Owner) -> i32 {
     // SAFETY: both calls only read; a window handle that is not valid gives 0.
     let dpi = unsafe {
@@ -100,11 +95,8 @@ fn dialog_dpi(owner: Owner) -> i32 {
 
 fn run(owner: Owner, request: &Request) -> Result<Option<FontSetting>, Error> {
     let mut log_font = to_logfont(&request.initial.log_font);
-    // `CF_INITTOLOGFONTSTRUCT` starts at the height; the point size is what the file means, and the
-    // height of a file may come from another resolution.
-    if request.initial.point_size != 0 {
-        log_font.lfHeight = request.initial.height_for_dpi(dialog_dpi(owner));
-    }
+    // `CF_INITTOLOGFONTSTRUCT` starts at the height, which the dialog reads at the DPI of its monitor.
+    log_font.lfHeight = super::starting_height(&request.initial, dialog_dpi(owner));
     let mut flags = CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_EFFECTS;
     if request.fixed_pitch_only {
         flags |= CF_FIXEDPITCHONLY;

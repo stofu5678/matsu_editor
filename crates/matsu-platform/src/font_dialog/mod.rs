@@ -45,6 +45,18 @@ pub async fn choose(owner: Owner, request: Request) -> Result<Option<FontSetting
     }
 }
 
+/// The `lfHeight` to start the dialog with at `dpi`, the resolution the dialog reads heights at.
+///
+/// The size is the one the rest of MATSU uses for the setting: `point_size` when it is not 0, else the
+/// size its height has at 96 dpi (`FontSetting::point_size_for_dpi`; the default font has no point
+/// size and a height of -13, which is 10 pt at 96 dpi). Passing that height as it is would start the
+/// dialog at 7 pt at 144 dpi.
+pub fn starting_height(font: &FontSetting, dpi: i32) -> i32 {
+    let mut sized = font.clone();
+    sized.point_size = font.point_size_for_dpi(96);
+    sized.height_for_dpi(dpi)
+}
+
 /// `LF_FACESIZE`: the units of `lfFaceName`, with the end mark.
 pub const FACE_SIZE: usize = 32;
 
@@ -66,6 +78,33 @@ pub fn face_name_from_units(units: &[u16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn font(point_size: i32, height: i32) -> FontSetting {
+        let mut font = FontSetting {
+            point_size,
+            ..FontSetting::default()
+        };
+        font.log_font.height = height;
+        font
+    }
+
+    #[test]
+    fn the_default_font_starts_at_10_pt_at_any_dpi() {
+        let default = FontSetting::default();
+        assert_eq!(starting_height(&default, 96), -13);
+        assert_eq!(starting_height(&default, 144), -20);
+    }
+
+    #[test]
+    fn a_point_size_wins_over_the_height() {
+        assert_eq!(starting_height(&font(120, -13), 144), -24);
+    }
+
+    #[test]
+    fn a_height_only_font_is_read_at_96_dpi() {
+        // -16 px is 12 pt at 96 dpi, so 24 px at 144 dpi.
+        assert_eq!(starting_height(&font(0, -16), 144), -24);
+    }
 
     #[test]
     fn a_face_name_round_trips_through_lffacename() {
