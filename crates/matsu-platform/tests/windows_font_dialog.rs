@@ -103,6 +103,18 @@ fn ok_returns_the_face_and_the_size() {
     });
 }
 
+/// The size box starts at the point size of the setting (10), whatever the display scale: the
+/// height given to the dialog is worked out with the DPI the dialog itself uses. CI's runners are at
+/// 96 dpi, where the old code passed too; at 150 % it started at 7 (checked by hand, see the PR).
+#[test]
+fn the_size_box_starts_at_the_point_size() {
+    with_dialog(|uia, fields, running| {
+        assert_eq!(fields.size.value(), "10");
+        button(uia, &fields.window, "2").invoke();
+        assert!(matches!(running.finish(), Ok(None)));
+    });
+}
+
 #[test]
 fn ok_without_changes_returns_the_initial_font() {
     with_dialog(|uia, fields, running| {
