@@ -15,7 +15,7 @@
 
 ## インストール
 
-[リリース](https://github.com/stofu5678/matsu_editor/releases)のページから、使う OS のファイルを取ります（`<版>` は `v0.14.0` のような版）。署名はまだないので、初回は OS の警告が出ます。
+[リリース](https://github.com/stofu5678/matsu_editor/releases)のページから、使う OS のファイルを取ります（`<版>` は `v0.14.0` のような版）。署名はまだないので、初回は OS の警告が出ます。インストールのあとの使い方は、[ヘルプ](https://stofu5678.github.io/matsu_editor/)にあります。
 
 | OS | ファイル | 入れ方 |
 |---|---|---|
@@ -84,6 +84,7 @@ $env:MATSU_FONT_DIAGNOSTICS = "1"; .\matsu.exe 2> matsu-font.txt
 
 ## ドキュメント
 
+- [MATSU Editor ヘルプ](https://stofu5678.github.io/matsu_editor/)（使い方。ブラウザーで読めます。アプリの「ヘルプ目次」も、配布物にヘルプがなければここを開きます）
 - [開発の計画](docs/roadmap.md)
 - [決定事項（ADR）](docs/adr/README.md)
 

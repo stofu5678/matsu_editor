@@ -86,9 +86,9 @@ impl EditorView {
         let opening = if contents {
             help::plan_contents(local.as_deref())
         } else {
-            // `GetCurrentTextForSearch( cmemCurText, false )`: the selection, else the word at the caret
-            let query = self.search_seed(cx).unwrap_or_default();
-            help::plan_search(local.as_deref(), &query)
+            // Sakura searches for `GetCurrentTextForSearch`; the reader searches the one-page
+            // book with the browser, so no word is passed
+            help::plan_search(local.as_deref())
         };
         let one_page = help::is_one_page(&opening);
         self.open_help(opening, cx);

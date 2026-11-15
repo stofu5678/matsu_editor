@@ -32,17 +32,16 @@ pub(super) struct OpenMenu {
 
 impl OutlinePane {
     /// The place the pane has now: the one of the settings in use (`ProfDockSide` and the others),
-    /// or, while the windows are not in sync, the one it had drawn before.
+    /// or, while the windows are not in sync, the one it had drawn before. It only reads: the
+    /// place is remembered by [`Self::note_drawn`], which the window calls when it draws the pane.
     pub(crate) fn place(&self, cx: &App) -> DockPlace {
         let dock = dock::current(cx);
         if !dock.sync
-            && let Some(kept) = self.shown_place.get()
+            && let Some(kept) = self.shown_place
         {
             return kept;
         }
-        let place = dock.place(self.file_tree_type_index(cx));
-        self.shown_place.set(Some(place));
-        place
+        dock.place(self.file_tree_type_index(cx))
     }
 
     /// Changes the place. The settings of the program take it, and the file too when `persist`
@@ -57,7 +56,7 @@ impl OutlinePane {
         let target = dock.target(self.file_tree_type_index(cx));
         let mut place = self.place(cx);
         change(&mut place);
-        self.shown_place.set(Some(place));
+        self.shown_place = Some(place);
         let apply = move |d: &mut OutlineDock| d.set_place(target, place);
         if persist {
             dock::update(cx, apply, move |profile, d| {
@@ -107,21 +106,24 @@ impl OutlinePane {
         self.change_place(|p| p.set_size(side, size), false, cx);
     }
 
-    /// The window drew the pane at `side`.
-    pub(crate) fn note_drawn(&self, side: DockSide) {
-        self.drawn_side.set(Some(side));
+    /// The window is drawing the pane at `place`: the pane remembers it (what it keeps while the
+    /// windows are not in sync) and its side (`m_eDockSide`). The window calls this from its own
+    /// `render`, through `Entity::update`, so the pane needs no `Cell` for it.
+    pub(crate) fn note_drawn(&mut self, place: DockPlace) {
+        self.shown_place = Some(place);
+        self.drawn_side = Some(place.side);
     }
 
     /// The side the pane was drawn at last (`m_eDockSide`); the side of the settings if it has not
     /// been drawn yet.
     pub(crate) fn drawn_side(&self, cx: &App) -> DockSide {
-        self.drawn_side.get().unwrap_or_else(|| self.place(cx).side)
+        self.drawn_side.unwrap_or_else(|| self.place(cx).side)
     }
 
     /// The pane takes the settings again (`ChangeLayout`): while the windows are not in sync it
     /// would keep the place it had drawn.
     pub(crate) fn retake_place(&mut self, cx: &mut Context<Self>) {
-        self.shown_place.set(None);
+        self.shown_place = None;
         self.relayout(cx);
     }
 
@@ -129,28 +131,29 @@ impl OutlinePane {
 
     /// The place a floating pane starts at: the remembered one, if the box is on
     /// (`OnInitDialog`), else the default one.
-    pub(super) fn reset_float(&self, cx: &App) {
-        self.float_rect.set(dock::current(cx).float_if_remembered());
+    pub(super) fn reset_float(&mut self, cx: &App) {
+        self.float_rect = dock::current(cx).float_if_remembered();
     }
 
     /// The position and the size that were set (`None`: the default place).
     pub(crate) fn float_rect(&self) -> Option<FloatRect> {
-        self.float_rect.get()
+        self.float_rect
     }
 
     /// The position and the size the floating pane was drawn with.
     pub(crate) fn float_shown(&self) -> Option<FloatRect> {
-        self.float_shown.get()
+        self.float_shown
     }
 
-    pub(crate) fn set_float_shown(&self, rect: FloatRect) {
-        self.float_shown.set(Some(rect));
+    /// The window is drawing the floating pane with `rect` (from its `render`, as `note_drawn`).
+    pub(crate) fn set_float_shown(&mut self, rect: FloatRect) {
+        self.float_shown = Some(rect);
     }
 
     /// The floating pane is moved or sized: the window draws it again.
     pub(crate) fn set_float(&mut self, rect: FloatRect, cx: &mut Context<Self>) {
-        self.float_rect.set(Some(rect));
-        self.float_shown.set(Some(rect));
+        self.float_rect = Some(rect);
+        self.float_shown = Some(rect);
         self.relayout(cx);
     }
 
@@ -165,7 +168,7 @@ impl OutlinePane {
     /// it was drawn at: the settings may already say another one (`ChangeLayout`).
     pub(crate) fn leave(&self, cx: &mut Context<Self>) {
         if self.drawn_side(cx).is_floating()
-            && let Some(rect) = self.float_shown.get()
+            && let Some(rect) = self.float_shown
         {
             self.save_float_rect(rect, cx);
         }
@@ -173,7 +176,7 @@ impl OutlinePane {
 
     /// The button ■ / □ (`IDC_BUTTON_WINSIZE`): `bRememberOutlineWindowPos` is switched.
     pub(crate) fn toggle_remember(&mut self, cx: &mut Context<Self>) {
-        let rect = self.float_shown.get();
+        let rect = self.float_shown;
         dock::update(
             cx,
             move |d| {
@@ -213,8 +216,8 @@ impl OutlinePane {
         } else {
             DockSide::Float
         };
-        self.float_rect.set(Some(rect));
-        self.float_shown.set(Some(rect));
+        self.float_rect = Some(rect);
+        self.float_shown = Some(rect);
         if was.is_docked() {
             self.change_place(
                 |p| {
@@ -242,8 +245,8 @@ impl OutlinePane {
     pub(crate) fn finish_resize(&mut self, cx: &mut Context<Self>) {
         if self.place(cx).side.is_floating() {
             // the size of a floating pane is its own, and goes with the position
-            if let Some(rect) = self.float_shown.get() {
-                self.float_rect.set(Some(rect));
+            if let Some(rect) = self.float_shown {
+                self.float_rect = Some(rect);
                 self.save_float_rect(rect, cx);
             }
             return;
@@ -258,14 +261,14 @@ impl OutlinePane {
     /// ドッキング配置を同期.
     fn toggle_sync(&mut self, cx: &mut Context<Self>) {
         dock::update(cx, |d| d.sync = !d.sync, dock::write_common);
-        self.shown_place.set(None);
+        self.shown_place = None;
         self.relayout(cx);
     }
 
     /// ドッキング配置を共通継承 (0) / タイプ別継承 (1).
     fn set_inherit(&mut self, set: i32, cx: &mut Context<Self>) {
         dock::update(cx, |d| d.dock_set = set, dock::write_common);
-        self.shown_place.set(None);
+        self.shown_place = None;
         self.relayout(cx);
         // The file tree takes its items from `[Common]` or from the type, by this key: the file
         // trees of every window read them again.
@@ -333,10 +336,10 @@ impl OutlinePane {
                 && let Some(pane) = workspace.read(cx).outline.clone()
                 && pane.entity_id() != cx.entity_id()
             {
-                pane.read(cx).shown_place.set(None);
+                pane.update(cx, |pane, _| pane.shown_place = None);
             }
         }
-        self.shown_place.set(None);
+        self.shown_place = None;
         self.relayout(cx);
     }
 

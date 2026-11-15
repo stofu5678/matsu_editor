@@ -250,39 +250,22 @@ fn the_contents_open_the_help_on_the_web_when_the_program_has_none(cx: &mut Test
     // the test program has no `help` folder next to it
     let (f, cx) = setup(cx, "hello", "", HelperPrefs::default());
     f.run(cx, "F_HELP_CONTENTS", &[]);
-    assert_eq!(opened(), [Opening::Url(format!("{ONLINE_BASE}SUMMARY.md"))]);
+    assert_eq!(opened(), [Opening::Url(ONLINE_BASE.to_owned())]);
     // nothing is lost: no notice
     assert_eq!(f.notice(cx), None);
 }
 
 #[gpui::test]
-fn the_search_looks_for_the_word_at_the_caret_in_the_help(cx: &mut TestAppContext) {
+fn the_search_opens_the_one_page_book_on_the_web_and_says_how_to_search(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "hello world", "", HelperPrefs::default());
     f.run(cx, "F_HELP_SEARCH", &[]);
-    let Opening::Url(url) = opened().remove(0) else {
-        panic!("a URL")
-    };
-    assert!(url.contains("q=%22hello%22%20repo%3A"), "{url}");
-    assert!(url.contains("path%3Adocs%2Fhelp"), "{url}");
-    assert_eq!(f.notice(cx), None);
-}
-
-#[gpui::test]
-fn the_search_takes_the_selection_as_the_query(cx: &mut TestAppContext) {
-    let (f, cx) = setup(cx, "hello world", "", HelperPrefs::default());
-    cx.simulate_keystrokes(
-        "shift-right shift-right shift-right shift-right shift-right shift-right shift-right",
+    assert_eq!(
+        opened(),
+        [Opening::Url(format!("{ONLINE_BASE}search.html"))]
     );
-    f.run(cx, "F_HELP_SEARCH", &[]);
-    let Opening::Url(url) = opened().remove(0) else {
-        panic!("a URL")
-    };
-    assert!(url.contains("q=%22hello%20w%22%20repo%3A"), "{url}");
-}
-
-#[gpui::test]
-fn the_search_without_a_word_opens_the_contents(cx: &mut TestAppContext) {
-    let (f, cx) = setup(cx, "", "", HelperPrefs::default());
-    f.run(cx, "F_HELP_SEARCH", &[]);
-    assert_eq!(opened(), [Opening::Url(format!("{ONLINE_BASE}SUMMARY.md"))]);
+    // the word at the caret is not sent anywhere
+    assert_eq!(
+        f.notice(cx).as_deref(),
+        Some(super::help::search_in_page_message().as_str())
+    );
 }

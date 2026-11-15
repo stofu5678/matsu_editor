@@ -39,8 +39,8 @@
 
 ## 公開のあとにすること
 
-- アプリの「ヘルプ目次」「ヘルプキーワード検索」（#434）は、配布物にヘルプがないとき、今は GitHub 上の `docs/help/ja/SUMMARY.md` と GitHub のコード検索（ログインが要る）を開く。公開が始まったら、Pages のページと Pagefind の検索を開くように変える（`crates/matsu-ui/src/support/help.rs` の `ONLINE_BASE` を 1 か所直す、別の PR）
-- README からヘルプの場所へのリンクを足す（別の PR）
+- （済）アプリの「ヘルプ目次」「ヘルプキーワード検索」（#434）は、配布物にヘルプがないとき、Pages の目次と 1 ページ版（`search.html`）を開く（`crates/matsu-ui/src/support/help.rs` の `ONLINE_BASE`）。公開した本には検索の箱がない（mdBook の検索は切ってあり、Pagefind の索引は作ってあるが、どのページも使っていない）ので、言葉を渡す URL はなく、1 ページ版をブラウザーの検索で探す形にした。本に Pagefind の検索の箱を付けるなら、別の PR で
+- （済）README からヘルプの場所へのリンクを足す
 
 ## まだ確かめていないこと
 

@@ -149,17 +149,21 @@ pub(crate) struct OutlinePane {
     last_caret: Option<Pos>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    // `shown_place`, `float_shown` and `drawn_side` are what the window records while it draws the
+    // pane (`note_drawn`, `set_float_shown`, through `Entity::update` from its `render`).
+    // `float_rect` is a setting of the pane, written by the user's moves. No `Cell` is needed:
+    // `Workspace::render_text_area` has `&mut Context`, and the pane is not being drawn yet there.
     /// The place this pane has drawn last. While the windows are not in sync
     /// (`bOutlineDockSync` is off) it stays, whatever the other windows do; the settings are
     /// taken again when the type changes (`ChangeLayout` for a changed file).
-    shown_place: std::cell::Cell<Option<DockPlace>>,
+    shown_place: Option<DockPlace>,
     /// The position and the size of the floating pane that were set (by moving it, by sizing it,
     /// or the remembered ones): `None` is the default place. Relative to the area of the pane.
-    float_rect: std::cell::Cell<Option<FloatRect>>,
+    float_rect: Option<FloatRect>,
     /// The position and the size the floating pane was drawn with at the last paint.
-    float_shown: std::cell::Cell<Option<FloatRect>>,
+    float_shown: Option<FloatRect>,
     /// The side the pane was drawn at last (what `m_eDockSide` of the dialog says).
-    drawn_side: std::cell::Cell<Option<super::dock::DockSide>>,
+    drawn_side: Option<super::dock::DockSide>,
     /// The right-click menu, while it is open.
     menu: Option<dock_ops::OpenMenu>,
     _subscriptions: Vec<Subscription>,
@@ -196,10 +200,10 @@ impl OutlinePane {
             last_caret: None,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
-            shown_place: std::cell::Cell::new(None),
-            float_rect: std::cell::Cell::new(None),
-            float_shown: std::cell::Cell::new(None),
-            drawn_side: std::cell::Cell::new(None),
+            shown_place: None,
+            float_rect: None,
+            float_shown: None,
+            drawn_side: None,
             menu: None,
             _subscriptions: Vec::new(),
         };
@@ -301,7 +305,7 @@ impl OutlinePane {
         } else {
             // the result belongs to the other document: nothing of it stays to be clicked or
             // copied while the new one is made
-            self.shown_place.set(None);
+            self.shown_place = None;
             self.shown = None;
             self.rows.clear();
             self.selected = None;
@@ -310,7 +314,7 @@ impl OutlinePane {
     }
 
     fn type_changed(&mut self, cx: &mut Context<Self>) {
-        self.shown_place.set(None);
+        self.shown_place = None;
         // the sort belongs to the type (`nOutlineSortCol` and the others of `Types(N)`)
         if self.sync_sort(cx) {
             self.resort(cx);
