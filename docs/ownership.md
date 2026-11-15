@@ -11,7 +11,7 @@ Rust の「だれが値を持つか」「状態をどう持つか」「長く生
 状態を文字列で持つと、取りうる値がコンパイラに分からず、`match` の取りこぼしも、別の意味の混ざりも見つからない。文字列にしてよいのは、`matsu.ini`・`plugins.ini` に書くときと、画面に出すときだけ。読み込んだらすぐ enum にし、書くときに文字列にする。
 
 - よい例: `crates/matsu-config/src/plugins/consent.rs` の `Consent`（`Off`・`On`・`Changed(Changes)`）。変更の中身が `Changed` の中にあり、`On` と取り違えられない
-- 直した例（#449、#457 で直した）: `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs` の行は、同意の状態を `Agreement`（`Off`・`On`・`Changed`）で扱い、「失敗で停止」は持たない。停止は `plugin_call::is_stopped` が持ち、`standing(row)` が読むたびに `Standing::Stopped` を作る。保存前の同意（manifest）は行の列でなく、ページの別の値 `Agreed` が持つ。画面の文言は、描画するとき（`shown_state`）にだけ作る。表を保存する `Vec<String>` の行は、`Agreement` を文字にして置く入れ物にとどまる。表示を直す処理を足すたびに、同意や「失敗で停止」が消える不具合が 3 回続いた、元の形はこの修正で消えた
+- 直した例（#449、#460 で直した）: `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs` の行は、同意の状態を `Agreement`（`Off`・`On`・`Changed`）で扱い、「失敗で停止」は持たない。停止は `plugin_call::is_stopped` が持ち、`standing(row)` が読むたびに `Standing::Stopped` を作る。保存前の同意（manifest）は行の列でなく、ページの別の値 `Agreed` が持つ。画面の文言は、描画するとき（`shown_state`）にだけ作る。表を保存する `Vec<String>` の行は、`Agreement` を文字にして置く入れ物にとどまる。表示を直す処理を足すたびに、同意や「失敗で停止」が消える不具合が 3 回続いた、元の形はこの修正で消えた
 - 状態は、互いに関係のないものを 1 つにまとめない。「画面に出す状態」「保存前の同意」「実行時の停止」は、持ち主が別
 
 ## 2. 1 つの値の持ち主は 1 つ
