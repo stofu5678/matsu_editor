@@ -130,7 +130,25 @@ impl Place {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Opening {
     pub max_width: Pixels,
+    /// The place of the widest submenu.
     pub child: Place,
+    /// Where the submenus are aligned: on the left side a submenu ends 16 px before its parent,
+    /// so a narrower one starts farther right than the widest.
+    left_edge: Option<Pixels>,
+}
+
+impl Opening {
+    /// The place of the submenu that would like `width`: on the right side every submenu starts
+    /// at the same place; on the left side it ends at the same edge, so it starts at its own.
+    pub(crate) fn child_for(&self, width: Pixels) -> Place {
+        match self.left_edge {
+            None => self.child,
+            Some(edge) => Place {
+                left: (edge - width.min(self.child.room)).max(self.child.margin),
+                ..self.child
+            },
+        }
+    }
 }
 
 /// How a menu at `place`, whose widest item needs `own` and whose widest submenu would like
@@ -154,6 +172,7 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
         return Opening {
             max_width: default.max(own),
             child: place,
+            left_edge: None,
         };
     }
     let margin = px(MARGIN);
@@ -170,6 +189,7 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
                 room: right_room,
                 margin,
             },
+            left_edge: None,
         };
     }
     let width = child.min(left_room);
@@ -180,6 +200,7 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
             room: left_room,
             margin,
         },
+        left_edge: Some(place.left - px(LEFT_GAP)),
     }
 }
 
@@ -401,5 +422,19 @@ mod tests {
         let open = opening(px(1000.0), place(300.0), px(200.0), px(300.0));
         assert_eq!(open.child.left, px(492.0));
         assert!(open.max_width + px(300.0) <= px(1000.0));
+    }
+
+    #[test]
+    fn a_narrower_sibling_on_the_left_starts_farther_right() {
+        let open = opening(px(600.0), place(400.0), px(200.0), px(584.0));
+        // Left side: every submenu ends 16 px before the parent (392).
+        let wide = open.child_for(px(584.0));
+        let narrow = open.child_for(px(200.0));
+        assert_eq!(wide, open.child);
+        assert_eq!(narrow.left, px(392.0 - 16.0 - 200.0));
+        assert_eq!(narrow.left + px(200.0), wide.left + wide.room);
+        // On the right side they all start at the same place.
+        let right = opening(px(1000.0), place(300.0), px(200.0), px(300.0));
+        assert_eq!(right.child_for(px(100.0)), right.child);
     }
 }

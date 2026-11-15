@@ -52,9 +52,10 @@ fn shown_in(label: &str, row: Row, window: &Window, place: Place, layout: Layout
 
 /// How the menu of `nodes` at `place` opens: its `max_w` (as wide as its longest label) and the
 /// place of its submenus.
-fn opening_of(nodes: &[MenuNode], window: &Window, place: Place) -> Opening {
+fn opening_of(nodes: &[MenuNode], window: &Window, place: Place) -> (Opening, Vec<Pixels>) {
     let fit = Fit::new(window, place, layout_of(nodes));
     let (mut own, mut submenu) = (Pixels::ZERO, Pixels::ZERO);
+    let mut widths = Vec::new();
     for node in nodes {
         match node {
             MenuNode::Item { label, .. } => {
@@ -66,19 +67,22 @@ fn opening_of(nodes: &[MenuNode], window: &Window, place: Place) -> Opening {
                 own = own.max(fit.width_of(&shown(label, Row::Submenu, &fit), Row::Submenu));
                 // The items and the headings of the submenus in it, as rows of a menu of their own.
                 let inner = fit.with(layout_of(children));
+                let mut widest = Pixels::ZERO;
                 for child in children {
                     let (label, row) = match child {
                         MenuNode::Item { label, .. } => (label, Row::Action),
                         MenuNode::Submenu { label, .. } => (label, Row::Submenu),
                         MenuNode::Separator => continue,
                     };
-                    submenu = submenu.max(inner.natural(&plain_label(label), row));
+                    widest = widest.max(inner.natural(&plain_label(label), row));
                 }
+                widths.push(widest);
+                submenu = submenu.max(widest);
             }
             MenuNode::Separator => {}
         }
     }
-    fit.opening(own, submenu)
+    (fit.opening(own, submenu), widths)
 }
 
 /// The rows of `nodes` as the letters see them: the key is the one after `&` in the label.
@@ -113,7 +117,8 @@ fn fill_nodes(
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
-    let opening = opening_of(nodes, window, place);
+    let (opening, widths) = opening_of(nodes, window, place);
+    let mut widths = widths.into_iter();
     let layout = layout_of(nodes);
     for node in nodes {
         menu = match node {
@@ -147,16 +152,20 @@ fn fill_nodes(
                 disabled,
                 children,
                 ..
-            } if *disabled || item_count(children) == 0 => menu.item(
-                PopupMenuItem::new(shown_in(label, Row::Submenu, window, place, layout))
-                    .disabled(true),
-            ),
+            } if *disabled || item_count(children) == 0 => {
+                // It has a width in the list too: keep the submenus after it in step.
+                let _ = widths.next();
+                menu.item(
+                    PopupMenuItem::new(shown_in(label, Row::Submenu, window, place, layout))
+                        .disabled(true),
+                )
+            }
             MenuNode::Submenu {
                 label, children, ..
             } => {
                 // The submenu takes the letters too, as the one of `menu_bar::fill` does.
                 let keys = key_list(children);
-                let child = opening.child;
+                let child = opening.child_for(widths.next().unwrap_or_default());
                 let (children, answer, focus) = (children.clone(), answer.clone(), focus.clone());
                 let fill_again: Rebuild = Rc::new(move |sub, window, cx| {
                     let sub = sub.action_context(focus.clone());

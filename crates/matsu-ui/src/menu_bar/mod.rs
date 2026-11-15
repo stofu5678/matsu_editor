@@ -295,7 +295,8 @@ pub(crate) fn fill(
             _ => false,
         });
     let icons = with_icons.then(|| px(crate::menu_icons::column_width(scale)));
-    let (items, opening) = fit_width(items, window, place, icons);
+    let (items, opening, widths) = fit_widths(items, window, place, icons);
+    let mut widths = widths.into_iter();
     for item in items {
         menu = match item {
             OwnedMenuItem::Action {
@@ -330,7 +331,8 @@ pub(crate) fn fill(
                     gpui_component::Icon::empty().mr(px(crate::menu_icons::submenu_padding(scale)))
                 });
                 let items = submenu.items;
-                let child = opening.child;
+                // The submenu's own place: on the left side it starts where its own width puts it.
+                let child = opening.child_for(widths.next().unwrap_or_default());
                 // The submenu takes the access keys too (`CMenuDrawer::OnMenuChar` answers
                 // `WM_MENUCHAR` for whichever menu has the focus): it is registered with the
                 // popups whose letters `popup_keys::key` handles, with the way to fill it again.
@@ -356,14 +358,27 @@ pub(crate) fn fill(
     menu.max_w(opening.max_width)
 }
 
-/// `items` with the labels that are wider than the room of the menu at `place` cut
-/// (`menu_width`), and how the menu opens: its `max_w` and the place of its submenus.
+/// [`fit_widths`] without the widths of the submenus.
+#[cfg(test)]
 fn fit_width(
     items: Vec<OwnedMenuItem>,
     window: &Window,
     place: Place,
     icons: Option<Pixels>,
 ) -> (Vec<OwnedMenuItem>, Opening) {
+    let (items, opening, _) = fit_widths(items, window, place, icons);
+    (items, opening)
+}
+
+/// `items` with the labels that are wider than the room of the menu at `place` cut
+/// (`menu_width`), how the menu opens (its `max_w` and the place of its submenus), and the width
+/// each submenu would like, in the order of the submenus.
+fn fit_widths(
+    items: Vec<OwnedMenuItem>,
+    window: &Window,
+    place: Place,
+    icons: Option<Pixels>,
+) -> (Vec<OwnedMenuItem>, Opening, Vec<Pixels>) {
     let layout = Layout {
         icons,
         checks: items
@@ -376,6 +391,7 @@ fn fit_width(
     let fit = crate::menu_width::Fit::new(window, place, layout);
     let mut own = Pixels::ZERO;
     let mut submenu = Pixels::ZERO;
+    let mut widths = Vec::new();
     let items = items
         .into_iter()
         .map(|item| match item {
@@ -406,13 +422,15 @@ fn fit_width(
                 }
                 own = own.max(fit.width_of(&menu.name, Row::Submenu));
                 // The labels of the submenu are cut when it is filled, to its own room.
-                submenu = submenu.max(widest_label(&menu.items, &fit));
+                let width = widest_label(&menu.items, &fit);
+                widths.push(width);
+                submenu = submenu.max(width);
                 OwnedMenuItem::Submenu(menu)
             }
             item => item,
         })
         .collect();
-    (items, fit.opening(own, submenu))
+    (items, fit.opening(own, submenu), widths)
 }
 
 /// The width the widest label of `items` would like, as the rows of a menu of their own: the
@@ -1257,6 +1275,34 @@ mod tests {
         assert!(
             opening.child.left + opening.child.room < drawn - px(16.) - px(1.),
             "{opening:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn each_submenu_on_the_left_starts_where_its_own_width_puts_it(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        cx.simulate_resize(gpui::size(px(584.), px(400.)));
+        cx.run_until_parked();
+        let wide = MenuItem::submenu(Menu::new("wide").items([MenuItem::action(
+            r"1 C:\work\files\a-very-long-folder-name-inside\second-long-file-name.md  [UTF-8]",
+            Nothing,
+        )]));
+        let narrow = MenuItem::submenu(Menu::new("narrow").items([MenuItem::action("x", Nothing)]));
+        let (opening, widths) = cx.update(|window, _| {
+            // A menu near the right edge: both submenus open on the left.
+            let place = Place::at(window, window.viewport_size().width - px(20.));
+            let (_, opening, widths) =
+                fit_widths(vec![wide.owned(), narrow.owned()], window, place, None);
+            (opening, widths)
+        });
+        let (wide_at, narrow_at) = (opening.child_for(widths[0]), opening.child_for(widths[1]));
+        assert!(widths[0] > widths[1], "{widths:?}");
+        // They end at the same edge, 16 px before the parent, so the narrow one starts farther
+        // right: its own nested submenus are placed from there.
+        assert!(narrow_at.left > wide_at.left, "{wide_at:?} {narrow_at:?}");
+        assert_eq!(
+            narrow_at.left + widths[1],
+            wide_at.left + widths[0].min(wide_at.room)
         );
     }
 
