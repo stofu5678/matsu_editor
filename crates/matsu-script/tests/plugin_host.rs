@@ -107,7 +107,7 @@ impl World {
     fn call(&mut self, host: &mut PluginHost, handler: &str, timeout: Duration) -> Report {
         let doc = &mut self.doc;
         let api_state = &mut self.api;
-        host.run_blocking("Command", handler, json!({"n": 1}), timeout, |text| {
+        host.run_blocking("Command", handler, &json!({"n": 1}), timeout, |text| {
             respond(text, api_state, |method, params| {
                 api::call(doc, method, params)
             })
@@ -253,7 +253,7 @@ try { Complement.AddList(); } catch (e) { console.log('error', e.name); }
         .run_blocking(
             "Complement",
             "c.js",
-            json!({"word": "fo", "option": 3}),
+            &json!({"word": "fo", "option": 3}),
             PATIENT,
             |text| respond(text, &mut world.api, |_, _| Ok(Value::Null)),
         )
@@ -266,7 +266,7 @@ try { Complement.AddList(); } catch (e) { console.log('error', e.name); }
     assert_eq!(world.api.added, ["fo1", "2"]);
     // Without arguments of the jack the word is empty and the option 0 (a call from another jack).
     let report = host
-        .run_blocking("Complement", "c.js", json!({}), PATIENT, |text| {
+        .run_blocking("Complement", "c.js", &json!({}), PATIENT, |text| {
             respond(text, &mut world.api, |_, _| Ok(Value::Null))
         })
         .expect("the call begins");
@@ -333,7 +333,7 @@ fn a_process_that_dies_in_a_call_is_reported_and_restarted_by_the_next_one() {
     ]);
     let mut host = host(dir.path(), true);
     let mut world = World::new("");
-    host.begin("Command", "wait.js", Value::Null, PATIENT)
+    host.begin("Command", "wait.js", &Value::Null, PATIENT)
         .unwrap();
     let pid = host.process_id().unwrap();
     kill_process(pid);
@@ -373,7 +373,7 @@ fn three_failures_in_a_row_stop_the_plugin() {
     }
     assert!(host.is_stopped());
     assert!(
-        host.begin("Command", "ok.js", Value::Null, PATIENT)
+        host.begin("Command", "ok.js", &Value::Null, PATIENT)
             .is_err()
     );
     assert!(!host.is_running(), "a stopped plugin starts nothing");
@@ -385,12 +385,12 @@ fn three_failures_in_a_row_stop_the_plugin() {
 fn the_user_can_stop_a_call_and_it_is_not_a_failure() {
     let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
     let mut host = host(dir.path(), true);
-    host.begin("Command", "loop.js", Value::Null, PATIENT)
+    host.begin("Command", "loop.js", &Value::Null, PATIENT)
         .unwrap();
     assert!(host.is_busy());
     // The loop is running; a second call is refused.
     assert!(matches!(
-        host.begin("Command", "loop.js", Value::Null, PATIENT),
+        host.begin("Command", "loop.js", &Value::Null, PATIENT),
         Err(BeginError::Busy)
     ));
     assert_eq!(host.cancel(), Some(Outcome::Cancelled));
@@ -415,7 +415,7 @@ fn a_language_that_cannot_serve_a_plugin_yet_says_so() {
     settings.interpreter = env!("CARGO_BIN_EXE_matsu-script").into();
     let mut host = PluginHost::new(settings);
     let error = host
-        .begin("Command", "a.lua", Value::Null, PATIENT)
+        .begin("Command", "a.lua", &Value::Null, PATIENT)
         .unwrap_err();
     assert!(error.to_string().contains("まだ動かせません"), "{error}");
 }
@@ -440,7 +440,7 @@ fn a_handler_that_prints_without_end_still_meets_its_limit() {
 fn shutting_a_host_down_in_a_call_ends_the_call_for_whoever_follows_it() {
     let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
     let mut host = host(dir.path(), true);
-    host.begin("Command", "loop.js", Value::Null, PATIENT)
+    host.begin("Command", "loop.js", &Value::Null, PATIENT)
         .unwrap();
     host.shutdown();
     assert!(!host.is_running() && !host.is_busy());
@@ -460,7 +460,7 @@ fn a_host_that_was_shut_down_in_a_call_serves_the_next_call_normally() {
         ("ok.js", "console.log('fine');"),
     ]);
     let mut host = host(dir.path(), true);
-    host.begin("Command", "loop.js", Value::Null, PATIENT)
+    host.begin("Command", "loop.js", &Value::Null, PATIENT)
         .unwrap();
     host.shutdown();
     // Nobody polled for the end of the first call; the second is not taken for it.
@@ -529,7 +529,7 @@ fn a_handler_outside_the_folder_is_not_run() {
     std::fs::create_dir_all(&plugin).unwrap();
     let mut host = host(&plugin, false);
     let error = host
-        .begin("Command", "../outside.js", Value::Null, PATIENT)
+        .begin("Command", "../outside.js", &Value::Null, PATIENT)
         .unwrap_err();
     assert!(matches!(error, BeginError::Outside { .. }), "{error}");
     assert!(!host.is_running());
@@ -563,7 +563,7 @@ fn gone_soon(pid: u32) -> bool {
 fn dropping_a_host_that_loops_kills_its_process_before_returning() {
     let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
     let mut host = host(dir.path(), true);
-    host.begin("Command", "loop.js", Value::Null, PATIENT)
+    host.begin("Command", "loop.js", &Value::Null, PATIENT)
         .unwrap();
     let pid = host.process_id().unwrap();
     assert!(process_is_there(pid));
@@ -581,7 +581,7 @@ fn a_call_that_times_out_leaves_no_process_behind() {
     host.begin(
         "Command",
         "loop.js",
-        Value::Null,
+        &Value::Null,
         Duration::from_millis(200),
     )
     .unwrap();
@@ -601,7 +601,7 @@ fn shutting_down_and_cancelling_a_looping_call_kill_the_process() {
     let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
     for how in ["shutdown", "cancel"] {
         let mut host = host(dir.path(), true);
-        host.begin("Command", "loop.js", Value::Null, PATIENT)
+        host.begin("Command", "loop.js", &Value::Null, PATIENT)
             .unwrap();
         let pid = host.process_id().unwrap();
         if how == "shutdown" {
@@ -677,7 +677,7 @@ fn a_handler_that_asks_for_strict_mode_gets_it_in_every_form_and_one_that_does_n
 fn a_flood_of_meaningless_messages_does_not_keep_a_poll_from_returning() {
     let dir = plugin_dir(&[("junk.js", "for (;;) console.log('\\x1e{}');")]);
     let mut host = host(dir.path(), false);
-    host.begin("Command", "junk.js", Value::Null, PATIENT)
+    host.begin("Command", "junk.js", &Value::Null, PATIENT)
         .unwrap();
     for _ in 0..50 {
         let started = Instant::now();
@@ -716,7 +716,7 @@ fn a_call_that_is_not_resident_ends_without_the_caller_waiting_for_the_process()
     let dir = plugin_dir(&[("ok.js", "1;")]);
     let mut host = host(dir.path(), false);
     let mut world = World::new("");
-    host.begin("Command", "ok.js", Value::Null, PATIENT)
+    host.begin("Command", "ok.js", &Value::Null, PATIENT)
         .unwrap();
     let pid = host.process_id().unwrap();
     let outcome = loop {

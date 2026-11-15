@@ -107,7 +107,7 @@ pub(crate) fn import_items(path: &Path, current: &[FileTreeItem]) -> io::Result<
 /// writes its files.
 pub(crate) fn export_items(path: &Path, items: &[FileTreeItem]) -> io::Result<()> {
     let mut profile = Profile::new();
-    write_project_items(&mut profile, items).map_err(invalid)?;
+    write_project_items(&mut profile, items).map_err(|e| invalid(&e))?;
     profile.save_sakura_style(path, Some(EXPORT_HEAD))
 }
 
@@ -117,7 +117,7 @@ pub(crate) fn export_items(path: &Path, items: &[FileTreeItem]) -> io::Result<()
 pub(crate) fn write_project_file(path: &Path, items: &[FileTreeItem]) -> io::Result<()> {
     match Profile::load(path) {
         Ok(mut profile) => {
-            write_project_items(&mut profile, items).map_err(invalid)?;
+            write_project_items(&mut profile, items).map_err(|e| invalid(&e))?;
             profile.save(path)
         }
         // (a file that is there and cannot be read is not replaced)
@@ -126,6 +126,6 @@ pub(crate) fn write_project_file(path: &Path, items: &[FileTreeItem]) -> io::Res
     }
 }
 
-fn invalid(error: ProfileError) -> io::Error {
+fn invalid(error: &ProfileError) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, error.to_string())
 }

@@ -4,8 +4,9 @@
 //! declared, so its process can stay: the editor sends `plugin/invoke` (the jack, the text of
 //! the handler, the arguments), the plugin runs the handler, asks the editor for what it needs
 //! while it runs (`Editor.*`, `Plugin.*`), and answers the invoke. The messages are those of the
-//! macro protocol (`docs/poc/json-rpc.md`); the host is `matsu-script --engine quickjs` and the
-//! first language is `.js`.
+//! macro protocol (`docs/poc/json-rpc.md`); the host is `matsu-script --engine quickjs` for
+//! `.js`, and the boot of the macro (`boot.cjs`, `boot.py`, `boot.rb`, `boot.php`) in plugin mode for Node.js,
+//! Python, Ruby and PHP.
 //!
 //! * One host for one plugin and one language ([`PluginHost`]); it starts when the first call is
 //!   made (lazily), never before.
@@ -18,8 +19,9 @@
 //! The host does not block: [`PluginHost::poll`] gives what happened, and the caller answers the
 //! plugin's requests. [`PluginHost::run_blocking`] is the loop for tests and the command line.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
@@ -84,6 +86,11 @@ pub struct HostSettings {
     pub resident: bool,
     /// Where the boot files of an external interpreter go (`None`: the temporary folder).
     pub temp_dir: Option<PathBuf>,
+    /// The files the user agreed to (`plugins.ini`): the path from the folder, with `/`, and the
+    /// SHA-256 in lower case hex. When set, the host hashes the bytes of every file it reads and
+    /// refuses a file that is not in the list or does not match ([`BeginError::Changed`]); it then
+    /// sends exactly those bytes to the plugin, and never reads them again.
+    pub verified: Option<BTreeMap<String, String>>,
 }
 
 impl HostSettings {
@@ -96,7 +103,15 @@ impl HostSettings {
             interpreter: language.default_interpreter(),
             resident,
             temp_dir: None,
+            verified: None,
         }
+    }
+
+    /// The files the user agreed to ([`verified`](Self::verified)).
+    #[must_use]
+    pub fn with_verified(mut self, files: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.verified = Some(files.into_iter().collect());
+        self
     }
 }
 
@@ -145,6 +160,10 @@ pub enum BeginError {
     /// The handler is not a file in the folder of the plugin (`..`, an absolute path, or a link
     /// that leads out). The agreement of the user covers the files of the folder and no others.
     Outside { handler: String },
+    /// A file is not the one the user agreed to (it changed, or was added, after the agreement).
+    Changed { path: String },
+    /// The files that a Node.js plugin may import are too many or too large to hand over.
+    Bundle { reason: String },
     /// The process did not start.
     Start(StartError),
 }
@@ -158,6 +177,11 @@ impl std::fmt::Display for BeginError {
                 f,
                 "{handler} はプラグインのフォルダーの外にあります。フォルダーの中のファイルだけ動かせます"
             ),
+            Self::Changed { path } => write!(
+                f,
+                "{path} が、同意したときのファイルと違います。もう一度「有効にする」を押してください"
+            ),
+            Self::Bundle { reason } => write!(f, "プラグインのファイルを渡せません: {reason}"),
             Self::Handler { path, source } => write!(
                 f,
                 "{} を読めませんでした (UTF-8 で保存してください): {source}",
@@ -173,6 +197,9 @@ impl std::error::Error for BeginError {}
 struct Process {
     session: Session,
     events: Receiver<HostEvent>,
+    /// The module files of the plugin folder went to this Node.js process already (with its first
+    /// call); it keeps them, so they are not sent again.
+    files_sent: bool,
 }
 
 struct Current {
@@ -256,8 +283,12 @@ impl PluginHost {
         let sink: Sink = Arc::new(move |event| {
             let _ = tx.send(event);
         });
-        let session = session::start(config, sink)?;
-        Ok(Process { session, events })
+        let session = session::start(&config, sink)?;
+        Ok(Process {
+            session,
+            events,
+            files_sent: false,
+        })
     }
 
     /// Starts a call: the process is started now if it is not running (the first call of a
@@ -267,7 +298,7 @@ impl PluginHost {
         &mut self,
         jack: &str,
         handler: &str,
-        args: Value,
+        args: &Value,
         timeout: Duration,
     ) -> Result<(), BeginError> {
         if self.stopped {
@@ -279,28 +310,62 @@ impl PluginHost {
         // A new call replaces the end of the one that `shutdown` cut off: nobody follows that
         // one any more, and its end must not be taken for this call's.
         self.interrupted = false;
-        let path = handler_path(&self.settings.dir, handler)?;
-        let source = read_handler(&path).map_err(|source| BeginError::Handler {
-            path: path.clone(),
-            source,
-        })?;
+        let mut path = handler_path(&self.settings.dir, handler)?;
+        // The spelling of the handler in the agreement (the one on the disk): a file system that
+        // ignores case opens `Command.cjs` for `command.cjs`, and the record has the latter.
+        let mut key = relative_name(handler);
+        if let Some(agreed) = &self.settings.verified {
+            key = agreed_key(agreed, &key, CASE_INSENSITIVE_FS)
+                .ok_or(BeginError::Changed { path: key })?;
+            path = handler_path(&self.settings.dir, &key)?;
+        }
+        // Node.js gets the verified text of every module file of the folder once, with the first
+        // call of its process: its hooks serve imports from that text (`boot.cjs`), so no file is
+        // read from the disk after the check.
+        let node = matches!(
+            self.settings.language,
+            Language::JavaScript | Language::TypeScript
+        );
+        let send_files = node && !self.process.as_ref().is_some_and(|p| p.files_sent);
+        let files = if send_files {
+            Some(self.read_module_files()?)
+        } else {
+            None
+        };
+        // A module handler of Node.js (`.mjs`, `.ts`) is loaded once and called again: its text is
+        // in the files. Every other handler is read, and checked, for each call.
+        let source = if node && is_module_handler(handler) {
+            None
+        } else {
+            Some(self.read_verified(&path, &key)?)
+        };
         if self.process.is_none() {
             self.process = Some(self.start_process().map_err(BeginError::Start)?);
         }
         let id = self.next_id;
         self.next_id += 1;
+        let mut params = json!({
+            "jack": jack,
+            "name": path.display().to_string(),
+            "args": args,
+        });
+        if let Some(source) = source {
+            params["source"] = json!(source);
+        }
+        if let Some(files) = files {
+            params["files"] = files
+                .into_iter()
+                .map(|(path, source)| json!({"path": path.display().to_string(), "source": source}))
+                .collect();
+        }
         let line = protocol::ascii_json(&json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": "plugin/invoke",
-            "params": {
-                "jack": jack,
-                "name": path.display().to_string(),
-                "source": source,
-                "args": args,
-            },
+            "params": params,
         }));
-        if let Some(process) = &self.process {
+        if let Some(process) = &mut self.process {
+            process.files_sent |= node;
             process.session.send(line);
         }
         self.current = Some(Current {
@@ -309,6 +374,68 @@ impl PluginHost {
             deadline: Instant::now() + timeout,
         });
         Ok(())
+    }
+
+    /// The text of a handler, checked against the agreed files when there are any.
+    fn read_verified(&self, path: &Path, key: &str) -> Result<String, BeginError> {
+        let bytes = std::fs::read(path).map_err(|source| BeginError::Handler {
+            path: path.to_owned(),
+            source,
+        })?;
+        self.check_agreed(key, &bytes)?;
+        decode_handler(&bytes).map_err(|source| BeginError::Handler {
+            path: path.to_owned(),
+            source,
+        })
+    }
+
+    /// Whether `bytes` are what the user agreed to for the file `relative`. Without an agreement
+    /// on record (a test, the command line) every file passes.
+    fn check_agreed(&self, relative: &str, bytes: &[u8]) -> Result<(), BeginError> {
+        let Some(agreed) = &self.settings.verified else {
+            return Ok(());
+        };
+        if agreed.get(relative).map(String::as_str) == Some(sha256_hex(bytes).as_str()) {
+            Ok(())
+        } else {
+            Err(BeginError::Changed {
+                path: relative.to_owned(),
+            })
+        }
+    }
+
+    /// Every module file of the plugin folder (the files Node.js can import), as the editor reads
+    /// and checks them now: the path, and the text.
+    fn read_module_files(&self) -> Result<Vec<(PathBuf, String)>, BeginError> {
+        let mut found = Vec::new();
+        collect_module_files(&self.settings.dir, "", &mut found)?;
+        found.sort();
+        let mut total = 0_usize;
+        let mut files = Vec::new();
+        for (relative, path) in found {
+            // At most what is left of the limit (and one byte more, to see it is over) is read.
+            let left = MAX_MODULE_BYTES - total;
+            let mut bytes = Vec::new();
+            std::fs::File::open(&path)
+                .and_then(|file| file.take(left as u64 + 1).read_to_end(&mut bytes))
+                .map_err(|source| BeginError::Handler {
+                    path: path.clone(),
+                    source,
+                })?;
+            total += bytes.len();
+            if total > MAX_MODULE_BYTES {
+                return Err(BeginError::Bundle {
+                    reason: format!("{} MiB を超えています", MAX_MODULE_BYTES >> 20),
+                });
+            }
+            self.check_agreed(&relative, &bytes)?;
+            let text = decode_handler(&bytes).map_err(|source| BeginError::Handler {
+                path: path.clone(),
+                source,
+            })?;
+            files.push((path, text));
+        }
+        Ok(files)
     }
 
     /// The jack of the call that runs.
@@ -462,7 +589,7 @@ impl PluginHost {
         &mut self,
         jack: &str,
         handler: &str,
-        args: Value,
+        args: &Value,
         timeout: Duration,
         mut answer: impl FnMut(&str) -> Option<String>,
     ) -> Result<Report, BeginError> {
@@ -538,11 +665,107 @@ fn handler_path(dir: &Path, handler: &str) -> Result<PathBuf, BeginError> {
 }
 
 /// The text of a handler: UTF-8, without the BOM.
-fn read_handler(path: &Path) -> io::Result<String> {
-    let bytes = std::fs::read(path)?;
+fn decode_handler(bytes: &[u8]) -> io::Result<String> {
     let text =
-        String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
+        std::str::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    Ok(text.strip_prefix('\u{feff}').unwrap_or(text).to_owned())
+}
+
+/// The most bytes of module files that go to a Node.js plugin process.
+const MAX_MODULE_BYTES: usize = 16 * 1024 * 1024;
+
+/// The most module files that go to a Node.js plugin process.
+const MAX_MODULE_FILES: usize = 5000;
+
+/// The extensions of the files that Node.js can import (the host sends the text of these).
+const MODULE_EXTENSIONS: &[&str] = &["mjs", "cjs", "js", "ts", "mts", "cts", "json"];
+
+/// An ES module (`.mjs`) or TypeScript (`.ts`) handler: loaded once and called, not run again.
+fn is_module_handler(handler: &str) -> bool {
+    let ext = handler.rsplit_once('.').map(|(_, e)| e);
+    ext.is_some_and(|e| e.eq_ignore_ascii_case("mjs") || e == "ts")
+}
+
+/// Whether the file system of this OS ignores case in names (Windows, and macOS by default).
+const CASE_INSENSITIVE_FS: bool = cfg!(any(windows, target_os = "macos"));
+
+/// The name of `relative` in the agreement. The exact spelling first. Where the file system ignores
+/// case (`case_insensitive`), a name that differs only in case is the same file: the one agreed
+/// name that equals it ignoring case, if there is exactly one (two that differ only in case are
+/// refused). `None` when there is none.
+fn agreed_key(
+    agreed: &BTreeMap<String, String>,
+    relative: &str,
+    case_insensitive: bool,
+) -> Option<String> {
+    if agreed.contains_key(relative) {
+        return Some(relative.to_owned());
+    }
+    if !case_insensitive {
+        return None;
+    }
+    let lower = relative.to_lowercase();
+    let mut same = agreed.keys().filter(|key| key.to_lowercase() == lower);
+    let found = same.next()?;
+    same.next().is_none().then(|| found.clone())
+}
+
+/// The path of a handler from the plugin folder, with `/` (the spelling of `plugins.ini`):
+/// `\` becomes `/`, and empty and `.` components are dropped (`lib/./a.mjs`, `lib//a.mjs`,
+/// `.\lib\a.mjs`). `..` stays: `handler_path` refuses it.
+fn relative_name(handler: &str) -> String {
+    handler
+        .replace('\\', "/")
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The module files under `dir`: (the path from the plugin folder with `/`, the path on disk).
+/// Links and files of other kinds are left out (a plugin that has a link cannot be enabled).
+fn collect_module_files(
+    dir: &Path,
+    prefix: &str,
+    out: &mut Vec<(String, PathBuf)>,
+) -> Result<(), BeginError> {
+    let unreadable = |source| BeginError::Handler {
+        path: dir.to_owned(),
+        source,
+    };
+    for entry in std::fs::read_dir(dir).map_err(unreadable)? {
+        let entry = entry.map_err(unreadable)?;
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let relative = format!("{prefix}{name}");
+        let kind = entry.file_type().map_err(unreadable)?;
+        if kind.is_dir() {
+            collect_module_files(&path, &format!("{relative}/"), out)?;
+        } else if kind.is_file()
+            && path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| MODULE_EXTENSIONS.iter().any(|m| m.eq_ignore_ascii_case(e)))
+        {
+            if out.len() >= MAX_MODULE_FILES {
+                return Err(BeginError::Bundle {
+                    reason: "ファイルが多すぎます".into(),
+                });
+            }
+            out.push((relative, path));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest as _, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 enum Message {
@@ -605,6 +828,81 @@ pub fn respond(
 mod tests {
     use super::*;
 
+    fn agreed(names: &[&str]) -> BTreeMap<String, String> {
+        names
+            .iter()
+            .map(|name| ((*name).to_owned(), sha256_hex(name.as_bytes())))
+            .collect()
+    }
+
+    #[test]
+    fn the_agreed_name_is_the_exact_one_and_case_differences_count_only_where_the_disk_ignores_case()
+     {
+        let files = agreed(&["command.cjs", "lib/Word.mjs"]);
+        // The exact spelling, with and without the flag.
+        for flag in [false, true] {
+            assert_eq!(
+                agreed_key(&files, "command.cjs", flag).as_deref(),
+                Some("command.cjs")
+            );
+        }
+        // A different case: only where the file system ignores case; the key is the agreed one.
+        assert_eq!(
+            agreed_key(&files, "Command.CJS", true).as_deref(),
+            Some("command.cjs")
+        );
+        assert_eq!(
+            agreed_key(&files, "LIB/word.mjs", true).as_deref(),
+            Some("lib/Word.mjs")
+        );
+        assert_eq!(agreed_key(&files, "Command.cjs", false), None);
+        assert_eq!(agreed_key(&files, "other.cjs", true), None);
+        // Two agreed names that differ only in case: not decidable, refused; the exact one is fine.
+        let two = agreed(&["a.cjs", "A.cjs"]);
+        assert_eq!(agreed_key(&two, "A.CJS", true), None);
+        assert_eq!(agreed_key(&two, "a.cjs", true).as_deref(), Some("a.cjs"));
+    }
+
+    #[test]
+    fn a_handler_name_loses_redundant_components_before_the_lookup() {
+        for spelled in [
+            "lib/main.mjs",
+            "lib/./main.mjs",
+            "lib//main.mjs",
+            "./lib/main.mjs",
+            "lib\\main.mjs",
+            ".\\lib\\main.mjs",
+            "lib\\.\\main.mjs",
+        ] {
+            assert_eq!(relative_name(spelled), "lib/main.mjs", "{spelled}");
+        }
+        let files = agreed(&["lib/main.cjs"]);
+        for spelled in ["lib/./main.cjs", "lib//main.cjs", ".\\lib\\main.cjs"] {
+            assert_eq!(
+                agreed_key(&files, &relative_name(spelled), false).as_deref(),
+                Some("lib/main.cjs"),
+                "{spelled}"
+            );
+        }
+        assert_eq!(relative_name("a/../b.cjs"), "a/../b.cjs");
+    }
+
+    #[test]
+    fn a_file_is_accepted_only_with_the_hash_of_its_agreed_name() {
+        let dir = std::path::Path::new("/nowhere");
+        let host = PluginHost::new(
+            HostSettings::new("p", dir, Language::JavaScript, false)
+                .with_verified(agreed(&["command.cjs"])),
+        );
+        assert!(host.check_agreed("command.cjs", b"command.cjs").is_ok());
+        assert!(matches!(
+            host.check_agreed("command.cjs", b"changed"),
+            Err(BeginError::Changed { .. })
+        ));
+        // `check_agreed` takes the agreed spelling; another spelling is not looked up here.
+        assert!(host.check_agreed("Command.cjs", b"command.cjs").is_err());
+    }
+
     #[test]
     fn every_jack_has_a_limit_and_an_unknown_one_has_the_default() {
         assert_eq!(limit_of("Command"), Duration::from_secs(30));
@@ -645,7 +943,7 @@ mod tests {
         host.note(&Outcome::TimedOut);
         assert!(host.is_stopped());
         assert!(matches!(
-            host.begin("Command", "a.js", Value::Null, Duration::from_secs(1)),
+            host.begin("Command", "a.js", &Value::Null, Duration::from_secs(1)),
             Err(BeginError::Stopped)
         ));
         host.reset();
@@ -673,7 +971,7 @@ mod tests {
             "./../outside.js",
         ] {
             let error = host
-                .begin("Command", handler, Value::Null, Duration::from_secs(1))
+                .begin("Command", handler, &Value::Null, Duration::from_secs(1))
                 .unwrap_err();
             assert!(
                 matches!(error, BeginError::Outside { .. }),
@@ -705,7 +1003,12 @@ mod tests {
     fn a_handler_that_cannot_be_read_does_not_start_a_process() {
         let mut host = host();
         let error = host
-            .begin("Command", "missing.js", Value::Null, Duration::from_secs(1))
+            .begin(
+                "Command",
+                "missing.js",
+                &Value::Null,
+                Duration::from_secs(1),
+            )
             .unwrap_err();
         assert!(matches!(error, BeginError::Handler { .. }), "{error}");
         assert!(

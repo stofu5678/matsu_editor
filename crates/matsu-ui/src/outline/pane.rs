@@ -50,8 +50,8 @@ use crate::a11y::AriaDisabled as _;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollStrategy,
-    StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle, WeakEntity, Window,
-    div, px, rgb, uniform_list,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle,
+    WeakEntity, Window, div, px, rgb, uniform_list,
 };
 use matsu_commands::keymap::Resolved;
 use matsu_core::buffer::Pos;
@@ -91,11 +91,11 @@ pub(crate) struct Row {
     /// The item of the analysis, if this is one.
     pub item: Option<usize>,
     pub depth: usize,
-    pub label: String,
+    pub label: SharedString,
     pub has_children: bool,
     pub expanded: bool,
     /// The columns of a list: line, column, remark.
-    pub columns: Option<[String; 3]>,
+    pub columns: Option<[SharedString; 3]>,
     /// The file that a double click or Enter opens (the file tree).
     pub path: Option<PathBuf>,
 }
@@ -220,8 +220,7 @@ impl OutlinePane {
             // NotifyDocModification: the result stays, but it no longer follows the caret
             DocumentEvent::Changed { .. } => {
                 // a file loaded into this tab replaces the document (`Refresh` after a load)
-                let path = this.document.read(cx).path().map(Path::to_path_buf);
-                if path != this.analyzed_path {
+                if this.document.read(cx).path() != this.analyzed_path.as_deref() {
                     this.analyze(this.requested, cx);
                 } else if !this.stale && this.requested != Requested::FileTree {
                     // (the file tree does not depend on the text)
@@ -407,10 +406,9 @@ impl OutlinePane {
             )
         };
         let source = DocumentSource { doc, new_line_len };
-        let path_for_clip = file_path.clone().unwrap_or_default();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let analysis = cx
+            let (analysis, path_for_clip) = cx
                 .background_executor()
                 .spawn(async move {
                     let rule_bytes = rule_file
@@ -428,7 +426,7 @@ impl OutlinePane {
                     if huge {
                         analysis.error = Some(HUGE_FILE_MESSAGE.to_owned());
                     }
-                    analysis
+                    (analysis, file_path.unwrap_or_default())
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -441,7 +439,7 @@ impl OutlinePane {
                     this.analyze(this.requested, cx);
                     return;
                 }
-                this.finish(analysis, path_for_clip, cx);
+                this.finish(analysis, &path_for_clip, cx);
             })
             .ok();
         })
@@ -449,7 +447,7 @@ impl OutlinePane {
     }
 
     /// `Redraw` and `SetData`: the result is shown.
-    fn finish(&mut self, mut analysis: Analysis, file_path: String, cx: &mut Context<Self>) {
+    fn finish(&mut self, mut analysis: Analysis, file_path: &str, cx: &mut Context<Self>) {
         self.analyzing = false;
         self.stale = false;
         let kind = analysis.kind;
@@ -514,16 +512,16 @@ impl OutlinePane {
             prepare_append_texts(&mut analysis.items);
             // COBOL is the same tree without the class texts (`SetTreeJava(..., FALSE)`)
             tree = build_java_tree(&analysis.items, kind != OutlineKind::Cobol);
-            clip_text = clip_text_java(&analysis.items, &file_path);
+            clip_text = clip_text_java(&analysis.items, file_path);
         } else if view_type == ViewType::Tree {
             tree = build_tree(&analysis.items);
             // Python writes lines the tag jump can follow (SetTree with tagjump)
             let tag_jump = matches!(kind, OutlineKind::Python | OutlineKind::TreeTagJump);
-            clip_text = clip_text_tree(&analysis.items, &file_path, tag_jump);
+            clip_text = clip_text_tree(&analysis.items, file_path, tag_jump);
         } else if kind == OutlineKind::VisualBasic {
-            clip_text = clip_text_vb(&analysis.items, &file_path);
+            clip_text = clip_text_vb(&analysis.items, file_path);
         } else {
-            clip_text = clip_text_list(&analysis.items, &file_path);
+            clip_text = clip_text_list(&analysis.items, file_path);
         }
         sort_tree(&mut tree, self.sort_type);
         // the nodes at the top of the tree of C++ and Java are open (TreeView_Expand)
@@ -535,13 +533,13 @@ impl OutlinePane {
             foreign,
             title: analysis
                 .title
-                .clone()
+                .take()
                 .unwrap_or_else(|| kind.title().to_owned()),
             view: view_type,
             tree,
             list_lines,
             clip_text,
-            error: analysis.error.clone(),
+            error: analysis.error.take(),
             analysis,
         });
         self.rebuild_rows();
@@ -576,7 +574,7 @@ impl OutlinePane {
                         key: index,
                         item: Some(index),
                         depth: 0,
-                        label: item.name.clone(),
+                        label: item.name.clone().into(),
                         has_children: false,
                         expanded: false,
                         columns: Some([
@@ -585,9 +583,10 @@ impl OutlinePane {
                                 .get(index)
                                 .copied()
                                 .unwrap_or(item.line)
-                                .to_string(),
-                            item.col.to_string(),
-                            remark,
+                                .to_string()
+                                .into(),
+                            item.col.to_string().into(),
+                            remark.into(),
                         ]),
                         path: None,
                     });
@@ -603,7 +602,7 @@ impl OutlinePane {
                         key: node.order,
                         item: node.item,
                         depth,
-                        label: node.label.clone(),
+                        label: node.label.clone().into(),
                         has_children: !node.children.is_empty(),
                         expanded: open && !node.children.is_empty(),
                         columns: None,
@@ -1102,7 +1101,7 @@ impl OutlinePane {
                 .await;
             cx.update(|window, cx| {
                 view.update(cx, |view, cx| {
-                    view.open_file_tree_dialog(setting, inputs, pane, window, cx);
+                    view.open_file_tree_dialog(&setting, inputs, pane, window, cx);
                 });
             })
             .ok();
@@ -1199,7 +1198,7 @@ impl OutlinePane {
                 key: id,
                 item: None,
                 depth,
-                label: node.label.clone(),
+                label: node.label.clone().into(),
                 has_children: node.has_children(),
                 expanded: open && !node.children.is_empty(),
                 columns: None,
@@ -1350,7 +1349,7 @@ impl Render for OutlinePane {
             .child(
                 crate::a11y::text(div().id("outline-title"), &title)
                     .font_weight(gpui::FontWeight::BOLD)
-                    .child(title.clone()),
+                    .child(title),
             )
             .child(
                 div()
@@ -1473,8 +1472,8 @@ impl Render for OutlinePane {
                 move |this: &mut Self, range: std::ops::Range<usize>, _window, cx| {
                     range
                         .filter_map(|i| {
-                            let row = this.rows.get(i)?.clone();
-                            Some(this.render_row(i, &row, selected == Some(row.key), stale, cx))
+                            let row = this.rows.get(i)?;
+                            Some(this.render_row(i, row, selected == Some(row.key), stale, cx))
                         })
                         .collect::<Vec<_>>()
                 },

@@ -12,9 +12,10 @@
 //! (`crate::plugin_complement`). The value is kept when its plugin is not there (disabled, taken
 //! away): Sakura shows なし then and writes 0 on OK, MATSU Editor keeps what the file says.
 //!
-//! Not available yet: the warning about mixed line endings on saving (`CCodeChecker::OnCheckSave`), the C/C++ smart indent options
-//! (MATSU Editor has no smart indent) and the detection of the indentation style on loading
-//! (`CDocEditor::OnAfterLoad`).
+//! Also live: the warning about mixed line endings on saving (`CCodeChecker::OnCheckSave`,
+//! `file_ops/save.rs`), the three C/C++ indent items (the smart indent, `settings/view_settings.rs`)
+//! and the detection of the indentation style on loading (`CDocEditor::OnAfterLoad`,
+//! `file_ops/tests/indent_style.rs`).
 
 use super::super::ids::*;
 use crate::common_settings::CommonSettingsDialog;

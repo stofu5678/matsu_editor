@@ -16,7 +16,7 @@
 //! `bToolBarIsFlat` (フラットなボタン) is the form of the buttons ([`ToolbarFlat`]): flat ones have no
 //! frame until the pointer is over them, the others are drawn raised.
 //!
-//! Not built: the plugin commands (the kind プラグイン has none).
+//! The kind プラグイン lists the commands of the plugins that are enabled.
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
@@ -74,7 +74,7 @@ pub(super) fn row_of(number: i32, macros: &RegisteredMacros) -> (String, Option<
         n if u16::try_from(n).is_ok_and(matsu_commands::plugin_commands::is_plugin_code) => {
             let code = u16::try_from(n).unwrap_or_default();
             let name = crate::func_name::funccode_to_name(code, &CustomMenus::default(), macros);
-            (name, bars::toolbar::plugin_icon())
+            (name, bars::icon_of_function(code))
         }
         n => {
             let known = usize::try_from(n - 1)

@@ -24,6 +24,10 @@ matsu-platform = { path = "../matsu-platform" }
 # The analyzers of the outline pane (Sakura's アウトライン解析).
 matsu-outline = { path = "../matsu-outline" }
 matsu-print = { path = "../matsu-print" }
+# The terminal behind the shell tab (ADR-0028): the state, the shell in a PTY, the key encodings.
+matsu-terminal = { path = "../matsu-terminal" }
+# Running a one-liner: the shell, the process and its result (ADR-0029).
+matsu-oneliner = { path = "../matsu-oneliner" }
 # The regular expression option of the find and replace panel (ADR-0006).
 matsu-regex = { path = "../matsu-regex" }
 # The macro host and the bridge from a macro's calls to the commands (ADR-0007).
@@ -32,11 +36,17 @@ matsu-plugin = { path = "../matsu-plugin" }
 async-channel = "2"
 # The width of a path in columns (the short form of a long path).
 unicode-width = "0.2"
+# The pieces that a font draws as one glyph when the text is placed one character at a time
+# (extended grapheme clusters, UAX 29). Already in Cargo.lock through GPUI.
+unicode-segmentation = "1.13.3"
 # The UI commands register themselves like the core commands (ADR-0013 section 1).
 inventory = "0.3.25"
 # The times in the file property dialog, in the local time zone (as matsu-commands does).
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 gpui = { package = "gpui-pre", version = "=0.3.8" }
+# The logger of MATSU_FONT_DIAGNOSTICS (font_diagnostics.rs): GPUI writes its warnings through this
+# crate, and without a logger they are dropped. Already in Cargo.lock through GPUI.
+log = "0.4.34"
 # Without these features GPUI runs headless on Linux.
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["wayland", "x11"] }
 # The root view and the title bar that the window draws itself on Wayland without server-side

@@ -89,9 +89,8 @@ fn span(a: (usize, usize), b: (usize, usize)) -> (Pos, Pos) {
     (Pos::new(a.0, a.1), Pos::new(b.0, b.1))
 }
 
-fn at(f: &Option<Found>) -> Option<((usize, usize), (usize, usize))> {
-    f.as_ref()
-        .map(|f| ((f.start.line, f.start.col), (f.end.line, f.end.col)))
+fn at(f: Option<&Found>) -> Option<((usize, usize), (usize, usize))> {
+    f.map(|f| ((f.start.line, f.start.col), (f.end.line, f.end.col)))
 }
 
 // ---- case folding ----
@@ -122,16 +121,16 @@ fn fold_does_not_join_widths_or_touch_outside_the_bmp() {
 fn plain_search_folds_by_default() {
     let d = doc("Hello, World\n");
     assert_eq!(
-        at(&next(&d, &plain("world"), 0, 0, false)),
+        at(next(&d, &plain("world"), 0, 0, false).as_ref()),
         Some(((0, 7), (0, 12)))
     );
     assert_eq!(
-        at(&next(&d, &plain("WORLD"), 0, 0, false)),
+        at(next(&d, &plain("WORLD"), 0, 0, false).as_ref()),
         Some(((0, 7), (0, 12)))
     );
     assert_eq!(next(&d, &cased("world"), 0, 0, false), None);
     assert_eq!(
-        at(&next(&d, &cased("World"), 0, 0, false)),
+        at(next(&d, &cased("World"), 0, 0, false).as_ref()),
         Some(((0, 7), (0, 12)))
     );
 }
@@ -141,17 +140,17 @@ fn full_width_letters_fold_but_do_not_equal_half_width() {
     let d = doc("ＡＢＣ abc\n");
     // Ａ (3 bytes) folds to ａ, so "ａｂｃ" finds ＡＢＣ.
     assert_eq!(
-        at(&next(&d, &plain("ａｂｃ"), 0, 0, false)),
+        at(next(&d, &plain("ａｂｃ"), 0, 0, false).as_ref()),
         Some(((0, 0), (0, 9)))
     );
     assert_eq!(next(&d, &cased("ａｂｃ"), 0, 0, false), None);
     assert_eq!(
-        at(&next(&d, &cased("ＡＢＣ"), 0, 0, false)),
+        at(next(&d, &cased("ＡＢＣ"), 0, 0, false).as_ref()),
         Some(((0, 0), (0, 9)))
     );
     // Half-width "abc" does not find the full-width letters.
     assert_eq!(
-        at(&next(&d, &plain("abc"), 0, 0, false)),
+        at(next(&d, &plain("abc"), 0, 0, false).as_ref()),
         Some(((0, 10), (0, 13)))
     );
 }
@@ -161,7 +160,7 @@ fn fold_that_changes_the_byte_length_reports_the_original_range() {
     // Ⱥ is 2 bytes, its lower case ⱥ (U+2C65) is 3 bytes.
     let d = doc("xȺx\n");
     assert_eq!(
-        at(&next(&d, &plain("ⱥ"), 0, 0, false)),
+        at(next(&d, &plain("ⱥ"), 0, 0, false).as_ref()),
         Some(((0, 1), (0, 3)))
     );
 }
@@ -172,16 +171,16 @@ fn fold_that_changes_the_byte_length_reports_the_original_range() {
 fn finds_japanese_text() {
     let d = doc("あいうえお\nかきくけこ\n");
     assert_eq!(
-        at(&next(&d, &plain("うえ"), 0, 0, false)),
+        at(next(&d, &plain("うえ"), 0, 0, false).as_ref()),
         Some(((0, 6), (0, 12)))
     );
     assert_eq!(
-        at(&next(&d, &plain("くけ"), 0, 0, false)),
+        at(next(&d, &plain("くけ"), 0, 0, false).as_ref()),
         Some(((1, 6), (1, 12)))
     );
     // from inside the text: the match at the caret counts
     assert_eq!(
-        at(&next(&d, &plain("うえ"), 0, 6, false)),
+        at(next(&d, &plain("うえ"), 0, 6, false).as_ref()),
         Some(((0, 6), (0, 12)))
     );
     assert_eq!(next(&d, &plain("うえ"), 0, 7, false), None);
@@ -243,7 +242,7 @@ fn position_past_the_end_finds_nothing_forward() {
 fn position_inside_a_char_rounds_forward() {
     let d = doc("あい\n");
     assert_eq!(
-        at(&next(&d, &plain("い"), 0, 1, false)),
+        at(next(&d, &plain("い"), 0, 1, false).as_ref()),
         Some(((0, 3), (0, 6)))
     );
 }
@@ -294,11 +293,11 @@ fn backward_from_the_end_of_the_document() {
     // (Command_SEARCH_PREV, "pcLayoutはNULLとなるのは、[EOF]から前検索した場合").
     let d = doc("foo\nbar foo\n");
     assert_eq!(
-        at(&prev(&d, &plain("foo"), 2, 0, false)),
+        at(prev(&d, &plain("foo"), 2, 0, false).as_ref()),
         Some(((1, 4), (1, 7)))
     );
     assert_eq!(
-        at(&prev(&d, &plain("foo"), 99, 99, false)),
+        at(prev(&d, &plain("foo"), 99, 99, false).as_ref()),
         Some(((1, 4), (1, 7)))
     );
 }
@@ -307,11 +306,11 @@ fn backward_from_the_end_of_the_document() {
 fn backward_needs_the_match_to_begin_before_the_caret() {
     let d = doc("foofoo\n");
     assert_eq!(
-        at(&prev(&d, &plain("foo"), 0, 3, false)),
+        at(prev(&d, &plain("foo"), 0, 3, false).as_ref()),
         Some(((0, 0), (0, 3)))
     );
     assert_eq!(
-        at(&prev(&d, &plain("foo"), 0, 4, false)),
+        at(prev(&d, &plain("foo"), 0, 4, false).as_ref()),
         Some(((0, 3), (0, 6)))
     );
     assert_eq!(prev(&d, &plain("foo"), 0, 0, false), None);
@@ -323,12 +322,12 @@ fn backward_scans_forward_without_overlap() {
     // so overlapping matches are not seen. "aaa" holds "aa" at 0 and 1, but only 0 is found.
     let d = doc("aaa\n");
     assert_eq!(
-        at(&prev(&d, &plain("aa"), 0, 3, false)),
+        at(prev(&d, &plain("aa"), 0, 3, false).as_ref()),
         Some(((0, 0), (0, 2)))
     );
     // and forward from 1 does find the one at 1
     assert_eq!(
-        at(&next(&d, &plain("aa"), 0, 1, false)),
+        at(next(&d, &plain("aa"), 0, 1, false).as_ref()),
         Some(((0, 1), (0, 3)))
     );
 }
@@ -413,21 +412,21 @@ fn whole_word_in_japanese() {
     // Words are runs of one kind of char (CWordParse): kanji, hiragana, katakana, ...
     let d = doc("漢字かなカタカナ交じり\n");
     assert_eq!(
-        at(&next(&d, &word("かな", true), 0, 0, false)),
+        at(next(&d, &word("かな", true), 0, 0, false).as_ref()),
         Some(((0, 6), (0, 12)))
     );
     assert_eq!(
-        at(&next(&d, &word("カタカナ", true), 0, 0, false)),
+        at(next(&d, &word("カタカナ", true), 0, 0, false).as_ref()),
         Some(((0, 12), (0, 24)))
     );
     assert_eq!(next(&d, &word("漢", true), 0, 0, false), None);
     assert_eq!(
-        at(&next(&d, &word("漢字", true), 0, 0, false)),
+        at(next(&d, &word("漢字", true), 0, 0, false).as_ref()),
         Some(((0, 0), (0, 6)))
     );
     // 交 (kanji) and じり (hiragana) are different words
     assert_eq!(
-        at(&next(&d, &word("交", true), 0, 0, false)),
+        at(next(&d, &word("交", true), 0, 0, false).as_ref()),
         Some(((0, 24), (0, 27)))
     );
 }
@@ -437,11 +436,11 @@ fn whole_word_prolonged_sound_mark_sticks_to_kana() {
     // WhatKindOfTwoChars: ー joins the hiragana/katakana next to it.
     let d = doc("コーヒー ラーメン\n");
     assert_eq!(
-        at(&next(&d, &word("コーヒー", true), 0, 0, false)),
+        at(next(&d, &word("コーヒー", true), 0, 0, false).as_ref()),
         Some(((0, 0), (0, 12)))
     );
     assert_eq!(
-        at(&next(&d, &word("ラーメン", true), 0, 0, false)),
+        at(next(&d, &word("ラーメン", true), 0, 0, false).as_ref()),
         Some(((0, 13), (0, 25)))
     );
 }
@@ -450,11 +449,11 @@ fn whole_word_prolonged_sound_mark_sticks_to_kana() {
 fn whole_word_folds_full_width_letters() {
     let d = doc("ＡＢＣ　ａｂｃ\n");
     assert_eq!(
-        at(&next(&d, &word("ａｂｃ", false), 0, 0, false)),
+        at(next(&d, &word("ａｂｃ", false), 0, 0, false).as_ref()),
         Some(((0, 0), (0, 9)))
     );
     assert_eq!(
-        at(&next(&d, &word("ａｂｃ", true), 0, 0, false)),
+        at(next(&d, &word("ａｂｃ", true), 0, 0, false).as_ref()),
         Some(((0, 12), (0, 21)))
     );
 }
@@ -464,11 +463,11 @@ fn whole_word_from_inside_a_word_finds_that_word() {
     // SearchStringWord asks for the word that holds the start column, which may begin before it.
     let d = doc("foobar baz\n");
     assert_eq!(
-        at(&next(&d, &word("foobar", true), 0, 3, false)),
+        at(next(&d, &word("foobar", true), 0, 3, false).as_ref()),
         Some(((0, 0), (0, 6)))
     );
     assert_eq!(
-        at(&next(&d, &word("baz", true), 0, 3, false)),
+        at(next(&d, &word("baz", true), 0, 3, false).as_ref()),
         Some(((0, 7), (0, 10)))
     );
 }
@@ -477,12 +476,24 @@ fn whole_word_from_inside_a_word_finds_that_word() {
 fn whole_word_backward() {
     let d = doc("foo bar foo\nfoo\n");
     let m = word("foo", true);
-    assert_eq!(at(&prev(&d, &m, 0, 11, false)), Some(((0, 8), (0, 11))));
-    assert_eq!(at(&prev(&d, &m, 0, 8, false)), Some(((0, 0), (0, 3))));
+    assert_eq!(
+        at(prev(&d, &m, 0, 11, false).as_ref()),
+        Some(((0, 8), (0, 11)))
+    );
+    assert_eq!(
+        at(prev(&d, &m, 0, 8, false).as_ref()),
+        Some(((0, 0), (0, 3)))
+    );
     assert_eq!(prev(&d, &m, 0, 0, false), None);
-    assert_eq!(at(&prev(&d, &m, 1, 0, false)), Some(((0, 8), (0, 11))));
+    assert_eq!(
+        at(prev(&d, &m, 1, 0, false).as_ref()),
+        Some(((0, 8), (0, 11)))
+    );
     // from the middle of a word: the word counts, since it begins before the caret
-    assert_eq!(at(&prev(&d, &m, 0, 10, false)), Some(((0, 8), (0, 11))));
+    assert_eq!(
+        at(prev(&d, &m, 0, 10, false).as_ref()),
+        Some(((0, 8), (0, 11)))
+    );
 }
 
 #[test]
@@ -490,7 +501,7 @@ fn whole_word_from_the_end_of_the_document_sees_the_last_line() {
     // Sakura gives up on the last line here (the caret column is past its end); we do not.
     let d = doc("foo\nbar\n");
     let f = prev(&d, &word("bar", true), 99, 0, false);
-    assert_eq!(at(&f), Some(((1, 0), (1, 3))));
+    assert_eq!(at(f.as_ref()), Some(((1, 0), (1, 3))));
 }
 
 #[test]
@@ -556,10 +567,10 @@ fn empty_matches_advance_one_char() {
     assert_eq!(first.captures, vec![Some(0..0), None]);
     // backward: the last empty match before the caret
     assert_eq!(
-        at(&prev(&d, &EmptyEverywhere, 0, 4, false)),
+        at(prev(&d, &EmptyEverywhere, 0, 4, false).as_ref()),
         Some(((0, 1), (0, 1)))
     );
-    assert_eq!(at(&prev(&d, &EmptyEverywhere, 0, 0, false)), None);
+    assert_eq!(at(prev(&d, &EmptyEverywhere, 0, 0, false).as_ref()), None);
     // an empty line holds one empty match
     let d = doc("\n");
     assert_eq!(all(&d, &EmptyEverywhere), vec![span((0, 0), (0, 0))]);
@@ -1073,7 +1084,10 @@ fn the_matcher_gets_a_char_boundary() {
         }
     }
     let d = doc("あい\n");
-    assert_eq!(at(&next(&d, &Slicing, 0, 1, false)), Some(((0, 3), (0, 6))));
+    assert_eq!(
+        at(next(&d, &Slicing, 0, 1, false).as_ref()),
+        Some(((0, 3), (0, 6)))
+    );
 }
 
 #[test]

@@ -188,7 +188,8 @@ impl Workspace {
             };
             cell.child(text)
                 .when(
-                    double_click_function(part).is_some() || part == Part::CharCode,
+                    !info.message_only
+                        && (double_click_function(part).is_some() || part == Part::CharCode),
                     |cell| {
                         cell.on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                             if event.standard_click() && event.click_count() == 2 {
@@ -197,7 +198,7 @@ impl Workspace {
                         }))
                     },
                 )
-                .when(part == Part::Eol, |cell| {
+                .when(part == Part::Eol && !info.message_only, |cell| {
                     cell.on_mouse_up(
                         MouseButton::Right,
                         cx.listener(move |this, event: &MouseUpEvent, window, cx| {

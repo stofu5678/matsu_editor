@@ -30,9 +30,8 @@
 //! `Command_SETFONTSIZE` in mode 2 ("一時適用フォント"), the `F_TMPWRAP*` functions say
 //! "(一時設定)", and `Command_WRAPWINDOWWIDTH` does not touch the common settings
 //! (`sakura_core/cmd/CViewCommander_Settings.cpp`). Only `F_SHOWSTATUSBAR` changes a common
-//! setting (`bDispSTATUSBAR`); it is kept for the session, and written together with the other
-//! settings when the settings dialogs come (they need the lossless writer of `matsu-config` and
-//! an answer to "which window's state is the file's").
+//! setting (`bDispSTATUSBAR`); the menu command keeps it for the session, and
+//! only 共通設定's OK writes it to the file (`crate::common_settings`).
 
 pub mod doc_type;
 pub mod mac_key_layout;
@@ -59,6 +58,9 @@ pub struct UserSettings {
     profile: Option<Profile>,
     /// The document types: Sakura's built-in ones with what the file overrides and adds.
     types: Arc<DocumentTypes>,
+    /// The registered one-liners (`[OneLiner]`), read once with the profile: the menus and the toolbar ask for them
+    /// every time they are drawn.
+    oneliners: Arc<matsu_config::settings::oneliner::OneLiners>,
     path: Option<PathBuf>,
     /// Things in the file that could not be used, for the status bar.
     pub warnings: Vec<String>,
@@ -176,6 +178,9 @@ impl UserSettings {
         let warnings = problems.iter().map(ToString::to_string).collect();
         Self {
             types: Arc::new(DocumentTypes::from_profile(&profile)),
+            oneliners: Arc::new(matsu_config::settings::oneliner::OneLiners::from_profile(
+                &profile,
+            )),
             profile: Some(profile),
             path,
             warnings,
@@ -212,6 +217,25 @@ impl UserSettings {
             .as_ref()
             .map(matsu_config::settings::macros::RegisteredMacros::from_profile)
             .unwrap_or_default()
+    }
+
+    /// The registered one-liners (ワンライナー, `[OneLiner]`, ADR-0029) and the history of the input dialog.
+    pub fn oneliners(&self) -> matsu_config::settings::oneliner::OneLiners {
+        (*self.oneliners).clone()
+    }
+
+    /// The registered one-liners, to keep beyond the borrow of the settings.
+    pub fn shared_oneliners(&self) -> Arc<matsu_config::settings::oneliner::OneLiners> {
+        Arc::clone(&self.oneliners)
+    }
+
+    /// Makes `table` the registered one-liners of these settings, and of the profile they keep, without reading the
+    /// rest of the file again (the history of the input dialog changes at every run).
+    pub(crate) fn set_oneliners(&mut self, table: matsu_config::settings::oneliner::OneLiners) {
+        let profile = self.profile.get_or_insert_with(Profile::new);
+        // The values were checked when `table` was written to the file; one the profile cannot hold stays as it was.
+        let _ = table.store(profile);
+        self.oneliners = Arc::new(table);
     }
 
     /// The document types (タイプ別設定).

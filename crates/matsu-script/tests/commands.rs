@@ -56,7 +56,7 @@ fn run(file: &str, code: &str, text: &str) -> (Report, Fixture) {
             &mut fixture.layout,
             None,
         );
-        session::run_blocking(config, |m| {
+        session::run_blocking(&config, |m| {
             bridge::handle_message_with(registry, &mut cx, &mut env, m)
         })
         .expect("the host starts")

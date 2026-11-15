@@ -620,7 +620,7 @@ mod tests {
         assert!(s.check().unwrap_err().message.contains("正しくありません"));
         // then the regular expression
         let mut s = GrepSettings {
-            folder: folder.clone(),
+            folder,
             key: "(".into(),
             options: SearchOptions {
                 regex: true,

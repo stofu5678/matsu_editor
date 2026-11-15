@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn a_color_print_writes_the_colors() {
         let lines = vec!["red text".to_string(), String::new()];
-        let mut black = job(lines.clone());
+        let mut black = job(lines);
         black.setting.color_print = true;
         let mut colored = black.clone();
         colored.styler = Some(Arc::new(Red));

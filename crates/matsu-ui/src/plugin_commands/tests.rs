@@ -623,3 +623,18 @@ fn a_command_of_a_plugin_that_is_not_enabled_says_so_in_the_status_bar(cx: &mut 
     assert!(notice.contains("プラグイン"), "{notice}");
     assert_eq!(text_of(&view, cx), "");
 }
+
+#[test]
+fn the_plugin_settings_are_read_in_place_or_are_empty() {
+    // No settings file: the settings of an empty profile.
+    assert_eq!(
+        settings_of(&UserSettings::none()),
+        PluginSettings::from_profile(&Profile::default())
+    );
+    let mut profile = Profile::default();
+    profile.set("Plugin", "EnablePlugin", "1").unwrap();
+    let user = UserSettings::from_profile(profile.clone(), None);
+    let settings = settings_of(&user);
+    assert!(settings.enabled);
+    assert_eq!(settings, PluginSettings::from_profile(&profile));
+}

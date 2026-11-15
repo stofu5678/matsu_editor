@@ -316,9 +316,10 @@ final class Editor
      *
      * An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
      * 1 when the line changed since the last save, type 1 the number of the undo step that last
-     * touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
-     * answer the error -32001 until the editor has them. A negative line, a line past the end
-     * and any other type are errors.
+     * touched it, type 2 the bookmark (1 or 0). Type 3 is the diff mark (0 none, 1 added, 2
+     * changed, 3 deleted, 4 deleted after the end) and type 4 is 1 when the last outline
+     * analysis found an item on the line. A negative line, a line past the end and any other
+     * type are errors.
      */
     public static function GetLineAttribute($line, $type)
     {
@@ -715,13 +716,15 @@ final class Editor
     /**
      * ExpandParameter(format: string) -> string
      *
-     * Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f (file name),
-     * $g (file name without the extension), $/ (full path with /), $N (as $F), $b (extension),
-     * $e and $E (folder), $C (the selected text or the word at the caret), $x and $y (caret
-     * column in UTF-16 units and line, from 1), $S (the editor), $M (the macro file), $V
-     * (version), $A (name), and conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a
-     * file is (無題). $d $t $D $T $B $Q $I are not supported and stay as written. At most 2047
-     * UTF-16 units.
+     * Replaces the codes that start with $ in a string, as the window title does: $$ ($), $A
+     * (name), $F (full path), $f (file name), $g (file name without the extension), $/ (full
+     * path with /), $N (short path), $b (extension), $e (folder), $E (short folder), $n (number
+     * of an untitled window), $B (document type), $Q (print setting), $C (the selected text or
+     * the word at the caret), $x and $y (caret column in UTF-16 units and line, from 1), $d and
+     * $t (date and time now), $D and $T (date and time of the file), $V (version), $h (Grep
+     * key), $S (the editor), $I (the settings file), $M (the macro file), $<profile>, and
+     * conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (無題). $p and $P are
+     * the notice that they are for the print preview. At most 2047 UTF-16 units.
      */
     public static function ExpandParameter($format)
     {
@@ -805,8 +808,9 @@ final class Editor
      * FileOpenDialog(defaultName: string?, filter: string?) -> string
      *
      * Lets the user choose a file to open and returns its full path, or an empty string when the
-     * dialog is cancelled. The default name and the filter are not used: the dialog of the
-     * platform takes neither.
+     * dialog is cancelled. The dialog starts in the folder of the default name (when it names
+     * one) with that name filled in. The filter is not used: the dialog of the platform takes
+     * none.
      */
     public static function FileOpenDialog($defaultName = null, $filter = null)
     {
@@ -832,7 +836,7 @@ final class Editor
      *
      * Lets the user choose a folder and returns its full path, or an empty string when the
      * dialog is cancelled. The message becomes the prompt text of the platform dialog where it
-     * has one; the default folder is not used.
+     * has one; the dialog starts in the default folder when it is an existing folder.
      */
     public static function FolderDialog($message = null, $defaultFolder = null)
     {
@@ -3086,6 +3090,78 @@ final class Editor
     }
 
     /**
+     * EncodeUrl() -> null
+     *
+     * MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function EncodeUrl()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('EncodeUrl', func_get_args());
+    }
+
+    /**
+     * DecodeUrl() -> null
+     *
+     * MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function DecodeUrl()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DecodeUrl', func_get_args());
+    }
+
+    /**
+     * EscapeHtml() -> null
+     *
+     * MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function EscapeHtml()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('EscapeHtml', func_get_args());
+    }
+
+    /**
+     * UnescapeHtml() -> null
+     *
+     * MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function UnescapeHtml()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('UnescapeHtml', func_get_args());
+    }
+
+    /**
+     * EncodeBase64() -> null
+     *
+     * MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function EncodeBase64()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('EncodeBase64', func_get_args());
+    }
+
+    /**
+     * DecodeBase64() -> null
+     *
+     * MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
+     */
+    public static function DecodeBase64()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DecodeBase64', func_get_args());
+    }
+
+    /**
      * AutoToSJIS() -> null
      *
      * Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
@@ -4531,6 +4607,630 @@ final class Editor
     {
         // func_get_args() holds only the arguments that were given.
         return (self::$call)('PreviewTab', func_get_args());
+    }
+
+    /**
+     * ShellTab() -> null
+     *
+     * MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function ShellTab()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ShellTab', func_get_args());
+    }
+
+    /**
+     * OneLiner0() -> null
+     *
+     * MATSU Editor's own F_ONELINER_0 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner0()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner0', func_get_args());
+    }
+
+    /**
+     * OneLiner1() -> null
+     *
+     * MATSU Editor's own F_ONELINER_1 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner1()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner1', func_get_args());
+    }
+
+    /**
+     * OneLiner2() -> null
+     *
+     * MATSU Editor's own F_ONELINER_2 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner2()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner2', func_get_args());
+    }
+
+    /**
+     * OneLiner3() -> null
+     *
+     * MATSU Editor's own F_ONELINER_3 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner3()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner3', func_get_args());
+    }
+
+    /**
+     * OneLiner4() -> null
+     *
+     * MATSU Editor's own F_ONELINER_4 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner4()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner4', func_get_args());
+    }
+
+    /**
+     * OneLiner5() -> null
+     *
+     * MATSU Editor's own F_ONELINER_5 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner5()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner5', func_get_args());
+    }
+
+    /**
+     * OneLiner6() -> null
+     *
+     * MATSU Editor's own F_ONELINER_6 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner6()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner6', func_get_args());
+    }
+
+    /**
+     * OneLiner7() -> null
+     *
+     * MATSU Editor's own F_ONELINER_7 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner7()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner7', func_get_args());
+    }
+
+    /**
+     * OneLiner8() -> null
+     *
+     * MATSU Editor's own F_ONELINER_8 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner8()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner8', func_get_args());
+    }
+
+    /**
+     * OneLiner9() -> null
+     *
+     * MATSU Editor's own F_ONELINER_9 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
+     */
+    public static function OneLiner9()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner9', func_get_args());
+    }
+
+    /**
+     * OneLiner10() -> null
+     *
+     * MATSU Editor's own F_ONELINER_10 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner10()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner10', func_get_args());
+    }
+
+    /**
+     * OneLiner11() -> null
+     *
+     * MATSU Editor's own F_ONELINER_11 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner11()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner11', func_get_args());
+    }
+
+    /**
+     * OneLiner12() -> null
+     *
+     * MATSU Editor's own F_ONELINER_12 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner12()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner12', func_get_args());
+    }
+
+    /**
+     * OneLiner13() -> null
+     *
+     * MATSU Editor's own F_ONELINER_13 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner13()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner13', func_get_args());
+    }
+
+    /**
+     * OneLiner14() -> null
+     *
+     * MATSU Editor's own F_ONELINER_14 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner14()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner14', func_get_args());
+    }
+
+    /**
+     * OneLiner15() -> null
+     *
+     * MATSU Editor's own F_ONELINER_15 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner15()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner15', func_get_args());
+    }
+
+    /**
+     * OneLiner16() -> null
+     *
+     * MATSU Editor's own F_ONELINER_16 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner16()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner16', func_get_args());
+    }
+
+    /**
+     * OneLiner17() -> null
+     *
+     * MATSU Editor's own F_ONELINER_17 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner17()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner17', func_get_args());
+    }
+
+    /**
+     * OneLiner18() -> null
+     *
+     * MATSU Editor's own F_ONELINER_18 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner18()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner18', func_get_args());
+    }
+
+    /**
+     * OneLiner19() -> null
+     *
+     * MATSU Editor's own F_ONELINER_19 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner19()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner19', func_get_args());
+    }
+
+    /**
+     * OneLiner20() -> null
+     *
+     * MATSU Editor's own F_ONELINER_20 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner20()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner20', func_get_args());
+    }
+
+    /**
+     * OneLiner21() -> null
+     *
+     * MATSU Editor's own F_ONELINER_21 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner21()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner21', func_get_args());
+    }
+
+    /**
+     * OneLiner22() -> null
+     *
+     * MATSU Editor's own F_ONELINER_22 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner22()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner22', func_get_args());
+    }
+
+    /**
+     * OneLiner23() -> null
+     *
+     * MATSU Editor's own F_ONELINER_23 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner23()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner23', func_get_args());
+    }
+
+    /**
+     * OneLiner24() -> null
+     *
+     * MATSU Editor's own F_ONELINER_24 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner24()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner24', func_get_args());
+    }
+
+    /**
+     * OneLiner25() -> null
+     *
+     * MATSU Editor's own F_ONELINER_25 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner25()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner25', func_get_args());
+    }
+
+    /**
+     * OneLiner26() -> null
+     *
+     * MATSU Editor's own F_ONELINER_26 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner26()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner26', func_get_args());
+    }
+
+    /**
+     * OneLiner27() -> null
+     *
+     * MATSU Editor's own F_ONELINER_27 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner27()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner27', func_get_args());
+    }
+
+    /**
+     * OneLiner28() -> null
+     *
+     * MATSU Editor's own F_ONELINER_28 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner28()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner28', func_get_args());
+    }
+
+    /**
+     * OneLiner29() -> null
+     *
+     * MATSU Editor's own F_ONELINER_29 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner29()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner29', func_get_args());
+    }
+
+    /**
+     * OneLiner30() -> null
+     *
+     * MATSU Editor's own F_ONELINER_30 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner30()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner30', func_get_args());
+    }
+
+    /**
+     * OneLiner31() -> null
+     *
+     * MATSU Editor's own F_ONELINER_31 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner31()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner31', func_get_args());
+    }
+
+    /**
+     * OneLiner32() -> null
+     *
+     * MATSU Editor's own F_ONELINER_32 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner32()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner32', func_get_args());
+    }
+
+    /**
+     * OneLiner33() -> null
+     *
+     * MATSU Editor's own F_ONELINER_33 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner33()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner33', func_get_args());
+    }
+
+    /**
+     * OneLiner34() -> null
+     *
+     * MATSU Editor's own F_ONELINER_34 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner34()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner34', func_get_args());
+    }
+
+    /**
+     * OneLiner35() -> null
+     *
+     * MATSU Editor's own F_ONELINER_35 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner35()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner35', func_get_args());
+    }
+
+    /**
+     * OneLiner36() -> null
+     *
+     * MATSU Editor's own F_ONELINER_36 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner36()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner36', func_get_args());
+    }
+
+    /**
+     * OneLiner37() -> null
+     *
+     * MATSU Editor's own F_ONELINER_37 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner37()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner37', func_get_args());
+    }
+
+    /**
+     * OneLiner38() -> null
+     *
+     * MATSU Editor's own F_ONELINER_38 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner38()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner38', func_get_args());
+    }
+
+    /**
+     * OneLiner39() -> null
+     *
+     * MATSU Editor's own F_ONELINER_39 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner39()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner39', func_get_args());
+    }
+
+    /**
+     * OneLiner40() -> null
+     *
+     * MATSU Editor's own F_ONELINER_40 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner40()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner40', func_get_args());
+    }
+
+    /**
+     * OneLiner41() -> null
+     *
+     * MATSU Editor's own F_ONELINER_41 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner41()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner41', func_get_args());
+    }
+
+    /**
+     * OneLiner42() -> null
+     *
+     * MATSU Editor's own F_ONELINER_42 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner42()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner42', func_get_args());
+    }
+
+    /**
+     * OneLiner43() -> null
+     *
+     * MATSU Editor's own F_ONELINER_43 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner43()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner43', func_get_args());
+    }
+
+    /**
+     * OneLiner44() -> null
+     *
+     * MATSU Editor's own F_ONELINER_44 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner44()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner44', func_get_args());
+    }
+
+    /**
+     * OneLiner45() -> null
+     *
+     * MATSU Editor's own F_ONELINER_45 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner45()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner45', func_get_args());
+    }
+
+    /**
+     * OneLiner46() -> null
+     *
+     * MATSU Editor's own F_ONELINER_46 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner46()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner46', func_get_args());
+    }
+
+    /**
+     * OneLiner47() -> null
+     *
+     * MATSU Editor's own F_ONELINER_47 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner47()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner47', func_get_args());
+    }
+
+    /**
+     * OneLiner48() -> null
+     *
+     * MATSU Editor's own F_ONELINER_48 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner48()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner48', func_get_args());
+    }
+
+    /**
+     * OneLiner49() -> null
+     *
+     * MATSU Editor's own F_ONELINER_49 (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
+     */
+    public static function OneLiner49()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLiner49', func_get_args());
+    }
+
+    /**
+     * OneLinerDialog() -> null
+     *
+     * MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
+     */
+    public static function OneLinerDialog()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OneLinerDialog', func_get_args());
     }
 
     /**

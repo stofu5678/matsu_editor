@@ -88,7 +88,7 @@ impl Runner<'_> {
             return Ok(());
         };
         let layout = self.info.layout;
-        let shown = shown_path(paths, &layout);
+        let shown = shown_path(paths, layout);
         // A regular expression with a replacement is replaced a line at a time (`Replace` with the
         // `g` option); the rest is replaced match by match. Either way the line is handled with
         // its line break, as Sakura reads it, so a match can cover the break.

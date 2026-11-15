@@ -50,7 +50,7 @@ impl TabSettings {
 
     /// The tab mode of Sakura: the bar is shown and the windows are grouped
     /// (`m_bDispTabWnd && !m_bDispTabWndMultiWin`). Only then a window holds several documents.
-    pub(crate) fn bound(&self) -> bool {
+    pub(crate) fn bound(self) -> bool {
         self.show_bar && self.grouped
     }
 }

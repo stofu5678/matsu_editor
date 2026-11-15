@@ -787,7 +787,7 @@ fn clones_are_independent_and_can_cross_threads() {
     assert_eq!(whole(&d), "Xone\nnew two\n");
     // Two clones that both append do not disturb each other.
     let mut a = old.clone();
-    let mut b = old.clone();
+    let mut b = old;
     a.insert(Pos::new(0, 0), "AAA").unwrap();
     b.insert(Pos::new(0, 0), "BBB").unwrap();
     a.insert(Pos::new(0, 3), "a").unwrap();
@@ -815,7 +815,7 @@ fn generated(bytes: usize) -> Vec<u8> {
 fn smoke(bytes: usize) {
     let data = generated(bytes);
     let t = Instant::now();
-    let mut d = Document::from_utf8(data.clone()).unwrap();
+    let mut d = Document::from_utf8(data).unwrap();
     let load = t.elapsed();
     let n = d.line_count();
     let mut rng = Rng(5);

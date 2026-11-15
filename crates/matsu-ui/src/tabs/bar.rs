@@ -59,8 +59,9 @@ struct Entry {
     active: bool,
     /// The position among the tabs of this window, when it is one of them.
     tab: Option<usize>,
-    /// The tab is a preview (`crate::preview`): its `view` is the hidden view of its document, and
-    /// closing it asks nothing.
+    /// The tab is not an editor, a preview (`crate::preview`) or a shell (`crate::terminal`): its `view` is
+    /// the hidden view it keeps. Closing a preview asks nothing, closing a running shell asks
+    /// (`Workspace::close_own_tab`).
     preview: bool,
     /// The icon the tab shows with `bDispTabIcon`.
     icon: TabIcon,
@@ -176,11 +177,11 @@ impl Workspace {
     pub(crate) fn run_after_event(&self, code: u16, window: &mut Window, cx: &mut Context<Self>) {
         // From the search box the focus goes to the view first (`CEditWnd::OnCommand`).
         self.leave_search_box(window, cx);
-        // The view of a preview is not drawn, so closing "the document" there closes the preview.
-        if self.content.preview().is_some() && code == function_code("F_WINCLOSE") {
+        // The view of a preview or a shell is not drawn, so closing "the document" there closes the tab.
+        if !self.content.is_editor() && code == function_code("F_WINCLOSE") {
             let workspace = cx.entity();
             window.defer(cx, move |window, app| {
-                workspace.update(app, |ws, cx| ws.close_active_preview(window, cx));
+                workspace.update(app, |ws, cx| ws.close_active_own_tab(window, cx));
             });
             return;
         }
@@ -258,7 +259,7 @@ impl Workspace {
                 (0..self.tab_count())
                     .filter_map(|i| {
                         let (view, panel) = (self.tab_bar_view(i)?, self.tab_panel(i)?);
-                        let preview = self.tab_content(i)?.preview().is_some();
+                        let preview = !self.tab_content(i)?.is_editor();
                         Some(entry(own, view, panel, i == current, Some(i), preview, cx))
                     })
                     .collect(),
@@ -278,12 +279,12 @@ impl Workspace {
             // of this window then, so that a click selects one of them. A preview of another
             // window is not listed (it cannot be revealed from here).
             let mine = handle == own;
-            let own_tabs = mine && tabs.has_preview_tab();
+            let own_tabs = mine && tabs.has_own_tab();
             for i in 0..tabs.tab_count() {
                 let (Some(view), Some(panel)) = (tabs.tab_bar_view(i), tabs.tab_panel(i)) else {
                     continue;
                 };
-                let preview = tabs.tab_content(i).is_some_and(|c| c.preview().is_some());
+                let preview = tabs.tab_content(i).is_some_and(|c| !c.is_editor());
                 if preview && !mine {
                     continue;
                 }
@@ -371,7 +372,7 @@ impl Workspace {
             });
             strip.overflow_x_scroll().track_scroll(&handle)
         };
-        for (i, entry) in entries.iter().cloned().enumerate() {
+        for (i, entry) in entries.into_iter().enumerate() {
             strip = strip.child(self.render_tab(i, entry, own, options, keep_close_visible, cx));
         }
         // `OnLButtonDown`: the list of the captions opens on the press, as a menu does.
@@ -542,14 +543,15 @@ impl Workspace {
                 });
             }
         };
-        // A preview has no document to ask about: its tab just goes.
+        // A preview or a shell has no document to ask about: its tab goes, after the question about the
+        // running shell if there is one.
         let close: CloseTab = match tab {
             Some(index) if preview => {
                 let workspace = cx.entity();
                 Rc::new(move |window: &mut Window, cx: &mut gpui::App| {
                     let workspace = workspace.clone();
                     window.defer(cx, move |window, cx| {
-                        workspace.update(cx, |ws, cx| ws.close_tab_or_window(index, window, cx));
+                        workspace.update(cx, |ws, cx| ws.close_own_tab(index, window, cx));
                     });
                 })
             }
@@ -569,7 +571,6 @@ impl Workspace {
         // `OnTabRButtonUp`: `ExecTabCommand( F_CUSTMENU_BASE + CUSTMENU_INDEX_FOR_TABWND )` activates
         // the tab, then sends the function to its window, which opens the menu at the pointer.
         let open_menu = {
-            let view = view.clone();
             cx.listener(move |this, event: &gpui::MouseUpEvent, window, cx| {
                 // The tab menu is the editor's (custom menu 24): a preview has none.
                 if !preview {
@@ -653,22 +654,16 @@ impl Workspace {
             });
         if let Some(from) = tab {
             element = element
-                .on_drag(
-                    DraggedTab {
-                        from,
-                        caption: caption.clone(),
-                    },
-                    |dragged, _, window, cx| {
-                        // `m_ptSrcCursor`: where the drag began, for the window a drop outside
-                        // the window makes.
-                        cx.set_global(TabDrag(Some(TabDragOrigin {
-                            window: window.window_handle(),
-                            index: dragged.from,
-                            start: window.mouse_position(),
-                        })));
-                        cx.new(|_| dragged.clone())
-                    },
-                )
+                .on_drag(DraggedTab { from, caption }, |dragged, _, window, cx| {
+                    // `m_ptSrcCursor`: where the drag began, for the window a drop outside
+                    // the window makes.
+                    cx.set_global(TabDrag(Some(TabDragOrigin {
+                        window: window.window_handle(),
+                        index: dragged.from,
+                        start: window.mouse_position(),
+                    })));
+                    cx.new(|_| dragged.clone())
+                })
                 .on_drop(cx.listener(move |this, dragged: &DraggedTab, _, cx| {
                     this.move_tab(dragged.from, from, cx);
                 }));

@@ -40,9 +40,10 @@ pub(crate) mod popup_keys;
 
 use crate::app::Workspace;
 use crate::menu_bar::access::{
-    AltTap, after_down, after_up, as_in_popup, is_clickable, item_key, key_of, next_match,
-    presses_to_reach,
+    AltTap, Clickable, after_down, after_up, as_in_popup, is_clickable, item_key, key_of,
+    next_match, presses_to_reach,
 };
+use crate::menu_bar::popup_keys::{KeyList, Rebuild};
 use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
@@ -56,6 +57,7 @@ use gpui_base::actions::{Cancel, SelectDown, SelectLeft, SelectRight, SelectUp};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::PopupMenu;
 use gpui_component::{GlobalState, InteractiveElementExt as _, Selectable, Sizable, h_flex};
+use std::rc::Rc;
 
 /// The key context that `gpui_component::init` binds Escape, Left and Right to.
 const CONTEXT: &str = "AppMenuBar";
@@ -128,11 +130,15 @@ impl MenuBar {
         let Some(workspace) = workspace.as_ref().and_then(WeakEntity::upgrade) else {
             return;
         };
-        // A kind of tab that has no state of the editor leaves the items as they are made.
+        // A kind of tab that has no state of the editor leaves the items as they are made, except that the
+        // shell grays its copy item while nothing is selected.
         let Some(states) = workspace
             .read(cx)
             .menu_states(topmost, workspace.entity_id(), cx)
         else {
+            if workspace.read(cx).menu_kind() == MenuKind::Terminal {
+                crate::terminal::menus::mark_items(items, workspace.read(cx), cx);
+            }
             return;
         };
         crate::menu_state::apply(items, &states);
@@ -162,7 +168,7 @@ impl MenuBar {
         let menus: Vec<OwnedMenu> = crate::app::KindMenus::of(cx, self.kind)
             .unwrap_or_else(|| GlobalState::global(cx).app_menus().to_vec());
         self.menus = menus
-            .iter()
+            .into_iter()
             .enumerate()
             .map(|(ix, menu)| BarMenu::new(ix, menu, menu_bar.clone(), cx))
             .collect();
@@ -295,19 +301,15 @@ pub(crate) fn fill(
                 ..
             } if with_icons => {
                 let picture = function_picture(action.as_ref(), scale);
-                menu.menu_element_with_disabled(
-                    Action::boxed_clone(action.as_ref()),
-                    disabled,
-                    move |_, _| {
-                        crate::menu_icons::item_element(
-                            SharedString::from(name.clone()),
-                            picture.clone(),
-                            checked,
-                            disabled,
-                            scale,
-                        )
-                    },
-                )
+                menu.menu_element_with_disabled(action, disabled, move |_, _| {
+                    crate::menu_icons::item_element(
+                        SharedString::from(name.clone()),
+                        picture.clone(),
+                        checked,
+                        disabled,
+                        scale,
+                    )
+                })
             }
             OwnedMenuItem::Action {
                 name,
@@ -315,27 +317,30 @@ pub(crate) fn fill(
                 checked,
                 disabled,
                 ..
-            } => menu.menu_with_check_and_disabled(
-                name,
-                checked,
-                Action::boxed_clone(action.as_ref()),
-                disabled,
-            ),
+            } => menu.menu_with_check_and_disabled(name, checked, action, disabled),
             OwnedMenuItem::Separator => menu.separator(),
             OwnedMenuItem::Submenu(submenu) => {
                 let context = action_context.cloned();
                 let icon = with_icons.then(|| {
                     gpui_component::Icon::empty().mr(px(crate::menu_icons::submenu_padding(scale)))
                 });
-                menu.submenu_with_icon(icon, submenu.name, window, cx, move |sub, window, cx| {
+                let items = submenu.items;
+                // The submenu takes the access keys too (`CMenuDrawer::OnMenuChar` answers
+                // `WM_MENUCHAR` for whichever menu has the focus): it is registered with the
+                // popups whose letters `popup_keys::key` handles, with the way to fill it again.
+                let keys = KeyList::of_owned(items.clone());
+                let fill_again: Rebuild = Rc::new(move |sub, window, cx| {
                     let sub = match &context {
                         Some(handle) => sub.action_context(handle.clone()),
                         None => sub,
                     };
                     // As gpui-component does: a long submenu scrolls within its default height.
-                    let scrollable = submenu.items.len() > 20;
-                    fill(sub, submenu.items.clone(), context.as_ref(), window, cx)
-                        .scrollable(scrollable)
+                    let scrollable = items.len() > 20;
+                    fill(sub, items.clone(), context.as_ref(), window, cx).scrollable(scrollable)
+                });
+                menu.submenu_with_icon(icon, submenu.name, window, cx, move |sub, window, cx| {
+                    popup_keys::register(&cx.entity(), keys.clone(), fill_again.clone(), cx);
+                    fill_again(sub, window, cx)
                 })
             }
             OwnedMenuItem::SystemMenu(_) => menu,
@@ -376,19 +381,29 @@ pub(crate) struct BarMenu {
     pending_right: u8,
     /// The popup for `pending_key` has been through one render.
     pending_drawn: bool,
-    /// The items the open popup was built with, with their marks (the gray ones).
-    popup_items: Vec<OwnedMenuItem>,
+    /// Whether the selection can stop on each item the open popup was built with (the gray ones
+    /// cannot).
+    popup_items: Vec<Reachable>,
     _subscription: Option<Subscription>,
 }
 
+/// An item of the open popup as far as the keys are concerned: the selection can stop on it.
+struct Reachable(bool);
+
+impl Clickable for Reachable {
+    fn clickable(&self) -> bool {
+        self.0
+    }
+}
+
 impl BarMenu {
-    fn new(ix: usize, menu: &OwnedMenu, menu_bar: Entity<MenuBar>, cx: &mut App) -> Entity<Self> {
+    fn new(ix: usize, menu: OwnedMenu, menu_bar: Entity<MenuBar>, cx: &mut App) -> Entity<Self> {
         let name = menu.name.clone();
         cx.new(|_| Self {
             ix,
             menu_bar,
             name,
-            menu: menu.clone(),
+            menu,
             popup_menu: None,
             popup_window_height: Pixels::ZERO,
             bounds: Bounds::default(),
@@ -419,7 +434,10 @@ impl BarMenu {
                 let mut items = self.menu.items.clone();
                 MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
                 let items = as_in_popup(items);
-                self.popup_items = items.clone();
+                self.popup_items = items
+                    .iter()
+                    .map(|item| Reachable(is_clickable(item)))
+                    .collect();
                 let max_height = popup_max_height(
                     window.viewport_size().height,
                     self.bounds.bottom() + px(POPUP_OFFSET),
@@ -493,8 +511,8 @@ impl BarMenu {
 
     /// A letter in the open menu (`CMenuDrawer::OnMenuChar`): the item with that access key runs
     /// (a submenu opens), or, if several have it, the selection goes to the next of them. Case does
-    /// not matter. Only the menu itself is handled; once a submenu has the focus, its letters are
-    /// left alone.
+    /// not matter. Only the menu itself is handled; the letters of a submenu that has the focus
+    /// come through `popup_keys::key` (`fill` registers every submenu).
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let m = keystroke.modifiers;
@@ -541,7 +559,8 @@ impl BarMenu {
             let reachable: Vec<usize> = with_key
                 .into_iter()
                 .filter(|&i| {
-                    is_clickable(&items[i]) && self.popup_items.get(i).is_some_and(is_clickable)
+                    is_clickable(&items[i])
+                        && self.popup_items.get(i).is_some_and(Clickable::clickable)
                 })
                 .collect();
             if !reachable.is_empty() && self.restart_popup(key, cx) {
@@ -553,20 +572,19 @@ impl BarMenu {
             return true;
         }
         let first = with_key[0];
-        match &items[first] {
-            OwnedMenuItem::Action {
+        match items.into_iter().nth(first) {
+            Some(OwnedMenuItem::Action {
                 disabled: false,
                 action,
                 ..
-            } => {
-                let action = Action::boxed_clone(action.as_ref());
+            }) => {
                 // The menu closes and the focus goes back, then the item runs where it was.
                 self.menu_bar.update(cx, |bar, cx| {
                     bar.set_selected_index(None, window, cx);
                 });
                 window.dispatch_action(action, cx);
             }
-            OwnedMenuItem::Submenu(_) => {
+            Some(OwnedMenuItem::Submenu(_)) => {
                 if self.restart_popup(key, cx) {
                     return true;
                 }
@@ -603,7 +621,6 @@ impl BarMenu {
         gpui::canvas(
             |_, _, _| (),
             move |_, (), window, cx| {
-                let this = this.clone();
                 // Every draw: the Right key that waited for the popup to draw its selection. A
                 // popup near the right edge of the window opens its submenus to the left, where
                 // the Left key goes in and the Right key does not: if the focus did not move, try
@@ -670,6 +687,10 @@ impl BarMenu {
         }
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "the signature is fixed by GPUI's on_hover listener, which passes &bool"
+    )]
     fn handle_hover(&mut self, hovered: &bool, window: &mut Window, cx: &mut Context<Self>) {
         if !*hovered {
             return;

@@ -196,7 +196,7 @@ impl EditorView {
         // The IME answers `SCS_SETRECONVERTSTRING` with the messages of a composition, which the
         // window handles while the application is borrowed by this command. Run the calls after it.
         crate::file_ops::start(window, cx, async move |view, cx| {
-            run(&view, cx, &*ime, plan);
+            run(&view, cx, &*ime, &plan);
         });
     }
 
@@ -215,7 +215,7 @@ impl EditorView {
 /// The steps of `Command_Reconvert` after the structure is made: the IME widens the range, the
 /// range is selected, the conversion starts. The IME not taking reconversion is said on the
 /// status bar.
-fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext, ime: &dyn Ime, plan: Plan) {
+fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext, ime: &dyn Ime, plan: &Plan) {
     let mut reconvert = Reconvert::new(&plan.request);
     let say = |cx: &mut AsyncWindowContext, error: Error| {
         view.update(cx, |view, cx| {

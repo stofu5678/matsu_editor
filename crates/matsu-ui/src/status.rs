@@ -26,7 +26,7 @@ pub struct StatusInfo {
     /// The name of the encoding, with " BOM付" when the document has a BOM ([`charset_label`]).
     pub charset: String,
     /// The name of the line ending that Enter inserts ([`eol_name`]).
-    pub eol: String,
+    pub eol: &'static str,
     /// The code of the character at the caret, or the name of the line ending when the caret is at
     /// it (`EditorView::caret_char_code`). Empty at the end of the file.
     pub char_code: String,
@@ -38,6 +38,9 @@ pub struct StatusInfo {
     pub recording: bool,
     /// The zoom of the font, 1.0 for 100 % (`CEditWnd::GetFontZoom`).
     pub zoom: f64,
+    /// Only the message part says something (a tab that is not an editor, such as the shell): the other
+    /// parts are empty and do nothing when clicked.
+    pub message_only: bool,
 }
 
 impl Default for StatusInfo {
@@ -50,12 +53,13 @@ impl Default for StatusInfo {
             modified: false,
             overwrite: false,
             charset: String::new(),
-            eol: String::new(),
+            eol: "",
             char_code: String::new(),
             selection: None,
             notice: None,
             recording: false,
             zoom: 1.0,
+            message_only: false,
         }
     }
 }
@@ -104,10 +108,13 @@ impl Part {
 impl StatusInfo {
     /// The text of `part`. REC is always "REC"; whether it is lit is [`recording`](Self::recording).
     pub fn text(&self, part: Part) -> String {
+        if self.message_only && part != Part::Message {
+            return String::new();
+        }
         match part {
             Part::Message => self.message(),
             Part::Position => self.position_text(),
-            Part::Eol => self.eol.clone(),
+            Part::Eol => self.eol.to_owned(),
             Part::CharCode => self.char_code.clone(),
             Part::Charset => self.charset.clone(),
             Part::Rec => "REC".to_owned(),
@@ -190,7 +197,7 @@ mod tests {
             column: 12,
             lines: 100,
             charset: charset_label(Encoding::Utf8, true),
-            eol: "CRLF".to_owned(),
+            eol: "CRLF",
             char_code: "U+3042".to_owned(),
             ..StatusInfo::default()
         }

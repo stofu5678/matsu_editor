@@ -1,0 +1,23 @@
+[package]
+name = "matsu-oneliner"
+description = "Runs a one-liner (a shell command line) with the selection on its standard input: the shell and its arguments, and the run (ADR-0029)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The text rules: the input in chunks, the output decoded and made LF, the cap.
+matsu-core = { path = "../matsu-core" }
+# The process: a program with arguments, the standard error apart, the stop, the OEM code page.
+matsu-platform = { path = "../matsu-platform" }
+# The shell of the shell tab (`[Terminal]` `Shell=`), whose program part is the shell of a one-liner.
+matsu-terminal = { path = "../matsu-terminal" }
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints]
+workspace = true

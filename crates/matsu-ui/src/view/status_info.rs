@@ -95,7 +95,7 @@ impl EditorView {
     /// lines are numbered by the text, without the indent of the wrapped rows), or, with
     /// `DispColByChar`, the number of characters (UTF-16 units) before the caret in the line (in
     /// the row, when the rows are numbered).
-    pub(crate) fn status_position(&self, options: &StatusbarOptions, cx: &App) -> (usize, u32) {
+    pub(crate) fn status_position(&self, options: StatusbarOptions, cx: &App) -> (usize, u32) {
         let doc = self.doc(cx);
         let caret = self.cursor.caret();
         let by_text = self.prefs.settings.outline.line_num_is_crlf;
@@ -146,7 +146,7 @@ impl EditorView {
 
     /// The code of the character at the caret, the name of the line ending when the caret is at
     /// it, and nothing at the end of the file (`ShowCaretPosInfo`: `szCaretChar`).
-    pub(crate) fn caret_char_code(&self, options: &StatusbarOptions, cx: &App) -> String {
+    pub(crate) fn caret_char_code(&self, options: StatusbarOptions, cx: &App) -> String {
         let shared = self.document.read(cx);
         let caret = self.cursor.caret();
         let Ok(Some((rest, eol))) = shared.doc().rest_of_line(caret.line, caret.col, 64) else {
@@ -172,7 +172,7 @@ impl EditorView {
     }
 
     /// The message of the selection (`PrintSelectionInfoMsg`), or `None` when it is empty.
-    pub(crate) fn selection_message(&self, options: &StatusbarOptions, cx: &App) -> Option<String> {
+    pub(crate) fn selection_message(&self, options: StatusbarOptions, cx: &App) -> Option<String> {
         let doc = self.doc(cx);
         let cursor = &self.cursor;
         let rows = |a: Pos, b: Pos| {

@@ -39,7 +39,7 @@ const OUTPUT_GRACE: Duration = Duration::from_millis(1000);
 /// 5. a sample in `samples/` and the tests in `tests.rs` (skipped when the interpreter is
 ///    missing), and the interpreter on the runners that have it: `MATSU_REQUIRE_INTERPRETERS`
 ///    makes a missing one on Linux x64 a failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     JavaScript,
     /// `.ts`, run by Node.js 22.18 or later, which strips the types itself (ADR-0025). The boot
@@ -74,7 +74,7 @@ pub enum Language {
 
 /// The engines of the bundled script host. A new engine adds a variant here, its names below
 /// and its extension in [`Language::of_file`]; the rest of the code handles every engine alike.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Engine {
     Lua,
     QuickJs,
@@ -145,6 +145,25 @@ impl Language {
                 *known == lower && (*language != Self::TypeScript || extension == "ts")
             })
             .map(|(_, language)| *language)
+    }
+
+    /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
+    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`), Python, Ruby, PHP, PowerShell,
+    /// Perl, Emacs Lisp and AppleScript (macOS only). The other languages are not served yet.
+    pub fn serves_plugins(self) -> bool {
+        matches!(
+            self,
+            Self::Bundled(Engine::QuickJs)
+                | Self::JavaScript
+                | Self::TypeScript
+                | Self::Python
+                | Self::Ruby
+                | Self::Php
+                | Self::PowerShell
+                | Self::Perl
+                | Self::EmacsLisp
+                | Self::AppleScript
+        )
     }
 
     /// Whether this OS can run the language. AppleScript runs only on macOS.
@@ -299,6 +318,9 @@ pub struct MacroConfig {
     /// Set for a plugin host (ADR-0026): the process waits for `plugin/invoke` calls instead of
     /// running a script, and `script` is only its place in the error messages.
     pub plugin: Option<crate::protocol::PluginIdentity>,
+    /// The `PATH` for the interpreter (and what it starts), `None` for the one of this process.
+    /// The editor gives the `PATH` of the login shell here on macOS (`matsu_platform::login_path`).
+    pub path: Option<OsString>,
 }
 
 /// A plugin host lives as long as the plugin is used; the time limits are the invokes' (see
@@ -306,8 +328,8 @@ pub struct MacroConfig {
 pub const PLUGIN_LIFETIME: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 
 impl MacroConfig {
-    /// The configuration of a host for the plugin `plugin`, run by `language`. Only the bundled
-    /// QuickJS can serve a plugin for now.
+    /// The configuration of a host for the plugin `plugin`, run by `language` (see
+    /// [`Language::serves_plugins`]).
     pub fn for_plugin(
         plugin: crate::protocol::PluginIdentity,
         language: Language,
@@ -321,6 +343,7 @@ impl MacroConfig {
             temp_dir: None,
             document_path,
             plugin: Some(plugin),
+            path: None,
         }
     }
 
@@ -337,6 +360,7 @@ impl MacroConfig {
             temp_dir: None,
             document_path,
             plugin: None,
+            path: None,
         })
     }
 }
@@ -382,7 +406,7 @@ impl std::fmt::Display for StartError {
             ),
             Self::PluginNotSupported { language } => write!(
                 f,
-                "{} のプラグインはまだ動かせません (今は .js だけです)",
+                "{} のプラグインはまだ動かせません (今は .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ) だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -531,28 +555,37 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 
 /// Starts the macro. The events go to `sink` from other threads, in order, ending with
 /// `Finished`.
-pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
+pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
     if config.language == Language::AppleScript && !cfg!(target_os = "macos") {
         return Err(StartError::NotSupportedHere {
             language: config.language,
         });
     }
-    if config.plugin.is_some() && config.language != Language::Bundled(Engine::QuickJs) {
+    if config.plugin.is_some() && !config.language.serves_plugins() {
         return Err(StartError::PluginNotSupported {
             language: config.language,
         });
     }
     // AppleScript: the user's script goes into the program that osascript runs, so it is not sent in
     // `initialize`.
+    // A plugin host has no script of its own: its program serves the calls ([`applescript::Program::plugin`]).
     let program = if config.language == Language::AppleScript {
-        let user = read_script(&config.script)?;
-        Some(applescript::Program::build(&user.source, &user.name))
+        if config.plugin.is_some() {
+            Some(applescript::Program::plugin())
+        } else {
+            let user = read_script(&config.script)?;
+            Some(applescript::Program::build(&user.source, &user.name))
+        }
     } else {
         None
     };
     let script = match config.language {
         // A plugin host brings no script: the handlers come with each call.
-        Language::Bundled(_) if config.plugin.is_some() => None,
+        Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp
+            if config.plugin.is_some() =>
+        {
+            None
+        }
         Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
             Some(read_script(&config.script)?)
         }
@@ -586,25 +619,33 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             command.arg("--engine").arg(engine.name());
         }
         Language::JavaScript | Language::TypeScript => {
-            command
-                .arg("--require")
-                .arg(boot_files(boot::JS_BOOT))
-                .arg(&config.script);
+            command.arg("--require").arg(boot_files(boot::JS_BOOT));
+            if config.plugin.is_some() {
+                // A plugin host has no main script: the boot serves the calls itself, and
+                // `-e` only gives Node.js something to run after the boot is loaded.
+                command.args(["-e", "0"]);
+            } else {
+                command.arg(&config.script);
+            }
         }
         Language::Python => {
             // -u: no buffering, so the user's output and the requests stay in order.
-            command
-                .arg("-u")
-                .arg(boot_files(boot::PY_BOOT))
-                .arg(&config.script);
+            command.arg("-u").arg(boot_files(boot::PY_BOOT));
+            // A plugin host brings no script (`initialize` says it is a plugin).
+            if config.plugin.is_none() {
+                command.arg(&config.script);
+            }
         }
         Language::Ruby => {
             // -E UTF-8: the user's strings and files are UTF-8 whatever the OS locale is.
             command
                 .arg("-E")
                 .arg("UTF-8")
-                .arg(boot_files(boot::RB_BOOT))
-                .arg(&config.script);
+                .arg(boot_files(boot::RB_BOOT));
+            // A plugin host brings no script (`initialize` says it is a plugin).
+            if config.plugin.is_none() {
+                command.arg(&config.script);
+            }
         }
         Language::PowerShell => {
             // The text of the script goes in `initialize`, so there is no path to open. No
@@ -629,8 +670,15 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                 .arg(boot_files(boot::EL_BOOT));
         }
         Language::AppleScript => {
-            // One script file; the stdin and stdout are the conversation.
-            command.arg(boot_files(boot::AS_PROGRAM));
+            // One script file; the stdin and stdout are the conversation. A plugin host reads the
+            // boot text again for each handler (`boot::AS_BOOT`), from this folder.
+            command.arg(boot_files(boot::AS_PROGRAM)).env(
+                "MATSU_BOOT_DIR",
+                boot_dir
+                    .as_ref()
+                    .map(|dir| dir.path())
+                    .unwrap_or(Path::new("")),
+            );
         }
         Language::Perl => {
             // The program comes from the standard input (`-`); the rest of the input, after its
@@ -653,9 +701,15 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                     "-d",
                     "output_buffering=0",
                 ])
-                .arg(boot_files(boot::PHP_BOOT))
-                .arg(&config.script);
+                .arg(boot_files(boot::PHP_BOOT));
+            // A plugin host brings no script (`initialize` says it is a plugin).
+            if config.plugin.is_none() {
+                command.arg(&config.script);
+            }
         }
+    }
+    if let Some(path) = &config.path {
+        command.env("PATH", path);
     }
     command
         // Python writes to a pipe in the ANSI code page of Windows by default.
@@ -736,21 +790,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         let sink = gated.clone();
         let done = done_tx.clone();
         thread::spawn(move || {
-            read_lines(stdout, |line| {
-                let split = protocol::split_output_line(line);
-                if let Some(text) = split.user {
-                    // osascript prints the value that the program returns: not the macro's output.
-                    if !(is_applescript && text == applescript::END_MARK) {
-                        sink(HostEvent::Output {
-                            stream: Stream::Stdout,
-                            text: text.to_string(),
-                        });
-                    }
-                }
-                if let Some(message) = split.message {
-                    sink(HostEvent::Message(message.to_string()));
-                }
-            });
+            forward_stdout(stdout, is_applescript, &*sink);
             let _ = done.send(());
         });
     }
@@ -865,6 +905,58 @@ fn read_script(path: &Path) -> Result<ScriptSource, StartError> {
     })
 }
 
+/// Forwards the macro's standard output as events. The user's text and the protocol messages
+/// share this stream, and a macro that wrote text without a line break just before a call to the
+/// editor leaves `text<RS>{json}` on the pipe. That text is held and joined with the rest of its
+/// line, so the user's line stays whole across the call; it is flushed as a line of its own before
+/// a message that ends a call (a response, which has no `method`) and at the end of the stream.
+fn forward_stdout(
+    stream: impl std::io::Read,
+    is_applescript: bool,
+    sink: &(dyn Fn(HostEvent) + Send + Sync),
+) {
+    let mut held = String::new();
+    let output = |text: String| {
+        sink(HostEvent::Output {
+            stream: Stream::Stdout,
+            text,
+        });
+    };
+    read_lines(stream, |line| {
+        let split = protocol::split_output_line(line);
+        let Some(message) = split.message else {
+            // osascript prints the value that the program returns: not the macro's output. It
+            // ends the held line (if any), and is dropped.
+            if is_applescript && line == applescript::END_MARK {
+                if !held.is_empty() {
+                    output(std::mem::take(&mut held));
+                }
+                return;
+            }
+            // A plain line (also the empty one of `print()`) ends the held line.
+            held.push_str(split.user.unwrap_or_default());
+            output(std::mem::take(&mut held));
+            return;
+        };
+        held.push_str(split.user.unwrap_or_default());
+        if !held.is_empty() && !has_method(message) {
+            output(std::mem::take(&mut held));
+        }
+        sink(HostEvent::Message(message.to_string()));
+    });
+    if !held.is_empty() {
+        output(held);
+    }
+}
+
+/// Whether a JSON-RPC message has a `method`: a request or notification to the editor. One
+/// without it (a response) ends a call. A message that does not parse counts as a request,
+/// which the host rejects.
+fn has_method(message: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(message)
+        .map_or(true, |value| value.get("method").is_some())
+}
+
 /// Reads lines until the end of the stream. The bytes are read as UTF-8, and anything that is
 /// not (a console code page, for example) becomes U+FFFD. A line's CR LF or LF is dropped.
 fn read_lines(stream: impl std::io::Read, mut on_line: impl FnMut(&str)) {
@@ -904,7 +996,7 @@ impl Report {
 /// response line, or `None` for a notification). This blocks the calling thread: the editor
 /// uses `start` instead. The tests and the command line mode use this.
 pub fn run_blocking(
-    config: MacroConfig,
+    config: &MacroConfig,
     mut handler: impl FnMut(&str) -> Option<String>,
 ) -> Result<Report, StartError> {
     let (tx, rx) = mpsc::channel();
@@ -1001,5 +1093,135 @@ mod tests {
             .filter(|(_, language)| language.runs_here())
             .count();
         assert_eq!(listed, runnable);
+    }
+
+    /// What `forward_stdout` makes of a piece of standard output: `O:` for output, `M:` for a message.
+    fn forwarded(input: &str, is_applescript: bool) -> Vec<String> {
+        let events = Mutex::new(Vec::new());
+        forward_stdout(input.as_bytes(), is_applescript, &|event| match event {
+            HostEvent::Output { stream, text } => {
+                assert_eq!(stream, Stream::Stdout);
+                events.lock().unwrap().push(format!("O:{text}"));
+            }
+            HostEvent::Message(text) => events.lock().unwrap().push(format!("M:{text}")),
+            HostEvent::Finished(_) => unreachable!(),
+        });
+        events.into_inner().unwrap()
+    }
+
+    const REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"method":"Editor.X","params":[]}"#;
+    const NOTE: &str = r#"{"jsonrpc":"2.0","method":"Editor.Y","params":[]}"#;
+    const RESPONSE: &str = r#"{"jsonrpc":"2.0","id":7,"result":null}"#;
+
+    #[test]
+    fn a_line_is_joined_across_an_editor_call() {
+        let input = format!("a\u{1e}{REQUEST}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:ab".to_string()]
+        );
+        // A notification holds the text as a request does.
+        let input = format!("a\u{1e}{NOTE}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{NOTE}"), "O:ab".to_string()]
+        );
+    }
+
+    #[test]
+    fn two_calls_in_a_row_keep_one_line() {
+        let input = format!("a\u{1e}{REQUEST}\nb\u{1e}{REQUEST}\nc\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                format!("M:{REQUEST}"),
+                format!("M:{REQUEST}"),
+                "O:abc".to_string()
+            ]
+        );
+        // A message with no text before it neither flushes nor breaks the line.
+        let input = format!("a\u{1e}{REQUEST}\n\u{1e}{REQUEST}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                format!("M:{REQUEST}"),
+                format!("M:{REQUEST}"),
+                "O:ab".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_response_ends_the_held_line_before_it() {
+        let input = format!("a\u{1e}{RESPONSE}\nb\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                "O:a".to_string(),
+                format!("M:{RESPONSE}"),
+                "O:b".to_string()
+            ]
+        );
+        // Text held from an earlier call comes out with the text before the response.
+        let input = format!("a\u{1e}{REQUEST}\nb\u{1e}{RESPONSE}\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [
+                format!("M:{REQUEST}"),
+                "O:ab".to_string(),
+                format!("M:{RESPONSE}")
+            ]
+        );
+        // A response with nothing held changes nothing.
+        let input = format!("\u{1e}{RESPONSE}\n");
+        assert_eq!(forwarded(&input, false), [format!("M:{RESPONSE}")]);
+    }
+
+    #[test]
+    fn held_text_comes_out_at_the_end_of_the_stream() {
+        let input = format!("a\u{1e}{REQUEST}\ntail");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:atail".to_string()]
+        );
+        let input = format!("a\u{1e}{REQUEST}\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:a".to_string()]
+        );
+    }
+
+    #[test]
+    fn lines_without_a_message_are_unchanged() {
+        assert_eq!(
+            forwarded("a\n\nb\r\nlast", false),
+            ["O:a", "O:", "O:b", "O:last"]
+        );
+        assert!(forwarded("", false).is_empty());
+        // The empty line of `print()` ends a held line and is not lost.
+        let input = format!("a\u{1e}{REQUEST}\n\n");
+        assert_eq!(
+            forwarded(&input, false),
+            [format!("M:{REQUEST}"), "O:a".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_message_that_does_not_parse_holds_the_text() {
+        let input = "a\u{1e}{oops\nb\n";
+        assert_eq!(forwarded(input, false), ["M:{oops", "O:ab"]);
+    }
+
+    #[test]
+    fn the_applescript_end_mark_is_not_output() {
+        let input = format!("{}\n", applescript::END_MARK);
+        assert!(forwarded(&input, true).is_empty());
+        assert_eq!(forwarded(&input, false).len(), 1);
+        // Text held across a call comes out as its own line; the mark is still dropped.
+        let input = format!("a\u{1e}{REQUEST}\n{}\n", applescript::END_MARK);
+        assert_eq!(
+            forwarded(&input, true),
+            [format!("M:{REQUEST}"), "O:a".to_string()]
+        );
     }
 }

@@ -18,6 +18,7 @@ pub mod prevgroup;
 pub mod preview_tab;
 pub mod prevwindow;
 pub mod redraw;
+pub mod shell_tab;
 pub mod showtab;
 pub mod tab_closeleft;
 pub mod tab_closeother;

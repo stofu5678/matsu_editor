@@ -19,6 +19,11 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# Every job has a time limit (timeout-minutes) instead of GitHub's default of 6 hours, so that a job that hangs gives
+# its runner back. A limit is at least 10 minutes, and at least one and a half times the longest successful run of the
+# job in the weeks before 2026-11-07 (test: 39 minutes, linux-x64, while the apt mirror was slow); a job that gets more
+# says why. The time a job waits for a runner does not count. The runner of test (macos-arm64) can be the one VM on the
+# maintainer's Mac (ADR-0027), which runs nothing else while a job holds it.
 jobs:
   # Tells whether a pull request changes more than documentation (Markdown files and docs/). The
   # test jobs below use it to stay off the macOS and Windows runners for a docs-only change: the
@@ -29,11 +34,13 @@ jobs:
   changes:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
     outputs:
       code: ${{ steps.files.outputs.code }}
+      help: ${{ steps.files.outputs.help }}
       mac: ${{ steps.mac.outputs.mac }}
       mac_kind: ${{ steps.mac.outputs.mac_kind }}
     steps:
@@ -44,6 +51,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           code=true
+          help=true
           if [ "$EVENT" = pull_request ]; then
             # A rename lists the new path as `filename` and the old one as `previous_filename`; both
             # count, so moving code into docs/ or to a .md name is a code change.
@@ -53,59 +61,41 @@ jobs:
             if [ -n "$files" ] && [ "$count" -lt 3000 ] && ! printf '%s\n' "$files" | grep -Ev '(\.md$|^docs/)' > /dev/null; then
               code=false
             fi
+            # The help job (below) runs for a change of the help, of its check (xtask), of the Sakura tables
+            # whose names the check leaves out, or of its own files. A docs-only change to docs/help/ is one.
+            # The same limit of 3000 files as above: a longer change counts.
+            help=false
+            if [ -n "$files" ] && [ "$count" -lt 3000 ]; then
+              if printf '%s\n' "$files" | grep -E '^(docs/help/|xtask/|tools/help/|crates/matsu-commands/src/sakura/|\.github/scripts/help-|\.github/workflows/ci\.yml$)' > /dev/null; then
+                help=true
+              fi
+            else
+              help=true
+            fi
             printf 'changed files:\n%s\n' "$files"
           fi
           echo "code=${code}" >> "$GITHUB_OUTPUT"
+          echo "help=${help}" >> "$GITHUB_OUTPUT"
 
       # Picks the runner of test (macos-arm64) (ADR-0027): the self-hosted runner in the VM on the maintainer's Mac,
       # or GitHub's macos-15. It is a step of this job, not a job of its own, so that a pull request does not wait
-      # for one more runner. The choice fails closed: anything missing or malformed means GitHub's runner.
-      # - The repository variables are not passed to a workflow run for a pull request from a fork, so a fork gets
-      #   GitHub's runner by itself; the repository ID check below says so again, in case that ever changes.
-      # - MAC_RUNNER_SEEN is the time (UNIX seconds) at which the Mac last said that the runner is alive. When it is
-      #   older than 15 minutes (the Mac is closed or off), CI falls back to GitHub's runner without anybody
-      #   switching MAC_RUNNER.
-      # - This is for convenience. The protection is the job-started hook inside the VM, which refuses any other
-      #   repository, event, workflow and job, and which a workflow cannot change.
+      # for one more runner. The choice fails closed: anything missing or malformed means GitHub's runner. The rules
+      # are in .github/actions/mac-runner/action.yml, which package.yml uses too. The checkout takes only that
+      # folder; this job needs nothing else of the repository.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
       - id: mac
-        env:
-          MAC_RUNNER: ${{ vars.MAC_RUNNER }}
-          MAC_RUNNER_SEEN: ${{ vars.MAC_RUNNER_SEEN }}
-          EVENT: ${{ github.event_name }}
-          HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id }}
-          REPO_ID: ${{ github.repository_id }}
-        run: |
-          reason=
-          if [ "${MAC_RUNNER}" != self-hosted ]; then
-            reason="MAC_RUNNER is '${MAC_RUNNER}', not 'self-hosted'"
-          elif ! [[ "${REPO_ID}" =~ ^[0-9]{1,20}$ ]]; then
-            reason="the repository ID is missing or malformed ('${REPO_ID}')"
-          elif [ "${EVENT}" = push ]; then
-            :
-          elif [ "${EVENT}" != pull_request ]; then
-            reason="the event is '${EVENT}', not push or pull_request"
-          elif [ "${HEAD_REPO_ID}" != "${REPO_ID}" ]; then
-            reason="the pull request comes from another repository ('${HEAD_REPO_ID}')"
-          fi
-          if [ -z "${reason}" ]; then
-            now=$(date +%s)
-            if ! [[ "${MAC_RUNNER_SEEN}" =~ ^[0-9]{1,12}$ ]]; then
-              reason="MAC_RUNNER_SEEN is missing or not a number ('${MAC_RUNNER_SEEN}')"
-            elif [ $((10#${MAC_RUNNER_SEEN})) -lt $((now - 900)) ]; then
-              reason="MAC_RUNNER_SEEN is older than 15 minutes ($((now - 10#${MAC_RUNNER_SEEN})) seconds)"
-            elif [ $((10#${MAC_RUNNER_SEEN})) -gt $((now + 60)) ]; then
-              reason="MAC_RUNNER_SEEN is in the future ($((10#${MAC_RUNNER_SEEN} - now)) seconds ahead)"
-            fi
-          fi
-          if [ -z "${reason}" ]; then
-            echo 'macOS runner: self-hosted (MAC_RUNNER=self-hosted, seen recently)'
-            echo 'mac=["self-hosted","matsu-vm"]' >> "$GITHUB_OUTPUT"
-            echo 'mac_kind=self-hosted' >> "$GITHUB_OUTPUT"
-          else
-            echo "macOS runner: GitHub's macos-15, because ${reason}"
-            echo 'mac="macos-15"' >> "$GITHUB_OUTPUT"
-            echo 'mac_kind=github' >> "$GITHUB_OUTPUT"
-          fi
+        uses: ./.github/actions/mac-runner
+        with:
+          mac-runner: ${{ vars.MAC_RUNNER }}
+          mac-runner-seen: ${{ vars.MAC_RUNNER_SEEN }}
+          event: ${{ github.event_name }}
+          head-repo-id: ${{ github.event.pull_request.head.repo.id }}
+          repo-id: ${{ github.repository_id }}
+          head-commit-time: ${{ github.event.head_commit.timestamp }}
+          head-commit-committer: ${{ github.event.head_commit.committer.email }}
 
   # The quick checks share one job and one runner. As six jobs they each ran for 2 minutes or less but waited 5
   # minutes or more for a runner of their own when several pull requests were open. Every step after the first runs
@@ -113,6 +103,9 @@ jobs:
   lint:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
+    # More than the rule above gives (18 minutes): installing the packages that GPUI needs took up to 9 minutes in
+    # test (linux-x64) while the apt mirror was slow, and .github/scripts/apt-install.sh may try again.
+    timeout-minutes: 45
     env:
       RUSTDOCFLAGS: -D warnings
       # Keep these two the same as in release.yml (it regenerates the notices in the release PR).
@@ -128,16 +121,25 @@ jobs:
         run: cargo fmt --all --check
       - name: typos
         if: success() || failure()
-        uses: crate-ci/typos@v1.51.1
+        uses: crate-ci/typos@v1.52.2
       - name: actionlint
         if: success() || failure()
         uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color
+      # The old product name must not come back (ADR-0021). This runs for every pull request, docs-only ones too: the
+      # workspace tests are skipped for those, and a help page once brought the old katakana name back unseen.
+      - name: old product name
+        if: success() || failure()
+        run: cargo run --locked --package xtask -- names-check
       # Which jobs the self-hosted runner in the VM on the maintainer's Mac lets run (ADR-0027). Bash and jq only.
       - name: mac-runner admission
         if: success() || failure()
         run: bash tools/mac-runner/tests/admit-test.sh
+      # Which runner the macOS jobs get (ADR-0027, .github/actions/mac-runner/pick.sh). Bash and GNU date only.
+      - name: mac-runner routing
+        if: success() || failure()
+        run: bash .github/actions/mac-runner/pick-test.sh
       # Licenses (no GPL family, see CLAUDE.md), advisories, and sources.
       - name: deny
         if: success() || failure()
@@ -167,8 +169,7 @@ jobs:
       - name: Install the packages that GPUI needs
         if: success() || failure()
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+          .github/scripts/apt-install.sh build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
       - uses: Swatinem/rust-cache@v2
@@ -176,6 +177,68 @@ jobs:
       - name: doc
         if: success() || failure()
         run: cargo doc --workspace --no-deps --locked
+
+  # The help in docs/help/ (ADR-0031): the book builds, Pagefind indexes its Japanese text, no link or anchor is
+  # broken, and no run of text is shared with Sakura's help (GFDL, which must not be copied). The job is listed for
+  # every change, so that it can be a required check; its steps run only when the help, its check (xtask), or the
+  # Sakura tables whose names the check leaves out changed (the `help` output of the changes job). The tools are
+  # release binaries of pinned versions with their SHA-256 (the digests on the GitHub releases), not `cargo
+  # install`. The pins and the build are in tools/help/, which the `help` job of package.yml calls too.
+  help:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    needs: changes
+    runs-on: ubuntu-24.04
+    # About 3 minutes (the build of xtask takes seconds); the minimum of 10 from the rule above.
+    timeout-minutes: 10
+    env:
+      # The Sakura commit that the tables in crates/matsu-commands/src/sakura/ were generated from (the first lines
+      # of functions.rs name it). Only help/ and one resource file are read, never copied into the repository.
+      HELP_SAKURA_COMMIT: 48db6c7c25e2d98bdf47baab201826b4da8c7303
+    steps:
+      - name: Nothing to check
+        if: needs.changes.outputs.help != 'true'
+        run: echo 'Neither docs/help/ nor its check changed.'
+      - if: needs.changes.outputs.help == 'true'
+        uses: actions/checkout@v7
+      - if: needs.changes.outputs.help == 'true'
+        uses: dtolnay/rust-toolchain@1.99.0
+      - name: Install mdBook and Pagefind
+        if: needs.changes.outputs.help == 'true'
+        run: tools/help/install-tools.sh "${RUNNER_TEMP}/help-bin"
+      # Sakura's help and its resource file (the labels of the dialogs), at the pinned commit. git checks the hash
+      # of what it fetches, so the commit pins the content.
+      - name: Get Sakura's help
+        if: needs.changes.outputs.help == 'true'
+        run: |
+          if ! grep -q "commit ${HELP_SAKURA_COMMIT}" crates/matsu-commands/src/sakura/functions.rs; then
+            echo "::error::HELP_SAKURA_COMMIT is not the commit of the tables in crates/matsu-commands/src/sakura/. Change both."
+            exit 1
+          fi
+          dir="${RUNNER_TEMP}/sakura"
+          mkdir -p "$dir"
+          git -C "$dir" init -q
+          git -C "$dir" remote add origin https://github.com/sakura-editor/sakura.git
+          git -C "$dir" sparse-checkout set --no-cone help sakura_core/sakura_rc.rc
+          git -C "$dir" fetch -q --depth 1 --filter=blob:none origin "${HELP_SAKURA_COMMIT}"
+          git -C "$dir" checkout -q FETCH_HEAD
+          test "$(git -C "$dir" rev-parse HEAD)" = "${HELP_SAKURA_COMMIT}"
+          echo "SAKURA_DIR=${dir}" >> "${GITHUB_ENV}"
+      # Every step after the first runs even if an earlier one failed, so that one run shows every problem.
+      - name: Tests of the checks
+        if: needs.changes.outputs.help == 'true'
+        run: cargo test -p xtask --locked -- help_
+      - name: Links, and text shared with Sakura's help
+        if: needs.changes.outputs.help == 'true' && (success() || failure())
+        run: cargo xtask help-check --sakura "$SAKURA_DIR"
+      - name: Build the book
+        id: book
+        if: needs.changes.outputs.help == 'true' && (success() || failure())
+        run: tools/help/build.sh
+      # Pagefind reads the built pages and writes its index into the folder. Only <main> (the page itself, not the
+      # sidebar) is indexed; the language is set so that the Japanese text is split into words for the index.
+      - name: Index the book with Pagefind
+        if: needs.changes.outputs.help == 'true' && steps.book.outcome == 'success'
+        run: tools/help/index.sh "${{ steps.book.outputs.site }}"
 
   # The matrix keeps its five jobs (and their names, which are required checks) for a docs-only
   # change too: a skipped matrix job would report under the unexpanded name and the required
@@ -198,6 +261,7 @@ jobs:
           - { name: linux-arm64, os: ubuntu-24.04-arm }
     # Only the macOS job takes its runner from the changes job (ADR-0027); the other four keep matrix.os.
     runs-on: ${{ needs.changes.outputs.code == 'true' && (matrix.name == 'macos-arm64' && fromJSON(needs.changes.outputs.mac) || matrix.os) || 'ubuntu-24.04' }}
+    timeout-minutes: 60
     steps:
       - name: Docs only, nothing to test
         if: needs.changes.outputs.code != 'true'
@@ -210,19 +274,17 @@ jobs:
           components: clippy
       # GPUI (matsu-ui) links the system libraries of the Linux desktop. The same list serves x64
       # and ARM64 (poc/gpui-textview/README.md).
-      - name: Install the packages that GPUI needs
-        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
-            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
-            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
       # The runner images have no Emacs, which the Emacs Lisp macro tests need (Ubuntu 24.04 has
       # Emacs 29.3, built with JSON support). Without it they skip. The other OSes skip them: an
       # install through brew or choco costs minutes on runners that are scarce or slow already.
-      - name: Install Emacs for the Emacs Lisp macro tests
+      # One call of the script for both, so that apt reads the package lists once.
+      - name: Install the packages that GPUI needs, and Emacs for the Emacs Lisp macro tests
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
-        run: sudo apt-get install --no-install-recommends -y emacs-nox
+        run: |
+          .github/scripts/apt-install.sh build-essential clang cmake \
+            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
+            emacs-nox
       # The VM has its own SDK and tools, so its cache must not mix with GitHub's macOS runner (ADR-0027). An empty
       # key adds nothing to the cache name (rust-cache config.ts: `if (inputKey)`), so every other job keeps its name.
       - if: needs.changes.outputs.code == 'true'
@@ -240,7 +302,7 @@ jobs:
       - name: Check that FreeType was not bundled
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: |
-          if find target -name 'libfreetype2.a' | grep -q .; then
+          if [ -n "$(find target -name 'libfreetype2.a')" ]; then
             echo "::error::freetype-sys built its bundled FreeType. Install libfreetype-dev."
             exit 1
           fi

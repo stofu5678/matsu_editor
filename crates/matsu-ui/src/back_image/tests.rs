@@ -87,7 +87,7 @@ fn what_is_not_a_picture_gives_none() {
     let png = encode(8, 8, image::ImageFormat::Png, |_, _| [1, 2, 3, 255]);
     assert!(decode(&png[..png.len() / 2], 255, (false, false)).is_none());
     // damaged data: an error or (if the damage is in a checksum) a picture; it must not panic
-    let mut broken = png.clone();
+    let mut broken = png;
     broken[40] ^= 0xff;
     let _ = decode(&broken, 255, (false, false));
 }

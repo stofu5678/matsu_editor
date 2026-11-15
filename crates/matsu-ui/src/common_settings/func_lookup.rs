@@ -15,10 +15,21 @@ const USER_MACRO_CODES: std::ops::Range<u16> = {
     use matsu_config::settings::macros::{F_USERMACRO_0, MAX_CUSTMACRO};
     F_USERMACRO_0..F_USERMACRO_0 + MAX_CUSTMACRO as u16
 };
+/// `F_ONELINER_0` + n, then the input dialog and the settings, of the kind ワンライナー (MATSU's own kind,
+/// ADR-0029). `F_ONELINER_LIST` is a special item of the menus, not listed here. Like the macros, one that
+/// is not registered is listed too.
+const ONELINER_CODES: [std::ops::Range<u16>; 2] = {
+    use matsu_config::settings::oneliner::{F_ONELINER_0, F_ONELINER_DIALOG, MAX_ONELINER};
+    [
+        F_ONELINER_0..F_ONELINER_0 + MAX_ONELINER as u16,
+        F_ONELINER_DIALOG..F_ONELINER_DIALOG + 3,
+    ]
+};
 
 /// The kinds (`CFuncLookup::SetCategory2Combo`): the 15 groups of the command list, then the
-/// ones Sakura adds (外部マクロ, カスタムメニュー, プラグイン).
-pub(in crate::common_settings) static KINDS: [(&str, i32); 18] = [
+/// ones Sakura adds (外部マクロ, カスタムメニュー, プラグイン) and MATSU's own (ワンライナー, last so that
+/// the numbers of the others stay).
+pub(in crate::common_settings) static KINDS: [(&str, i32); 19] = [
     ("ファイル操作系", 0),
     ("編集系", 1),
     ("カーソル移動系", 2),
@@ -37,6 +48,8 @@ pub(in crate::common_settings) static KINDS: [(&str, i32); 18] = [
     ("外部マクロ", 15),
     ("カスタムメニュー", 16),
     ("プラグイン", 17),
+    // 18 is 特別機能 on the pages of the menus (`STR_SPECIAL_FUNC`), so the kind of the one-liners is 19.
+    ("ワンライナー", 19),
 ];
 
 /// The function codes of kind `kind` in the order of the list (`CFuncLookup::Pos2FuncCode`).
@@ -57,6 +70,8 @@ pub(in crate::common_settings) fn codes_of_kind(kind: i32) -> Vec<u16> {
             .iter()
             .map(|c| c.code)
             .collect(),
+        // 3 is the kind 特別機能 of the menu pages, which they list themselves.
+        4 => ONELINER_CODES.into_iter().flatten().collect(),
         _ => Vec::new(),
     }
 }
@@ -72,11 +87,18 @@ mod tests {
         assert_eq!(names[..15], *FUNCTION_GROUPS);
         assert_eq!(
             names[15..],
-            ["外部マクロ", "カスタムメニュー", "プラグイン"]
+            [
+                "外部マクロ",
+                "カスタムメニュー",
+                "プラグイン",
+                "ワンライナー"
+            ]
         );
-        for (i, (_, v)) in KINDS.iter().enumerate() {
+        // The values are the positions, but the one-liners' (19): 18 is 特別機能 on the menu pages.
+        for (i, (_, v)) in KINDS[..18].iter().enumerate() {
             assert_eq!(*v, i as i32);
         }
+        assert_eq!(KINDS[18].1, 19);
     }
 
     #[test]
@@ -86,7 +108,23 @@ mod tests {
         assert_eq!(codes[0], RIGHT_CLICK_MENU);
         assert_eq!(codes[1..], CUSTOM_MENU_CODES.collect::<Vec<_>>()[..]);
         assert!(codes_of_kind(17).is_empty() || codes_of_kind(17).iter().all(|&c| c >= 20000));
-        assert!(codes_of_kind(-1).is_empty() && codes_of_kind(18).is_empty());
+        assert!(codes_of_kind(-1).is_empty() && codes_of_kind(20).is_empty());
+    }
+
+    #[test]
+    fn the_kind_oneliner_lists_the_50_one_liners_the_dialog_and_the_settings() {
+        use matsu_config::settings::oneliner::{
+            F_AI_LOG_SHOW, F_ONELINER_DIALOG, F_ONELINER_SETTINGS,
+        };
+        let codes = codes_of_kind(19);
+        assert_eq!(codes.len(), 53);
+        assert!(codes_of_kind(18).is_empty());
+        assert_eq!((codes[0], codes[49]), (32711, 32760));
+        assert!(codes[..50].windows(2).all(|w| w[1] == w[0] + 1));
+        assert_eq!(
+            codes[50..],
+            [F_ONELINER_DIALOG, F_ONELINER_SETTINGS, F_AI_LOG_SHOW]
+        );
     }
 
     #[test]

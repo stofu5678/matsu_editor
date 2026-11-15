@@ -28,7 +28,7 @@ impl UiCommand for TileH {
         with_screen(window, cx, |screen, all, current| {
             tile_windows(screen, all, current, false)
         })
-        .map_err(unavailable)
+        .map_err(|e| unavailable(&e))
     }
 }
 

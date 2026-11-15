@@ -43,6 +43,10 @@
 //! * a row that is the right-click menu or a custom menu is a submenu named after that menu (with the
 //!   row's access key) when that menu's "popup" flag is set, and the menu is not already open above it
 //!   (otherwise the row is a plain item that runs the function and so opens that menu);
+//! * `F_ONELINER_LIST` (MATSU's own, ADR-0029) is the submenu 「ワンライナー」: the registered one-liners, a
+//!   separator, 「ワンライナーを入力して実行...」 and 「ワンライナーの設定...」. The other lists are items
+//!   in the place of their row, but this one is a submenu, because a custom menu nests only through another custom
+//!   menu with its popup flag and the right-click menu must not use up one of the user's;
 //! * a row from the lists that Sakura fills in at run time (`F_SPECIAL_FIRST` to `F_SPECIAL_LAST`) is
 //!   those items;
 //! * any other row is an item named by `CFuncLookup::Funccode2Name`.
@@ -52,6 +56,9 @@ use matsu_commands::sakura::{FUNCTIONS, FunctionKind};
 use matsu_config::settings::CustomMenus;
 use matsu_config::settings::custom_menu::INDEX_FOR_RBUTTONUP;
 use matsu_config::settings::macros::RegisteredMacros;
+use matsu_config::settings::oneliner::{
+    F_ONELINER_DIALOG, F_ONELINER_LIST, F_ONELINER_SETTINGS, OneLiners,
+};
 
 use crate::menu::{Available, Entry, Item, Lists, MenuAction, menu_label_with};
 
@@ -93,6 +100,8 @@ fn is_special(code: u16) -> bool {
 pub(crate) struct Context<'a> {
     pub menus: &'a CustomMenus,
     pub macros: &'a RegisteredMacros,
+    /// The registered one-liners, which name `F_ONELINER_0` and on.
+    pub oneliners: &'a OneLiners,
     pub keymap: &'a KeyMap,
     pub available: &'a dyn Available,
     pub lists: &'a dyn Lists,
@@ -104,7 +113,7 @@ pub(crate) struct Context<'a> {
 impl Context<'_> {
     /// `CFuncLookup::Funccode2Name`, for the codes a custom menu can hold.
     fn function_name(&self, code: u16) -> String {
-        crate::func_name::funccode_to_name(code, self.menus, self.macros)
+        crate::func_name::funccode_to_name_with(code, self.menus, self.macros, self.oneliners)
     }
 
     /// Whether the function can run: a function without a command is grayed out, and so is a row that
@@ -166,6 +175,11 @@ fn fill(index: usize, open: &mut Vec<u16>, cx: &Context<'_>) -> Vec<Entry> {
             } else {
                 Entry::Submenu { label, entries }
             });
+        } else if code == F_ONELINER_LIST {
+            out.push(Entry::Submenu {
+                label: menu_label_with(crate::oneliner::SUBMENU_NAME, row.key, cx.parentheses),
+                entries: oneliner_submenu(cx),
+            });
         } else if is_special(code) {
             // `InitMenu_Special`: the items of the list, or "(なし)" when it is empty.
             let items = cx.lists.entries(code);
@@ -185,6 +199,24 @@ fn fill(index: usize, open: &mut Vec<u16>, cx: &Context<'_>) -> Vec<Entry> {
     }
     open.pop();
     out
+}
+
+/// The entries of the submenu 「ワンライナー」: the items of `F_ONELINER_LIST` (「(なし)」 when none is
+/// registered), a separator, the input dialog and the settings.
+fn oneliner_submenu(cx: &Context<'_>) -> Vec<Entry> {
+    let mut entries = cx.lists.entries(F_ONELINER_LIST);
+    if entries.is_empty() {
+        entries.push(Entry::Item(Item {
+            label: "(なし)".to_owned(),
+            action: MenuAction::Placeholder,
+            shortcut: None,
+            enabled: false,
+        }));
+    }
+    entries.push(Entry::Separator);
+    entries.push(Entry::Item(cx.item(F_ONELINER_DIALOG, Some('I'))));
+    entries.push(Entry::Item(cx.item(F_ONELINER_SETTINGS, Some('S'))));
+    entries
 }
 
 /// The items of the main menu's row for the custom menus (`F_CUSTMENU_LIST`): every menu that has items, the

@@ -147,7 +147,7 @@ fn the_preview_returns_to_the_source_and_closes(cx: &mut TestAppContext) {
         .update(cx, |_, window, app| {
             ws.update(app, |ws, cx| {
                 ws.activate_tab(1, window, cx);
-                ws.close_active_preview(window, cx);
+                ws.close_active_own_tab(window, cx);
             })
         })
         .unwrap();

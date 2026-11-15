@@ -51,10 +51,12 @@ pub(super) const WRAP: u16 = 384;
 /// How many buttons a toolbar can have (`MAX_TOOLBAR_BUTTON_ITEMS`).
 pub(super) const MAX_BUTTONS: usize = 512;
 
-/// The function code of the buttons 1..=481 (`tbd`). 0 is `F_DISABLE`: a button with no function
-/// and no picture (a place kept free). The entry of [`WRAP`] is `F_TOOLBARWRAP`.
+/// The function code of the buttons 1..=483. The first 481 are Sakura's table (`tbd`); 0 is
+/// `F_DISABLE`: a button with no function and no picture (a place kept free). The entry of [`WRAP`]
+/// is `F_TOOLBARWRAP`. The last two are MATSU's own: `F_COPY_LF` and `F_COPY_CR`, which Sakura has
+/// no button for; their pictures are made from the one of `F_COPY_CRLF` (`icons::extra_pixels`).
 #[rustfmt::skip]
-pub(super) const FUNCTIONS_OF_BUTTONS: [u16; 481] = [
+pub(super) const FUNCTIONS_OF_BUTTONS: [u16; 483] = [
     30101, 30102, 30103, 30104, 30105, 30107, 30111, 30112,
     30113, 30114, 30115, 30116, 30150, 30151, 30152, 30162,
     0, 0, 30170, 30171, 30180, 30190, 30185, 30117,
@@ -115,7 +117,7 @@ pub(super) const FUNCTIONS_OF_BUTTONS: [u16; 481] = [
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
-    0,
+    0, 32700, 32701,
 ];
 
 /// The buttons of a toolbar that the settings file does not describe

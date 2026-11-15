@@ -85,6 +85,10 @@ impl Drop for Apartment {
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the adapter of `.map_err(failed)`, which hands the error over by value"
+)]
 fn failed(error: windows::core::Error) -> Error {
     Error::Failed(error.to_string())
 }

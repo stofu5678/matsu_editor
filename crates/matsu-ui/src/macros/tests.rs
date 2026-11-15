@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use matsu_commands::command::Arg;
-use matsu_core::buffer::Document;
+use matsu_core::buffer::{Document, Pos};
 use matsu_core::model::DocumentModel;
 use matsu_plugin::session::{Engine, Language};
 
@@ -250,7 +250,7 @@ fn a_recorded_macro_is_saved_and_loaded_through_the_dialogs(cx: &mut TestAppCont
     let (g, cx) = setup(cx, "xyz");
     cx.simulate_keystrokes("ctrl-l");
     assert!(cx.did_prompt_for_paths());
-    let chosen = path.clone();
+    let chosen = path;
     cx.simulate_path_prompt_response(move |_| Some(vec![chosen]));
     cx.run_until_parked();
     cx.simulate_keystrokes(EXEC);
@@ -1010,7 +1010,7 @@ fn a_message_box_waits_for_the_answer(cx: &mut TestAppContext) {
 /// Answers a "choose a file to open / a folder" dialog when the macro has opened it.
 fn answer_paths(cx: &mut VisualTestContext, paths: Option<Vec<PathBuf>>) {
     if cx.did_prompt_for_paths() {
-        cx.simulate_path_prompt_response(move |_| paths.clone());
+        cx.simulate_path_prompt_response(move |_| paths);
     }
 }
 
@@ -1064,7 +1064,7 @@ fn the_save_dialog_gives_the_path_and_a_cancel_gives_an_empty_string(cx: &mut Te
         |cx| {
             if let Some(answer) = answers.first().cloned() {
                 let tried = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    cx.simulate_new_path_selection(move |_| answer.clone());
+                    cx.simulate_new_path_selection(move |_| answer);
                 }));
                 if tried.is_ok() {
                     answers.remove(0);
@@ -1141,6 +1141,37 @@ fn expand_parameter_knows_the_macro_file(cx: &mut TestAppContext) {
         "{}",
         f.output(cx)
     );
+}
+
+/// A macro gets the same text as the window title for the codes that the window knows: the time
+/// stamp, the settings file, the profile, the print setting and the number of an untitled document
+/// were empty or left as written before.
+#[gpui::test]
+fn expand_parameter_in_a_macro_is_what_the_title_gives(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "abc");
+    let format = "$n|$B|$Q|$D|$T|$I|$S|$V|$A|$h|$<profile>|${w?g$:o$:n$}|${R?v$:l$:w$}|$p";
+    let expected = f
+        .view
+        .read_with(cx, |view, cx| view.expand_format(format, cx));
+    // `$M` is the macro, which the title does not know; `$d` and `$t` change with the clock.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(
+        dir.path(),
+        "title.cjs",
+        &format!("console.log('r=' + Editor.ExpandParameter('{format}'));"),
+    );
+    f.run_script(cx, &path, |_| {});
+    assert_eq!(
+        results(&f.output(cx)),
+        [expected.as_str()],
+        "{}",
+        f.output(cx)
+    );
+    assert!(!expected.contains("$B"), "{expected}");
+    assert!(!expected.contains("$D"), "{expected}");
 }
 
 /// `IsCurTypeExt` and `IsSameTypeExt` compare the document types of the extensions

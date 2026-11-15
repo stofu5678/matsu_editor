@@ -141,6 +141,35 @@ fn add_matsu_commands(parsed: &mut MacroTables) -> Result<()> {
         );
         parsed.key_macro.push(extra.name.to_string());
     }
+    add_oneliner_commands(parsed)
+}
+
+/// The macro names of the one-liners (`matsu_extras::oneliner_macros`), after the row of `F_SHELL_TAB`, which
+/// the functions of the one-liners follow in the function table.
+fn add_oneliner_commands(parsed: &mut MacroTables) -> Result<()> {
+    let mut position = parsed
+        .commands
+        .iter()
+        .position(|r| r.function == "F_SHELL_TAB")
+        .ok_or("no macro row for F_SHELL_TAB")?;
+    for (name, function, recorded) in matsu_extras::oneliner_macros() {
+        if parsed.commands.iter().any(|r| r.name == name) {
+            return Err(format!("macro name {name} is already used"));
+        }
+        position += 1;
+        if recorded {
+            parsed.key_macro.push(function.clone());
+        }
+        parsed.commands.insert(
+            position,
+            Row {
+                function,
+                name,
+                args: Vec::new(),
+                result: Vt::Empty,
+            },
+        );
+    }
     Ok(())
 }
 

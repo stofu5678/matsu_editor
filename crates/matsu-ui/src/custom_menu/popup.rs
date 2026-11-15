@@ -111,7 +111,13 @@ impl EditorView {
         let custom = CustomMenuList(&menus);
         let macros = crate::macros::registered_table(cx);
         let macro_list = crate::macros::MacroList(macros.clone());
+        let oneliners = cx
+            .try_global::<UserSettings>()
+            .map(UserSettings::shared_oneliners)
+            .unwrap_or_default();
+        let oneliner_list = crate::oneliner::OneLinerList(oneliners.clone());
         let rest = ChainedLists(&custom, &macro_list);
+        let rest = ChainedLists(&rest, &oneliner_list);
         let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
         let lists = ChainedLists(&recent, &rest);
         let entries = if empty {
@@ -122,6 +128,7 @@ impl EditorView {
                 &model::Context {
                     menus: &menus,
                     macros: &macros,
+                    oneliners: &oneliners,
                     keymap: &self.keymap,
                     available: &Registered,
                     lists: &lists,

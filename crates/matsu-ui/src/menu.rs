@@ -31,6 +31,9 @@ pub enum MenuAction {
     RecentFolder(String),
     /// Quit the application.
     Exit,
+    /// Bring this document (the id of its view) to the front, with its window and tab
+    /// (`IDM_SELWINDOW + index`). `current` is the one the window shows (the check mark).
+    Window { id: u64, current: bool },
     /// Nothing: a list that Sakura fills in at run time (recent files, windows, ...), which is
     /// empty here.
     Placeholder,
@@ -144,7 +147,13 @@ pub fn default_main_menu() -> &'static MainMenu {
                 },
                 function: item.code,
                 key: item.access_key,
-                name: String::new(),
+                // A node of `F_NODE` (the submenu of the one-liners) has its own name.
+                name: match item.kind {
+                    MenuKind::Node if item.code == F_NODE => {
+                        item.label.unwrap_or_default().to_owned()
+                    }
+                    _ => String::new(),
+                },
                 text: None,
             })
             .collect(),
@@ -590,6 +599,10 @@ mod tests {
         // A row of the default menu has no name of its own: it shows the label of its function, and
         // that is the label of the table.
         for item in MAIN_MENU {
+            // a node with a name of its own (`F_NODE`) shows that name, not the label of a function
+            if item.code == F_NODE {
+                continue;
+            }
             if let Some(label) = item.label {
                 assert_eq!(function_label(item.code), Some(label), "{}", item.code);
             }

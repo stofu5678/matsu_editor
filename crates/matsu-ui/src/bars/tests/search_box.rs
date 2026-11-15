@@ -173,7 +173,7 @@ fn a_function_key_clicked_while_the_box_has_text_uses_it_and_takes_the_focus(
     }
     // F3 is the next search in Sakura's key map.
     let cx2 = &mut VisualTestContext::from_window(handle, cx);
-    click(cx2, "function-key-2".into(), Modifiers::none());
+    click(cx2, "function-key-2", Modifiers::none());
     cx2.run_until_parked();
     assert_eq!(pattern(cx, &editor), "bar");
     assert_eq!(
@@ -283,13 +283,13 @@ fn the_arrow_opens_the_list_and_a_click_picks_a_string(cx: &mut TestAppContext) 
     // The box starts with the newest string.
     assert_eq!(box_text(cx, handle), "ふたつ");
     let cx = &mut VisualTestContext::from_window(handle, cx);
-    click(cx, "search-box-toggle".into(), Modifiers::none());
+    click(cx, "search-box-toggle", Modifiers::none());
     cx.run_until_parked();
     assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), Some(0));
     let first = bounds(cx, "search-box-entry-0".into()).expect("the list is drawn");
     let second = bounds(cx, "search-box-entry-1".into()).expect("two entries");
     assert!(second.top() > first.top());
-    click(cx, "search-box-entry-1".into(), Modifiers::none());
+    click(cx, "search-box-entry-1", Modifiers::none());
     cx.run_until_parked();
     assert_eq!(search_box.read_with(cx, |b, app| b.text(app)), "one");
     assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), None);
@@ -593,7 +593,7 @@ fn the_arrow_shows_the_menu_under_the_button(cx: &mut TestAppContext) {
     let arrow = bounds(cx, "tool-dropdown-25".into()).expect("its arrow");
     assert!(arrow.left() >= button.right() - gpui::px(1.));
     assert!(!editor.read_with(cx, |v, _| v.custom_menu.is_open()));
-    click(cx, "tool-dropdown-25".into(), Modifiers::none());
+    click(cx, "tool-dropdown-25", Modifiers::none());
     cx.run_until_parked();
     // The corner of the menu is the left bottom of the whole button (`rc.left`, `rc.bottom`).
     assert!(editor.read_with(cx, |v, _| v.custom_menu.is_open()));
@@ -613,7 +613,7 @@ fn the_button_itself_still_asks_for_a_file_to_open(cx: &mut TestAppContext) {
     let editor = view(cx, handle);
     crate::file_dialog::tests::asked();
     let cx = &mut VisualTestContext::from_window(handle, cx);
-    let at = center_of(cx, "tool-button-25".into());
+    let at = center_of(cx, "tool-button-25");
     cx.simulate_click(at, Modifiers::none());
     cx.run_until_parked();
     assert_eq!(crate::file_dialog::tests::asked().len(), 1);

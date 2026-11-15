@@ -864,3 +864,476 @@ fn the_settings_button_opens_the_dialog_of_the_options(cx: &mut TestAppContext) 
     });
     cancel(cx);
 }
+
+// ---- ZIP install and ReadMe (ADR-0026, PR 11) ----
+
+use super::zip_install::{
+    INSTALL_ZIP, README, can_open_readme, is_installed, open_readme, register,
+};
+use matsu_config::plugins::zip::ZipPlugin;
+
+/// A ZIP file with stored entries: `(path, data)`; a path that ends with `/` is a folder.
+fn make_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    fn crc(data: &[u8]) -> u32 {
+        let mut c = !0u32;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    }
+    let (mut out, mut central) = (Vec::new(), Vec::new());
+    for (name, data) in entries {
+        let offset = out.len() as u32;
+        let head = |v: &mut Vec<u8>, central: bool| {
+            if central {
+                v.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+                v.extend_from_slice(&20u16.to_le_bytes());
+            } else {
+                v.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+            }
+            v.extend_from_slice(&20u16.to_le_bytes());
+            v.extend_from_slice(&0x800u16.to_le_bytes());
+            v.extend_from_slice(&[0; 6]);
+            v.extend_from_slice(&crc(data).to_le_bytes());
+            v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            v.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        };
+        head(&mut out, false);
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(data);
+        head(&mut central, true);
+        central.extend_from_slice(&[0; 12]);
+        central.extend_from_slice(&offset.to_le_bytes());
+        central.extend_from_slice(name.as_bytes());
+    }
+    let cd = out.len() as u32;
+    out.extend_from_slice(&central);
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    out.extend_from_slice(&cd.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+const ZIPPED_DEF: &[u8] =
+    b"[Plugin]\r\nId=zipped.id\r\nName=Zipped\r\nType=script\r\n[Command]\r\nC[1]=a.js\r\n";
+
+fn write_zip(dir: &Path, entries: &[(&str, &[u8])]) -> std::path::PathBuf {
+    let path = dir.join("Zipped.zip");
+    fs::write(&path, make_zip(entries)).unwrap();
+    path
+}
+
+#[gpui::test]
+fn a_zip_plugin_is_unpacked_and_added_off(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    let work = temp();
+    let file = write_zip(
+        work.path(),
+        &[
+            ("Zipped/plugin.def", ZIPPED_DEF),
+            ("Zipped/a.js", b"1"),
+            ("Zipped/ReadMe.txt", b"read me"),
+        ],
+    );
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let zip = ZipPlugin::inspect(&file).unwrap();
+    let dirs = with_dialog(cx, |_, _, dcx| super::search_dirs(dcx).unwrap());
+    assert!(!with_dialog(cx, |d, _, _| is_installed(
+        d.values(),
+        &dirs,
+        &zip
+    )));
+    zip.extract(&dirs.user).unwrap();
+    // The folder is there now, so a second install replaces files: it asks.
+    assert!(with_dialog(cx, |d, _, _| is_installed(
+        d.values(),
+        &dirs,
+        &zip
+    )));
+    let index = with_dialog(cx, |d, _, dcx| register(d, &dirs, &zip, dcx));
+    assert_eq!(index, Ok(3), "the first empty slot");
+    let row = row_texts(cx, 3);
+    assert_eq!(row[FOLDER], "Zipped");
+    assert_eq!(row[ID], "zipped.id");
+    assert_eq!(row[STATE], "追加");
+    assert_eq!(row[COMMANDS], "1");
+    // Added, not enabled: nothing runs until the user agrees.
+    assert_eq!(row[rows::CONSENT], "off");
+    assert!(dir_of(&ini).join("plugins/Zipped/a.js").is_file());
+    // Now it is registered: a new install of the same folder asks too.
+    assert!(with_dialog(cx, |d, _, _| is_installed(
+        d.values(),
+        &dirs,
+        &zip
+    )));
+    cancel(cx);
+}
+
+#[gpui::test]
+fn a_zip_plugin_over_a_registered_one_replaces_it(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let work = temp();
+    // The same folder and ID as the registered one, a new version.
+    let def = b"[Plugin]\r\nId=io.github.stofu5678.matsu-editor.sample.hello-js\r\nType=script\r\nVersion=9.9\r\n";
+    let file = write_zip(work.path(), &[("HelloJs/plugin.def", def)]);
+    let zip = ZipPlugin::inspect(&file).unwrap();
+    let dirs = with_dialog(cx, |_, _, dcx| super::search_dirs(dcx).unwrap());
+    assert!(with_dialog(cx, |d, _, _| is_installed(
+        d.values(),
+        &dirs,
+        &zip
+    )));
+    zip.extract(&dirs.user).unwrap();
+    let index = with_dialog(cx, |d, _, dcx| register(d, &dirs, &zip, dcx));
+    assert_eq!(index, Ok(0));
+    assert_eq!(row_texts(cx, 0)[STATE], "更新");
+    assert_eq!(row_texts(cx, 0)[VERSION], "9.9");
+    cancel(cx);
+}
+
+#[gpui::test]
+fn a_zip_that_is_not_a_plugin_changes_nothing(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let work = temp();
+    let dirs = with_dialog(cx, |_, _, dcx| super::search_dirs(dcx).unwrap());
+    for entries in [
+        // No plugin.def.
+        vec![("Z/a.js", &b"1"[..])],
+        // A path that leaves the folder.
+        vec![("Z/plugin.def", ZIPPED_DEF), ("Z/../evil.js", b"x")],
+        // Two folders.
+        vec![("Z/plugin.def", ZIPPED_DEF), ("Y/a.js", b"x")],
+        // No ID.
+        vec![("Z/plugin.def", b"[Plugin]\r\nName=x\r\n")],
+    ] {
+        let file = write_zip(work.path(), &entries);
+        let error = ZipPlugin::inspect(&file).unwrap_err();
+        assert!(!error.text().is_empty());
+    }
+    assert!(!dirs.user.join("Z").exists());
+    assert!(!dir_of(&ini).join("evil.js").exists());
+    cancel(cx);
+}
+
+#[gpui::test]
+fn the_zip_button_follows_the_check_box(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, INI);
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let usable = |cx: &mut TestAppContext, id: &str| {
+        with_dialog(cx, |d, _, _| {
+            let control = d.page_controls().into_iter().find(|c| c.id == id).unwrap();
+            d.is_usable(&control)
+        })
+    };
+    assert!(usable(cx, INSTALL_ZIP));
+    check(cx, ENABLE, false);
+    assert!(!usable(cx, INSTALL_ZIP));
+    cancel(cx);
+}
+
+#[gpui::test]
+fn the_readme_button_needs_a_readme_and_opens_it_read_only(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let usable = |cx: &mut TestAppContext| {
+        with_dialog(cx, |d, _, _| {
+            let control = d
+                .page_controls()
+                .into_iter()
+                .find(|c| c.id == README)
+                .unwrap();
+            d.is_usable(&control) && can_open_readme(d.values())
+        })
+    };
+    let readme = dir_of(&ini).join("plugins/HelloJs/ReadMe.txt");
+    let _ = fs::remove_file(&readme);
+    let _ = fs::remove_file(dir_of(&ini).join("plugins/HelloJs/HelloJs.txt"));
+    assert!(!usable(cx), "nothing is selected");
+    with_dialog(cx, |d, _, dcx| select(d, 0, dcx));
+    assert!(!usable(cx), "the plugin has no ReadMe");
+    fs::write(&readme, "read me").unwrap();
+    assert!(usable(cx));
+    let windows_before = cx.update(crate::file_ops::windows::window_count);
+    with_dialog(cx, open_readme);
+    cx.run_until_parked();
+    // A new window of this application holds the ReadMe, in view mode (`-R`), whatever the tab
+    // setting says and whether the file was open already.
+    assert_eq!(
+        cx.update(crate::file_ops::windows::window_count),
+        windows_before + 1
+    );
+    let (_, view) = cx
+        .update(crate::file_ops::windows::editors)
+        .into_iter()
+        .last()
+        .unwrap();
+    assert!(view.read_with(cx, |v, app| v.document().read(app).view_mode()));
+    assert_eq!(
+        view.read_with(cx, |v, app| v
+            .document()
+            .read(app)
+            .path()
+            .map(Path::to_owned)),
+        Some(readme)
+    );
+    // The same ReadMe again: another window, also read-only.
+    with_dialog(cx, open_readme);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(crate::file_ops::windows::window_count),
+        windows_before + 2
+    );
+    // An empty slot has none.
+    with_dialog(cx, |d, _, dcx| select(d, 5, dcx));
+    assert!(!usable(cx));
+    cancel(cx);
+}
+
+#[gpui::test]
+fn the_readme_pressed_twice_before_it_has_loaded_is_read_only_in_both_windows(
+    cx: &mut TestAppContext,
+) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    fs::write(dir_of(&ini).join("plugins/HelloJs/ReadMe.txt"), "read me").unwrap();
+    run(cx, handle, "F_OPTION_PLUGIN");
+    with_dialog(cx, |d, _, dcx| select(d, 0, dcx));
+    let before = cx.update(crate::file_ops::windows::window_count);
+    // Two presses with no wait in between: both loads are pending at the same time.
+    with_dialog(cx, open_readme);
+    with_dialog(cx, open_readme);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(crate::file_ops::windows::window_count),
+        before + 2
+    );
+    let views = cx.update(crate::file_ops::windows::editors);
+    let fresh = &views[views.len() - 2..];
+    for (_, view) in fresh {
+        assert!(
+            view.read_with(cx, |v, app| v.document().read(app).view_mode()),
+            "a ReadMe window is editable"
+        );
+    }
+}
+
+// ---- the words of 試しに実行 and the state after a change ----
+
+#[test]
+fn the_test_run_tells_an_unchecked_box_from_one_that_is_not_saved() {
+    let unchecked = super::list::enable_words(false, false).unwrap();
+    assert!(unchecked.contains("が入っていません"));
+    // Checked on the page, not saved yet: the box is not said to be empty.
+    let unsaved = super::list::enable_words(true, false).unwrap();
+    assert!(!unsaved.contains("入っていません"));
+    assert!(unsaved.contains("OK で保存"));
+    assert_eq!(super::list::enable_words(true, true), None);
+}
+
+#[test]
+fn the_state_follows_the_files_when_the_rows_are_refreshed() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let files = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    let mut consent = ConsentFile::default();
+    consent.enable(HELLO_JS_ID, "HelloJs", &files, "d").unwrap();
+    consent.save(&dirs.consent_file()).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    assert_eq!(rows[0][STATE], "有効");
+    assert!(!rows::refresh_consent(&mut rows, Some(&dirs), &consent));
+
+    // A file changes after the page was loaded.
+    fs::write(
+        plugin_dir.join("command.js"),
+        "Editor.InsText('changed, longer');",
+    )
+    .unwrap();
+    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &consent));
+    assert_eq!(rows[0][STATE], "変更あり（停止）");
+    assert_eq!(rows[0][CONSENT], "changed");
+    assert!(row_can_enable(&rows[0]));
+
+    // Agreed again in the dialog: the manifest of the row is what was agreed.
+    let now = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    rows::set_consent(
+        &mut rows[0],
+        true,
+        &matsu_config::plugins::consent::manifest_text(&now),
+    );
+    assert_eq!(rows[0][STATE], "有効");
+    assert!(!rows::refresh_consent(&mut rows, Some(&dirs), &consent));
+    assert_eq!(rows[0][STATE], "有効");
+}
+
+#[gpui::test]
+fn showing_the_page_again_shows_the_state_of_the_files_now(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    enable(cx, 0).unwrap();
+    ok(cx);
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+
+    // The files change while the dialog is open; showing the page sets the state.
+    fs::write(
+        dir_of(&ini).join("plugins/HelloJs/command.js"),
+        "Editor.InsText('changed, longer');",
+    )
+    .unwrap();
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::General, dcx));
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
+    assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
+    cancel(cx);
+}
+
+#[test]
+fn a_pending_agreement_survives_a_refresh_that_sees_a_change() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let script = plugin_dir.join("command.js");
+    let original = fs::read(&script).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    let files = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    rows::set_consent(
+        &mut rows[0],
+        true,
+        &matsu_config::plugins::consent::manifest_text(&files),
+    );
+    fs::write(&script, "Editor.InsText('changed, longer');").unwrap();
+    let saved = ConsentFile::default();
+    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &saved));
+    assert_eq!(rows[0][CONSENT], "changed");
+    // OK still records what the user agreed to.
+    let mut file = ConsentFile::default();
+    assert!(write_consent(&rows, &mut file));
+    assert_eq!(file.record(HELLO_JS_ID).unwrap().files, files);
+    // Putting the files back shows the agreement as on again.
+    fs::write(&script, original).unwrap();
+    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &saved));
+    assert_eq!(rows[0][CONSENT], "on");
+}
+
+#[test]
+fn a_plugin_stopped_by_failures_stays_stopped_when_its_files_match_again() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let script = plugin_dir.join("command.js");
+    let original = fs::read(&script).unwrap();
+    let files = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
+    let mut consent = ConsentFile::default();
+    consent.enable(HELLO_JS_ID, "HelloJs", &files, "d").unwrap();
+    consent.save(&dirs.consent_file()).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    fs::write(&script, "Editor.InsText('changed, longer');").unwrap();
+    rows::refresh_consent(&mut rows, Some(&dirs), &consent);
+    assert_eq!(rows[0][CONSENT], "changed");
+    fs::write(&script, original).unwrap();
+    rows::refresh_consent(&mut rows, Some(&dirs), &consent);
+    crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
+    assert_eq!(rows[0][CONSENT], "stopped");
+    assert_eq!(rows[0][STATE], "停止（失敗が続きました）");
+}
+
+#[test]
+fn a_pending_agreement_is_kept_by_ok_through_changes_and_stops_until_disabled() {
+    use matsu_config::plugins::consent::{fingerprint, manifest_text};
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let plugin_dir = dirs.plugin_dir("HelloJs").unwrap();
+    let script = plugin_dir.join("command.js");
+    let set = |text: &str| fs::write(&script, text).unwrap();
+    set("Editor.InsText('A');");
+    let a = fingerprint(&plugin_dir).unwrap();
+    let mut saved = ConsentFile::default();
+    saved.enable(HELLO_JS_ID, "HelloJs", &a, "d").unwrap();
+    saved.save(&dirs.consent_file()).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    assert_eq!(rows[0][CONSENT], "on");
+
+    // Files "B" are agreed to on this page.
+    set("Editor.InsText('B, longer');");
+    let b = fingerprint(&plugin_dir).unwrap();
+    // Files "C" are neither.
+    let put_c = || set("Editor.InsText('C, even longer than B');");
+
+    // (step, what the row shows after it, what plugins.ini holds after OK)
+    let mut steps: Vec<(&str, &str, Option<&Vec<_>>)> = Vec::new();
+    steps.push(("agree to B", "on", Some(&b)));
+    steps.push(("files become C, refresh", "changed", Some(&b)));
+    steps.push((
+        "three failures stop it, files back to B, refresh",
+        "stopped",
+        Some(&b),
+    ));
+    steps.push(("files become C, refresh", "changed", Some(&b)));
+    steps.push((
+        "not stopped any more, files back to B, refresh",
+        "on",
+        Some(&b),
+    ));
+    steps.push(("disable", "off", None));
+    for (step, shows, holds) in steps {
+        match step {
+            "agree to B" => rows::set_consent(&mut rows[0], true, &manifest_text(&b)),
+            "files become C, refresh" => {
+                put_c();
+                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+            }
+            "three failures stop it, files back to B, refresh" => {
+                crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
+                set("Editor.InsText('B, longer');");
+                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+                crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
+            }
+            "not stopped any more, files back to B, refresh" => {
+                set("Editor.InsText('B, longer');");
+                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+            }
+            _ => rows::set_consent(&mut rows[0], false, ""),
+        }
+        assert_eq!(rows[0][CONSENT], shows, "{step}");
+        let mut file = ConsentFile::load(&dirs.consent_file());
+        write_consent(&rows, &mut file);
+        assert_eq!(
+            file.record(HELLO_JS_ID).map(|record| record.files),
+            holds.cloned(),
+            "{step}"
+        );
+        // Each OK is a fresh start for the next step from what the dialog holds, not from the file.
+    }
+}

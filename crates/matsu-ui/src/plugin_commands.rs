@@ -11,6 +11,7 @@
 
 use gpui::{App, Context};
 use matsu_commands::plugin_commands::{self, CommandInfo};
+use matsu_config::Profile;
 use matsu_config::plugins::consent::{Consent, ConsentFile};
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState, SearchDirs};
 
@@ -34,6 +35,12 @@ pub(crate) fn dirs_of(user: &UserSettings) -> Option<SearchDirs> {
     ))
 }
 
+/// The plugin settings of `user`, read in place (the whole profile is not copied for it). Without a
+/// profile they are those of an empty one.
+pub(crate) fn settings_of(user: &UserSettings) -> PluginSettings {
+    PluginSettings::from_profile(user.profile().unwrap_or(&Profile::default()))
+}
+
 /// Makes the table of the commands from the settings now (see [`refresh_for`]). Returns whether the
 /// commands changed.
 pub(crate) fn refresh(cx: &App) -> bool {
@@ -45,8 +52,7 @@ pub(crate) fn refresh(cx: &App) -> bool {
 /// enabled may have changed). Returns whether the commands changed.
 pub(crate) fn refresh_for(user: &UserSettings) -> bool {
     let before = plugin_commands::commands();
-    let profile = user.profile().cloned().unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = settings_of(user);
     plugin_commands::set_slots(
         settings
             .table
@@ -61,6 +67,8 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
             .collect(),
     );
     let mut commands = Vec::new();
+    // The bitmaps of the commands (`C[n].Icon`): function code and file.
+    let mut icon_files: Vec<(u16, std::path::PathBuf)> = Vec::new();
     if let Some(dirs) = dirs_of(user).filter(|_| settings.enabled) {
         let consent = ConsentFile::load(&dirs.consent_file());
         for (slot, rec) in settings.table.iter().enumerate() {
@@ -89,6 +97,12 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
                 let Some(code) = plugin_commands::function_code(slot, item.index) else {
                     continue;
                 };
+                if let Some(file) = dir
+                    .as_deref()
+                    .and_then(|dir| crate::bars::icons::plugin_icon_path(dir, &item.icon))
+                {
+                    icon_files.push((code, file));
+                }
                 commands.push(CommandInfo {
                     code,
                     slot,
@@ -117,6 +131,8 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
         })
         .collect();
     commands.extend(added);
+    let live: Vec<u16> = commands.iter().map(|c| c.code).collect();
+    crate::bars::icons::sync_plugin_icons(&icon_files, &live);
     plugin_commands::set_commands(commands);
     // The outlines of the plugins in the type settings change with the same things.
     crate::plugin_outline::refresh_for(user);
@@ -209,7 +225,7 @@ impl EditorView {
             };
             match crate::macros::plugin_call::prepare_function(cx, &dirs, code) {
                 Ok(prepared) => {
-                    crate::macros::plugin_call::run(editor, prepared, cx);
+                    crate::macros::plugin_call::run(&editor, prepared, cx);
                 }
                 Err(message) => {
                     editor.update(cx, |view, cx| {

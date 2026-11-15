@@ -1,4 +1,4 @@
-// Sample macro (JavaScript, Node.js ES module: .mjs). Run it from the Tools menu of the PoC:
+// Sample macro (JavaScript, Node.js ES module: .mjs). Run it from the Tools menu:
 //   ツール > 名前を指定してマクロ実行...
 // `Editor` is there without a require. The names and the arguments are Sakura's macro API.
 

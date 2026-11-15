@@ -19,6 +19,11 @@ const PREFIX: &str = include_str!("boot/boot.applescript");
 /// for good; `editorStarted` ends that.
 const SUFFIX: &str = "\nend script\n\non run\n\tif editorStarted then return\n\tset my editorStarted to true\n\tmy editorStart()\n\tset ignoredResult to run UserMacro\n\treturn \"matsu-end-7f3a91c2-applescript-result\"\nend run\n";
 
+/// What follows the program of a plugin host: no user's script (the handlers come with each call, and
+/// the host compiles them itself, see `pluginServe` in the boot), and an `on run` that reads
+/// `initialize`, serves the calls and answers with [`END_MARK`] at the end.
+const PLUGIN_SUFFIX: &str = "\nend script\n\non run\n\tif editorStarted then return\n\tset my editorStarted to true\n\tmy editorStart()\n\tmy pluginServe()\n\treturn \"matsu-end-7f3a91c2-applescript-result\"\nend run\n";
+
 /// The line that `osascript` prints for the result of the program. It is not output of the macro.
 /// (A long token, so that a macro does not print it by chance.)
 pub const END_MARK: &str = "matsu-end-7f3a91c2-applescript-result";
@@ -39,6 +44,17 @@ pub struct Program {
 impl Program {
     /// The program for the user's script `source`, named `name` in the errors.
     pub fn build(source: &str, name: &str) -> Self {
+        Self::assemble(source, name, SUFFIX)
+    }
+
+    /// The program of a plugin host: the boot, an empty `script UserMacro`, and the `on run` that
+    /// serves the calls. The failures of the handlers are not in its standard error (the host
+    /// answers each call with the text of its failure), so it has no name to show for them.
+    pub fn plugin() -> Self {
+        Self::assemble("", "<plugin>", PLUGIN_SUFFIX)
+    }
+
+    fn assemble(source: &str, name: &str, suffix: &str) -> Self {
         // Old Mac files end their lines with CR; the program has LF alone, so the lines are counted
         // the same way by everyone.
         let source = source.replace("\r\n", "\n").replace('\r', "\n");
@@ -51,7 +67,7 @@ impl Program {
             text.push('\n');
         }
         let user_lines = source.lines().count().max(1);
-        text.push_str(SUFFIX);
+        text.push_str(suffix);
         Self {
             text,
             lines_before_user,
@@ -154,6 +170,33 @@ mod tests {
         );
         assert!(!program.text.contains('\r'));
         assert_eq!(program.user_lines, 3);
+    }
+
+    #[test]
+    fn the_plugin_program_serves_the_calls_and_has_no_script() {
+        let program = Program::plugin();
+        assert!(
+            program
+                .text
+                .contains("\nscript UserMacro\n\n\nend script\n")
+        );
+        assert!(program.text.contains("\n\tmy pluginServe()\n"));
+        assert!(program.text.ends_with("end run\n"));
+        assert!(program.text.contains(END_MARK));
+        // The same boot text is what the program of each handler starts with.
+        assert!(program.text.starts_with(&PREFIX.replace("\r\n", "\n")));
+    }
+
+    #[test]
+    fn the_boot_text_ends_where_the_handler_begins() {
+        // A plugin host counts the lines before a handler by the line breaks of the boot text, as
+        // `lines_before_user` does, so the text has to end with the line `script UserMacro`.
+        let text = PREFIX.replace("\r\n", "\n");
+        assert!(text.ends_with("\nscript UserMacro\n"));
+        assert_eq!(
+            text.matches('\n').count(),
+            Program::plugin().lines_before_user
+        );
     }
 
     #[test]

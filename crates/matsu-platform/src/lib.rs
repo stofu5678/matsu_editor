@@ -34,6 +34,7 @@ pub mod free_space;
 pub mod help;
 pub mod ime_mode;
 pub mod instance;
+pub mod login_path;
 pub mod menu_icons;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod portal;

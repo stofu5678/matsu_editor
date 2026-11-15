@@ -19,7 +19,7 @@ use crate::document::SharedDocument;
 
 /// The functions the preview runs for a key: they need no editor on screen. The editor runs the
 /// same ones for the same keys.
-const WINDOW_FUNCTIONS: &[&str] = &[
+pub(crate) const WINDOW_FUNCTIONS: &[&str] = &[
     "F_NEXTWINDOW",
     "F_PREVWINDOW",
     "F_NEXTGROUP",
@@ -266,7 +266,7 @@ impl Render for PreviewView {
             }))
             .on_action(cx.listener(|this, _: &Close, window, cx| {
                 this.in_workspace(window, cx, |ws, window, cx| {
-                    ws.close_active_preview(window, cx)
+                    ws.close_active_own_tab(window, cx)
                 });
             }))
             .size_full()

@@ -178,9 +178,10 @@ PS)."
 
 An attribute of a logical line (0 is the line of the cursor, 1 the first line).
 Type 0 is 1 when the line changed since the last save, type 1 the number of the
-undo step that last touched it, type 2 the bookmark (1 or 0). Types 3 (diff
-mark) and 4 (function list mark) answer the error -32001 until the editor has
-them. A negative line, a line past the end and any other type are errors."
+undo step that last touched it, type 2 the bookmark (1 or 0). Type 3 is the diff
+mark (0 none, 1 added, 2 changed, 3 deleted, 4 deleted after the end) and type 4
+is 1 when the last outline analysis found an item on the line. A negative line,
+a line past the end and any other type are errors."
   (apply #'editor-call "GetLineAttribute" args))
 
 (defun editor-is-text-selecting-lock (&rest args)
@@ -423,13 +424,16 @@ type settings every extension is the basic type."
 (defun editor-expand-parameter (&rest args)
   "ExpandParameter(format: string) -> string
 
-Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f
-(file name), $g (file name without the extension), $/ (full path with /), $N (as
-$F), $b (extension), $e and $E (folder), $C (the selected text or the word at
-the caret), $x and $y (caret column in UTF-16 units and line, from 1), $S (the
-editor), $M (the macro file), $V (version), $A (name), and conditions
-${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (U+7121U+984C). $d $t $D $T $B
-$Q $I are not supported and stay as written. At most 2047 UTF-16 units."
+Replaces the codes that start with $ in a string, as the window title does: $$
+($), $A (name), $F (full path), $f (file name), $g (file name without the
+extension), $/ (full path with /), $N (short path), $b (extension), $e (folder),
+$E (short folder), $n (number of an untitled window), $B (document type), $Q
+(print setting), $C (the selected text or the word at the caret), $x and $y
+(caret column in UTF-16 units and line, from 1), $d and $t (date and time now),
+$D and $T (date and time of the file), $V (version), $h (Grep key), $S (the
+editor), $I (the settings file), $M (the macro file), $<profile>, and conditions
+${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (U+7121U+984C). $p and $P are
+the notice that they are for the print preview. At most 2047 UTF-16 units."
   (apply #'editor-call "ExpandParameter" args))
 
 (defun editor-message-box (&rest args)
@@ -479,8 +483,9 @@ Asks a question with Yes and No and waits. Returns 6 (Yes) or 7 (No)."
   "FileOpenDialog(defaultName: string?, filter: string?) -> string
 
 Lets the user choose a file to open and returns its full path, or an empty
-string when the dialog is cancelled. The default name and the filter are not
-used: the dialog of the platform takes neither."
+string when the dialog is cancelled. The dialog starts in the folder of the
+default name (when it names one) with that name filled in. The filter is not
+used: the dialog of the platform takes none."
   (apply #'editor-call "FileOpenDialog" args))
 
 (defun editor-file-save-dialog (&rest args)
@@ -496,7 +501,8 @@ name. The filter is not used."
 
 Lets the user choose a folder and returns its full path, or an empty string when
 the dialog is cancelled. The message becomes the prompt text of the platform
-dialog where it has one; the default folder is not used."
+dialog where it has one; the dialog starts in the default folder when it is an
+existing folder."
   (apply #'editor-call "FolderDialog" args))
 
 (defun editor-input-box (&rest args)
@@ -1978,6 +1984,48 @@ command that this editor does not have yet answers the error -32001 (not
 implemented)."
   (apply #'editor-call "SPACEToTAB" args))
 
+(defun editor-encode-url (&rest args)
+  "EncodeUrl() -> null
+
+MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "EncodeUrl" args))
+
+(defun editor-decode-url (&rest args)
+  "DecodeUrl() -> null
+
+MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "DecodeUrl" args))
+
+(defun editor-escape-html (&rest args)
+  "EscapeHtml() -> null
+
+MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "EscapeHtml" args))
+
+(defun editor-unescape-html (&rest args)
+  "UnescapeHtml() -> null
+
+MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "UnescapeHtml" args))
+
+(defun editor-encode-base64 (&rest args)
+  "EncodeBase64() -> null
+
+MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "EncodeBase64" args))
+
+(defun editor-decode-base64 (&rest args)
+  "DecodeBase64() -> null
+
+MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a
+key, the menu and a key macro run."
+  (apply #'editor-call "DecodeBase64" args))
+
 (defun editor-auto-to-sjis (&rest args)
   "AutoToSJIS() -> null
 
@@ -2944,6 +2992,370 @@ implemented)."
 MATSU Editor's own F_PREVIEW_TAB (not in Sakura). Runs the command that a key,
 the menu and a key macro run."
   (apply #'editor-call "PreviewTab" args))
+
+(defun editor-shell-tab (&rest args)
+  "ShellTab() -> null
+
+MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the
+menu and a key macro run."
+  (apply #'editor-call "ShellTab" args))
+
+(defun editor-one-liner0 (&rest args)
+  "OneLiner0() -> null
+
+MATSU Editor's own F_ONELINER_0 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner0" args))
+
+(defun editor-one-liner1 (&rest args)
+  "OneLiner1() -> null
+
+MATSU Editor's own F_ONELINER_1 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner1" args))
+
+(defun editor-one-liner2 (&rest args)
+  "OneLiner2() -> null
+
+MATSU Editor's own F_ONELINER_2 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner2" args))
+
+(defun editor-one-liner3 (&rest args)
+  "OneLiner3() -> null
+
+MATSU Editor's own F_ONELINER_3 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner3" args))
+
+(defun editor-one-liner4 (&rest args)
+  "OneLiner4() -> null
+
+MATSU Editor's own F_ONELINER_4 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner4" args))
+
+(defun editor-one-liner5 (&rest args)
+  "OneLiner5() -> null
+
+MATSU Editor's own F_ONELINER_5 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner5" args))
+
+(defun editor-one-liner6 (&rest args)
+  "OneLiner6() -> null
+
+MATSU Editor's own F_ONELINER_6 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner6" args))
+
+(defun editor-one-liner7 (&rest args)
+  "OneLiner7() -> null
+
+MATSU Editor's own F_ONELINER_7 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner7" args))
+
+(defun editor-one-liner8 (&rest args)
+  "OneLiner8() -> null
+
+MATSU Editor's own F_ONELINER_8 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner8" args))
+
+(defun editor-one-liner9 (&rest args)
+  "OneLiner9() -> null
+
+MATSU Editor's own F_ONELINER_9 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner9" args))
+
+(defun editor-one-liner10 (&rest args)
+  "OneLiner10() -> null
+
+MATSU Editor's own F_ONELINER_10 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner10" args))
+
+(defun editor-one-liner11 (&rest args)
+  "OneLiner11() -> null
+
+MATSU Editor's own F_ONELINER_11 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner11" args))
+
+(defun editor-one-liner12 (&rest args)
+  "OneLiner12() -> null
+
+MATSU Editor's own F_ONELINER_12 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner12" args))
+
+(defun editor-one-liner13 (&rest args)
+  "OneLiner13() -> null
+
+MATSU Editor's own F_ONELINER_13 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner13" args))
+
+(defun editor-one-liner14 (&rest args)
+  "OneLiner14() -> null
+
+MATSU Editor's own F_ONELINER_14 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner14" args))
+
+(defun editor-one-liner15 (&rest args)
+  "OneLiner15() -> null
+
+MATSU Editor's own F_ONELINER_15 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner15" args))
+
+(defun editor-one-liner16 (&rest args)
+  "OneLiner16() -> null
+
+MATSU Editor's own F_ONELINER_16 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner16" args))
+
+(defun editor-one-liner17 (&rest args)
+  "OneLiner17() -> null
+
+MATSU Editor's own F_ONELINER_17 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner17" args))
+
+(defun editor-one-liner18 (&rest args)
+  "OneLiner18() -> null
+
+MATSU Editor's own F_ONELINER_18 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner18" args))
+
+(defun editor-one-liner19 (&rest args)
+  "OneLiner19() -> null
+
+MATSU Editor's own F_ONELINER_19 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner19" args))
+
+(defun editor-one-liner20 (&rest args)
+  "OneLiner20() -> null
+
+MATSU Editor's own F_ONELINER_20 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner20" args))
+
+(defun editor-one-liner21 (&rest args)
+  "OneLiner21() -> null
+
+MATSU Editor's own F_ONELINER_21 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner21" args))
+
+(defun editor-one-liner22 (&rest args)
+  "OneLiner22() -> null
+
+MATSU Editor's own F_ONELINER_22 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner22" args))
+
+(defun editor-one-liner23 (&rest args)
+  "OneLiner23() -> null
+
+MATSU Editor's own F_ONELINER_23 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner23" args))
+
+(defun editor-one-liner24 (&rest args)
+  "OneLiner24() -> null
+
+MATSU Editor's own F_ONELINER_24 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner24" args))
+
+(defun editor-one-liner25 (&rest args)
+  "OneLiner25() -> null
+
+MATSU Editor's own F_ONELINER_25 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner25" args))
+
+(defun editor-one-liner26 (&rest args)
+  "OneLiner26() -> null
+
+MATSU Editor's own F_ONELINER_26 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner26" args))
+
+(defun editor-one-liner27 (&rest args)
+  "OneLiner27() -> null
+
+MATSU Editor's own F_ONELINER_27 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner27" args))
+
+(defun editor-one-liner28 (&rest args)
+  "OneLiner28() -> null
+
+MATSU Editor's own F_ONELINER_28 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner28" args))
+
+(defun editor-one-liner29 (&rest args)
+  "OneLiner29() -> null
+
+MATSU Editor's own F_ONELINER_29 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner29" args))
+
+(defun editor-one-liner30 (&rest args)
+  "OneLiner30() -> null
+
+MATSU Editor's own F_ONELINER_30 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner30" args))
+
+(defun editor-one-liner31 (&rest args)
+  "OneLiner31() -> null
+
+MATSU Editor's own F_ONELINER_31 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner31" args))
+
+(defun editor-one-liner32 (&rest args)
+  "OneLiner32() -> null
+
+MATSU Editor's own F_ONELINER_32 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner32" args))
+
+(defun editor-one-liner33 (&rest args)
+  "OneLiner33() -> null
+
+MATSU Editor's own F_ONELINER_33 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner33" args))
+
+(defun editor-one-liner34 (&rest args)
+  "OneLiner34() -> null
+
+MATSU Editor's own F_ONELINER_34 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner34" args))
+
+(defun editor-one-liner35 (&rest args)
+  "OneLiner35() -> null
+
+MATSU Editor's own F_ONELINER_35 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner35" args))
+
+(defun editor-one-liner36 (&rest args)
+  "OneLiner36() -> null
+
+MATSU Editor's own F_ONELINER_36 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner36" args))
+
+(defun editor-one-liner37 (&rest args)
+  "OneLiner37() -> null
+
+MATSU Editor's own F_ONELINER_37 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner37" args))
+
+(defun editor-one-liner38 (&rest args)
+  "OneLiner38() -> null
+
+MATSU Editor's own F_ONELINER_38 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner38" args))
+
+(defun editor-one-liner39 (&rest args)
+  "OneLiner39() -> null
+
+MATSU Editor's own F_ONELINER_39 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner39" args))
+
+(defun editor-one-liner40 (&rest args)
+  "OneLiner40() -> null
+
+MATSU Editor's own F_ONELINER_40 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner40" args))
+
+(defun editor-one-liner41 (&rest args)
+  "OneLiner41() -> null
+
+MATSU Editor's own F_ONELINER_41 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner41" args))
+
+(defun editor-one-liner42 (&rest args)
+  "OneLiner42() -> null
+
+MATSU Editor's own F_ONELINER_42 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner42" args))
+
+(defun editor-one-liner43 (&rest args)
+  "OneLiner43() -> null
+
+MATSU Editor's own F_ONELINER_43 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner43" args))
+
+(defun editor-one-liner44 (&rest args)
+  "OneLiner44() -> null
+
+MATSU Editor's own F_ONELINER_44 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner44" args))
+
+(defun editor-one-liner45 (&rest args)
+  "OneLiner45() -> null
+
+MATSU Editor's own F_ONELINER_45 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner45" args))
+
+(defun editor-one-liner46 (&rest args)
+  "OneLiner46() -> null
+
+MATSU Editor's own F_ONELINER_46 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner46" args))
+
+(defun editor-one-liner47 (&rest args)
+  "OneLiner47() -> null
+
+MATSU Editor's own F_ONELINER_47 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner47" args))
+
+(defun editor-one-liner48 (&rest args)
+  "OneLiner48() -> null
+
+MATSU Editor's own F_ONELINER_48 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner48" args))
+
+(defun editor-one-liner49 (&rest args)
+  "OneLiner49() -> null
+
+MATSU Editor's own F_ONELINER_49 (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "OneLiner49" args))
+
+(defun editor-one-liner-dialog (&rest args)
+  "OneLinerDialog() -> null
+
+MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a
+key, the menu and a key macro run."
+  (apply #'editor-call "OneLinerDialog" args))
 
 (defun editor-trace-out (&rest args)
   "TraceOut(arg1: string?, arg2: int?) -> null

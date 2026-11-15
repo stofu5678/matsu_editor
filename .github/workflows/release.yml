@@ -18,9 +18,13 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# A run that hangs holds the `release` group, and the next run waits behind it. So every job has a time limit
+# (timeout-minutes) instead of GitHub's default of 6 hours; package.yml sets those of its own jobs. The three jobs here
+# took 2 minutes at most in the weeks before 2026-11-07.
 jobs:
   release-please:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -104,6 +108,7 @@ jobs:
   nightly:
     needs: package
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     env:
@@ -141,6 +146,7 @@ jobs:
   release:
     needs: [release-please, package-release]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     env:

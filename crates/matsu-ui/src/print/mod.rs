@@ -228,7 +228,7 @@ fn os_print(
 ) -> impl Future<Output = Result<bool, Error>> + use<> {
     // A number rather than a handle, so that it can go to the thread that shows the dialog.
     let owner = raw_handle(window).map_or(0, matsu_platform::print::windows::owner);
-    cx.background_spawn(async move { matsu_platform::print::windows::print(owner, job) })
+    cx.background_spawn(async move { matsu_platform::print::windows::print(owner, &job) })
 }
 
 /// The print portal shows the dialog (`org.freedesktop.portal.Print`).

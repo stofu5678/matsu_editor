@@ -39,9 +39,9 @@ fn exported(path: &Path) -> String {
     format!("ファイルをエクスポートしました。\n\n{}", path.display())
 }
 
-fn say(message: String, window: &mut Window, cx: &mut Context<CommonSettingsDialog>) {
+fn say(message: &str, window: &mut Window, cx: &mut Context<CommonSettingsDialog>) {
     // Nobody waits for this answer.
-    crate::boxes::tell(window, PromptLevel::Info, &message, None, cx);
+    crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
 }
 
 impl CommonSettingsDialog {
@@ -73,13 +73,13 @@ impl CommonSettingsDialog {
         cx: &mut Context<Self>,
     ) -> bool {
         let Ok(profile) = Profile::load(path) else {
-            say(cannot_open(path), window, cx);
+            say(&cannot_open(path), window, cx);
             return false;
         };
         let before = state_of(self.values()).menu();
         let mut menu = before.clone();
         if !menu.import_profile(&profile, &data::code_of_name) {
-            say(wrong_format(path), window, cx);
+            say(&wrong_format(path), window, cx);
             return false;
         }
         // A file with no menu in it leaves the page as it is.
@@ -128,7 +128,7 @@ impl CommonSettingsDialog {
             .ok()
             .is_some_and(|profile| profile.save_sakura_style(path, Some(MNU_VERSION)).is_ok());
         say(
-            if written {
+            &if written {
                 exported(path)
             } else {
                 cannot_export(path)

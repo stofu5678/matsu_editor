@@ -40,6 +40,7 @@ mod settings_tests;
 pub(crate) mod split_box;
 mod status_info;
 mod syntax;
+pub(crate) mod text_font;
 pub(crate) mod vscroll;
 
 use std::ops::Range;
@@ -102,6 +103,14 @@ pub struct OpenRecentFile {
 #[action(namespace = matsu, no_json)]
 pub struct OpenRecentFolder {
     pub path: String,
+}
+
+/// A menu item of the window list: bring this document to the front. `id` is the id of its view as
+/// the menu showed it, so a window that closed since cannot make the item bring another one.
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = matsu, no_json)]
+pub struct SelectWindow {
+    pub id: u64,
 }
 
 /// The font of the text, by OS: a Japanese monospaced font, so that full-width characters are
@@ -288,6 +297,8 @@ pub struct EditorView {
     pub(crate) save_as_dialog: Option<Entity<crate::file_ops::save_as_dialog::SaveAsDialog>>,
     /// The text input dialog (`InputBox`), while it is open.
     pub(crate) input_dialog: Option<Entity<crate::input_dialog::InputDialog>>,
+    /// The confirmation before text is sent to an AI (`crate::ai_confirm`, ADR-0030).
+    pub(crate) ai_confirm: Option<Entity<crate::ai_confirm::AiConfirmDialog>>,
     /// The list that chooses a connection of `databases.ini` (ADR-0023).
     pub(crate) connection_dialog: Option<Entity<crate::database::pick::ConnectionDialog>>,
     /// The completion list, the command list and the version dialog (`crate::support`).
@@ -386,6 +397,7 @@ impl EditorView {
             macros: MacroState::default(),
             save_as_dialog: None,
             input_dialog: None,
+            ai_confirm: None,
             connection_dialog: None,
             support: Default::default(),
             window_list: None,
@@ -433,6 +445,12 @@ impl EditorView {
         (self.font_family.clone(), self.font_size)
     }
 
+    /// The font of the text: the family of the view, or what stands in for it when the OS does not
+    /// have it ([`text_font`]).
+    pub(crate) fn text_font(&self, cx: &App) -> text_font::TextFont {
+        text_font::for_family(Some(&self.font_family), cx)
+    }
+
     /// The document of a view (the text only).
     fn doc<'a>(&self, cx: &'a App) -> &'a Document {
         self.document.read(cx).doc()
@@ -449,7 +467,7 @@ impl EditorView {
     ) -> R {
         let document = self.document.clone();
         // The macro that runs before a save is told the file it will be written to.
-        let save_path = self.macros.save_path().map(std::path::Path::to_owned);
+        let save_path = self.macros.save_path();
         // `bInsSpace` of the view, which `ChangeInsertSpace` and the type settings change.
         let ins_space = self.prefs.settings.ins_space;
         let input = self.prefs.settings.input.clone();
@@ -480,14 +498,14 @@ impl EditorView {
                 .with_ins_space(ins_space)
                 .with_input_options(input)
                 .with_line_start_colors(&start_states)
-                .with_save_path(save_path.as_deref())
+                .with_save_path(save_path)
                 .with_view_mode(view_mode);
             if let Some(quote) = quote {
                 command_cx = command_cx.with_quote_string(quote);
             }
             let result = f(&mut command_cx);
-            let changes = command_cx.finish();
-            if let Some(quote) = changes.quote_string.clone() {
+            let mut changes = command_cx.finish();
+            if let Some(quote) = changes.quote_string.take() {
                 cx.set_global(crate::clipboard::QuoteString(quote));
             }
             shared.set_overwrite(changes.overwrite, cx);
@@ -497,7 +515,7 @@ impl EditorView {
             }
             (result, changes)
         });
-        self.after_command(&changes, cx);
+        self.after_command(changes, cx);
         result
     }
 
@@ -665,11 +683,11 @@ impl EditorView {
 
     /// What ADR-0013 section 4 wants after a command: the layout matches the text, the caret is
     /// in view, and the window repaints.
-    fn after_command(&mut self, changes: &Changes, cx: &mut Context<Self>) {
+    fn after_command(&mut self, mut changes: Changes, cx: &mut Context<Self>) {
         if changes.text_changed() {
             // The context has already told the layout about every edit (`RowLayout`).
             self.layout_version = self.document.update(cx, |shared, cx| shared.changed(cx));
-            self.colors_after_edit(changes, self.layout_version, cx);
+            self.colors_after_edit(&changes, self.layout_version, cx);
         }
         if changes.text_changed() || changes.caret_moved || changes.selection_changed {
             self.marked = None;
@@ -677,13 +695,13 @@ impl EditorView {
         }
         self.refused_edit = changes.refused_in_view_mode;
         // After the clearing above: what the command says is for this very state of the text.
-        if let Some(text) = &changes.status_message {
-            self.notice = Some(text.clone());
+        if let Some(text) = changes.status_message.take() {
+            self.notice = Some(text);
         }
-        if let Some(text) = changes.message_box.clone() {
+        if let Some(text) = changes.message_box.take() {
             self.pending_message_boxes.push(text);
         }
-        self.completion_after_command(changes, cx);
+        self.completion_after_command(&changes, cx);
         if let Some(call) = changes.smart_indent_plugin {
             self.call_smart_indent_plugin(call, cx);
         }
@@ -718,7 +736,7 @@ impl EditorView {
             self.relayout_in(cx);
         }
         if let Some(moved) = moved {
-            self.apply_frame_move(moved, cx);
+            self.apply_frame_move(&moved, cx);
         }
         let doc = self.document.read(cx).doc();
         let _ = self.cursor.clamp_if_outside(doc);
@@ -808,7 +826,7 @@ impl EditorView {
     pub fn status(&self, cx: &App) -> StatusInfo {
         let shared = self.document.read(cx);
         let options = crate::status_options::current(cx);
-        let (line, column) = self.status_position(&options, cx);
+        let (line, column) = self.status_position(options, cx);
         // In a window on a huge file the lines are counted from the start of the file, "about"
         // while the scan has not passed the window (`view/scan_window.rs`).
         let base = shared.line_base();
@@ -816,13 +834,13 @@ impl EditorView {
             line: line + usize::try_from(base.lines_before).unwrap_or(usize::MAX - line),
             line_approx: base.approx,
             column,
-            char_code: self.caret_char_code(&options, cx),
-            selection: self.selection_message(&options, cx),
+            char_code: self.caret_char_code(options, cx),
+            selection: self.selection_message(options, cx),
             lines: self.status_line_count(cx),
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),
             charset: crate::status::charset_label(shared.file().encoding, shared.file().bom),
-            eol: crate::status::eol_name(shared.new_line()).to_owned(),
+            eol: crate::status::eol_name(shared.new_line()),
             recording: self.is_recording_key_macro(),
             zoom: self.prefs.zoom,
             // the incremental search shows its pattern where the notice goes
@@ -833,6 +851,7 @@ impl EditorView {
                 .or_else(|| self.notice.clone())
                 .or_else(|| shared.scan_text())
                 .or_else(crate::settings::startup_notice),
+            message_only: false,
         }
     }
 
@@ -886,7 +905,7 @@ impl EditorView {
     ) -> matsu_print::HeaderContext {
         let wants = |code: &str| format.is_none_or(|f| f.contains(code));
         let shared = self.document.read(cx);
-        let path = shared.path().map(|p| p.to_string_lossy().into_owned());
+        let path = shared.path().map(|p| p.to_string_lossy());
         // The key of a Grep window; its title is the key, and the tab shows `【Grep】key`.
         let grep_key = self.grep_key();
         let subject = crate::file_names::title::Subject {
@@ -895,7 +914,7 @@ impl EditorView {
             view_mode: shared.view_mode(),
             unwritable: shared.disk().unwritable,
             recording_macro: self.is_recording_key_macro(),
-            grep_key: grep_key.as_deref(),
+            grep_key,
             caret: (self.cursor.caret().line, self.cursor.caret().col),
             untitled_number: shared.untitled_number(),
         };
@@ -919,6 +938,9 @@ impl EditorView {
                     .get(index)
                     .map(|t| t.type_name.clone())
             });
+        }
+        if wants("$Q") {
+            ctx.print_setting_name = self.current_print_setting(cx).name;
         }
         if wants("$d") || wants("$t") {
             let options = matsu_commands::format_options::get();
@@ -968,6 +990,10 @@ impl EditorView {
         cx.bind_keys([
             gpui::KeyBinding::new("tab", gpui::NoAction, Some("Editor")),
             gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("Editor")),
+            // The confirmation before text goes to an AI is a sibling of the editor, not inside its context: its
+            // own Tab handling (`crate::ai_confirm`) needs the key as well.
+            gpui::KeyBinding::new("tab", gpui::NoAction, Some("AiConfirmDialog")),
+            gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("AiConfirmDialog")),
         ]);
     }
 
@@ -1109,18 +1135,23 @@ impl Render for EditorView {
                 .child(preview.clone())
                 .children(self.print.setup_dialog.clone())
                 .children(self.input_dialog.clone())
+                .children(self.ai_confirm.clone())
                 .children(self.connection_dialog.clone())
                 .into_any_element();
         }
         let a11y_text = self.a11y_text.clone();
-        let mut editor = crate::a11y::focusable_editor(div().id("editor"), &self.focus_handle)
+        let text_font = self.text_font(cx);
+        let mut editor = text_font
+            .apply(crate::a11y::focusable_editor(
+                div().id("editor"),
+                &self.focus_handle,
+            ))
             // The text runs, the caret and the selection, written when a screen reader is connected.
             .a11y_synthetic_children(move |builder| a11y_text::write(&a11y_text, builder))
             .size_full()
             .overflow_hidden()
             .key_context("Editor")
             .cursor(CursorStyle::IBeam)
-            .font_family(self.font_family.clone())
             // `lfWeight` and `lfItalic` of the font (`ViewSettings`)
             .font_weight(gpui::FontWeight(self.prefs.settings.gpui_font_weight()))
             .text_size(px(self.font_size))
@@ -1201,6 +1232,7 @@ impl Render for EditorView {
             .children(self.save_as_dialog.clone())
             .children(self.print.setup_dialog.clone())
             .children(self.input_dialog.clone())
+            .children(self.ai_confirm.clone())
             .children(self.connection_dialog.clone())
             .into_any_element()
     }

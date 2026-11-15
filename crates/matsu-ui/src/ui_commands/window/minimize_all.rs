@@ -28,7 +28,7 @@ impl UiCommand for MinimizeAll {
             minimize_windows(screen, all);
             Ok(())
         })
-        .map_err(unavailable)
+        .map_err(|e| unavailable(&e))
     }
 }
 

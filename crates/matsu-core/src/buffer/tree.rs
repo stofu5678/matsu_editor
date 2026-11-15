@@ -125,17 +125,14 @@ fn rotate_right(n: Arc<Node>) -> Arc<Node> {
     }
 }
 
-fn join_right(l: Arc<Node>, p: Piece, r: Tree) -> Arc<Node> {
+fn join_right(l: &Node, p: Piece, r: Tree) -> Arc<Node> {
     let (ll, lp, lr) = (l.left.clone(), l.piece, l.right.clone());
     match lr {
         Some(c) if c.height > height(&r) + 1 => {
-            let t1 = join_right(c, p, r);
-            let t2 = node(ll.clone(), lp, Some(t1.clone()));
-            if t1.height <= height(&ll) + 1 {
-                t2
-            } else {
-                rotate_left(t2)
-            }
+            let t1 = join_right(&c, p, r);
+            let (h1, hl) = (t1.height, height(&ll));
+            let t2 = node(ll, lp, Some(t1));
+            if h1 <= hl + 1 { t2 } else { rotate_left(t2) }
         }
         lr => {
             let t1 = node(lr, p, r);
@@ -148,17 +145,14 @@ fn join_right(l: Arc<Node>, p: Piece, r: Tree) -> Arc<Node> {
     }
 }
 
-fn join_left(l: Tree, p: Piece, r: Arc<Node>) -> Arc<Node> {
+fn join_left(l: Tree, p: Piece, r: &Node) -> Arc<Node> {
     let (rl, rp, rr) = (r.left.clone(), r.piece, r.right.clone());
     match rl {
         Some(c) if c.height > height(&l) + 1 => {
-            let t1 = join_left(l, p, c);
-            let t2 = node(Some(t1.clone()), rp, rr.clone());
-            if t1.height <= height(&rr) + 1 {
-                t2
-            } else {
-                rotate_right(t2)
-            }
+            let t1 = join_left(l, p, &c);
+            let (h1, hr) = (t1.height, height(&rr));
+            let t2 = node(Some(t1), rp, rr);
+            if h1 <= hr + 1 { t2 } else { rotate_right(t2) }
         }
         rl => {
             let t1 = node(l, p, rl);
@@ -174,8 +168,8 @@ fn join_left(l: Tree, p: Piece, r: Arc<Node>) -> Arc<Node> {
 /// A balanced tree of `l`, `p`, `r` in this order. Every piece of `l` comes before every piece of `r`.
 pub(crate) fn join(l: Tree, p: Piece, r: Tree) -> Arc<Node> {
     match (l, r) {
-        (Some(ln), r) if ln.height > height(&r) + 1 => join_right(ln, p, r),
-        (l, Some(rn)) if rn.height > height(&l) + 1 => join_left(l, p, rn),
+        (Some(ln), r) if ln.height > height(&r) + 1 => join_right(&ln, p, r),
+        (l, Some(rn)) if rn.height > height(&l) + 1 => join_left(l, p, &rn),
         (l, r) => node(l, p, r),
     }
 }

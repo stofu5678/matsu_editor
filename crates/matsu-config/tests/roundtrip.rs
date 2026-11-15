@@ -122,7 +122,7 @@ fn changing_one_setting_changes_only_that_line() {
         .windows(13)
         .position(|w| w == b"bAutoIndent=0")
         .unwrap();
-    let mut want = bytes.clone();
+    let mut want = bytes;
     want[at + 12] = b'1';
     assert_eq!(out, want);
     assert_eq!(

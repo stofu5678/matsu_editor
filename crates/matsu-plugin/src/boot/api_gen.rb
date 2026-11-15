@@ -209,9 +209,10 @@ module MatsuEditorApi
     #
     # An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
     # 1 when the line changed since the last save, type 1 the number of the undo step that last
-    # touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
-    # answer the error -32001 until the editor has them. A negative line, a line past the end
-    # and any other type are errors.
+    # touched it, type 2 the bookmark (1 or 0). Type 3 is the diff mark (0 none, 1 added, 2
+    # changed, 3 deleted, 4 deleted after the end) and type 4 is 1 when the last outline
+    # analysis found an item on the line. A negative line, a line past the end and any other
+    # type are errors.
     def GetLineAttribute(line, type)
       @call.call('GetLineAttribute', _pack(line, type))
     end
@@ -476,13 +477,15 @@ module MatsuEditorApi
 
     # ExpandParameter(format: string) -> string
     #
-    # Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f (file name),
-    # $g (file name without the extension), $/ (full path with /), $N (as $F), $b (extension),
-    # $e and $E (folder), $C (the selected text or the word at the caret), $x and $y (caret
-    # column in UTF-16 units and line, from 1), $S (the editor), $M (the macro file), $V
-    # (version), $A (name), and conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a
-    # file is (無題). $d $t $D $T $B $Q $I are not supported and stay as written. At most 2047
-    # UTF-16 units.
+    # Replaces the codes that start with $ in a string, as the window title does: $$ ($), $A
+    # (name), $F (full path), $f (file name), $g (file name without the extension), $/ (full
+    # path with /), $N (short path), $b (extension), $e (folder), $E (short folder), $n (number
+    # of an untitled window), $B (document type), $Q (print setting), $C (the selected text or
+    # the word at the caret), $x and $y (caret column in UTF-16 units and line, from 1), $d and
+    # $t (date and time now), $D and $T (date and time of the file), $V (version), $h (Grep
+    # key), $S (the editor), $I (the settings file), $M (the macro file), $<profile>, and
+    # conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (無題). $p and $P are
+    # the notice that they are for the print preview. At most 2047 UTF-16 units.
     def ExpandParameter(format)
       @call.call('ExpandParameter', _pack(format))
     end
@@ -538,8 +541,9 @@ module MatsuEditorApi
     # FileOpenDialog(defaultName: string?, filter: string?) -> string
     #
     # Lets the user choose a file to open and returns its full path, or an empty string when the
-    # dialog is cancelled. The default name and the filter are not used: the dialog of the
-    # platform takes neither.
+    # dialog is cancelled. The dialog starts in the folder of the default name (when it names
+    # one) with that name filled in. The filter is not used: the dialog of the platform takes
+    # none.
     def FileOpenDialog(defaultName = UNSET, filter = UNSET)
       @call.call('FileOpenDialog', _pack(defaultName, filter))
     end
@@ -557,7 +561,7 @@ module MatsuEditorApi
     #
     # Lets the user choose a folder and returns its full path, or an empty string when the
     # dialog is cancelled. The message becomes the prompt text of the platform dialog where it
-    # has one; the default folder is not used.
+    # has one; the dialog starts in the default folder when it is an existing folder.
     def FolderDialog(message = UNSET, defaultFolder = UNSET)
       @call.call('FolderDialog', _pack(message, defaultFolder))
     end
@@ -2115,6 +2119,54 @@ module MatsuEditorApi
       @call.call('SPACEToTAB', _pack())
     end
 
+    # EncodeUrl() -> null
+    #
+    # MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def EncodeUrl
+      @call.call('EncodeUrl', _pack())
+    end
+
+    # DecodeUrl() -> null
+    #
+    # MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def DecodeUrl
+      @call.call('DecodeUrl', _pack())
+    end
+
+    # EscapeHtml() -> null
+    #
+    # MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def EscapeHtml
+      @call.call('EscapeHtml', _pack())
+    end
+
+    # UnescapeHtml() -> null
+    #
+    # MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def UnescapeHtml
+      @call.call('UnescapeHtml', _pack())
+    end
+
+    # EncodeBase64() -> null
+    #
+    # MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def EncodeBase64
+      @call.call('EncodeBase64', _pack())
+    end
+
+    # DecodeBase64() -> null
+    #
+    # MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
+    def DecodeBase64
+      @call.call('DecodeBase64', _pack())
+    end
+
     # AutoToSJIS() -> null
     #
     # Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
@@ -3113,6 +3165,422 @@ module MatsuEditorApi
     # and a key macro run.
     def PreviewTab
       @call.call('PreviewTab', _pack())
+    end
+
+    # ShellTab() -> null
+    #
+    # MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def ShellTab
+      @call.call('ShellTab', _pack())
+    end
+
+    # OneLiner0() -> null
+    #
+    # MATSU Editor's own F_ONELINER_0 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner0
+      @call.call('OneLiner0', _pack())
+    end
+
+    # OneLiner1() -> null
+    #
+    # MATSU Editor's own F_ONELINER_1 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner1
+      @call.call('OneLiner1', _pack())
+    end
+
+    # OneLiner2() -> null
+    #
+    # MATSU Editor's own F_ONELINER_2 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner2
+      @call.call('OneLiner2', _pack())
+    end
+
+    # OneLiner3() -> null
+    #
+    # MATSU Editor's own F_ONELINER_3 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner3
+      @call.call('OneLiner3', _pack())
+    end
+
+    # OneLiner4() -> null
+    #
+    # MATSU Editor's own F_ONELINER_4 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner4
+      @call.call('OneLiner4', _pack())
+    end
+
+    # OneLiner5() -> null
+    #
+    # MATSU Editor's own F_ONELINER_5 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner5
+      @call.call('OneLiner5', _pack())
+    end
+
+    # OneLiner6() -> null
+    #
+    # MATSU Editor's own F_ONELINER_6 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner6
+      @call.call('OneLiner6', _pack())
+    end
+
+    # OneLiner7() -> null
+    #
+    # MATSU Editor's own F_ONELINER_7 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner7
+      @call.call('OneLiner7', _pack())
+    end
+
+    # OneLiner8() -> null
+    #
+    # MATSU Editor's own F_ONELINER_8 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner8
+      @call.call('OneLiner8', _pack())
+    end
+
+    # OneLiner9() -> null
+    #
+    # MATSU Editor's own F_ONELINER_9 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
+    def OneLiner9
+      @call.call('OneLiner9', _pack())
+    end
+
+    # OneLiner10() -> null
+    #
+    # MATSU Editor's own F_ONELINER_10 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner10
+      @call.call('OneLiner10', _pack())
+    end
+
+    # OneLiner11() -> null
+    #
+    # MATSU Editor's own F_ONELINER_11 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner11
+      @call.call('OneLiner11', _pack())
+    end
+
+    # OneLiner12() -> null
+    #
+    # MATSU Editor's own F_ONELINER_12 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner12
+      @call.call('OneLiner12', _pack())
+    end
+
+    # OneLiner13() -> null
+    #
+    # MATSU Editor's own F_ONELINER_13 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner13
+      @call.call('OneLiner13', _pack())
+    end
+
+    # OneLiner14() -> null
+    #
+    # MATSU Editor's own F_ONELINER_14 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner14
+      @call.call('OneLiner14', _pack())
+    end
+
+    # OneLiner15() -> null
+    #
+    # MATSU Editor's own F_ONELINER_15 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner15
+      @call.call('OneLiner15', _pack())
+    end
+
+    # OneLiner16() -> null
+    #
+    # MATSU Editor's own F_ONELINER_16 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner16
+      @call.call('OneLiner16', _pack())
+    end
+
+    # OneLiner17() -> null
+    #
+    # MATSU Editor's own F_ONELINER_17 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner17
+      @call.call('OneLiner17', _pack())
+    end
+
+    # OneLiner18() -> null
+    #
+    # MATSU Editor's own F_ONELINER_18 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner18
+      @call.call('OneLiner18', _pack())
+    end
+
+    # OneLiner19() -> null
+    #
+    # MATSU Editor's own F_ONELINER_19 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner19
+      @call.call('OneLiner19', _pack())
+    end
+
+    # OneLiner20() -> null
+    #
+    # MATSU Editor's own F_ONELINER_20 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner20
+      @call.call('OneLiner20', _pack())
+    end
+
+    # OneLiner21() -> null
+    #
+    # MATSU Editor's own F_ONELINER_21 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner21
+      @call.call('OneLiner21', _pack())
+    end
+
+    # OneLiner22() -> null
+    #
+    # MATSU Editor's own F_ONELINER_22 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner22
+      @call.call('OneLiner22', _pack())
+    end
+
+    # OneLiner23() -> null
+    #
+    # MATSU Editor's own F_ONELINER_23 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner23
+      @call.call('OneLiner23', _pack())
+    end
+
+    # OneLiner24() -> null
+    #
+    # MATSU Editor's own F_ONELINER_24 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner24
+      @call.call('OneLiner24', _pack())
+    end
+
+    # OneLiner25() -> null
+    #
+    # MATSU Editor's own F_ONELINER_25 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner25
+      @call.call('OneLiner25', _pack())
+    end
+
+    # OneLiner26() -> null
+    #
+    # MATSU Editor's own F_ONELINER_26 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner26
+      @call.call('OneLiner26', _pack())
+    end
+
+    # OneLiner27() -> null
+    #
+    # MATSU Editor's own F_ONELINER_27 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner27
+      @call.call('OneLiner27', _pack())
+    end
+
+    # OneLiner28() -> null
+    #
+    # MATSU Editor's own F_ONELINER_28 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner28
+      @call.call('OneLiner28', _pack())
+    end
+
+    # OneLiner29() -> null
+    #
+    # MATSU Editor's own F_ONELINER_29 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner29
+      @call.call('OneLiner29', _pack())
+    end
+
+    # OneLiner30() -> null
+    #
+    # MATSU Editor's own F_ONELINER_30 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner30
+      @call.call('OneLiner30', _pack())
+    end
+
+    # OneLiner31() -> null
+    #
+    # MATSU Editor's own F_ONELINER_31 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner31
+      @call.call('OneLiner31', _pack())
+    end
+
+    # OneLiner32() -> null
+    #
+    # MATSU Editor's own F_ONELINER_32 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner32
+      @call.call('OneLiner32', _pack())
+    end
+
+    # OneLiner33() -> null
+    #
+    # MATSU Editor's own F_ONELINER_33 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner33
+      @call.call('OneLiner33', _pack())
+    end
+
+    # OneLiner34() -> null
+    #
+    # MATSU Editor's own F_ONELINER_34 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner34
+      @call.call('OneLiner34', _pack())
+    end
+
+    # OneLiner35() -> null
+    #
+    # MATSU Editor's own F_ONELINER_35 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner35
+      @call.call('OneLiner35', _pack())
+    end
+
+    # OneLiner36() -> null
+    #
+    # MATSU Editor's own F_ONELINER_36 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner36
+      @call.call('OneLiner36', _pack())
+    end
+
+    # OneLiner37() -> null
+    #
+    # MATSU Editor's own F_ONELINER_37 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner37
+      @call.call('OneLiner37', _pack())
+    end
+
+    # OneLiner38() -> null
+    #
+    # MATSU Editor's own F_ONELINER_38 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner38
+      @call.call('OneLiner38', _pack())
+    end
+
+    # OneLiner39() -> null
+    #
+    # MATSU Editor's own F_ONELINER_39 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner39
+      @call.call('OneLiner39', _pack())
+    end
+
+    # OneLiner40() -> null
+    #
+    # MATSU Editor's own F_ONELINER_40 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner40
+      @call.call('OneLiner40', _pack())
+    end
+
+    # OneLiner41() -> null
+    #
+    # MATSU Editor's own F_ONELINER_41 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner41
+      @call.call('OneLiner41', _pack())
+    end
+
+    # OneLiner42() -> null
+    #
+    # MATSU Editor's own F_ONELINER_42 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner42
+      @call.call('OneLiner42', _pack())
+    end
+
+    # OneLiner43() -> null
+    #
+    # MATSU Editor's own F_ONELINER_43 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner43
+      @call.call('OneLiner43', _pack())
+    end
+
+    # OneLiner44() -> null
+    #
+    # MATSU Editor's own F_ONELINER_44 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner44
+      @call.call('OneLiner44', _pack())
+    end
+
+    # OneLiner45() -> null
+    #
+    # MATSU Editor's own F_ONELINER_45 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner45
+      @call.call('OneLiner45', _pack())
+    end
+
+    # OneLiner46() -> null
+    #
+    # MATSU Editor's own F_ONELINER_46 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner46
+      @call.call('OneLiner46', _pack())
+    end
+
+    # OneLiner47() -> null
+    #
+    # MATSU Editor's own F_ONELINER_47 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner47
+      @call.call('OneLiner47', _pack())
+    end
+
+    # OneLiner48() -> null
+    #
+    # MATSU Editor's own F_ONELINER_48 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner48
+      @call.call('OneLiner48', _pack())
+    end
+
+    # OneLiner49() -> null
+    #
+    # MATSU Editor's own F_ONELINER_49 (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
+    def OneLiner49
+      @call.call('OneLiner49', _pack())
+    end
+
+    # OneLinerDialog() -> null
+    #
+    # MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
+    def OneLinerDialog
+      @call.call('OneLinerDialog', _pack())
     end
 
     # TraceOut(arg1: string?, arg2: int?) -> null

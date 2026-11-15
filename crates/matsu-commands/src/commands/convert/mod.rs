@@ -1,5 +1,7 @@
 //! Conversion commands: the selected text is converted in place (Sakura's 変換 group).
 
+pub mod base64_decode_text;
+pub mod base64_encode;
 pub mod codecnv_auto2_sjis;
 pub mod codecnv_email;
 pub mod codecnv_euc2_sjis;
@@ -13,6 +15,8 @@ pub mod codecnv_utf72_sjis;
 pub mod codecnv_utf82_sjis;
 pub mod hankata_to_zenkaku_hira;
 pub mod hankata_to_zenkaku_kata;
+pub mod html_escape;
+pub mod html_unescape;
 pub mod space_to_tab;
 pub mod tab_to_space;
 pub mod to_hankaku;
@@ -23,3 +27,5 @@ pub mod to_upper;
 pub mod to_zenkaku_eisu;
 pub mod to_zenkaku_hira;
 pub mod to_zenkaku_kata;
+pub mod url_decode;
+pub mod url_encode;

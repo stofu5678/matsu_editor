@@ -20,6 +20,7 @@ pub mod profile;
 pub mod save_filter;
 pub mod settings;
 mod sync;
+pub mod terminal;
 pub mod unsaved;
 pub mod value;
 

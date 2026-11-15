@@ -57,6 +57,7 @@
 pub mod consent;
 pub mod def;
 pub mod options;
+pub mod zip;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -387,6 +388,34 @@ impl SearchDirs {
         )
         .ok();
         Some(PluginDef::from_bytes(&main, l10n.as_deref()))
+    }
+
+    /// The ReadMe file of the plugin in `folder` (`CPropPlugin::GetReadMeFile`): `ReadMe.txt`, then
+    /// `<folder>.txt`, in the folder of the plugin in the user's `plugins\`, then in the one next to
+    /// the executable. Sakura finds the names on Windows, which does not tell the case apart; here
+    /// the case does not matter on any system. `None` when there is none.
+    pub fn readme_file(&self, folder: &str) -> Option<PathBuf> {
+        let names = ["ReadMe.txt".to_owned(), format!("{folder}.txt")];
+        for dir in self.all() {
+            let plugin_dir = dir.join(folder);
+            let Ok(entries) = std::fs::read_dir(&plugin_dir) else {
+                continue;
+            };
+            let files: Vec<(String, PathBuf)> = entries
+                .flatten()
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| Some((e.file_name().into_string().ok()?, e.path())))
+                .collect();
+            for name in &names {
+                if let Some((_, path)) = files
+                    .iter()
+                    .find(|(file, _)| file.to_lowercase() == name.to_lowercase())
+                {
+                    return Some(path.clone());
+                }
+            }
+        }
+        None
     }
 
     /// `SearchNewPlugin`: makes the user's `plugins\` if it is not there. Returns whether the folder

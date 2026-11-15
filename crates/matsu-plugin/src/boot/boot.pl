@@ -124,6 +124,138 @@ sub call {
     }
 }
 
+
+# ---- Plugin host ------------------------------------------------------------------------------
+#
+# A plugin host (ADR-0026): `initialize` says kind "plugin" and brings no script. The editor sends
+# `plugin/invoke` (the jack, the file of the handler, its text, the arguments) and waits for the
+# answer; the process stays for the next call when the plugin is resident. The handler sees the
+# classes `Editor`, `EditorError`, `Plugin`, `Outline`, `Complement` and `Indent` (`Plugin->id`,
+# `Plugin->jack`, `Plugin->args`, `Plugin->GetOption(...)`). It is run by MatsuUser::run_handler
+# (run_user.pl), which sees none of the variables of this file; `return` and `die` end only the
+# handler, and so does `exit` (see `serve`).
+our %PLUGIN = (id => '', dir => '', jack => '', args => undef, typed => '');
+
+# A trailing undef is a missing argument, not a null.
+sub trim {
+    my @args = @_;
+    pop @args while @args && !defined $args[-1];
+    return @args;
+}
+
+# A class whose methods pass their arguments to the editor as the call "$prefix$name".
+sub define_calls {
+    my ($class, $prefix, @names) = @_;
+    for my $name (@names) {
+        no strict 'refs';
+        *{"${class}::$name"} = sub { shift; return call("$prefix$name", trim(@_)) };
+    }
+}
+
+define_calls('Plugin', 'Plugin.', qw(GetPluginDir GetDef GetOption SetOption GetString GetCommandNo AddCommand));
+define_calls('Outline', 'Outline.', qw(AddFuncInfo AddFuncInfo2 AddFuncInfo3 AddFuncInfo4 SetTitle SetListType SetLabel));
+
+sub Plugin::id   { return $PLUGIN{id} }
+sub Plugin::dir  { return $PLUGIN{dir} }
+sub Plugin::jack { return $PLUGIN{jack} }
+sub Plugin::args { return $PLUGIN{args} }
+
+# The word to complete, and the option, come with the call; the candidates go to the editor.
+sub Complement::GetCurrentWord {
+    my $args = $PLUGIN{args};
+    my $word = ref $args eq 'HASH' ? $args->{word} : undef;
+    return defined $word && !ref $word ? "$word" : '';
+}
+
+sub Complement::GetOption {
+    my $args = $PLUGIN{args};
+    my $option = ref $args eq 'HASH' ? $args->{option} : undef;
+    return defined $option && !ref $option && $option =~ /\A-?\d+\z/ ? 0 + $option : 0;
+}
+
+sub Complement::AddList {
+    shift;
+    my ($word) = @_;
+    return call('Complement.AddList', defined $word ? ("$word") : ());
+}
+
+# The object of the jack SmartIndent: GetChar answers the typed char ('' in the other jacks).
+sub Indent::GetChar { return $PLUGIN{typed} }
+
+# Answers the invoke.
+sub respond {
+    my ($id, $failure) = @_;
+    my $message = defined $failure
+        ? { jsonrpc => '2.0', id => $id, error => { code => -32000, message => $failure } }
+        : { jsonrpc => '2.0', id => $id, result => { ok => JSON::PP::true } };
+    local ($,, $\) = (undef, undef);
+    print STDOUT "$RS", $json->encode($message), "\n";
+}
+
+# The text of a failure for the editor, or undef: the message of Perl ("... at FILE line N."), which
+# keeps its kind ("syntax error ...", "Can't locate ...", "EditorError CODE: ...").
+sub describe {
+    my ($ok, $error) = @_;
+    return undef if $ok;
+    return undef if Scalar::Util::blessed($error) && $error->isa('MatsuBoot::Exit');
+    return undef unless ref $error || (defined $error && $error ne '');
+    $error = fix_name("$error");
+    $error =~ s/\n+\z//;
+    return $error;
+}
+
+sub serve {
+    my ($info) = @_;
+    my $identity = delete $info->{plugin};
+    $identity = {} unless ref $identity eq 'HASH';
+    $PLUGIN{id} = defined $identity->{id} ? "$identity->{id}" : '';
+    $PLUGIN{dir} = defined $identity->{dir} ? "$identity->{dir}" : '';
+    # The folder of the plugin, so that a handler can `require` its own files.
+    unshift @INC, $PLUGIN{dir} if length $PLUGIN{dir};
+    # `exit` in a handler ends the handler, not the host. This is set while the host runs, so it
+    # holds for the code that the handlers compile (the host's own `exit` is compiled already).
+    {
+        no warnings qw(redefine once);
+        *CORE::GLOBAL::exit = sub { die bless({}, 'MatsuBoot::Exit') };
+    }
+    # The messages that Perl and the handler make ("... at FILE line N.") say the name right.
+    $SIG{__WARN__} = sub { print STDERR map { fix_name($_) } @_ };
+    $SIG{__DIE__} = sub { die(@_) if ref $_[0]; die fix_name($_[0]) };
+    while (1) {
+        my $text = read_line();
+        last unless defined $text;
+        $text =~ s/^\s+|\s+$//g;
+        next if $text eq '';
+        my $message = eval { $json->decode($text) };
+        next unless ref $message eq 'HASH';
+        my $method = $message->{method} // '';
+        last if $method eq 'plugin/shutdown';
+        next unless $method eq 'plugin/invoke';
+        my $params = ref $message->{params} eq 'HASH' ? $message->{params} : {};
+        my $name = defined $params->{name} && !ref $params->{name} ? "$params->{name}" : '<plugin>';
+        $PLUGIN{jack} = defined $params->{jack} && !ref $params->{jack} ? "$params->{jack}" : '';
+        $PLUGIN{args} = $params->{args};
+        my $typed = ref $PLUGIN{args} eq 'HASH' ? $PLUGIN{args}{char} : undef;
+        $PLUGIN{typed} = $PLUGIN{jack} eq 'SmartIndent' && defined $typed && !ref $typed ? "$typed" : '';
+        # The name as `#line` gets it (quotes and line breaks become apostrophes), and the bytes
+        # that Perl keeps for a name that is not ASCII.
+        (my $line_name = $name) =~ s/["\n\r]/'/g;
+        ($name_as_chars, $name_as_bytes) = (undef, undef);
+        if ($line_name =~ /[^\x00-\x7f]/) {
+            $name_as_chars = $line_name;
+            $name_as_bytes = $line_name;
+            utf8::encode($name_as_bytes);
+            utf8::upgrade($name_as_bytes);
+        }
+        $MatsuUser::NAME = $line_name;
+        $MatsuUser::SOURCE = defined $params->{source} && !ref $params->{source} ? "$params->{source}" : '';
+        my $ok = MatsuUser::run_handler();
+        my $error = $@;
+        $MatsuUser::SOURCE = '';
+        respond($message->{id}, describe($ok, $error));
+    }
+}
+
 # The first line is the initialize notification.
 my $info;
 my $first = read_line();
@@ -132,13 +264,19 @@ if (defined $first && $first =~ /\S/) {
     $info = $message->{params} if ref $message eq 'HASH' && ($message->{method} // '') eq 'initialize';
 }
 my $script = ref $info eq 'HASH' ? $info->{script} : undef;
-unless (ref $script eq 'HASH') {
+my $is_plugin = ref $info eq 'HASH' && ($info->{kind} // '') eq 'plugin';
+unless (ref $script eq 'HASH' || $is_plugin) {
     print STDERR "the editor did not send the script in initialize\n";
     exit 1;
 }
 
 $Editor::CALL = \&call;
 $Editor::INFO = $info;
+
+if ($is_plugin) {
+    serve($info);
+    exit 0;
+}
 
 # The name as `#line` gets it (MatsuUser::run turns quotes and line breaks into apostrophes).
 my $name = $script->{name};

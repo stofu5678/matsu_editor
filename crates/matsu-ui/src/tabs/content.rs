@@ -23,6 +23,10 @@ pub(crate) enum MenuKind {
     Editor,
     /// The preview tab: its own small menus (`crate::preview::menus`).
     Preview,
+    /// The shell tab: its own small menus (`crate::terminal::menus`).
+    Terminal,
+    /// The AI log tab: its own small menus (`crate::ai_log::menus`).
+    AiLog,
     /// A second kind for the tests of the menu switching: one menu with one item.
     #[cfg(test)]
     Probe,
@@ -33,13 +37,15 @@ impl MenuKind {
     pub(crate) const ALL: &'static [MenuKind] = &[
         MenuKind::Editor,
         MenuKind::Preview,
+        MenuKind::Terminal,
+        MenuKind::AiLog,
         #[cfg(test)]
         MenuKind::Probe,
     ];
 }
 
-/// What closing a tab needs to ask first. Not asked through the contract yet: the close flow
-/// (`file_ops::close`) asks the document directly, and moves here when a kind has no document.
+/// What closing a tab needs to ask first. The close flow (`file_ops::close`) asks an editor's document
+/// directly; a kind that has no document asks through the contract (the shell tab: `RunningProcess`).
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CloseCheck {
@@ -47,6 +53,8 @@ pub(crate) enum CloseCheck {
     None,
     /// The tab has changes that would be lost; the question is "save changes?".
     UnsavedChanges,
+    /// A program is running in the tab and closing it ends the program.
+    RunningProcess,
 }
 
 /// The contract of a tab, whatever it holds.
@@ -77,6 +85,10 @@ pub(crate) enum TabContent {
     /// the window always has a view to ask (`panes`); it is not one of the window's editors
     /// (`editor_panes`).
     Preview(crate::preview::PreviewTab),
+    /// A shell (ADR-0028). Like the preview it keeps a view that it never draws.
+    Terminal(crate::terminal::TerminalTab),
+    /// The log of what was sent to a generative AI (ADR-0030). Keeps a view that it never draws, too.
+    AiLog(crate::ai_log::AiLogTab),
 }
 
 impl TabContent {
@@ -86,6 +98,8 @@ impl TabContent {
         match self {
             Self::Editor(panes) => panes,
             Self::Preview(preview) => preview.panes(),
+            Self::Terminal(terminal) => terminal.panes(),
+            Self::AiLog(log) => log.panes(),
         }
     }
 
@@ -93,6 +107,8 @@ impl TabContent {
         match self {
             Self::Editor(panes) => panes,
             Self::Preview(preview) => preview.panes_mut(),
+            Self::Terminal(terminal) => terminal.panes_mut(),
+            Self::AiLog(log) => log.panes_mut(),
         }
     }
 
@@ -100,15 +116,21 @@ impl TabContent {
     pub(crate) fn editor_panes(&self) -> Option<&PaneSet> {
         match self {
             Self::Editor(panes) => Some(panes),
-            Self::Preview(_) => None,
+            Self::Preview(_) | Self::Terminal(_) | Self::AiLog(_) => None,
         }
+    }
+
+    /// Whether this tab is an editor (the others are the window's own kinds of tab, with no document of
+    /// their own to ask about).
+    pub(crate) fn is_editor(&self) -> bool {
+        matches!(self, Self::Editor(_))
     }
 
     /// The panes of the editor this tab is, taken out of the tab.
     pub(crate) fn into_editor(self) -> Option<PaneSet> {
         match self {
             Self::Editor(panes) => Some(panes),
-            Self::Preview(_) => None,
+            Self::Preview(_) | Self::Terminal(_) | Self::AiLog(_) => None,
         }
     }
 
@@ -116,7 +138,23 @@ impl TabContent {
     pub(crate) fn preview(&self) -> Option<&crate::preview::PreviewTab> {
         match self {
             Self::Preview(preview) => Some(preview),
-            Self::Editor(_) => None,
+            Self::Editor(_) | Self::Terminal(_) | Self::AiLog(_) => None,
+        }
+    }
+
+    /// The shell this tab is, or `None`.
+    pub(crate) fn terminal(&self) -> Option<&crate::terminal::TerminalTab> {
+        match self {
+            Self::Terminal(terminal) => Some(terminal),
+            Self::Editor(_) | Self::Preview(_) | Self::AiLog(_) => None,
+        }
+    }
+
+    /// The AI log this tab is, or `None`.
+    pub(crate) fn ai_log(&self) -> Option<&crate::ai_log::AiLogTab> {
+        match self {
+            Self::AiLog(log) => Some(log),
+            Self::Editor(_) | Self::Preview(_) | Self::Terminal(_) => None,
         }
     }
 
@@ -124,6 +162,8 @@ impl TabContent {
         match self {
             Self::Editor(panes) => panes,
             Self::Preview(preview) => preview,
+            Self::Terminal(terminal) => terminal,
+            Self::AiLog(log) => log,
         }
     }
 }

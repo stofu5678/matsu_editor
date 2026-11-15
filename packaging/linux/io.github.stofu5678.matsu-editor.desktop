@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=MATSU Editor
+GenericName=Text Editor
+Comment=A text editor that feels like SAKURA Editor
+Exec=matsu %F
+Icon=io.github.stofu5678.matsu-editor
+Terminal=false
+Categories=Utility;TextEditor;
+# Only offers MATSU Editor in "Open with"; it is not made the default for text files.
+MimeType=text/plain;
+Keywords=text;editor;sakura;

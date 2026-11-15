@@ -86,7 +86,10 @@ fn rows(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<Row> {
 }
 
 fn labels(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<String> {
-    rows(cx, handle).into_iter().map(|r| r.label).collect()
+    rows(cx, handle)
+        .into_iter()
+        .map(|r| r.label.to_string())
+        .collect()
 }
 
 fn toggle(cx: &mut TestAppContext, handle: AnyWindowHandle, row: usize) {
@@ -433,7 +436,7 @@ fn the_default_tree_lists_the_folder_of_the_document(cx: &mut TestAppContext) {
     run_with(cx, handle, "F_FILETREE", &[]);
     let first = rows(cx, handle);
     // the label is the full path of the folder
-    assert_eq!(PathBuf::from(&first[0].label), dir.path().to_path_buf());
+    assert_eq!(PathBuf::from(&*first[0].label), dir.path().to_path_buf());
     toggle(cx, handle, 0);
     let text = labels(cx, handle);
     // a dot is a hidden file only where the file system has no attribute (not on Windows)

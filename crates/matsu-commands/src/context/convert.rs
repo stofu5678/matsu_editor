@@ -23,6 +23,27 @@ impl CommandContext<'_> {
         self.convert_selection_with_columns(|text, _tab_width, _start_col| convert(text))
     }
 
+    /// As [`convert_selection`](Self::convert_selection), for a conversion that can fail on the
+    /// text it gets (`None`). Then the text stays as it is and the command beeps, the way the
+    /// editor reports a conversion that cannot be done (see `codecnv_auto2_sjis`). A box selection
+    /// is converted row by row, so the rows that can be converted change even if another fails.
+    pub fn convert_selection_or_beep(
+        &mut self,
+        mut convert: impl FnMut(&str) -> Option<String>,
+    ) -> Result<()> {
+        let mut failed = false;
+        self.convert_selection(|text| {
+            convert(text).unwrap_or_else(|| {
+                failed = true;
+                text.to_owned()
+            })
+        })?;
+        if failed {
+            self.beep();
+        }
+        Ok(())
+    }
+
     /// As [`convert_selection`](Self::convert_selection), for the conversions that depend on
     /// display columns. `convert` gets the selected text, the tab width (see
     /// [`tab_width`](Self::tab_width)) and the display column where the selection starts

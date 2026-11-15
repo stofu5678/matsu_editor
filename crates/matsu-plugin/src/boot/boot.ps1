@@ -256,20 +256,218 @@ if ($null -ne $first -and $first.Trim() -ne '') {
     $message = ConvertFrom-MatsuJson $first
     if ($message -is [System.Collections.IDictionary] -and $message['method'] -eq 'initialize') { $global:MatsuInfo = $message['params'] }
 }
-if ($null -eq $global:MatsuInfo -or -not $global:MatsuInfo.Contains('script')) {
-    [Console]::Error.WriteLine('the editor did not send the script in initialize')
-    exit 1
+# A plugin host (ADR-0026): `initialize` says kind "plugin" and brings no script; the handlers come
+# with each `plugin/invoke`, and this process serves them (below).
+$global:MatsuIsPlugin = $null -ne $global:MatsuInfo -and $global:MatsuInfo.Contains('kind') -and $global:MatsuInfo['kind'] -eq 'plugin'
+if (-not $global:MatsuIsPlugin) {
+    if ($null -eq $global:MatsuInfo -or -not $global:MatsuInfo.Contains('script')) {
+        [Console]::Error.WriteLine('the editor did not send the script in initialize')
+        exit 1
+    }
+    $global:MatsuName = [string]$global:MatsuInfo['script']['name']
+    $global:MatsuSource = [string]$global:MatsuInfo['script']['source']
+    # The text is compiled without a file, so $PSScriptRoot and $PSCommandPath are empty (they cannot
+    # be set); a macro that looks for files beside itself uses these two.
+    $global:MacroPath = $global:MatsuName
+    $global:MacroDir = [IO.Path]::GetDirectoryName($global:MatsuName)
 }
-$global:MatsuName = [string]$global:MatsuInfo['script']['name']
-$global:MatsuSource = [string]$global:MatsuInfo['script']['source']
-# The text is compiled without a file, so $PSScriptRoot and $PSCommandPath are empty (they cannot
-# be set); a macro that looks for files beside itself uses these two.
-$global:MacroPath = $global:MatsuName
-$global:MacroDir = [IO.Path]::GetDirectoryName($global:MatsuName)
 
 . ([scriptblock]::Create([IO.File]::ReadAllText(([IO.Path]::Combine($env:MATSU_BOOT_DIR, 'api_gen.ps1')), $utf8)))
 $global:Editor = New-MatsuEditor
 $global:Editor.Info = $global:MatsuInfo
+
+# ---- Plugin host -----------------------------------------------------------------------------
+#
+# The handler sees $Editor, $Plugin, $Outline, $Complement and $Indent. It runs in a nested pipeline
+# of this runspace (`[powershell]::Create(CurrentRunspace)`), with its own scope: the variables it
+# assigns stay in that call (a variable that has to stay for the next call of a resident plugin is
+# `$global:name`). `return` ends the handler. So does `exit`: in a nested pipeline it ends only that
+# pipeline, and its argument is run first (the process stays).
+
+# The arguments of a call without the trailing nulls (a trailing null is a missing argument).
+function global:Get-MatsuTrimmedArgs($Values) {
+    $list = [System.Collections.Generic.List[object]]::new()
+    foreach ($v in @($Values)) { $list.Add($v) }
+    while ($list.Count -gt 0 -and $null -eq $list[$list.Count - 1]) { $list.RemoveAt($list.Count - 1) }
+    , $list.ToArray()
+}
+
+# An object whose methods pass their arguments to the editor as the call "$Prefix$name".
+function global:New-MatsuCallObject([string]$Prefix, [string[]]$Names) {
+    $o = [System.Management.Automation.PSObject]::new()
+    foreach ($n in $Names) {
+        $body = [scriptblock]::Create("Invoke-MatsuCall '$Prefix$n' (Get-MatsuTrimmedArgs `$args)")
+        $o.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new($n, $body))
+    }
+    $o
+}
+
+# The text of a failure for the editor: the kind, the message, and the place in the handler.
+function global:Format-MatsuPluginFailure([string]$Name, [int]$Line, [string]$Kind, [string]$Message) {
+    if ($Kind) { $Message = "${Kind}: $Message" }
+    "$Message`n  at ${Name}:$Line"
+}
+
+function global:Send-MatsuAnswer($Id, $Failure) {
+    $global:MatsuOut.Flush()
+    $idText = ConvertTo-MatsuJsonValue $Id
+    if ($null -eq $Failure) {
+        $line = '{"jsonrpc":"2.0","id":' + $idText + ',"result":{"ok":true}}'
+    } else {
+        $line = '{"jsonrpc":"2.0","id":' + $idText + ',"error":{"code":-32000,"message":' + (ConvertTo-MatsuJsonString ([string]$Failure)) + '}}'
+    }
+    $global:MatsuOut.Write($global:MatsuRS + $line + "`n")
+    $global:MatsuOut.Flush()
+}
+
+# The line of the handler that the first error record with a place in the chain of exceptions
+# names, or 0.
+function global:Get-MatsuChainLine($Exception) {
+    $e = $Exception
+    while ($e) {
+        $record = $e.PSObject.Properties['ErrorRecord']
+        if ($record -and $record.Value -and $record.Value.InvocationInfo -and $record.Value.InvocationInfo.ScriptLineNumber -gt 0) {
+            return [int]$record.Value.InvocationInfo.ScriptLineNumber
+        }
+        $e = $e.InnerException
+    }
+    0
+}
+
+# The text of a failure for an error record that stopped the handler (or the writing of its
+# output): the kind, the message and the place, in the form of every failure.
+function global:Get-MatsuHandlerFailure([string]$Name, $Record) {
+    $editorError = Get-MatsuEditorException $Record
+    if ($editorError) {
+        # The line that the call stack gave; a nested pipeline has another stack, so then the
+        # line of the error record that PowerShell wrapped the error in.
+        $line = [int]$editorError.Data['Line']
+        if ($line -le 0) { $line = Get-MatsuChainLine $Record.Exception }
+        return (Format-MatsuPluginFailure $Name $line '' $editorError.Message)
+    }
+    # The exception that PowerShell wraps the handler's error in ("Exception calling Invoke") is
+    # skipped; a syntax error that only shows now has its own line.
+    $ex = $Record.Exception
+    while ($ex.InnerException -and $ex -is [System.Management.Automation.MethodInvocationException]) { $ex = $ex.InnerException }
+    $kind = $ex.GetType().Name
+    $message = $ex.Message
+    # The record that the exception came with may carry the text that PowerShell shows (ErrorDetails),
+    # or the record of the catch itself.
+    $exRecord = $null
+    if ($ex.PSObject.Properties['ErrorRecord']) { $exRecord = $ex.ErrorRecord }
+    $message = Get-MatsuRecordMessage $exRecord $message
+    $message = Get-MatsuRecordMessage $Record $message
+    $line = 0
+    if ($ex.PSObject.Properties['Errors'] -and $ex.Errors.Count -gt 0) {
+        $kind = 'ParseError'
+        $message = $ex.Errors[0].Message
+        $line = [int]$ex.Errors[0].Extent.StartLineNumber
+    } else {
+        $line = Get-MatsuChainLine $ex
+    }
+    Format-MatsuPluginFailure $Name $line $kind $message
+}
+
+# An error that did not stop the handler (Write-Error with -ErrorAction Continue), in the same short
+# form. PowerShell's own view of such a record prints the text of the script, which has no file.
+function global:Format-MatsuErrorRecord([string]$Name, $Record) {
+    # The place is in the stack trace of the record ("at F, <No file>: line 3": the innermost frame of
+    # the handler); the invocation info of a Write-Error record has no line.
+    $line = 0
+    if ($Record.ScriptStackTrace -match '<No file>: line (\d+)') { $line = [int]$Matches[1] }
+    elseif ($Record.InvocationInfo) { $line = [int]$Record.InvocationInfo.ScriptLineNumber }
+    Format-MatsuPluginFailure $Name $line $Record.Exception.GetType().Name (Get-MatsuRecordMessage $Record $Record.Exception.Message)
+}
+
+# The text that PowerShell shows for a record: its ErrorDetails message when it has one, else `$Default`.
+function global:Get-MatsuRecordMessage($Record, [string]$Default) {
+    if ($Record -and $Record.ErrorDetails -and $Record.ErrorDetails.Message) { return [string]$Record.ErrorDetails.Message }
+    $Default
+}
+
+# Runs one handler; the failure text, or $null. The names of the locals start with `mp`.
+function global:Invoke-MatsuHandler([string]$mpName, [string]$mpSource) {
+    $mpTokens = $null
+    $mpErrors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseInput($mpSource, [ref]$mpTokens, [ref]$mpErrors)
+    if ($mpErrors.Count -gt 0) {
+        return (Format-MatsuPluginFailure $mpName ([int]$mpErrors[0].Extent.StartLineNumber) 'ParseError' $mpErrors[0].Message)
+    }
+    $mpPs = [powershell]::Create([System.Management.Automation.RunspaceMode]::CurrentRunspace)
+    # The output goes into a buffer of ours, so that what the handler wrote before it failed is not lost.
+    $mpBuffer = [System.Management.Automation.PSDataCollection[psobject]]::new()
+    $mpFailure = $null
+    try {
+        # $true: a scope of its own.
+        [void]$mpPs.AddScript($mpSource, $true)
+        [void]$mpPs.Invoke($null, $mpBuffer)
+    } catch {
+        $mpFailure = Get-MatsuHandlerFailure $mpName $_
+    } finally {
+        # What the handler wrote to the pipeline, written as `& $block | Out-Default` did, in every
+        # case, before the answer. Out-Default ends its pipeline here, so that output which PowerShell
+        # holds back to format (a table) is written now. Warnings, verbose, debug and Write-Host went
+        # to the host while the handler ran; the errors that did not stop it wait in the stream.
+        # Writing can fail (an object whose ToString throws): that is a failure of the call, and the
+        # answer is still sent.
+        try {
+            if ($mpBuffer.Count -gt 0) { $mpBuffer | Out-Default }
+            foreach ($mpError in $mpPs.Streams.Error) { [Console]::Error.WriteLine((Format-MatsuErrorRecord $mpName $mpError)) }
+        } catch {
+            if ($null -eq $mpFailure) { $mpFailure = Get-MatsuHandlerFailure $mpName $_ }
+        }
+        $mpPs.Dispose()
+    }
+    $mpFailure
+}
+
+function global:Start-MatsuPlugin {
+    $identity = $global:MatsuInfo['plugin']
+    [void]$global:MatsuInfo.Remove('plugin')
+    $global:Plugin = New-MatsuCallObject 'Plugin.' @('GetPluginDir', 'GetDef', 'GetOption', 'SetOption', 'GetString', 'GetCommandNo', 'AddCommand')
+    foreach ($p in @(@('Id', [string]$identity['id']), @('Dir', [string]$identity['dir']), @('Jack', ''), @('Args', $null))) {
+        $global:Plugin.PSObject.Members.Add([System.Management.Automation.PSNoteProperty]::new($p[0], $p[1]))
+    }
+    $global:Outline = New-MatsuCallObject 'Outline.' @('AddFuncInfo', 'AddFuncInfo2', 'AddFuncInfo3', 'AddFuncInfo4', 'SetTitle', 'SetListType', 'SetLabel')
+    # The word to complete, and the option, come with the call; the candidates go to the editor.
+    $global:Complement = [System.Management.Automation.PSObject]::new()
+    $global:Complement.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('GetCurrentWord', [scriptblock]::Create(
+        '$a = $global:Plugin.Args; if ($a -is [System.Collections.IDictionary] -and $a["word"] -is [string]) { $a["word"] } else { "" }')))
+    $global:Complement.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('GetOption', [scriptblock]::Create(
+        '$a = $global:Plugin.Args; if ($a -is [System.Collections.IDictionary] -and $a["option"] -is [long]) { $a["option"] } else { [long]0 }')))
+    $global:Complement.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('AddList', [scriptblock]::Create(
+        'param($Word = $null); $p = @(); if ($null -ne $Word) { $p = @([string]$Word) }; Invoke-MatsuCall "Complement.AddList" $p')))
+    # The object of the jack SmartIndent: GetChar answers the typed char ("" in the other jacks).
+    $global:Indent = [System.Management.Automation.PSObject]::new()
+    $global:Indent.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('GetChar', [scriptblock]::Create('[string]$global:MatsuTyped')))
+    while ($true) {
+        $text = Read-MatsuLine
+        if ($null -eq $text) { break }
+        $text = $text.Trim()
+        if ($text -eq '') { continue }
+        try { $message = ConvertFrom-MatsuJson $text } catch { continue }
+        if (-not ($message -is [System.Collections.IDictionary])) { continue }
+        if ($message['method'] -eq 'plugin/shutdown') { break }
+        if ($message['method'] -ne 'plugin/invoke') { continue }
+        $params = $message['params']
+        if (-not ($params -is [System.Collections.IDictionary])) { $params = @{} }
+        $name = if ($params['name'] -is [string]) { $params['name'] } else { '<plugin>' }
+        $global:Plugin.Jack = if ($params['jack'] -is [string]) { $params['jack'] } else { '' }
+        $global:Plugin.Args = $params['args']
+        $global:MatsuTyped = ''
+        if ($global:Plugin.Jack -eq 'SmartIndent' -and $params['args'] -is [System.Collections.IDictionary] -and $params['args']['char'] -is [string]) {
+            $global:MatsuTyped = $params['args']['char']
+        }
+        $source = if ($params['source'] -is [string]) { $params['source'] } else { '' }
+        $failure = Invoke-MatsuHandler $name $source
+        Send-MatsuAnswer $message['id'] $failure
+    }
+}
+
+if ($global:MatsuIsPlugin) {
+    Start-MatsuPlugin
+    exit 0
+}
 
 $userCode = $null
 try {

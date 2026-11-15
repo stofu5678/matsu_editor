@@ -13,6 +13,23 @@
 - サクラエディタと同じ正規表現エンジン（Onigmo）
 - Python や Ruby で書けるマクロとプラグイン
 
+## インストール
+
+[リリース](https://github.com/stofu5678/matsu_editor/releases)のページから、使う OS のファイルを取ります（`<版>` は `v0.14.0` のような版）。署名はまだないので、初回は OS の警告が出ます。
+
+| OS | ファイル | 入れ方 |
+|---|---|---|
+| Windows | `matsu-<版>-windows-x64-setup.exe`（ARM64 は `windows-arm64`） | インストーラ。既定は利用者ごと（管理者権限は要りません）。最初のダイアログで全利用者も選べます。Windows の表示言語が日本語なら、画面も日本語です。SmartScreen が止めたら「詳細情報」から実行します |
+| Windows | `matsu-<版>-windows-x64.zip` | 好きなフォルダーに展開して `matsu.exe` を起動します（持ち運び用） |
+| macOS（Apple Silicon） | `matsu-<版>-macos-arm64.dmg` | 開いて、`MATSU Editor.app` を `Applications` にドラッグします。アドホック署名だけなので、初回は右クリックの「開く」で開くか、`xattr -dr com.apple.quarantine "/Applications/MATSU Editor.app"` で隔離属性を外します。（`.tar.gz` も同じ中身です） |
+| Linux | `matsu-<版>-linux-x64.deb`（ARM64 は `linux-arm64`） | `sudo apt install ./matsu-<版>-linux-x64.deb` |
+| Linux | `matsu-<版>-linux-x64.rpm` | `sudo dnf install ./matsu-<版>-linux-x64.rpm` |
+| Linux | `matsu-<版>-linux-x64.tar.gz` | 展開して `matsu` を起動します |
+
+Homebrew・Scoop・winget での入れ方は、公開の準備ができてから載せます（そのためのファイルは `packaging/` にあります）。
+
+アンインストールしても、設定（`matsu.ini` など）と未保存の文書は残ります。Windows は `%APPDATA%\matsu-editor`、macOS は `~/Library/Application Support/matsu-editor`、Linux は `~/.config/matsu-editor` にあります。消したいときは、そのフォルダーを自分で消してください。インストールで入れたファイルの一覧と、何に触れるかは [docs/release.md](docs/release.md) にあります。
+
 ## 起動のしかた
 
 ```sh
@@ -25,6 +42,45 @@ MATSU Editor は、使う設定ファイル（`matsu.ini`）1 つにつき、1 �
 - `--`: これ以降は、`-` で始まる名前でもファイルとして扱います
 
 サクラエディタのコマンドラインオプション（`help/sakura/res/HLP000109.html`）も使えます。名前の大文字小文字は区別せず、値は `=` か `:` に続けて書きます。`-X=` `-Y=` `-VX=` `-VY=` は開いた直後のキャレットと表示の位置、`-CODE=` は文字コード（サクラの番号）、`-TYPE=` は拡張子でタイプ別設定を強制、`-R` はビューモード、`-SX=` `-SY=` `-WX=` `-WY=` は新しいウィンドウの大きさと位置、`-GREPMODE` `-GREPDLG` `-GKEY=` `-GREPR=` `-GFILE=` `-GFOLDER=` `-GOPT=` `-GCODE=` は Grep、`-M=` は読み込み後に実行するマクロのファイル、`-PROF=` は設定のプロファイル（設定ファイルのサブフォルダー）、`-@=` はレスポンスファイルです。`-NOWIN` `-GROUP=` `-DEBUGMODE` `-PROFMGR` は受け付けて何もしません。
+
+### macOS で Finder や Dock から起動したときの PATH
+
+Finder・Dock・Launchpad から起動したアプリはシェルを通らないので、`PATH` が最小のもの（`/usr/bin:/bin:/usr/sbin:/sbin`）になり、`~/.zshrc` も読まれません。そのままだと、Homebrew（`/opt/homebrew/bin`）や、自分で `PATH` に足した場所にあるプログラムが見つかりません。そこで MATSU Editor は、起動したときにログインシェル（環境変数 `SHELL`、無ければ `/bin/zsh`）を裏で 1 回動かして（`~/.zshrc` も読まれます）`PATH` を読み取り、外部コマンド実行・データベースのクライアント・マクロの言語（node・python3・ruby・php・pwsh・perl・emacs）・ctags・PowerShell を開く操作を、その `PATH` で探して動かします。
+
+- 読み取りは起動を待たせません。プログラムを動かすときに、まだ読み終わっていなければ、読み終わるまで待ちます。
+- 10 秒で読めなかったときは、MATSU Editor が起動したときの `PATH` のままで動かします（標準エラーに 1 行出します）。起動した直後に動くマクロ（`-M=` など）が、読み終わる前に動いたときも、起動したときの `PATH` で動きます。
+- 渡すのは `PATH` だけです。ほかの環境変数は渡しません。`PATH` の相対パスの項目（`.` など）は使いません。起動したときの `PATH` にある場所は、後ろに足します。
+- 重い設定を飛ばしたいときは、ログインシェルには環境変数 `MATSU_RESOLVING_ENVIRONMENT=1` が付いているので、`~/.zshrc` で見分けられます。
+
+  ```sh
+  [ -n "$MATSU_RESOLVING_ENVIRONMENT" ] && return
+  ```
+
+- 端末から `matsu` を起動したときは、端末の `PATH` をそのまま使います（シェルは動かしません）。`>` で出力をファイルに向けたり、`&` や `nohup` を付けたりしても同じです（制御端末があるかで見分けます）。Windows と Linux では何もしません。
+
+### フォント
+
+本文の既定のフォントは、Windows と macOS では BIZ UDGothic、Linux では Noto Sans Mono CJK JP です。macOS には BIZ UDGothic が最初から入っていないので、フォントブックでダウンロードすると、既定のフォントで描きます。入っていない（設定で選んだフォントも入っていない）ときは、Menlo とヒラギノ角ゴシックで描きます（設定のファイルは書き換えません）。
+
+### フォントの選び方を調べる
+
+文字が思ったフォントで描かれないときは、環境変数 `MATSU_FONT_DIAGNOSTICS=1` を付けて起動します。付けたときだけ、標準エラーに次を出します（付けないときの動きは変わらず、ファイルには何も書きません）。
+
+- GPUI と MATSU の記録（warn・error のほか、GPUI・MATSU とフォントのライブラリの info・debug）。時刻が付きます
+- 起動したときのフォントの診断: OS と版、MATSU の版、言語、設定のフォントと GPUI に頼む家族名、OS が持つ家族名の件数と、頼む名前が入っているか（大文字小文字を無視した場合も）、`BIZ`・`UD`・`ゴシック`・`Osaka`・`Hiragino`・`ヒラギノ` を含む名前、頼んだフォントが読み込めたか（GPUI が別のフォントに替えたか）、本文を描くフォントと選んだ理由（macOS で頼んだフォントが無いときの代わり）、`0`・`M`・`あ`・`漢` の送り幅と全角÷半角の比（2.0 なら 1:2）。macOS では、Spotlight が見つける BIZ UDGothic のファイルの場所も出します
+
+すでに MATSU Editor が動いていると、後から起動したものはファイルを渡して終わるので、診断は出ません。先に動いている MATSU Editor を終えるか、`--separate-process` を付けて起動します。
+
+```sh
+# macOS
+MATSU_FONT_DIAGNOSTICS=1 "/Applications/MATSU Editor.app/Contents/MacOS/matsu" 2>&1 | tee ~/Desktop/matsu-font.txt
+
+# Linux
+MATSU_FONT_DIAGNOSTICS=1 matsu 2>&1 | tee matsu-font.txt
+
+# Windows（PowerShell。リリース版はコンソールを持たないので、標準エラーをファイルへ流す）
+$env:MATSU_FONT_DIAGNOSTICS = "1"; .\matsu.exe 2> matsu-font.txt
+```
 
 ## ドキュメント
 

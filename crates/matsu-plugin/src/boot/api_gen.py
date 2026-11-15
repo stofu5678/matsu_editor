@@ -140,9 +140,10 @@ def install(call):
         def GetLineAttribute(self, line: int, type: int) -> int:
             """An attribute of a logical line (0 is the line of the cursor, 1 the first line).
             Type 0 is 1 when the line changed since the last save, type 1 the number of the
-            undo step that last touched it, type 2 the bookmark (1 or 0). Types 3 (diff
-            mark) and 4 (function list mark) answer the error -32001 until the editor has
-            them. A negative line, a line past the end and any other type are errors."""
+            undo step that last touched it, type 2 the bookmark (1 or 0). Type 3 is the diff
+            mark (0 none, 1 added, 2 changed, 3 deleted, 4 deleted after the end) and type 4
+            is 1 when the last outline analysis found an item on the line. A negative line,
+            a line past the end and any other type are errors."""
             return call("GetLineAttribute", _pack(line, type))
 
         def IsTextSelectingLock(self) -> int:
@@ -319,13 +320,16 @@ def install(call):
             return call("IsSameTypeExt", _pack(extension1, extension2))
 
         def ExpandParameter(self, format: str) -> str:
-            """Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f
-            (file name), $g (file name without the extension), $/ (full path with /), $N (as
-            $F), $b (extension), $e and $E (folder), $C (the selected text or the word at
-            the caret), $x and $y (caret column in UTF-16 units and line, from 1), $S (the
-            editor), $M (the macro file), $V (version), $A (name), and conditions
-            ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (無題). $d $t $D $T $B
-            $Q $I are not supported and stay as written. At most 2047 UTF-16 units."""
+            """Replaces the codes that start with $ in a string, as the window title does: $$
+            ($), $A (name), $F (full path), $f (file name), $g (file name without the
+            extension), $/ (full path with /), $N (short path), $b (extension), $e (folder),
+            $E (short folder), $n (number of an untitled window), $B (document type), $Q
+            (print setting), $C (the selected text or the word at the caret), $x and $y
+            (caret column in UTF-16 units and line, from 1), $d and $t (date and time now),
+            $D and $T (date and time of the file), $V (version), $h (Grep key), $S (the
+            editor), $I (the settings file), $M (the macro file), $<profile>, and conditions
+            ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (無題). $p and $P are
+            the notice that they are for the print preview. At most 2047 UTF-16 units."""
             return call("ExpandParameter", _pack(format))
 
         def MessageBox(self, message: str, type: int = _UNSET) -> int:
@@ -361,8 +365,9 @@ def install(call):
 
         def FileOpenDialog(self, defaultName: str = _UNSET, filter: str = _UNSET) -> str:
             """Lets the user choose a file to open and returns its full path, or an empty
-            string when the dialog is cancelled. The default name and the filter are not
-            used: the dialog of the platform takes neither."""
+            string when the dialog is cancelled. The dialog starts in the folder of the
+            default name (when it names one) with that name filled in. The filter is not
+            used: the dialog of the platform takes none."""
             return call("FileOpenDialog", _pack(defaultName, filter))
 
         def FileSaveDialog(self, defaultName: str = _UNSET, filter: str = _UNSET) -> str:
@@ -374,7 +379,8 @@ def install(call):
         def FolderDialog(self, message: str = _UNSET, defaultFolder: str = _UNSET) -> str:
             """Lets the user choose a folder and returns its full path, or an empty string when
             the dialog is cancelled. The message becomes the prompt text of the platform
-            dialog where it has one; the default folder is not used."""
+            dialog where it has one; the dialog starts in the default folder when it is an
+            existing folder."""
             return call("FolderDialog", _pack(message, defaultFolder))
 
         def InputBox(self, message: str, defaultValue: str = _UNSET, maxLength: int = _UNSET) -> str:
@@ -1510,6 +1516,36 @@ def install(call):
             implemented)."""
             return call("SPACEToTAB", _pack())
 
+        def EncodeUrl(self) -> None:
+            """MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("EncodeUrl", _pack())
+
+        def DecodeUrl(self) -> None:
+            """MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("DecodeUrl", _pack())
+
+        def EscapeHtml(self) -> None:
+            """MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("EscapeHtml", _pack())
+
+        def UnescapeHtml(self) -> None:
+            """MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("UnescapeHtml", _pack())
+
+        def EncodeBase64(self) -> None:
+            """MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("EncodeBase64", _pack())
+
+        def DecodeBase64(self) -> None:
+            """MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a
+            key, the menu and a key macro run."""
+            return call("DecodeBase64", _pack())
+
         def AutoToSJIS(self) -> None:
             """Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the
             command that a key, the menu and a key macro run. The last arguments may be left
@@ -2252,6 +2288,266 @@ def install(call):
             """MATSU Editor's own F_PREVIEW_TAB (not in Sakura). Runs the command that a key,
             the menu and a key macro run."""
             return call("PreviewTab", _pack())
+
+        def ShellTab(self) -> None:
+            """MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the
+            menu and a key macro run."""
+            return call("ShellTab", _pack())
+
+        def OneLiner0(self) -> None:
+            """MATSU Editor's own F_ONELINER_0 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner0", _pack())
+
+        def OneLiner1(self) -> None:
+            """MATSU Editor's own F_ONELINER_1 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner1", _pack())
+
+        def OneLiner2(self) -> None:
+            """MATSU Editor's own F_ONELINER_2 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner2", _pack())
+
+        def OneLiner3(self) -> None:
+            """MATSU Editor's own F_ONELINER_3 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner3", _pack())
+
+        def OneLiner4(self) -> None:
+            """MATSU Editor's own F_ONELINER_4 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner4", _pack())
+
+        def OneLiner5(self) -> None:
+            """MATSU Editor's own F_ONELINER_5 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner5", _pack())
+
+        def OneLiner6(self) -> None:
+            """MATSU Editor's own F_ONELINER_6 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner6", _pack())
+
+        def OneLiner7(self) -> None:
+            """MATSU Editor's own F_ONELINER_7 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner7", _pack())
+
+        def OneLiner8(self) -> None:
+            """MATSU Editor's own F_ONELINER_8 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner8", _pack())
+
+        def OneLiner9(self) -> None:
+            """MATSU Editor's own F_ONELINER_9 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner9", _pack())
+
+        def OneLiner10(self) -> None:
+            """MATSU Editor's own F_ONELINER_10 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner10", _pack())
+
+        def OneLiner11(self) -> None:
+            """MATSU Editor's own F_ONELINER_11 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner11", _pack())
+
+        def OneLiner12(self) -> None:
+            """MATSU Editor's own F_ONELINER_12 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner12", _pack())
+
+        def OneLiner13(self) -> None:
+            """MATSU Editor's own F_ONELINER_13 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner13", _pack())
+
+        def OneLiner14(self) -> None:
+            """MATSU Editor's own F_ONELINER_14 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner14", _pack())
+
+        def OneLiner15(self) -> None:
+            """MATSU Editor's own F_ONELINER_15 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner15", _pack())
+
+        def OneLiner16(self) -> None:
+            """MATSU Editor's own F_ONELINER_16 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner16", _pack())
+
+        def OneLiner17(self) -> None:
+            """MATSU Editor's own F_ONELINER_17 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner17", _pack())
+
+        def OneLiner18(self) -> None:
+            """MATSU Editor's own F_ONELINER_18 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner18", _pack())
+
+        def OneLiner19(self) -> None:
+            """MATSU Editor's own F_ONELINER_19 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner19", _pack())
+
+        def OneLiner20(self) -> None:
+            """MATSU Editor's own F_ONELINER_20 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner20", _pack())
+
+        def OneLiner21(self) -> None:
+            """MATSU Editor's own F_ONELINER_21 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner21", _pack())
+
+        def OneLiner22(self) -> None:
+            """MATSU Editor's own F_ONELINER_22 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner22", _pack())
+
+        def OneLiner23(self) -> None:
+            """MATSU Editor's own F_ONELINER_23 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner23", _pack())
+
+        def OneLiner24(self) -> None:
+            """MATSU Editor's own F_ONELINER_24 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner24", _pack())
+
+        def OneLiner25(self) -> None:
+            """MATSU Editor's own F_ONELINER_25 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner25", _pack())
+
+        def OneLiner26(self) -> None:
+            """MATSU Editor's own F_ONELINER_26 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner26", _pack())
+
+        def OneLiner27(self) -> None:
+            """MATSU Editor's own F_ONELINER_27 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner27", _pack())
+
+        def OneLiner28(self) -> None:
+            """MATSU Editor's own F_ONELINER_28 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner28", _pack())
+
+        def OneLiner29(self) -> None:
+            """MATSU Editor's own F_ONELINER_29 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner29", _pack())
+
+        def OneLiner30(self) -> None:
+            """MATSU Editor's own F_ONELINER_30 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner30", _pack())
+
+        def OneLiner31(self) -> None:
+            """MATSU Editor's own F_ONELINER_31 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner31", _pack())
+
+        def OneLiner32(self) -> None:
+            """MATSU Editor's own F_ONELINER_32 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner32", _pack())
+
+        def OneLiner33(self) -> None:
+            """MATSU Editor's own F_ONELINER_33 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner33", _pack())
+
+        def OneLiner34(self) -> None:
+            """MATSU Editor's own F_ONELINER_34 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner34", _pack())
+
+        def OneLiner35(self) -> None:
+            """MATSU Editor's own F_ONELINER_35 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner35", _pack())
+
+        def OneLiner36(self) -> None:
+            """MATSU Editor's own F_ONELINER_36 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner36", _pack())
+
+        def OneLiner37(self) -> None:
+            """MATSU Editor's own F_ONELINER_37 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner37", _pack())
+
+        def OneLiner38(self) -> None:
+            """MATSU Editor's own F_ONELINER_38 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner38", _pack())
+
+        def OneLiner39(self) -> None:
+            """MATSU Editor's own F_ONELINER_39 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner39", _pack())
+
+        def OneLiner40(self) -> None:
+            """MATSU Editor's own F_ONELINER_40 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner40", _pack())
+
+        def OneLiner41(self) -> None:
+            """MATSU Editor's own F_ONELINER_41 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner41", _pack())
+
+        def OneLiner42(self) -> None:
+            """MATSU Editor's own F_ONELINER_42 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner42", _pack())
+
+        def OneLiner43(self) -> None:
+            """MATSU Editor's own F_ONELINER_43 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner43", _pack())
+
+        def OneLiner44(self) -> None:
+            """MATSU Editor's own F_ONELINER_44 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner44", _pack())
+
+        def OneLiner45(self) -> None:
+            """MATSU Editor's own F_ONELINER_45 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner45", _pack())
+
+        def OneLiner46(self) -> None:
+            """MATSU Editor's own F_ONELINER_46 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner46", _pack())
+
+        def OneLiner47(self) -> None:
+            """MATSU Editor's own F_ONELINER_47 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner47", _pack())
+
+        def OneLiner48(self) -> None:
+            """MATSU Editor's own F_ONELINER_48 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner48", _pack())
+
+        def OneLiner49(self) -> None:
+            """MATSU Editor's own F_ONELINER_49 (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("OneLiner49", _pack())
+
+        def OneLinerDialog(self) -> None:
+            """MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a
+            key, the menu and a key macro run."""
+            return call("OneLinerDialog", _pack())
 
         def TraceOut(self, arg1: str = _UNSET, arg2: int = _UNSET) -> None:
             """MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the

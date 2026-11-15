@@ -7,8 +7,8 @@
 
 use gpui::{
     App, Bounds, ContentMask, DispatchPhase, Entity, IntoElement, MouseMoveEvent, MouseUpEvent,
-    Pixels, ShapedLine, SharedString, Styled, TextAlign, TextRun, Window, canvas, fill, font,
-    point, px, rgb, size,
+    Pixels, ShapedLine, SharedString, Styled, TextAlign, TextRun, Window, canvas, fill, point, px,
+    rgb, size,
 };
 
 use super::current;
@@ -74,8 +74,7 @@ fn prepaint(
     let total_rows = editor.minimap_total_rows();
     let top = state.top_row.min(geometry::max_top(total_rows, view_rows));
 
-    let (family, _) = editor.font();
-    let font = font(family);
+    let font = editor.text_font(cx).font();
     let shape = |window: &mut Window, text: &str, color: u32| -> ShapedLine {
         let text: SharedString = text.to_owned().into();
         let runs = [run(&font, text.len(), color)];

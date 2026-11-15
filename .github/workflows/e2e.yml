@@ -51,12 +51,13 @@ jobs:
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"}]' || '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"},{"name":"linux-arm64","os":"ubuntu-24.04-arm","rustflags":"-D warnings"}]') }}
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
-    # A normal run takes 5 to 15 minutes (the build is most of it). Each test of the smoke file
-    # stops the editor after 120 seconds, so a hang that gets here is in the build, in a step
-    # that is not the test, or in the runner. (The one-hour "hang" of smoke (macos-arm64) on
-    # #194 was no hang: the job never got a runner, GitHub cancelled it after an hour in the
-    # queue, and its log has no steps.)
-    timeout-minutes: 30
+    # A normal run takes 5 to 15 minutes (the build is most of it), and took up to 25 minutes in
+    # the weeks before 2026-11-07, while the apt mirror was slow; the limit is one and a half times
+    # that, as in ci.yml. Each test of the smoke file stops the editor after 120 seconds, so a
+    # hang that gets here is in the build, in a step that is not the test, or in the runner. (The
+    # one-hour "hang" of smoke (macos-arm64) on #194 was no hang: the job never got a runner,
+    # GitHub cancelled it after an hour in the queue, and its log has no steps.)
+    timeout-minutes: 45
     # RUSTFLAGS in the environment replaces `rustflags` of .cargo/config.toml, which links the C
     # runtime statically on Windows (MSVC). The Windows jobs repeat that flag, so that E2E starts
     # the program as it is shipped (package.yml does not set RUSTFLAGS) and not one that needs the
@@ -75,8 +76,7 @@ jobs:
       - name: Install the packages that GPUI needs and a virtual display
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+          .github/scripts/apt-install.sh build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
             xvfb mesa-vulkan-drivers libvulkan1
@@ -101,7 +101,9 @@ jobs:
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"}]' || '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"},{"name":"linux-arm64","os":"ubuntu-24.04-arm","rustflags":"-D warnings"}]') }}
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # The longest run in the weeks before 2026-11-07 took 38 minutes (windows-arm64); the limit is
+    # one and a half times that, as in ci.yml.
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -119,8 +121,7 @@ jobs:
       - name: Install the packages that GPUI needs, a virtual display, ImageMagick and a Japanese font
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+          .github/scripts/apt-install.sh build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
             xvfb mesa-vulkan-drivers libvulkan1 imagemagick fonts-noto-cjk

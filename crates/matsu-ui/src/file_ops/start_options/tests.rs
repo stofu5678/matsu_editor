@@ -619,7 +619,7 @@ fn grep_replace_info_takes_the_clipboard_for_c() {
     );
     let args =
         crate::command_line::parse(&["-GKEY=a".into(), "-GREPR=b".into(), "-GOPT=C".into()]).grep;
-    let replace = grep_info(&args, Path::new(""), Some("clip".into()))
+    let replace = grep_info(&args, Path::new(""), Some("clip"))
         .replace
         .unwrap();
     assert_eq!(

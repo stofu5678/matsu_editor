@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use gpui::{App, Context, Entity, EntityId, Global, WeakEntity, Window, WindowId};
+use gpui::{
+    App, BorrowAppContext as _, Context, Entity, EntityId, Global, WeakEntity, Window, WindowId,
+};
 use matsu_config::unsaved::{DocInfo, Session, SessionWindow, Store, StoreError};
 use matsu_core::buffer::Eol;
 
@@ -362,16 +364,7 @@ impl Keeper {
         let Some(entry) = self.entries.get_mut(&document) else {
             return;
         };
-        if let Some(id) = entry.id.clone() {
-            writer.discard(id.clone());
-            for (_, report) in &mut self.windows {
-                if let Some(position) = report.ids.iter().position(|i| *i == id) {
-                    report.ids.remove(position);
-                    report.active = report.active.min(report.ids.len().saturating_sub(1));
-                }
-            }
-        }
-        entry.forget_copy();
+        drop_copy(writer, entry);
     }
 
     /// The copy of the document is not wanted any more (it was closed or saved): it is discarded now, and the
@@ -388,16 +381,7 @@ impl Keeper {
         let State::Running(writer) = &self.state else {
             return;
         };
-        if let Some(id) = entry.id.clone() {
-            writer.discard(id.clone());
-            for (_, report) in &mut self.windows {
-                if let Some(position) = report.ids.iter().position(|i| *i == id) {
-                    report.ids.remove(position);
-                    report.active = report.active.min(report.ids.len().saturating_sub(1));
-                }
-            }
-        }
-        entry.forget_copy();
+        drop_copy(writer, entry);
     }
 
     /// Starts the writer for the settings file at `ini_path` the first time it is needed. Returns what to tell the
@@ -425,18 +409,30 @@ impl Keeper {
     }
 }
 
+/// The copy of `entry` goes: the writer discards it, and the entry forgets it.
+///
+/// The tabs of the windows still name the copy until their next tick: [`Keeper::session`] leaves out a copy
+/// that is gone, as it does for a document that was closed, and counts the front tab among the tabs that are
+/// left. (Taking it out of the tabs here kept the index of the front tab, which then named the next tab when
+/// an earlier copy went.)
+fn drop_copy(writer: &Writer, entry: &mut Entry) {
+    if let Some(id) = entry.id.take() {
+        writer.discard(id);
+    }
+    entry.forget_copy();
+}
+
 /// Removes every copy and forgets them: the user turned the feature off and chose to delete what is kept
 /// (ADR-0022, section 8). The session and the documents go; the folder and its lock stay.
 ///
 /// The clear is queued, not waited for: the UI thread does not stop for a write that is still going. Returns what
 /// to tell the user when the folder cannot be used, so that the deletion cannot be done.
 pub(crate) fn clear_copies(cx: &mut App) -> Option<&'static str> {
-    let mut keeper = if cx.has_global::<Keeper>() {
-        cx.remove_global::<Keeper>()
-    } else {
-        Keeper::new()
-    };
+    if !cx.has_global::<Keeper>() {
+        cx.set_global(Keeper::new());
+    }
     let ini_path = settings_path(cx);
+    cx.update_global::<Keeper, _>(|keeper, _| {
     keeper.ensure_started(ini_path.as_deref());
     let mut problem = None;
     match &keeper.state {
@@ -452,8 +448,8 @@ pub(crate) fn clear_copies(cx: &mut App) -> Option<&'static str> {
     }
     keeper.windows.clear();
     keeper.last_session = Some(Session::default());
-    cx.set_global(keeper);
     problem
+    })
 }
 
 /// A restored document, as the keeper takes it over.
@@ -467,42 +463,41 @@ pub(crate) struct Adopted {
 /// the same name, as written as it is) until it changes. Otherwise the first tick would write a second copy of
 /// every restored document, and the next start would bring each back twice.
 pub(crate) fn adopt_restored(cx: &mut App, store: Store, items: Vec<Adopted>) {
-    let mut keeper = if cx.has_global::<Keeper>() {
-        cx.remove_global::<Keeper>()
-    } else {
-        Keeper::new()
-    };
-    if matches!(keeper.state, State::NotStarted) {
-        keeper.state = match Writer::with_store(store, RETRY_STUCK) {
-            Ok(writer) => State::Running(writer),
-            Err(_) => State::Unavailable,
-        };
+    if !cx.has_global::<Keeper>() {
+        cx.set_global(Keeper::new());
     }
-    let now = Instant::now();
-    for item in items {
-        let view = item.view.read(cx);
-        let document = view.document().clone();
-        let shared = document.read(cx);
-        let revision = revision_of(view, shared);
-        let info = info_of(view, shared);
-        let entry = keeper
-            .entries
-            .entry(document.entity_id())
-            .or_insert_with(|| Entry::new(now));
-        entry.document = Some(document.downgrade());
-        entry.id = Some(item.id);
-        *entry
-            .shared
-            .written
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(revision);
-        *entry
-            .shared
-            .written_info
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(info);
-    }
-    cx.set_global(keeper);
+    cx.update_global::<Keeper, _>(|keeper, cx| {
+        if matches!(keeper.state, State::NotStarted) {
+            keeper.state = match Writer::with_store(store, RETRY_STUCK) {
+                Ok(writer) => State::Running(writer),
+                Err(_) => State::Unavailable,
+            };
+        }
+        let now = Instant::now();
+        for item in items {
+            let view = item.view.read(cx);
+            let document = view.document().clone();
+            let shared = document.read(cx);
+            let revision = revision_of(view, shared);
+            let info = info_of(view, shared);
+            let entry = keeper
+                .entries
+                .entry(document.entity_id())
+                .or_insert_with(|| Entry::new(now));
+            entry.document = Some(document.downgrade());
+            entry.id = Some(item.id);
+            *entry
+                .shared
+                .written
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(revision);
+            *entry
+                .shared
+                .written_info
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(info);
+        }
+    });
 }
 
 /// The folder next to the settings file the process uses.
@@ -530,7 +525,7 @@ fn settings_path_of_user() -> Option<std::path::PathBuf> {
 }
 
 /// What a document needs, from its view and the settings.
-fn want_of(view: &EditorView, shared: &SharedDocument, prefs: &KeepPrefs) -> Want {
+fn want_of(view: &EditorView, shared: &SharedDocument, prefs: KeepPrefs) -> Want {
     if view.is_grep_window() {
         return Want::Drop;
     }
@@ -631,13 +626,13 @@ pub(crate) fn app_tick(cx: &mut App, now: Instant) {
         return;
     }
     let keep = prefs(cx).keep;
-    let mut keeper = cx.remove_global::<Keeper>();
-    if keep {
-        keeper.housekeeping(now);
-    } else {
-        keeper.freeze(now);
-    }
-    cx.set_global(keeper);
+    cx.update_global::<Keeper, _>(|keeper, _| {
+        if keep {
+            keeper.housekeeping(now);
+        } else {
+            keeper.freeze(now);
+        }
+    });
 }
 
 /// The user said 「保存しない」 (or saved) in a flow that closes the document: it is remembered, with the revision
@@ -650,9 +645,9 @@ pub(crate) fn mark_close(view: &EditorView, this: WeakEntity<EditorView>, cx: &m
     let document = view.document();
     let revision = revision_of(view, document.read(cx));
     let id = document.entity_id();
-    let mut keeper = cx.remove_global::<Keeper>();
-    keeper.marked.insert(id, (this, revision));
-    cx.set_global(keeper);
+    cx.update_global::<Keeper, _>(|keeper, _| {
+        keeper.marked.insert(id, (this, revision));
+    });
 }
 
 /// A flow asks about the document again: the mark of the earlier answer is gone.
@@ -661,12 +656,12 @@ pub(crate) fn unmark_close(view: &EditorView, cx: &mut App) {
         return;
     }
     let id = view.document().entity_id();
-    let mut keeper = cx.remove_global::<Keeper>();
-    keeper.marked.remove(&id);
-    if let Some(entry) = keeper.entries.get_mut(&id) {
-        entry.kept_for_exit = false;
-    }
-    cx.set_global(keeper);
+    cx.update_global::<Keeper, _>(|keeper, _| {
+        keeper.marked.remove(&id);
+        if let Some(entry) = keeper.entries.get_mut(&id) {
+            entry.kept_for_exit = false;
+        }
+    });
 }
 
 /// The question about the document was left out because its copy covers it (the end of the editor with
@@ -678,11 +673,11 @@ pub(crate) fn retain_for_exit(view: &EditorView, cx: &mut App) {
         return;
     }
     let id = view.document().entity_id();
-    let mut keeper = cx.remove_global::<Keeper>();
-    if let Some(entry) = keeper.entries.get_mut(&id) {
-        entry.kept_for_exit = true;
-    }
-    cx.set_global(keeper);
+    cx.update_global::<Keeper, _>(|keeper, _| {
+        if let Some(entry) = keeper.entries.get_mut(&id) {
+            entry.kept_for_exit = true;
+        }
+    });
 }
 
 /// The document is really closing: if it is marked and still has the revision it had then, its copy is
@@ -721,15 +716,15 @@ fn apply_close_of(state: CloseState, cx: &mut App) {
         document,
         revision: current,
     } = state;
-    let mut keeper = cx.remove_global::<Keeper>();
-    if keeper
-        .marked
-        .remove(&document.entity_id())
-        .is_some_and(|(_, revision)| revision == current)
-    {
-        keeper.discard_document(&document, current);
-    }
-    cx.set_global(keeper);
+    cx.update_global::<Keeper, _>(|keeper, _| {
+        if keeper
+            .marked
+            .remove(&document.entity_id())
+            .is_some_and(|(_, revision)| revision == current)
+        {
+            keeper.discard_document(&document, current);
+        }
+    });
 }
 
 /// The editor is about to quit with every question answered: every marked document that is unchanged since its
@@ -738,12 +733,10 @@ pub(crate) fn apply_all_closes(cx: &mut App) {
     if !cx.has_global::<Keeper>() {
         return;
     }
-    let marks: Vec<(WeakEntity<EditorView>, Revision)> = {
-        let mut keeper = cx.remove_global::<Keeper>();
-        let marks = keeper.marked.drain().map(|(_, mark)| mark).collect();
-        cx.set_global(keeper);
-        marks
-    };
+    let marks: Vec<(WeakEntity<EditorView>, Revision)> =
+        cx.update_global::<Keeper, _>(|keeper, _| {
+            keeper.marked.drain().map(|(_, mark)| mark).collect()
+        });
     for (view, revision) in marks {
         let Some(view) = view.upgrade() else {
             continue;
@@ -754,9 +747,7 @@ pub(crate) fn apply_all_closes(cx: &mut App) {
         };
         if current == revision {
             let document = view.read(cx).document().clone();
-            let mut keeper = cx.remove_global::<Keeper>();
-            keeper.discard_document(&document, revision);
-            cx.set_global(keeper);
+            cx.update_global::<Keeper, _>(|keeper, _| keeper.discard_document(&document, revision));
         }
     }
 }
@@ -767,9 +758,7 @@ pub(crate) fn copy_saved(document: EntityId, cx: &mut App) {
     if !cx.has_global::<Keeper>() {
         return;
     }
-    let mut keeper = cx.remove_global::<Keeper>();
-    keeper.copy_saved(document);
-    cx.set_global(keeper);
+    cx.update_global::<Keeper, _>(|keeper, _| keeper.copy_saved(document));
 }
 
 /// Starts the timer of a window. The first window also starts the keeper.
@@ -829,142 +818,143 @@ pub(crate) fn tick_window_at(
     if !prefs.keep {
         // A removal that failed after the user turned the feature off (and chose to delete) is still said.
         if cx.has_global::<Keeper>() {
-            let mut keeper = cx.remove_global::<Keeper>();
-            keeper.tell_failure(false, &workspace.editor().clone(), cx);
-            cx.set_global(keeper);
+            cx.update_global::<Keeper, _>(|keeper, cx| {
+                keeper.tell_failure(false, &workspace.editor().clone(), cx);
+            });
         }
         return;
     }
     if !cx.has_global::<Keeper>() {
         return;
     }
-    let mut keeper = cx.remove_global::<Keeper>();
-    let tabs = workspace.tab_editors();
-    // The folder is opened (and locked) when the first document has something to keep, not when the editor starts.
-    let wants_keep = tabs.iter().any(|view| {
-        let view = view.read(cx);
-        want_of(view, view.document().read(cx), &prefs) == Want::Keep
-    });
-    if wants_keep {
-        let ini_path = settings_path(cx);
-        if let Some(message) = keeper.ensure_started(ini_path.as_deref()) {
-            // Said once, in the window that found it out.
-            workspace.editor().clone().update(cx, |view, cx| {
-                view.notice = Some(message.to_owned());
-                cx.notify();
-            });
-        }
-    }
-    if !matches!(keeper.state, State::Unavailable) {
-        let writer = match &keeper.state {
-            State::Running(writer) => Some(writer),
-            _ => None,
-        };
-        let mut ids = Vec::new();
-        let mut active = 0;
-        let mut failed_notice = None;
-        for view in tabs.iter() {
-            let document = view.read(cx).document().clone();
-            let key = document.entity_id();
-            let (want, revision) = {
-                let shared = document.read(cx);
-                (
-                    want_of(view.read(cx), shared, &prefs),
-                    revision_of(view.read(cx), shared),
-                )
-            };
-            let entry = keeper.entries.entry(key).or_insert_with(|| Entry::new(now));
-            entry.document.get_or_insert_with(|| document.downgrade());
-            let mut plan = decide(entry, want, revision, now);
-            if want != Want::Keep {
-                entry.kept_for_exit = false;
+    cx.update_global::<Keeper, _>(|keeper, cx| {
+        let tabs = workspace.tab_editors();
+        // The folder is opened (and locked) when the first document has something to keep, not when the editor starts.
+        let wants_keep = tabs.iter().any(|view| {
+            let view = view.read(cx);
+            want_of(view, view.document().read(cx), prefs) == Want::Keep
+        });
+        if wants_keep {
+            let ini_path = settings_path(cx);
+            if let Some(message) = keeper.ensure_started(ini_path.as_deref()) {
+                // Said once, in the window that found it out.
+                workspace.editor().clone().update(cx, |view, cx| {
+                    view.notice = Some(message.to_owned());
+                    cx.notify();
+                });
             }
-            // On `force` (the window lost the focus) a document that is to be kept is written now when its text,
-            // or its caret, view or bookmarks, are not what the last write has.
-            let mut info = None;
-            if force
+        }
+        if !matches!(keeper.state, State::Unavailable) {
+            let writer = match &keeper.state {
+                State::Running(writer) => Some(writer),
+                _ => None,
+            };
+            let mut ids = Vec::new();
+            let mut active = 0;
+            let mut failed_notice = None;
+            for view in tabs.iter() {
+                let document = view.read(cx).document().clone();
+                let key = document.entity_id();
+                let (want, revision) = {
+                    let shared = document.read(cx);
+                    (
+                        want_of(view.read(cx), shared, prefs),
+                        revision_of(view.read(cx), shared),
+                    )
+                };
+                let entry = keeper.entries.entry(key).or_insert_with(|| Entry::new(now));
+                entry.document.get_or_insert_with(|| document.downgrade());
+                let mut plan = decide(entry, want, revision, now);
+                if want != Want::Keep {
+                    entry.kept_for_exit = false;
+                }
+                // On `force` (the window lost the focus) a document that is to be kept is written now when its text,
+                // or its caret, view or bookmarks, are not what the last write has.
+                let mut info = None;
+                if force
                 && want == Want::Keep
                 // A revision the user threw away stays thrown away.
                 && entry.suppressed != Some(revision)
                 && !plan.write
-            {
-                // A write that is running does not stop this one: the writer does them in the order they were
-                // given, so the later one ends last (at the end of the editor there is no second round to wait for).
-                let now_info = info_of(view.read(cx), document.read(cx));
-                // A write that is still running may supersede what looks current: write again.
+                {
+                    // A write that is running does not stop this one: the writer does them in the order they were
+                    // given, so the later one ends last (at the end of the editor there is no second round to wait for).
+                    let now_info = info_of(view.read(cx), document.read(cx));
+                    // A write that is still running may supersede what looks current: write again.
+                    if entry
+                        .shared
+                        .in_flight
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                        || entry.shared.written() != Some(revision)
+                        || !entry.shared.written_info_is(&now_info)
+                    {
+                        plan.write = true;
+                        entry.first_pending = None;
+                        entry.last_attempt = Some(now);
+                    }
+                    info = Some(now_info);
+                }
+                if plan.discard {
+                    if let (Some(writer), Some(id)) = (writer, entry.id.take()) {
+                        writer.discard(id);
+                    }
+                    entry.forget_copy();
+                }
+                if let (true, Some(writer)) = (plan.write, writer) {
+                    let id = entry.id.get_or_insert_with(Store::new_id).clone();
+                    let snapshot = {
+                        let shared = document.read(cx);
+                        Snapshot {
+                            doc: shared.doc().clone(),
+                            source: shared.file().source_encoding(),
+                            info: info.unwrap_or_else(|| info_of(view.read(cx), shared)),
+                        }
+                    };
+                    writer.write(id, &entry.shared, revision, snapshot);
+                }
+                if plan.warn_too_big {
+                    view.update(cx, |view, cx| {
+                        view.notice =
+                            Some("大きいため、保存していない内容を残しません。".to_owned());
+                        cx.notify();
+                    });
+                }
                 if entry
                     .shared
-                    .in_flight
+                    .failed
                     .load(std::sync::atomic::Ordering::SeqCst)
-                    || entry.shared.written() != Some(revision)
-                    || entry.shared.written_info().as_ref() != Some(&now_info)
                 {
-                    plan.write = true;
-                    entry.first_pending = None;
-                    entry.last_attempt = Some(now);
+                    failed_notice = Some(view.clone());
                 }
-                info = Some(now_info);
-            }
-            if plan.discard {
-                if let (Some(writer), Some(id)) = (writer, entry.id.clone()) {
-                    writer.discard(id);
-                }
-                entry.forget_copy();
-            }
-            if let (true, Some(writer)) = (plan.write, writer) {
-                let id = entry.id.get_or_insert_with(Store::new_id).clone();
-                let snapshot = {
-                    let shared = document.read(cx);
-                    Snapshot {
-                        doc: shared.doc().clone(),
-                        source: shared.file().source_encoding(),
-                        info: info.unwrap_or_else(|| info_of(view.read(cx), shared)),
+                if let Some(id) = entry.id.clone().filter(|_| want == Want::Keep) {
+                    // The tab that is shown: the one with the document of the window's view (a preview
+                    // between the tabs shifts the numbers, so the position is not compared).
+                    if document == *workspace.editor().read(cx).document() {
+                        active = ids.len();
                     }
-                };
-                writer.write(id, &entry.shared, revision, snapshot);
-            }
-            if plan.warn_too_big {
-                view.update(cx, |view, cx| {
-                    view.notice = Some("大きいため、保存していない内容を残しません。".to_owned());
-                    cx.notify();
-                });
-            }
-            if entry
-                .shared
-                .failed
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                failed_notice = Some(view.clone());
-            }
-            if let Some(id) = entry.id.clone().filter(|_| want == Want::Keep) {
-                // The tab that is shown: the one with the document of the window's view (a preview
-                // between the tabs shifts the numbers, so the position is not compared).
-                if document == *workspace.editor().read(cx).document() {
-                    active = ids.len();
+                    ids.push(id);
                 }
-                ids.push(id);
             }
+            let view = failed_notice
+                .clone()
+                .unwrap_or_else(|| workspace.editor().clone());
+            keeper.tell_failure(failed_notice.is_some(), &view, cx);
+            let id = window.window_handle().window_id();
+            let report = WindowReport {
+                ids,
+                active,
+                at: now,
+            };
+            match keeper.windows.iter_mut().find(|(w, _)| *w == id) {
+                Some((_, old)) => *old = report,
+                None => keeper.windows.push((id, report)),
+            }
+            if window.is_window_active() {
+                keeper.active_window = Some(id);
+            }
+            keeper.housekeeping(now);
         }
-        let view = failed_notice
-            .clone()
-            .unwrap_or_else(|| workspace.editor().clone());
-        keeper.tell_failure(failed_notice.is_some(), &view, cx);
-        let id = window.window_handle().window_id();
-        let report = WindowReport {
-            ids,
-            active,
-            at: now,
-        };
-        match keeper.windows.iter_mut().find(|(w, _)| *w == id) {
-            Some((_, old)) => *old = report,
-            None => keeper.windows.push((id, report)),
-        }
-        if window.is_window_active() {
-            keeper.active_window = Some(id);
-        }
-        keeper.housekeeping(now);
-    }
-    cx.set_global(keeper);
+    });
 }
 
 /// Waits until the writer has done every job queued so far (for the tests).
@@ -1083,7 +1073,7 @@ pub(crate) fn covered(view: &EditorView, cx: &App) -> bool {
         return false;
     };
     let shared = view.document().read(cx);
-    if want_of(view, shared, &prefs(cx)) != Want::Keep {
+    if want_of(view, shared, prefs(cx)) != Want::Keep {
         return false;
     }
     let Some(entry) = entries.get(&view.document().entity_id()) else {
@@ -1103,4 +1093,74 @@ pub(crate) fn kept_for_exit(cx: &App, document: EntityId) -> bool {
     cx.try_global::<Keeper>()
         .and_then(|k| k.entries.get(&document))
         .is_some_and(|e| e.kept_for_exit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A keeper with a writer in `dir` and one window whose tabs have the copies `ids`, the front tab at
+    /// `active`. The document of the copy `ids[n]` is `EntityId::from(n + 1)`.
+    fn keeper_with(dir: &std::path::Path, ids: &[&str], active: usize) -> Keeper {
+        let mut keeper = Keeper::new();
+        keeper.state = State::Running(Writer::start(dir).expect("start the writer"));
+        let now = Instant::now();
+        for (n, id) in (1u64..).zip(ids) {
+            let mut entry = Entry::new(now);
+            entry.id = Some((*id).to_owned());
+            keeper.entries.insert(EntityId::from(n), entry);
+        }
+        let window = WindowId::from(1);
+        let report = WindowReport {
+            ids: ids.iter().map(|id| (*id).to_owned()).collect(),
+            active,
+            at: now,
+        };
+        keeper.windows.push((window, report));
+        keeper.active_window = Some(window);
+        keeper
+    }
+
+    /// The tabs of the one window of the session, and the copy of its front tab.
+    fn front(keeper: &Keeper) -> (Vec<String>, String) {
+        let session = keeper.session();
+        let window = &session.windows[0];
+        (window.docs.clone(), window.docs[window.active].clone())
+    }
+
+    fn names(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| (*n).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_front_tab_stays_when_the_copy_of_an_earlier_tab_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c", "d"], 2);
+        keeper.copy_saved(EntityId::from(1));
+        assert_eq!(front(&keeper), (names(&["b", "c", "d"]), "c".to_owned()));
+    }
+
+    #[test]
+    fn the_front_tab_stays_when_the_copy_of_a_later_tab_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c", "d"], 1);
+        keeper.copy_saved(EntityId::from(4));
+        assert_eq!(front(&keeper), (names(&["a", "b", "c"]), "b".to_owned()));
+    }
+
+    #[test]
+    fn the_next_tab_is_in_front_when_the_copy_of_the_front_tab_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c", "d"], 2);
+        keeper.copy_saved(EntityId::from(3));
+        assert_eq!(front(&keeper), (names(&["a", "b", "d"]), "d".to_owned()));
+    }
+
+    #[test]
+    fn the_tab_before_is_in_front_when_the_copy_of_the_last_tab_in_front_goes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut keeper = keeper_with(tmp.path(), &["a", "b", "c"], 2);
+        keeper.copy_saved(EntityId::from(3));
+        assert_eq!(front(&keeper), (names(&["a", "b"]), "b".to_owned()));
+    }
 }

@@ -4,6 +4,8 @@
 //!
 //! * a registered macro (`F_USERMACRO_0` ...) is named by its entry on the 「マクロ」 page, and
 //!   `マクロ n (未登録)` when it has no file (`STR_ERR_DLGFUNCLKUP03`);
+//! * a registered one-liner (`F_ONELINER_0` ..., ADR-0029) is named by its entry of `[OneLiner]`, and
+//!   `ワンライナー n (未登録)` when it has no command (MATSU's own wording, as the macros');
 //! * the right-click menu and the custom menus are named by their menus (`Custmenu2Name`);
 //! * any other function is the label of the string table (`LS( funccode )`), and a code with none is
 //!   `-- 不明 --` (`F_DISABLE`'s string).
@@ -17,6 +19,7 @@ use gpui::App;
 use matsu_commands::sakura::FUNCTIONS;
 use matsu_config::settings::CustomMenus;
 use matsu_config::settings::macros::{RegisteredMacros, index_of_function};
+use matsu_config::settings::oneliner::{self, OneLiners};
 
 use crate::custom_menu::model::menu_index;
 use crate::settings::UserSettings;
@@ -24,20 +27,50 @@ use crate::settings::UserSettings;
 /// `F_DISABLE` in the string table: what a code with no name is.
 pub(crate) const UNKNOWN_NAME: &str = "-- 不明 --";
 
-/// `Funccode2Name` for the given custom menus and registered macros.
+/// `Funccode2Name` for the given custom menus and registered macros. A one-liner is named as not registered
+/// here: the pages that call this have no one-liners yet (the settings page of PR 3 will pass them, with
+/// [`funccode_to_name_with`]).
 pub(crate) fn funccode_to_name(
     code: u16,
     menus: &CustomMenus,
     macros: &RegisteredMacros,
 ) -> String {
-    resolve(code, &|| menus, &|| macros)
+    funccode_to_name_with(code, menus, macros, &OneLiners::default())
+}
+
+/// `Funccode2Name` for the given custom menus, registered macros and registered one-liners.
+pub(crate) fn funccode_to_name_with(
+    code: u16,
+    menus: &CustomMenus,
+    macros: &RegisteredMacros,
+    oneliners: &OneLiners,
+) -> String {
+    resolve(code, &|| menus, &|| macros, &|| oneliners)
+}
+
+/// The name of the function `code` if it is a registered one-liner: the name, or the command when there is
+/// no name; `ワンライナー n (未登録)` when there is no command.
+pub(crate) fn oneliner_title(table: &OneLiners, code: u16) -> Option<String> {
+    let index = oneliner::index_of_function(code)?;
+    let one = table.get(index)?;
+    Some(if one.is_registered() {
+        one.title().to_owned()
+    } else {
+        format!("ワンライナー {index} (未登録)")
+    })
 }
 
 fn resolve<'a>(
     code: u16,
     menus: &dyn Fn() -> &'a CustomMenus,
     macros: &dyn Fn() -> &'a RegisteredMacros,
+    oneliners: &dyn Fn() -> &'a OneLiners,
 ) -> String {
+    if oneliner::index_of_function(code).is_some()
+        && let Some(title) = oneliner_title(oneliners(), code)
+    {
+        return title;
+    }
     if index_of_function(code).is_some() {
         if let Some(title) = crate::macros::title_of(macros(), code) {
             return title;
@@ -67,6 +100,7 @@ fn resolve<'a>(
 pub(crate) struct FuncNames {
     menus: OnceCell<CustomMenus>,
     macros: OnceCell<RegisteredMacros>,
+    oneliners: OnceCell<OneLiners>,
 }
 
 impl FuncNames {
@@ -74,6 +108,7 @@ impl FuncNames {
         Self {
             menus: OnceCell::new(),
             macros: OnceCell::new(),
+            oneliners: OnceCell::new(),
         }
     }
 
@@ -91,6 +126,13 @@ impl FuncNames {
             &|| {
                 self.macros
                     .get_or_init(|| crate::macros::registered_table(cx))
+            },
+            &|| {
+                self.oneliners.get_or_init(|| {
+                    cx.try_global::<UserSettings>()
+                        .map(UserSettings::oneliners)
+                        .unwrap_or_default()
+                })
             },
         )
     }
@@ -140,6 +182,50 @@ mod tests {
             funccode_to_name(31649, &menus, &macros),
             "マクロ 49 (未登録)"
         );
+    }
+
+    #[test]
+    fn a_oneliner_is_named_by_its_entry_or_is_not_registered() {
+        use matsu_config::settings::oneliner::{OneLiner, OutputTo};
+        let (menus, macros) = (CustomMenus::default(), RegisteredMacros::default());
+        let mut ones = OneLiners::default();
+        let name = |ones: &OneLiners, code| funccode_to_name_with(code, &menus, &macros, ones);
+        assert_eq!(name(&ones, 32711), "ワンライナー 0 (未登録)");
+        assert_eq!(name(&ones, 32760), "ワンライナー 49 (未登録)");
+        assert_eq!(
+            funccode_to_name(32711, &menus, &macros),
+            "ワンライナー 0 (未登録)"
+        );
+        ones.slots[0] = OneLiner {
+            name: "並べ替え".to_owned(),
+            command: "sort".to_owned(),
+            output: OutputTo::Replace,
+            ..OneLiner::default()
+        };
+        ones.slots[1].command = "jq .".to_owned();
+        assert_eq!(name(&ones, 32711), "並べ替え");
+        // No name: the command.
+        assert_eq!(name(&ones, 32712), "jq .");
+        // The three others are named by the labels of the table.
+        assert_eq!(name(&ones, 32761), "登録済みワンライナーリスト");
+        assert_eq!(name(&ones, 32762), "ワンライナーを入力して実行...");
+        assert_eq!(name(&ones, 32763), "ワンライナーの設定...");
+    }
+
+    #[test]
+    fn the_codes_of_the_oneliners_are_the_ones_of_the_table() {
+        use matsu_config::settings::oneliner as o;
+        let code = |name: &str| FUNCTIONS.iter().find(|f| f.name == name).unwrap().code;
+        for n in 0..o::MAX_ONELINER {
+            assert_eq!(
+                code(&format!("F_ONELINER_{n}")),
+                o::function_of_index(n).unwrap()
+            );
+        }
+        assert_eq!(code("F_ONELINER_LIST"), o::F_ONELINER_LIST);
+        assert_eq!(code("F_ONELINER_DIALOG"), o::F_ONELINER_DIALOG);
+        assert_eq!(code("F_ONELINER_SETTINGS"), o::F_ONELINER_SETTINGS);
+        assert_eq!(code("F_AI_LOG_SHOW"), o::F_AI_LOG_SHOW);
     }
 
     #[test]

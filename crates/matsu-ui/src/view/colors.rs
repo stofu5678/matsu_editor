@@ -145,9 +145,8 @@ impl EditorView {
             })
         {
             if want_next && hit.next.is_none() {
-                hit.next = next_known
-                    .clone()
-                    .or_else(|| Some(line_end_state(rules, &ll.text, ll.eol, state)));
+                hit.next =
+                    next_known.or_else(|| Some(line_end_state(rules, &ll.text, ll.eol, state)));
             }
             return ColoredLine {
                 runs: hit.runs.clone(),

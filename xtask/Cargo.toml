@@ -10,3 +10,9 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+# The Markdown parser that mdBook 0.5.4 uses (mdbook-markdown asks for ^0.13.4; 0.13.4 has RUSTSEC-2026-0414 and
+# 0.13.6 is the newest 0.13), so that the help check reads
+# pages the way the book does. No default features: no command-line tool, no SIMD, no HTML writer.
+pulldown-cmark = { version = "=0.13.6", default-features = false }

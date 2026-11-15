@@ -159,7 +159,7 @@ pub fn ascii_json(value: &Value) -> String {
 }
 
 /// The response to a request that succeeded.
-pub fn response_ok(id: &Value, result: Value) -> String {
+pub fn response_ok(id: &Value, result: &Value) -> String {
     ascii_json(&json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(escape_non_ascii("あ"), "\\u3042");
         assert_eq!(escape_non_ascii("😀"), "\\ud83d\\ude00");
         assert_eq!(escape_non_ascii("\u{7f}"), "\\u007f");
-        let line = response_ok(&json!(1), json!("日本語😀"));
+        let line = response_ok(&json!(1), &json!("日本語😀"));
         assert!(line.is_ascii());
         assert!(
             line.contains(r#""result":"\u65e5\u672c\u8a9e\ud83d\ude00""#),
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn control_characters_stay_escaped_in_one_line() {
-        let line = response_ok(&json!(2), json!("a\r\nb\u{1e}c"));
+        let line = response_ok(&json!(2), &json!("a\r\nb\u{1e}c"));
         assert!(!line.contains('\n') && !line.contains('\r') && !line.contains(RS));
         let back: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(back["result"], "a\r\nb\u{1e}c");

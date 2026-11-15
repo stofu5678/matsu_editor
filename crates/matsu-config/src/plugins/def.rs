@@ -278,12 +278,16 @@ impl PluginDef {
             PluginKind::Other(name) => return Some(Unsupported::UnknownType(name.clone())),
             PluginKind::Wsh | PluginKind::Script => {}
         }
-        let mut handlers = self
+        let handlers = self
             .plugs
             .iter()
             .map(|p| p.handler.as_str())
             .chain(self.commands.iter().map(|c| c.handler.as_str()));
-        handlers.any(is_vbscript).then_some(Unsupported::VbScript)
+        let handlers: Vec<&str> = handlers.collect();
+        handlers
+            .iter()
+            .any(|h| is_vbscript(h))
+            .then_some(Unsupported::VbScript)
     }
 
     /// The commands the plugin has (`GetCommandCount`).

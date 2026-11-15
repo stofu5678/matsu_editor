@@ -129,7 +129,7 @@ fn char_width(c: char) -> usize {
 
 impl PlainLayout {
     /// The column after `c` when it starts at column `col`.
-    fn advance(&self, col: usize, c: char) -> usize {
+    fn advance(self, col: usize, c: char) -> usize {
         if c == '\t' {
             let w = self.tab_width.max(1);
             (col / w + 1) * w

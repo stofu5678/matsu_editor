@@ -68,14 +68,14 @@ pub fn open_text_file_with(
     options.detect.prefer_cesu8 = defaults.prefer_cesu8;
     match open_file_with(path, &options, progress) {
         Err(FileError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            Ok(new_named(path, encoding, defaults))
+            Ok(new_named(path, encoding, *defaults))
         }
         other => other,
     }
 }
 
 /// An empty document that has a name but no file yet.
-fn new_named(path: &Path, encoding: Option<Encoding>, defaults: &NewDocumentDefaults) -> TextFile {
+fn new_named(path: &Path, encoding: Option<Encoding>, defaults: NewDocumentDefaults) -> TextFile {
     // A forced encoding gets the BOM that is usual for it; the default one gets the setting.
     let (encoding, bom) = match encoding {
         Some(encoding) if encoding != defaults.encoding => (encoding, encoding.bom_default_on()),

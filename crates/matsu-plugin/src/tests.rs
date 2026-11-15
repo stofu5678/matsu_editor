@@ -38,7 +38,7 @@ fn emacs_has_json(interpreter: &std::ffi::OsStr) -> bool {
 }
 
 /// Whether the interpreter starts. Prints why not if it does not.
-fn available(language: Language) -> bool {
+pub(crate) fn available(language: Language) -> bool {
     // osascript is part of macOS only: no other OS has it, and none is expected to.
     if language == Language::AppleScript && !cfg!(target_os = "macos") {
         eprintln!("SKIP: AppleScript runs only on macOS");
@@ -148,7 +148,7 @@ fn run_with(
         let dir = tempfile::tempdir().unwrap();
         let config = config_for(&dir, language, code, timeout);
         let mut doc = TextModel::new(text, Some("/work/テスト.txt".into()));
-        let report = session::run_blocking(config, |message| handler(&mut doc, message)).unwrap();
+        let report = session::run_blocking(&config, |message| handler(&mut doc, message)).unwrap();
         // Every run in these tests must leave no boot folder, whatever the macro did.
         assert_eq!(boot_folders(dir.path()), Vec::<String>::new());
         if retries < MAX_POWERSHELL_RETRIES
@@ -323,8 +323,24 @@ fn output_without_a_line_break_before_a_request() {
         };
         assert_clean_exit(&report);
         assert_eq!(requests, 1, "{language:?}");
-        // "abc" came before the request on the same line; the last output has no line break.
-        assert_eq!(stdout(&report), ["abc", "def", "tail"], "{language:?}");
+        // "abc" came before the request on the same line as "def"; the last output has no line break.
+        assert_eq!(stdout(&report), ["abcdef", "tail"], "{language:?}");
+    }
+}
+
+#[test]
+fn a_line_of_output_stays_whole_across_editor_calls() {
+    let js = "process.stdout.write('a'); Editor.GoFileTop(); process.stdout.write('b'); Editor.GoFileTop(); console.log('c', Editor.GetLineCount(0)); console.log('d');";
+    let py = "print('a', end=''); Editor.GoFileTop(); print('b', end=''); Editor.GoFileTop(); print('c', Editor.GetLineCount(0)); print('d')";
+    let rb = "print 'a'; Editor.GoFileTop; print 'b'; Editor.GoFileTop; puts \"c #{Editor.GetLineCount(0)}\"; puts 'd'";
+    // `echo a, b, c` writes each argument in turn.
+    let php = "echo 'a', Editor::GoFileTop() ?? '', 'b', Editor::GoFileTop() ?? '', 'c ', Editor::GetLineCount(0), \"\\n\"; echo \"d\\n\";";
+    for (language, code) in cases(js, py, rb, php) {
+        let Some((report, _)) = run(language, code, "x") else {
+            continue;
+        };
+        assert_clean_exit(&report);
+        assert_eq!(stdout(&report), ["abc 1", "d"], "{language:?}");
     }
 }
 
@@ -622,7 +638,7 @@ fn a_node_module_file_runs_with_top_level_await() {
     assert_eq!(config.language, JS);
     config.temp_dir = Some(dir.path().to_path_buf());
     let mut doc = TextModel::new("a\nb\n", None);
-    let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+    let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
     assert_eq!(stdout(&report), ["function 2"]);
     assert_ne!(report.finished.exit_code, Some(0));
     let stderr = report.lines(Stream::Stderr).join("\n");
@@ -740,7 +756,7 @@ fn cancel_kills_the_macro() {
     let sink: session::Sink = Arc::new(move |event| {
         let _ = tx.send(event);
     });
-    let session = session::start(config, sink).unwrap();
+    let session = session::start(&config, sink).unwrap();
     let started = Instant::now();
     let mut cancelled = false;
     loop {
@@ -766,7 +782,7 @@ fn a_missing_interpreter_is_a_clear_error() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = config_for(&dir, JS, "", Duration::from_secs(5));
     config.interpreter = "matsu-no-such-interpreter".into();
-    let err = session::run_blocking(config, |_| None)
+    let err = session::run_blocking(&config, |_| None)
         .unwrap_err()
         .to_string();
     assert!(
@@ -816,7 +832,7 @@ fn the_sample_macros_run() {
         let temp = tempfile::tempdir().unwrap();
         config.temp_dir = Some(temp.path().to_path_buf());
         let mut doc = TextModel::new("りんご\nみかん😀\nぶどう\n", None);
-        let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+        let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
         assert_clean_exit(&report);
         let text = doc.text();
         assert!(text.starts_with("# サンプルマクロ"), "{name}: {text}");
@@ -847,7 +863,7 @@ fn the_database_sample_macros_run() {
         let temp = tempfile::tempdir().unwrap();
         config.temp_dir = Some(temp.path().to_path_buf());
         let mut doc = TextModel::new(sql, None);
-        let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+        let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
         let stderr = report.lines(Stream::Stderr).join("\n");
         if report.finished.exit_code != Some(0)
             && (stderr.contains("sqlite") || stderr.contains("driver"))
@@ -922,7 +938,7 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
                     let _ = tx.send(boot_folders(&parent));
                 }
             });
-            let _session = session::start(config, sink).unwrap();
+            let _session = session::start(&config, sink).unwrap();
             let left = rx.recv_timeout(PATIENT).unwrap();
             assert_eq!(left, Vec::<String>::new(), "{language:?}");
         }
@@ -1045,7 +1061,7 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
     let sink: session::Sink = Arc::new(move |event| {
         let _ = tx.send(event);
     });
-    let session = Arc::new(session::start(config, sink).unwrap());
+    let session = Arc::new(session::start(&config, sink).unwrap());
     let mut printed = Vec::new();
     for event in rx {
         match event {
@@ -1057,7 +1073,7 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
                 let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(5));
-                    session.send(crate::protocol::response_ok(&id, Value::from("")));
+                    session.send(crate::protocol::response_ok(&id, &Value::from("")));
                     session.release();
                 });
             }
@@ -1088,7 +1104,7 @@ fn without_a_hold_the_same_wait_times_out() {
     let sink: session::Sink = Arc::new(move |event| {
         let _ = tx.send(event);
     });
-    let session = Arc::new(session::start(config, sink).unwrap());
+    let session = Arc::new(session::start(&config, sink).unwrap());
     for event in rx {
         match event {
             HostEvent::Output { .. } => {}
@@ -1097,7 +1113,7 @@ fn without_a_hold_the_same_wait_times_out() {
                 let session = session.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(5));
-                    session.send(crate::protocol::response_ok(&id, Value::from("")));
+                    session.send(crate::protocol::response_ok(&id, &Value::from("")));
                 });
             }
             HostEvent::Finished(finished) => {
@@ -1566,7 +1582,7 @@ fn a_perl_script_in_a_folder_with_a_japanese_name_shows_the_name_right() {
     let mut config = MacroConfig::for_script(&script, None).unwrap();
     config.temp_dir = Some(dir.path().to_path_buf());
     let mut doc = TextModel::new("a", None);
-    let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+    let report = session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).unwrap();
     let name = script.display().to_string();
     let out = stdout(&report).join("\n");
     assert!(
@@ -1789,7 +1805,7 @@ fn applescript_macros_do_not_start_on_other_systems_and_say_why() {
     let script = dir.path().join("a.applescript");
     std::fs::write(&script, "return 1\n").unwrap();
     let config = MacroConfig::for_script(&script, None).unwrap();
-    let err = session::run_blocking(config, |_| None).err().unwrap();
+    let err = session::run_blocking(&config, |_| None).err().unwrap();
     assert!(
         matches!(err, crate::session::StartError::NotSupportedHere { .. }),
         "{err}"
@@ -1979,5 +1995,42 @@ mod retry_tests {
         assert!(!should_retry_powershell(PS, &ok, true));
         let late = report(EndReason::TimedOut, None, SEGV, &[]);
         assert!(!should_retry_powershell(PS, &late, true));
+    }
+}
+
+/// `MacroConfig::path` is the `PATH` the interpreter is looked for on (macOS started from
+/// Finder: the one of the login shell).
+#[cfg(unix)]
+mod config_path_tests {
+    use super::*;
+
+    fn python_config(dir: &tempfile::TempDir, path: Option<std::ffi::OsString>) -> MacroConfig {
+        let script = dir.path().join("macro.py");
+        std::fs::write(&script, "pass\n").unwrap();
+        let mut config = MacroConfig::for_script(&script, None).unwrap();
+        config.temp_dir = Some(dir.path().to_path_buf());
+        config.path = path;
+        config
+    }
+
+    #[test]
+    fn the_interpreter_is_found_on_the_path_of_the_config_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let sink: session::Sink = Arc::new(|_| {});
+        // a folder with nothing in it: the name is not found
+        let config = python_config(&dir, Some(dir.path().join("empty").into_os_string()));
+        let error = session::start(&config, Arc::clone(&sink))
+            .err()
+            .expect("no python3 there");
+        assert!(matches!(
+            error,
+            session::StartError::Spawn { ref source, .. }
+                if source.kind() == std::io::ErrorKind::NotFound
+        ));
+        // a folder with a `python3` (here `true`): it is started
+        std::os::unix::fs::symlink("/usr/bin/true", bin.path().join("python3")).unwrap();
+        let config = python_config(&dir, Some(bin.path().into()));
+        assert!(session::start(&config, sink).is_ok());
     }
 }

@@ -1,0 +1,59 @@
+name: Help pages
+
+# Publishes the help (docs/help/, ADR-0031) on GitHub Pages: the latest of main only. The steps to switch it on
+# are in docs/help/publishing.md. Never runs for a pull request.
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/help/**
+      - tools/help/**
+      - crates/matsu-plugin/samples/**
+      - .github/workflows/help-pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publication at a time, and a newer one does not cancel one that is deploying.
+concurrency:
+  group: help-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # About 2 minutes (the same build as the `help` job of package.yml).
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install mdBook and Pagefind
+        run: tools/help/install-tools.sh "${RUNNER_TEMP}/help-bin"
+      - name: Build the book
+        id: book
+        run: tools/help/build.sh
+      - name: Index the book with Pagefind
+        run: tools/help/index.sh "${{ steps.book.outputs.site }}"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ steps.book.outputs.site }}
+
+  # Runs only when the owner has switched Pages on and set the variable HELP_PAGES to `on`; until then the
+  # workflow builds the book and stops, so it never fails before the setting exists.
+  deploy:
+    needs: build
+    if: vars.HELP_PAGES == 'on'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -95,7 +95,10 @@ pub(super) fn rows(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<Row>
 }
 
 pub(super) fn labels(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<String> {
-    rows(cx, handle).into_iter().map(|r| r.label).collect()
+    rows(cx, handle)
+        .into_iter()
+        .map(|r| r.label.to_string())
+        .collect()
 }
 
 fn caret(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Pos {

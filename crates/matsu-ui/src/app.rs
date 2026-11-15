@@ -19,7 +19,7 @@ use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
 use crate::tabs::content::MenuKind;
-use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction};
+use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction, SelectWindow};
 use matsu_commands::keymap::{DisplayStyle, KeyMap};
 
 actions!(
@@ -80,15 +80,37 @@ impl KindMenus {
     }
 }
 
+/// The windows that the menus were made with (`F_WINDOW_LIST`), to make them again when the list changes.
+struct ListedWindows(Vec<crate::menu::Item>);
+
+impl gpui::Global for ListedWindows {}
+
+/// Whether the window list the menus show is the one the windows make now.
+fn window_list_is_current(cx: &App) -> bool {
+    cx.try_global::<ListedWindows>().is_some_and(|listed| {
+        listed.0 == crate::window_ops::menu_list::WindowListMenu::collect(cx).into_items()
+    })
+}
+
+/// Makes the menus again if the window list in them (ウィンドウ一覧: the documents, their marks, the
+/// current one) is not the one the windows make now.
+pub(crate) fn refresh_window_list(cx: &mut App) {
+    if !window_list_is_current(cx) {
+        refresh_menus(cx);
+    }
+}
+
 /// macOS: makes the native menu again if the marks of the active window are not the ones it shows.
 /// Called when a window becomes active and after a function ran, because the native menu cannot
-/// ask when it opens. Does nothing elsewhere (the window's menu bar asks).
+/// ask when it opens. Elsewhere the window's menu bar asks for the marks, and only the window list
+/// is looked at (it is part of the menus, not of the marks).
 ///
 /// `always` skips the comparison: the snapshot does not include what the disk says (whether a
 /// file is there, a header of the same name), so a window that becomes active makes them again.
 fn refresh_menu_states(cx: &mut App, always: bool) {
     let (kind, states) = active_menu_context(cx);
     if !always
+        && window_list_is_current(cx)
         && cx
             .try_global::<MenuStates>()
             .is_some_and(|m| m.kind == kind && m.states == states)
@@ -98,12 +120,14 @@ fn refresh_menu_states(cx: &mut App, always: bool) {
     refresh_menus(cx);
 }
 
-/// Asks for [`refresh_menu_states`] once the update that is running ends (macOS only). It has to
-/// be the application's `defer`, not a window's: a window's runs inside an update of that window,
-/// and the state is read by updating the active window.
+/// Asks for [`refresh_menu_states`] once the update that is running ends. It has to be the
+/// application's `defer`, not a window's: a window's runs inside an update of that window, and the
+/// state is read by updating the active window.
 pub(crate) fn defer_refresh_menu_states(cx: &mut App, always: bool) {
     if cfg!(target_os = "macos") {
         cx.defer(move |cx| refresh_menu_states(cx, always));
+    } else {
+        cx.defer(refresh_window_list);
     }
 }
 
@@ -182,8 +206,12 @@ pub(crate) fn run(
     app.on_reopen(reopen);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
+        // `MATSU_FONT_DIAGNOSTICS`: how the text font is chosen (nothing without the variable).
+        crate::font_diagnostics::report(cx, &user);
         crate::view::EditorView::bind_keys(cx);
         crate::preview::bind_keys(cx);
+        crate::ai_log::bind_keys(cx);
+        crate::terminal::bind_keys(cx);
         // the title of the confirmation boxes (Windows), as Sakura's: the name of the application
         matsu_platform::dialog_title::install();
         crate::history::install(cx, &user);
@@ -198,20 +226,29 @@ pub(crate) fn run(
         cx.set_global(MenuKeyMap(keymap.clone()));
         set_menus(cx, &keymap);
         cx.on_action(|_: &Exit, cx| crate::file_ops::close::quit(cx));
+        cx.on_action(|a: &SelectWindow, cx| crate::window_ops::menu_list::select(cx, a.id));
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
             // The processes of the plugins end first: none is left running behind the editor.
             crate::macros::plugin_call::shutdown_all(cx);
+            // The shells are asked to end now, on their own threads, while the copies are written below.
+            crate::terminal::shutdown_all(cx);
             crate::history::view::record_all(cx);
             crate::saved_state::window::flush(cx);
             // The copies of the unsaved documents have their latest content when the process ends, however
             // it was asked to end (ADR-0022).
-            crate::unsaved::settle_at_quit(cx)
+            let settled = crate::unsaved::settle_at_quit(cx);
+            // A shell whose closing is cut short by the end of the process is left behind on Windows
+            // (`matsu_terminal::wait_for_closing`); the time is bounded (`terminal::QUIT_WAIT`).
+            matsu_terminal::wait_for_closing(crate::terminal::QUIT_WAIT);
+            settled
         })
         .detach();
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 cx.quit();
+            } else {
+                defer_refresh_menu_states(cx, false);
             }
         })
         .detach();
@@ -299,6 +336,9 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     cx.set_global(KindMenus(by_kind));
     let native = menus_of(cx, keymap, kind_now, style, states.as_ref());
     cx.set_menus(native.menus);
+    cx.set_global(ListedWindows(
+        crate::window_ops::menu_list::WindowListMenu::collect(cx).into_items(),
+    ));
     // The native menu has just been made again, without pictures: give them (macOS; Windows and
     // Linux draw the menu themselves). `menu_icons::enabled` is Sakura's 「アイコン付きメニュー」.
     if cfg!(target_os = "macos") && crate::menu_icons::enabled(cx) {
@@ -363,6 +403,26 @@ fn menus_of(
                 built.menus.push(menu);
             }
         }
+        MenuKind::Terminal => {
+            for menu in crate::terminal::menus::menus() {
+                // No Sakura function, so no picture.
+                built.icons.push(matsu_platform::menu_icons::Menu {
+                    title: menu.name.to_string(),
+                    items: vec![matsu_platform::menu_icons::Node::Plain; menu.items.len()],
+                });
+                built.menus.push(menu);
+            }
+        }
+        MenuKind::AiLog => {
+            for menu in crate::ai_log::menus::menus(!cfg!(target_os = "macos")) {
+                // No Sakura function, so no picture.
+                built.icons.push(matsu_platform::menu_icons::Menu {
+                    title: menu.name.to_string(),
+                    items: vec![matsu_platform::menu_icons::Node::Plain; menu.items.len()],
+                });
+                built.menus.push(menu);
+            }
+        }
         #[cfg(test)]
         MenuKind::Probe => {
             built
@@ -394,8 +454,18 @@ fn editor_menus(
         .unwrap_or_default();
     let custom = CustomMenuList(&custom_menus);
     let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
+    let oneliner_list = crate::oneliner::OneLinerList(
+        cx.try_global::<crate::settings::UserSettings>()
+            .map(crate::settings::UserSettings::shared_oneliners)
+            .unwrap_or_default(),
+    );
     let rest = ChainedLists(&custom, &macro_list);
+    let rest = ChainedLists(&rest, &oneliner_list);
     let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
+    let rest = ChainedLists(
+        &rest,
+        &crate::window_ops::menu_list::WindowListMenu::collect(cx),
+    );
     let lists = ChainedLists(&recent, &rest);
     // The menu of the user (`[MainMenu]`), Sakura's default without one.
     let main_menu = cx
@@ -479,6 +549,9 @@ pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuIt
                     }
                     MenuAction::RecentFolder(path) => {
                         Some(MenuItem::action(label, OpenRecentFolder { path }))
+                    }
+                    MenuAction::Window { id, current } => {
+                        Some(MenuItem::action(label, SelectWindow { id }).checked(current))
                     }
                     // Nobody handles `Unavailable`, so the native menu of macOS, which asks
                     // whether the action can be handled, keeps the item gray.
@@ -613,7 +686,7 @@ impl Workspace {
                 crate::view::mouse::window_activated(cx, window.window_handle().window_id());
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
-                crate::file_watch::spawn_check(this.panes().active().clone(), window, cx);
+                crate::file_watch::spawn_check(this.panes().active(), window, cx);
             }
         })
         .detach();
@@ -665,7 +738,7 @@ impl Workspace {
     ) -> Option<crate::menu_state::FuncStates> {
         match self.menu_kind() {
             MenuKind::Editor => Some(self.func_states(topmost, this, cx)),
-            MenuKind::Preview => None,
+            MenuKind::Preview | MenuKind::Terminal | MenuKind::AiLog => None,
             #[cfg(test)]
             MenuKind::Probe => None,
         }
@@ -682,24 +755,32 @@ impl Render for Workspace {
         self.sync_outline(window, cx);
         let active = self.panes().active().clone();
         let editor = active.read(cx);
-        // A preview (ADR-0024) draws its own view; the bars of the editor are not shown with it.
+        // A preview (ADR-0024) and a shell (ADR-0028) draw their own views; the bars of the editor are not
+        // shown with them.
         let preview = self.content.preview().map(|p| p.view().clone());
+        let terminal = self.content.terminal().map(|t| t.view().clone());
+        let ai_log = self.content.ai_log().map(|t| t.view().clone());
+        let own = !self.content.is_editor();
         // The list of the tabs (the ▼ button of the bar) belongs to the view that runs its function:
         // with a preview that is the hidden view, which is not drawn, so the list is drawn here.
         let tab_list = editor.tab_list.clone();
         let title = editor.title_for(window.is_window_active(), cx);
         window.set_window_title(&if preview.is_some() {
             format!("プレビュー: {title}")
+        } else if let Some(shell) = &terminal {
+            format!("シェル: {}", shell.read(cx).title_text())
+        } else if ai_log.is_some() {
+            "AI ログ".to_owned()
         } else {
             title
         });
         crate::doc_window::sync(window, editor, cx);
         let status = self.content.panel().status(cx);
         let show_status_bar = editor.status_bar_shown();
-        let macro_panel = if preview.is_some() {
+        let macro_panel = if own {
             None
         } else {
-            editor.macro_panel(active.clone())
+            editor.macro_panel(active.clone(), cx)
         };
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         // A kind of tab with no status bar has no status (`TabPanel::status`).
@@ -717,7 +798,7 @@ impl Render for Workspace {
             (tab_bar, None)
         };
         // The minimap draws the pane that is active.
-        let minimap_shown = crate::minimap::current(cx).shown && preview.is_none();
+        let minimap_shown = crate::minimap::current(cx).shown && !own;
         self.minimap.update(cx, |minimap, cx| {
             if minimap_shown {
                 minimap.follow(&active, cx);
@@ -727,8 +808,13 @@ impl Render for Workspace {
         });
         let minimap = minimap_shown.then(|| self.minimap.clone());
         let topmost = crate::window_ops::is_topmost(window, cx);
-        let (toolbar, funckeys_top, funckeys_bottom) = if preview.is_some() {
-            (None, None, None)
+        let (toolbar, funckeys_top, funckeys_bottom) = if own {
+            // The toolbar row keeps the top of the window where it is on every kind of tab.
+            (
+                self.render_own_toolbar_at_scale(topmost, window.scale_factor(), cx),
+                None,
+                None,
+            )
         } else {
             (
                 self.render_toolbar_at_scale(topmost, window.scale_factor(), cx),
@@ -736,20 +822,28 @@ impl Render for Workspace {
                 self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx),
             )
         };
-        let body = match preview {
-            Some(view) => div()
+        let body = match (preview, terminal, ai_log) {
+            (Some(view), _, _) => div()
                 .size_full()
                 .relative()
                 .child(view)
                 .children(tab_list)
                 .into_any_element(),
-            None => self.render_panes(cx).into_any_element(),
+            (None, Some(view), _) => div()
+                .size_full()
+                .relative()
+                .child(view)
+                .children(tab_list)
+                .into_any_element(),
+            (None, None, Some(view)) => div()
+                .size_full()
+                .relative()
+                .child(view)
+                .children(tab_list)
+                .into_any_element(),
+            (None, None, None) => self.render_panes(cx).into_any_element(),
         };
-        let outline = if self.content.preview().is_some() {
-            None
-        } else {
-            self.outline.clone()
-        };
+        let outline = if own { None } else { self.outline.clone() };
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
         let client_decorated = cfg!(target_os = "linux")
@@ -936,7 +1030,7 @@ mod tests {
                 .items
                 .iter()
                 .filter_map(|i| match i {
-                    gpui::OwnedMenuItem::Action { name, .. } => Some(name.to_string()),
+                    gpui::OwnedMenuItem::Action { name, .. } => Some(name.clone()),
                     _ => None,
                 })
                 .collect()

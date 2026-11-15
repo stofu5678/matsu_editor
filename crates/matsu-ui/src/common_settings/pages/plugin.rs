@@ -11,18 +11,19 @@
 //!   the table is made from them.
 //! * [`list`]: the widgets: the list with the description of the selected plugin, and the buttons.
 //!
-//! Nothing runs a plugin yet (ADR-0026, the PR table): there is no host, no consent screen, no
-//! jack. The state 「登録済み」 says that the plugin is in the table and its folder is there, and the
-//! states for what MATSU cannot run (「VBScript は使えません」, 「DLL プラグインは使えません」) follow
+//! The plugins run (ADR-0026): the host, the consent screen and the jacks are in `matsu-plugin` and
+//! the modules that use it. The state 「登録済み」 says that the plugin is in the table and its folder
+//! is there, and the states for what MATSU cannot run (「VBScript は使えません」, 「DLL プラグインは使えません」) follow
 //! ADR-0026, chapter 1.
 //!
 //! 設定 opens the dialog of the options of the plugin ([`crate::plugin_options`]).
 //!
-//! Not built here (they come in later PRs of ADR-0026): ZIPプラグインを導入, ReadMe.
+//! ZIPプラグインを導入 and ReadMe are in [`zip_install`] (ADR-0026, PR 11).
 
 mod confirm;
 mod list;
 pub(in crate::common_settings) mod rows;
+mod zip_install;
 
 use gpui::App;
 use matsu_config::plugins::{SearchDirs, set_search_dirs};
@@ -45,6 +46,14 @@ pub(in crate::common_settings) fn refresh_dirs(cx: &App) {
     set_search_dirs(search_dirs(cx));
 }
 
+/// The page is shown: the 状態 of the list is set against the folders as they are now.
+pub(in crate::common_settings) fn page_shown(
+    dialog: &mut super::super::dialog::CommonSettingsDialog,
+    cx: &mut gpui::Context<super::super::dialog::CommonSettingsDialog>,
+) {
+    list::refresh_states(dialog, cx);
+}
+
 /// `IDD_PROP_PLUGIN`. The controls with the prefix `plugin_` hold only the state of the page.
 pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
     Some(vec![
@@ -62,6 +71,13 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
                 list::SEARCH_NEW,
                 "新規プラグインを追加(&I)",
                 list::search_new,
+            )
+            .when(list::enabled)
+            .into(),
+            Control::button(
+                zip_install::INSTALL_ZIP,
+                "ZIPプラグインを導入(&Z)",
+                zip_install::install_zip,
             )
             .when(list::enabled)
             .into(),
@@ -83,6 +99,9 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
                 .into(),
             Control::button(list::OPTION, "設定(&P)", list::open_options)
                 .when(list::can_open_options)
+                .into(),
+            Control::button(zip_install::README, "ReadMe(&M)", zip_install::open_readme)
+                .when(zip_install::can_open_readme)
                 .into(),
             Control::button(list::URL, "配布元(&D)", list::open_url)
                 .when(list::can_open_url)

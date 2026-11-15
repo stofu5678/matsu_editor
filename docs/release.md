@@ -5,8 +5,8 @@
 | ファイル | 役割 |
 |---|---|
 | `.github/workflows/release.yml` | main への push のたびに動く。リリース PR の更新、毎日版の公開、版のリリースへの添付 |
-| `.github/workflows/package.yml` | 5 つの対象で `matsu` と `matsu-script` をリリースビルドして、アーカイブにする（再利用する部品。公開はしない） |
-| `.github/workflows/package-check.yml` | リリース関係のファイルを変える PR で、`package.yml` だけを動かす（公開しない） |
+| `.github/workflows/package.yml` | ヘルプを 1 度作り、5 つの対象で `matsu` と `matsu-script` をリリースビルドして、ヘルプと一緒にアーカイブにする（再利用する部品。公開はしない） |
+| `.github/workflows/package-check.yml` | リリース関係のファイルを変える PR で、`package.yml`、Windows のインストーラの試験、パッケージマネージャのファイルの検査を動かす（公開しない） |
 | `release-please-config.json`・`.release-please-manifest.json` | release-please の設定と、今の版 |
 
 ## 毎日版（nightly）
@@ -20,15 +20,76 @@
 
 | 対象 | ファイル名 |
 |---|---|
-| Windows x64 | `matsu-<版>-windows-x64.zip` |
-| Windows ARM64 | `matsu-<版>-windows-arm64.zip` |
-| macOS ARM64 | `matsu-<版>-macos-arm64.tar.gz` |
+| Windows x64 | `matsu-<版>-windows-x64.zip`、`matsu-<版>-windows-x64-setup.exe`（インストーラ） |
+| Windows ARM64 | `matsu-<版>-windows-arm64.zip`、`matsu-<版>-windows-arm64-setup.exe`（インストーラ） |
+| macOS ARM64 | `matsu-<版>-macos-arm64.tar.gz`、`matsu-<版>-macos-arm64.dmg` |
 | Linux x64 | `matsu-<版>-linux-x64.tar.gz` |
 | Linux ARM64 | `matsu-<版>-linux-arm64.tar.gz` |
+| Linux x64（パッケージ） | `matsu-<版>-linux-x64.deb`、`matsu-<版>-linux-x64.rpm` |
+| Linux ARM64（パッケージ） | `matsu-<版>-linux-arm64.deb`、`matsu-<版>-linux-arm64.rpm` |
 
 `<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `matsu-<対象>/` のディレクトリで、実行ファイル（`matsu` / `matsu.exe`）、同梱のマクロのエンジンを動かす `matsu-script`（`matsu-script.exe`。`matsu` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、アイコンの絵（`icons/`。`assets/icons` の SVG・PNG・ICO。ライセンスはコードと同じ）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
 
-macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `MATSU Editor.app` に入れる（`scripts/package-mac-app.sh`）。裸の実行ファイルを Finder で開くと Terminal.app が起動して黒い画面が出るため（ユーザーの依頼、2026-10-22）。`matsu` と `matsu-script` は `MATSU Editor.app/Contents/MacOS/` に並べる（`matsu` が自分の隣の `matsu-script` を使うので変わらない）。ほかは同じで、`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`、`icons/`、`README.txt`（初回の開き方つき）は `MATSU Editor.app` と同じ階層に置く。`Contents/Info.plist` の識別子は `io.github.stofu5678.matsu-editor`、最低の macOS は 11.0（arm64 が動く最も古い版）、アイコンは `assets/icons` の Mac 用の PNG（`matsu_editor_mac_*.png`）から作った `.icns`。ライセンス類（`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`）は `Contents/Resources/` にも入れる（アプリだけを Applications に移しても、第三者のコードの表示が離れないように）。ターミナルからは `MATSU Editor.app/Contents/MacOS/matsu ファイル` で使える。`matsu.ini` の場所と多重起動の判定は、実行ファイルの場所に依らない（macOS は `~/Library/Application Support/matsu-editor/matsu.ini` だけ）ので変わらない。ファイルの種類の関連づけ（`CFBundleDocumentTypes`）は、テキストとソースコードを「別の選択肢」（`LSHandlerRank` が `Alternate`）として入れた。「このアプリで開く」に出るだけで、既定のアプリは奪わない。Finder から開く処理（`on_open_urls`）は `crates/matsu-ui/src/app.rs` にあるが、バンドルからの動作は Mac で確かめていない。
+Linux には、tar.gz のほかに `.deb` と `.rpm` を付ける（ADR-0032 の段階 A。`scripts/package-linux.sh`）。`matsu` と `matsu-script` は `/usr/lib/matsu-editor/` に並べ、`/usr/bin/matsu` はそこへのシンボリックリンク（`matsu` は `current_exe`、つまり実体のパスの隣の `matsu-script` を使う）。`.desktop`（`MimeType=text/plain;` だけで、関連付けは奪わない）、AppStream の metainfo、`hicolor` のアイコン、ライセンス類（`/usr/share/doc/matsu-editor/`）も入る。依存する共有ライブラリは、`.deb` は `dpkg-shlibdeps`、`.rpm` は rpm が実行ファイルから求める。インストール・削除のスクリプトは持たず、設定のフォルダー（`~/.config/matsu-editor`）に触れない。`.deb` は作った環境（Ubuntu 24.04）の glibc などを要求するので、それより古い配布版には入らない。CI（`package.yml`）が `.deb` を入れて外し、利用者のファイルが残ることを確かめ、`.rpm` は Fedora のコンテナで同じことを確かめる（`.github/scripts/test-linux-install.sh`）。署名はない。
+
+macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `MATSU Editor.app` に入れる（`scripts/package-mac-app.sh`）。裸の実行ファイルを Finder で開くと Terminal.app が起動して黒い画面が出るため（ユーザーの依頼、2026-10-22）。`matsu` と `matsu-script` は `MATSU Editor.app/Contents/MacOS/` に並べる（`matsu` が自分の隣の `matsu-script` を使うので変わらない）。`.dmg`（ADR-0032 の段階 A。`scripts/package-mac-dmg.sh`）は、ボリューム名「MATSU Editor」で、`MATSU Editor.app` と `/Applications` へのリンクだけを入れる（UDZO。arm64 の macOS ならどれでも読め、他の OS の展開ツールも読める。ULFO は小さいが 10.11 以降だけ）。アプリはアドホック署名のまま、`.dmg` には署名しない。`.dmg` は何もインストールしないので、`~/Library/Application Support/matsu-editor` には触れない。ほかは同じで、`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`、`icons/`、`README.txt`（初回の開き方つき）は `MATSU Editor.app` と同じ階層に置く。`Contents/Info.plist` の識別子は `io.github.stofu5678.matsu-editor`、最低の macOS は 11.0（arm64 が動く最も古い版）、アイコンは `assets/icons` の Mac 用の PNG（`matsu_editor_mac_*.png`）から作った `.icns`。ライセンス類（`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`）は `Contents/Resources/` にも入れる（アプリだけを Applications に移しても、第三者のコードの表示が離れないように）。ターミナルからは `MATSU Editor.app/Contents/MacOS/matsu ファイル` で使える。`matsu.ini` の場所と多重起動の判定は、実行ファイルの場所に依らない（macOS は `~/Library/Application Support/matsu-editor/matsu.ini` だけ）ので変わらない。ファイルの種類の関連づけ（`CFBundleDocumentTypes`）は、テキストとソースコードを「別の選択肢」（`LSHandlerRank` が `Alternate`）として入れた。「このアプリで開く」に出るだけで、既定のアプリは奪わない。Finder から開く処理（`on_open_urls`）は `crates/matsu-ui/src/app.rs` にあるが、バンドルからの動作は Mac で確かめていない。
+
+## パッケージに入れるヘルプ
+
+ADR-0031 のヘルプ（`docs/help/`）は、`package.yml` の `help` ジョブが Linux で 1 度だけ作り（mdBook と Pagefind は `tools/help/install-tools.sh` の固定の版。`ci.yml` の `help` ジョブも同じ `tools/help/` の 3 つのスクリプトを呼ぶ）、artifact `help-site-<prefix>` にして、各パッケージのジョブが取り出す。名前を `package-*`・`release-*` にしないのは、`release.yml` がその名前の artifact をすべてパッケージとして公開するため。本の中身は OS によらないので、5 つの対象で同じファイルを入れる。置き場所は、本体（`index.html` が一番上にあるフォルダー）を `help` という名前で次のように置く。マツエディタは、この順に `index.html` を探す（`<実行ファイルの場所>/help`、`<実行ファイルの場所>/../Resources/help`、`<実行ファイルの場所>/../share/matsu-editor/help`）。
+
+| パッケージ | 置き場所 |
+|---|---|
+| Windows の zip・インストーラ | `matsu.exe` の隣の `help\`（インストーラは zip と同じファイルを入れ、アンインストールで消す） |
+| macOS の `.app`（tar.gz・`.dmg`） | `MATSU Editor.app/Contents/Resources/help/`（署名の前に入れる）。tar.gz にも `.dmg` にも `.app` の外の `help/` は置かない（隣に実行ファイルがなく、同じものが二重になるため） |
+| Linux の tar.gz | 実行ファイルの隣の `help/` |
+| Linux の `.deb`・`.rpm` | `/usr/share/matsu-editor/help/`。実行ファイルは `/usr/lib/matsu-editor/` にあり、`../share/...` は `/usr/lib/share/...` になってしまうため、`/usr/lib/matsu-editor/help` から `../../share/matsu-editor/help` へのシンボリックリンクを置く（実行ファイルの隣の `help` として見つかる） |
+
+- 各パッケージのジョブは、`help-site` の `index.html` があることを確かめる。macOS は `.app` の署名の確認の前に `Contents/Resources/help/index.html` を、Linux は `.deb`・`.rpm` を入れて、`/usr/lib/matsu-editor/help/index.html` と検索の索引があること、外したあとに `/usr/share/matsu-editor` が残らないことを確かめる。Windows のインストーラの試験は、インストール先に `help\index.html` があることと、アンインストールで `help\` が消えることを確かめる
+- 大きさ（ヘルプと各パッケージ）は、ジョブの要約（Step Summary）に出る。ヘルプが約 30 MB を超えると、`help` ジョブが警告を出す
+
+## Windows のインストーラ
+
+[ADR-0032](adr/0032-install.md) の段階 A。zip と同じ中身を、Inno Setup 6.7.4 で `matsu-<対象>-setup.exe` にまとめる（定義は `packaging/windows/matsu.iss`、作る手順は `package.yml` の「Install Inno Setup」「Build the installer」）。署名はまだない。
+
+- 既定は利用者ごと（`%LOCALAPPDATA%\Programs\MATSU Editor`、管理者権限なし）。最初のダイアログで「全利用者」（`Program Files`）も選べる。コマンドラインでは `/CURRENTUSER`・`/ALLUSERS`。静かに入れるには `/VERYSILENT /SUPPRESSMSGBOXES`
+- 画面の言語は Windows の表示言語に従う（日本語の Windows では日本語、それ以外は英語。Inno Setup 付属の `Japanese.isl` と、選択肢の日本語の文言を使う。言語を聞くダイアログは出さない。`/LANG=ja`・`/LANG=en` で決められる）
+- スタートメニューの項目と、「アプリ」（アンインストール）の項目を作る。`AppId` は固定で、同じ `AppId` の古い版の上に入れると更新になる（x64 と ARM64 も同じ `AppId`）
+- 選択肢（`/TASKS="openwith,associatetxt,addtopath"` のように名前でも指定できる）
+  - `openwith`（既定でオン）: 「プログラムから開く」の一覧に `matsu.exe` を出す（`Applications\matsu.exe`）
+  - `associatetxt`（既定でオフ）: `.txt` を開くプログラムとして登録し、「既定のアプリ」に出す。Windows 10 以降は、既定のプログラムを決められるのは利用者だけ（ハッシュで守られている）ので、`.txt` を奪うことはしない。サクラの拡張子の一覧に合わせるのは、別の PR
+  - `addtopath`（既定でオフ）: インストール先のフォルダーを PATH に足す。アンインストールで取り除く
+- 利用者のデータには触れない（ADR-0032 の決めたこと 3）。インストール・更新・アンインストールは、`matsu.ini`、`unsaved\`、`plugins.ini`、`databases.ini`、`plugins\`、履歴、設定のフォルダー（`%APPDATA%\matsu-editor`）を作らず、書き換えず、消さない。インストール先にも `matsu.ini` を作らない（作ると持ち運び用の動きに固定されるため）。アンインストールはインストーラが入れたファイルだけを消すので、利用者がインストール先に置いた持ち運び用の `matsu.ini` は残り、そのフォルダーも残る。「設定も消す」という選択肢はない
+- `.github/scripts/test-windows-installer.ps1` が、`package-check.yml` の `installer-test`（`windows-2025` と `windows-11-arm`）で、利用者ごとの静かなインストール、更新、アンインストール、選択肢、全利用者を試し、`%APPDATA%\matsu-editor` の `matsu.ini` と `unsaved\x.txt` がハッシュも更新日時も変わらないことを確かめる
+- `matsu.exe` には版情報（製品名「MATSU Editor」、版、発行元、ライセンス）が入る（`crates/matsu/matsu.rc`。`build.rs` が `Cargo.toml` の版を入れる）。発行元は、`LICENSE-MIT` の著作権者と同じ `stofu5678`
+
+## インストールの方法ごとに触れるもの
+
+ADR-0032 の決めたこと 3 のとおり、どの方法も、利用者のデータ（`matsu.ini`、`unsaved/`、`plugins.ini`、`databases.ini`、`plugins/`、履歴、設定のフォルダー）を作らず、書き換えず、消さない。アンインストールの後も、設定と未保存の文書は残る（消したいときは、利用者が設定のフォルダーを自分で消す）。
+
+| 方法 | 入れるもの | 外すと |
+|---|---|---|
+| Windows のインストーラ（`-setup.exe`） | インストール先（既定は `%LOCALAPPDATA%\Programs\MATSU Editor`、全利用者は `Program Files`）、スタートメニューの項目、「アプリ」の項目（レジストリの `Uninstall`）。選択で、`Applications\matsu.exe`・`.txt` の登録・PATH | 入れたファイルと上の項目だけを消す。持ち運び用の `matsu.ini` を置いたなら、それとフォルダーは残る |
+| Windows の zip | なし（展開するだけ） | フォルダーを消す。持ち運び用の `matsu.ini` もそこにあれば消える |
+| macOS の `.dmg` | なし（`MATSU Editor.app` を `Applications` に置くのは利用者） | アプリを捨てる。設定は `~/Library/Application Support/matsu-editor` に残る |
+| macOS の tar.gz | なし | 同上 |
+| Linux の `.deb`・`.rpm` | `/usr/lib/matsu-editor/`、`/usr/bin/matsu`、`.desktop`、metainfo、アイコン、`/usr/share/doc/matsu-editor/` | パッケージが入れたファイルだけを消す。`~/.config/matsu-editor` は残る |
+| Linux の tar.gz | なし | フォルダーを消す |
+
+## パッケージマネージャのファイル
+
+ADR-0032 の決めたこと 5 のとおり、Homebrew・Scoop・winget のファイルは `packaging/` に置くだけで、まだ公開していない。tap・bucket のリポジトリを作ることと、winget-pkgs への最初の PR は、オーナーが行う（段階 B）。
+
+| 方法 | ファイル | 何を使うか |
+|---|---|---|
+| Homebrew（自分の tap） | `packaging/homebrew/matsu-editor.rb` | `.dmg`（macOS ARM64）。`MATSU Editor.app` を `/Applications` に置き、`matsu` コマンドは、アプリの中の `matsu` を呼ぶ小さなシェルスクリプトとして入れる（`matsu` は自分の実体の隣の `matsu-script` を使うので、アプリの中へのシンボリックリンクにはしない）。アドホック署名なので、`caveats` に隔離属性の外し方を書く。`zap` は書かない（設定を消してしまうため）。`livecheck` は GitHub のリリース |
+| Scoop（自分の bucket） | `packaging/scoop/matsu-editor.json` | 持ち運び用の zip（x64・ARM64）。`bin` は `matsu.exe`。`checkver` と `autoupdate` は GitHub のリリース |
+| winget | `packaging/winget/stofu5678.MATSUEditor*.yaml`（マニフェスト 1.28.0。バージョン・インストーラ・既定の言語 `en-US`・`ja-JP` の 4 ファイル） | Inno Setup のインストーラ（`InstallerType: inno`）。x64・ARM64 のそれぞれに、利用者ごと（`/CURRENTUSER`）と全利用者（`/ALLUSERS`）。`ProductCode` は `matsu.iss` の `AppId` に `_is1` を付けたもの |
+
+- **Scoop に `persist` を付けない。** Scoop は版ごとのフォルダー（`apps\matsu-editor\<版>`）に展開し、更新で古い版のフォルダーを消す。`matsu.ini` を `persist` すると、インストール先に `matsu.ini` ができて、持ち運び用の動きに固定される（設定の置き場が `%APPDATA%\matsu-editor` からインストール先に移る）。付けなければ、設定は `%APPDATA%\matsu-editor` に置かれ、更新・アンインストールでも残る。代償は、利用者が Scoop のフォルダーに持ち運び用の `matsu.ini` を置くと、更新で消えること（`notes` に書いてある）
+- 4 つのファイルとも、版は `0.0.0`、SHA-256 は 0 だけの見本になっている。新しい版のリリースを出したら、`tools/packaging/update-manifests.py <版>` が、リリースのアセットを `gh release download` で取り（読むだけで、何も送らない）、5 つの SHA-256（`.dmg`・zip 2 つ・`-setup.exe` 2 つ）と版、URL を、すべてのファイルに書く。ファイルが想定と違えば、何も書かずに止まる。`--assets-dir` を付けると、ダウンロードの代わりに手元のファイルを使う
+- `tools/packaging/check-manifests.py` が、ファイルの構文、winget のスキーマ（Microsoft の `winget-cli` の固定したコミットから取り、SHA-256 を確かめる）、ファイル同士と `matsu.iss` の食い違い（版、`ProductCode`、アセット名）、`zap` と `persist` が無いことを確かめる。CI（`package-check.yml` の `manifests`）が動かす。Homebrew の cask は `ruby -c` で構文だけ確かめる（`brew style` は macOS の実行機に Homebrew を入れる必要があり、軽くないため）
+- 段階 B で、tap・bucket に置くとき: Homebrew は `Casks/matsu-editor.rb`、Scoop は `bucket/matsu-editor.json` に、更新したファイルをコピーする。winget は、更新した 4 つのファイルを `manifests/s/stofu5678/MATSUEditor/<版>/` に置いて、`wingetcreate` か手で PR にする
 
 ## リリースビルドのプロファイル
 
@@ -102,10 +163,10 @@ release-please の Rust 向けの種類（`rust`）は、クレートごとの `
 
    ```sh
    gh release create vX.Y.Z --target <SHA> --title vX.Y.Z --generate-notes
-   gh release upload vX.Y.Z matsu-vX.Y.Z-*.zip matsu-vX.Y.Z-*.tar.gz
+   gh release upload vX.Y.Z matsu-vX.Y.Z-*.zip matsu-vX.Y.Z-*.tar.gz matsu-vX.Y.Z-*.dmg matsu-vX.Y.Z-*.deb matsu-vX.Y.Z-*.rpm
    ```
 
-   ファイル名は上の表のとおり（artifact の中の名前は `matsu-<対象>.zip` / `.tar.gz` なので、`matsu-vX.Y.Z-<対象>` に付け替える）
+   ファイル名は上の表のとおり（artifact の中の名前は `matsu-<対象>.zip` / `.tar.gz` / `.dmg` / `.deb` / `.rpm` なので、`matsu-vX.Y.Z-<対象>` に付け替える）
 4. release-please が混乱したら、`.release-please-manifest.json` を最後のリリースの版に合わせる
 
 毎日版だけが壊れたときは、`nightly` のリリースを消してから main に push し直すと作り直される。
@@ -117,7 +178,7 @@ Windows 版の `matsu.exe` と `matsu-script.exe` には、C の実行時ライ�
 - 何も入れていない Windows（Windows サンドボックス）で、動的リンクの版が「VCRUNTIME140.dll が見つからない」で起動しなかったことがきっかけ
 - 指定は `.cargo/config.toml` の `target-feature=+crt-static`。手元のビルドと `package.yml` のビルドに効く
 - 環境変数の `RUSTFLAGS` は `.cargo/config.toml` の指定を置き換える。`ci.yml` と `e2e.yml` は `RUSTFLAGS` を使うので、テスト用のビルドは DLL を使ったままになる
-- `package.yml` は、macOS では `MATSU Editor.app` の `Info.plist`（`plutil -lint`、識別子、実行ファイル）、`matsu-script`、`.icns` があることと、署名が壊れていないこと（`codesign --verify --deep --strict`）を確かめる。`package-check.yml` は `scripts/package-mac-app.sh` と `assets/icons/` の変更でも動く
+- `package.yml` は、macOS では `MATSU Editor.app` の `Info.plist`（`plutil -lint`、識別子、実行ファイル）、`matsu-script`、`.icns` があることと、署名が壊れていないこと（`codesign --verify --deep --strict`）を確かめる。続けて `.dmg` を作り、読み取り専用でマウントして（`scripts/check-mac-dmg.sh`）、アプリ（署名が通る）と `/Applications` へのリンクがあることを確かめて外す。`package-check.yml` は `scripts/package-mac-app.sh` と `assets/icons/` の変更でも動く
 - `package.yml` は、配る `matsu.exe` と `matsu-script.exe` が C の実行時ライブラリの DLL を読み込んでいないことを確かめる（`.github/scripts/pe_imports.py`）
 
 ## 署名

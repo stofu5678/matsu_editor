@@ -14,7 +14,8 @@
 //!
 //! Not done: the box 「詳細設定」 does not follow the other controls while the dialog is open
 //! (`UpdateBackupFile`); it is made when the dialog opens and when OK writes the file. The
-//! automatic save of Sakura (`BKUP_AUTO`, `bBackUpType2_Opt3`) is not on the page.
+//! automatic save of Sakura (`BKUP_AUTO`, `bBackUpType2_Opt3`) is not on this page: it is a check
+//! of the page ファイル (`file.rs`, `auto_save`).
 
 use gpui::{Context, Window};
 

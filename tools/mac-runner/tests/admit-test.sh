@@ -15,6 +15,9 @@ REPOSITORY_ID=1412713500
 ALLOW=ci.yml:test
 ALLOW=e2e.yml:smoke
 ALLOW=e2e.yml:screens
+ALLOW=release.yml:package:push
+ALLOW=release.yml:package-release:push
+ALLOW=package-check.yml:package:pull_request
 SETTINGS
 
 # Events: the parts of the payload that admit.sh reads.
@@ -66,6 +69,11 @@ pull="$base GITHUB_EVENT_NAME=pull_request GITHUB_REF=refs/pull/330/merge"
 ci_main="GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/ci.yml@refs/heads/main"
 ci_pr="GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/ci.yml@refs/pull/330/merge"
 e2e_pr="GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/e2e.yml@refs/pull/330/merge"
+# A job of a reusable workflow (package.yml) reports the workflow of its caller.
+release_main="GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/release.yml@refs/heads/main"
+release_pr="GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/release.yml@refs/pull/330/merge"
+pkgcheck_pr="GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/package-check.yml@refs/pull/330/merge"
+pkgcheck_main="GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/package-check.yml@refs/heads/main"
 
 # shellcheck disable=SC2086 # the variables hold several assignments on purpose
 {
@@ -73,7 +81,25 @@ check allow  "push to main, ci.yml test"            $push $ci_main GITHUB_JOB=te
 check allow  "same-repo PR, ci.yml test"            $pull GITHUB_EVENT_PATH=$work/same.json $ci_pr GITHUB_JOB=test
 check allow  "same-repo PR, e2e.yml smoke"          $pull GITHUB_EVENT_PATH=$work/same.json $e2e_pr GITHUB_JOB=smoke
 check allow  "same-repo PR, e2e.yml screens"        $pull GITHUB_EVENT_PATH=$work/same.json $e2e_pr GITHUB_JOB=screens
-check refuse "fork PR"                              $pull GITHUB_EVENT_PATH=$work/fork.json $ci_pr GITHUB_JOB=test
+check allow  "push to main, release.yml package (nightly)"      $push $release_main GITHUB_JOB=package
+check allow  "push to main, release.yml package (version)"      $push $release_main GITHUB_JOB=package-release
+check allow  "same-repo PR, package-check.yml package"          $pull GITHUB_EVENT_PATH=$work/same.json $pkgcheck_pr GITHUB_JOB=package
+check refuse "release.yml package for a pull request"           $pull GITHUB_EVENT_PATH=$work/same.json $release_pr GITHUB_JOB=package
+check refuse "package-check.yml package for a push"             $push $pkgcheck_main GITHUB_JOB=package
+check refuse "release.yml package for a push to a branch"       $base GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/feature GITHUB_EVENT_PATH=$work/push.json GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/release.yml@refs/heads/feature GITHUB_JOB=package
+check refuse "release.yml package for a tag"                    $base GITHUB_EVENT_NAME=push GITHUB_REF=refs/tags/v1 GITHUB_EVENT_PATH=$work/push.json GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/release.yml@refs/tags/v1 GITHUB_JOB=package
+check refuse "release.yml package for workflow_dispatch"        $base GITHUB_EVENT_NAME=workflow_dispatch GITHUB_REF=refs/heads/main GITHUB_EVENT_PATH=$work/push.json $release_main GITHUB_JOB=package
+check refuse "package-check.yml package from a fork"            $pull GITHUB_EVENT_PATH=$work/fork.json $pkgcheck_pr GITHUB_JOB=package
+check refuse "release-please job of release.yml"                $push $release_main GITHUB_JOB=release-please
+check refuse "nightly job of release.yml"                       $push $release_main GITHUB_JOB=nightly
+check refuse "release job of release.yml (has a write token)"   $push $release_main GITHUB_JOB=release
+check refuse "job test of release.yml"                          $push $release_main GITHUB_JOB=test
+check refuse "package.yml itself as the workflow"               $push GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/package.yml@refs/heads/main GITHUB_JOB=package
+check refuse "mac-check.yml (workflow_dispatch)"                $base GITHUB_EVENT_NAME=workflow_dispatch GITHUB_REF=refs/heads/main GITHUB_EVENT_PATH=$work/push.json GITHUB_WORKFLOW_REF=stofu5678/matsu_editor/.github/workflows/mac-check.yml@refs/heads/main GITHUB_JOB=check
+check refuse "package job of ci.yml"                            $push $ci_main GITHUB_JOB=package
+check refuse "release.yml package for pull_request_target"      $base GITHUB_EVENT_NAME=pull_request_target GITHUB_REF=refs/heads/main GITHUB_EVENT_PATH=$work/same.json $release_main GITHUB_JOB=package
+check refuse "ci.yml test with an event suffix in the job"      $push $ci_main GITHUB_JOB=test:push
+check refuse "fork PR"                            $pull GITHUB_EVENT_PATH=$work/fork.json $ci_pr GITHUB_JOB=test
 check refuse "PR from a deleted fork"               $pull GITHUB_EVENT_PATH=$work/deleted-fork.json $ci_pr GITHUB_JOB=test
 check refuse "PR into another repository"          $pull GITHUB_EVENT_PATH=$work/other-base.json $ci_pr GITHUB_JOB=test
 check refuse "PR number that is not a number"       $pull GITHUB_EVENT_PATH=$work/bad-number.json $ci_pr GITHUB_JOB=test

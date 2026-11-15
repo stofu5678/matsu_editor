@@ -24,7 +24,7 @@ use gpui::{App, AsyncWindowContext, Global, PromptLevel, WeakEntity};
 use matsu_core::tag_file::{TagItem, TagQuery, find_tags};
 use matsu_core::tag_jump::TagTarget;
 use matsu_core::tags_make::{
-    CTAGS_COMMAND, Outcome, TagsMakeOptions, ctags_dirs, find_ctags, run_ctags,
+    CTAGS_COMMAND, Outcome, TagsMakeOptions, ctags_dirs, find_ctags, run_ctags_on_path,
 };
 
 use crate::file_ops::ask::tell;
@@ -253,6 +253,14 @@ pub(crate) async fn make_tags(view: &WeakEntity<EditorView>, cx: &mut AsyncWindo
     })
     .ok();
 
+    // macOS started from Finder or the Dock: ctags is looked for on the `PATH` of the login shell.
+    let login_path = if matsu_platform::login_path::is_pending() {
+        cx.background_executor()
+            .spawn(async { matsu_platform::login_path::wait() })
+            .await
+    } else {
+        matsu_platform::login_path::get()
+    };
     let dirs = cx
         .update(|_, app| prefs(app).ctags_dirs)
         .ok()
@@ -261,7 +269,10 @@ pub(crate) async fn make_tags(view: &WeakEntity<EditorView>, cx: &mut AsyncWindo
             let program = std::env::current_exe()
                 .ok()
                 .and_then(|exe| exe.parent().map(Path::to_path_buf));
-            ctags_dirs(program.as_deref(), std::env::var_os("PATH"))
+            ctags_dirs(
+                program.as_deref(),
+                login_path.clone().or_else(|| std::env::var_os("PATH")),
+            )
         });
     let Some(ctags) = find_ctags(&dirs) else {
         close_tags_make(view, cx);
@@ -271,7 +282,9 @@ pub(crate) async fn make_tags(view: &WeakEntity<EditorView>, cx: &mut AsyncWindo
     let outcome = {
         let (folder, options, cancel) = (choice.folder.clone(), choice.options, cancel);
         cx.background_executor()
-            .spawn(async move { run_ctags(&ctags, &folder, &options, &cancel) })
+            .spawn(async move {
+                run_ctags_on_path(&ctags, &folder, &options, &cancel, login_path.as_deref())
+            })
             .await
     };
     close_tags_make(view, cx);

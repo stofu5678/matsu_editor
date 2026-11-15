@@ -127,7 +127,7 @@ impl EditorView {
 
     /// Puts the caret and the top of the view where [`take_frame_move`](Self::take_frame_move) said,
     /// after the layout of the new document is made.
-    pub(super) fn apply_frame_move(&mut self, moved: FrameMove, cx: &App) {
+    pub(super) fn apply_frame_move(&mut self, moved: &FrameMove, cx: &App) {
         let shared = self.document.read(cx);
         let doc = shared.doc();
         // Moving the cursor ends a selection lock: it is put back as it was, whatever is selected.

@@ -179,7 +179,7 @@ enum ColorSource {
 /// own (the DIFF and bookmark entries of the default colors do not differ in bold, for example).
 fn gutter_style(
     colors: &Colors,
-    marks: &Marks,
+    marks: Marks,
     bookmarked: bool,
     modified: bool,
     diff: Option<DiffMark>,
@@ -388,53 +388,46 @@ fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
     col + cols > shown.start && col < shown.end
 }
 
-/// Joins the characters that are drawn as one glyph with the character before them: marks and
-/// other zero-width characters (combining marks, variation selectors, ZWJ), what follows a ZWJ
-/// (emoji sequences; see [`joins_after_zwj`]), a run of letters of a script that shapes them
-/// together ([`complex_script`]), the consonant after a virama (Indic conjuncts), the second of a pair of regional indicators (a flag), and emoji skin tone
-/// modifiers. Each piece has the column of its first
-/// character, its bytes in the label and the columns of all of them. A font draws such a piece as one glyph, which
-/// shaping the characters one by one would break. Ligatures of other scripts (fi) are not kept.
-fn clusters(cells: Vec<(u32, char, u32)>) -> Vec<(u32, std::ops::Range<usize>, u32)> {
-    use unicode_width::UnicodeWidthChar;
+/// The pieces `place` shapes and puts one by one: the extended grapheme clusters of `label`
+/// (UAX 29, `unicode-segmentation`: marks, variation selectors, ZWJ sequences, flags, skin tones,
+/// Hangul jamo, Prepend, Indic conjuncts), with the neighbors of a script that shapes its letters
+/// together ([`complex_script`]) joined into one piece. Each piece has the column of its first
+/// character, its bytes in the label and the columns of all of them. A font draws such a piece as
+/// one glyph, which shaping the characters one by one would break. Ligatures of other scripts
+/// (fi) are not kept. `cells` are the characters of `label` ([`glyph_cells`]).
+fn clusters(label: &str, cells: &[(u32, char, u32)]) -> Vec<(u32, std::ops::Range<usize>, u32)> {
+    use unicode_segmentation::UnicodeSegmentation;
     let mut out: Vec<(u32, std::ops::Range<usize>, u32)> = Vec::with_capacity(cells.len());
-    let mut at = 0;
-    let mut after_zwj = false;
-    let mut after_virama = false;
+    let mut cells = cells.iter();
     let mut after_complex = false;
-    // the first of a pair of regional indicators (a flag) is waiting for the second
-    let mut flag_open = false;
-    for (col, c, cols) in cells {
-        let indicator = ('\u{1F1E6}'..='\u{1F1FF}').contains(&c);
-        let joins = (after_zwj && joins_after_zwj(c))
-            || after_virama
-            || (after_complex && complex_script(c))
-            || (indicator && flag_open)
-            || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
-            || (c.width() == Some(0) && !c.is_whitespace());
-        after_zwj = c == '\u{200D}';
-        after_virama = is_virama(c);
-        after_complex = complex_script(c);
-        flag_open = indicator && !flag_open;
-        let end = at + c.len_utf8();
+    let mut after_virama = false;
+    for (start, grapheme) in label.grapheme_indices(true) {
+        let end = start + grapheme.len();
+        let first = grapheme.chars().next().unwrap_or(' ');
+        let (mut col, mut cols) = (None, 0);
+        // the characters of this grapheme, in the same order as in the cells
+        let mut left = grapheme.len();
+        while left > 0 {
+            let Some(&(c_col, c, c_cols)) = cells.next() else {
+                break;
+            };
+            col.get_or_insert(c_col);
+            cols += c_cols;
+            left = left.saturating_sub(c.len_utf8());
+        }
+        let Some(col) = col else { break };
+        let complex = complex_script(first);
         match out.last_mut() {
-            Some(last) if joins => {
+            Some(last) if after_virama || (after_complex && complex) => {
                 last.1.end = end;
                 last.2 += cols;
             }
-            _ => out.push((col, at..end, cols)),
+            _ => out.push((col, start..end, cols)),
         }
-        at = end;
+        after_complex = complex;
+        after_virama = grapheme.chars().next_back().is_some_and(is_virama);
     }
     out
-}
-
-/// What a ZWJ joins to the character before it: a pictograph (emoji sequences) or an Indic
-/// letter. Between other characters (`a`, ZWJ, `b`) it joins nothing.
-fn joins_after_zwj(c: char) -> bool {
-    matches!(c as u32,
-        0x0900..=0x0DFF | 0x00A9 | 0x00AE | 0x203C | 0x2049 | 0x2122 | 0x2139 | 0x2190..=0x2BFF
-        | 0x3030 | 0x303D | 0x3297 | 0x3299 | 0x1F000..=0x1FFFF)
 }
 
 /// A letter of a script whose letters change shape with the ones around them, or run right to
@@ -442,7 +435,7 @@ fn joins_after_zwj(c: char) -> bool {
 /// Khmer): a run of them is one cluster, so that their joins, conjuncts, reordered vowel signs
 /// and direction survive. Numerals and the punctuation of these scripts are not letters of the
 /// run: with spacing they are placed one by one, as the layout has them. The rule is an
-/// approximation of the grapheme cluster tables (UAX 29).
+/// approximation of the rule that joins letters across grapheme clusters.
 fn complex_script(c: char) -> bool {
     let in_script = matches!(c as u32,
         0x0590..=0x08FF | 0x0900..=0x0DFF | 0x0E00..=0x0EFF | 0x0F00..=0x0FFF | 0x1000..=0x109F
@@ -455,7 +448,8 @@ fn complex_script(c: char) -> bool {
 }
 
 /// A virama (the sign that kills the vowel of an Indic consonant): the consonant after it makes
-/// a conjunct with the one before.
+/// a conjunct with the one before. The grapheme tables join them only for the scripts that have
+/// an InCB property (Devanagari and a few others), so this table keeps the rest together.
 fn is_virama(c: char) -> bool {
     matches!(
         c as u32,
@@ -517,7 +511,7 @@ fn place(
         underline: false,
         ..*style
     };
-    for (col, bytes, cols) in clusters(glyphs) {
+    for (col, bytes, cols) in clusters(label, &glyphs) {
         if !overlaps(col, cols, &grid.visible) {
             continue;
         }
@@ -768,7 +762,7 @@ impl Element for EditorElement {
                 .flatten();
             let style = gutter_style(
                 &colors,
-                &marks_shown,
+                marks_shown,
                 bookmarked,
                 modified,
                 diff,
@@ -2245,13 +2239,13 @@ mod tests {
     fn a_modified_line_number_is_bold_by_default() {
         let c = colors();
         let m = marks(true, true);
-        let plain = gutter_style(&c, &m, false, false, None, true);
+        let plain = gutter_style(&c, m, false, false, None, true);
         assert_eq!(
             (plain.text, plain.background, plain.bold),
             (0x0000ff, None, false)
         );
         // Sakura's default colors differ only in bold
-        let modified = gutter_style(&c, &m, false, true, None, true);
+        let modified = gutter_style(&c, m, false, true, None, true);
         assert_eq!(modified.text, 0x0000ff);
         assert_eq!(modified.background, Some(0xefefef));
         assert!(modified.bold);
@@ -2264,16 +2258,16 @@ mod tests {
             modified_background: 0x00ff00,
             ..colors()
         };
-        let style = gutter_style(&c, &marks(true, true), false, true, None, true);
+        let style = gutter_style(&c, marks(true, true), false, true, None, true);
         assert_eq!((style.text, style.background), (0xff0000, Some(0x00ff00)));
         // switched off in the settings: the line number as usual
-        let style = gutter_style(&c, &marks(true, false), false, true, None, true);
+        let style = gutter_style(&c, marks(true, false), false, true, None, true);
         assert_eq!(
             (style.text, style.background, style.bold),
             (0x0000ff, None, false)
         );
         // without line numbers there is nothing to color
-        let style = gutter_style(&c, &marks(true, true), false, true, None, false);
+        let style = gutter_style(&c, marks(true, true), false, true, None, false);
         assert_eq!(style.background, None);
     }
 
@@ -2286,7 +2280,7 @@ mod tests {
         };
         // the bookmark has its own colors: they stay; bold is the modified line's, because the
         // bookmark is as bold as the line number (`cGyouType.IsBoldFont() == cColorType.IsBoldFont()`)
-        let style = gutter_style(&c, &marks(true, true), true, true, None, true);
+        let style = gutter_style(&c, marks(true, true), true, true, None, true);
         assert_eq!(
             (style.text, style.background, style.bold),
             (0xfffbf0, Some(0x0080c0), true)
@@ -2297,16 +2291,16 @@ mod tests {
             bookmark_background: c.line_number_background,
             ..c
         };
-        let style = gutter_style(&same, &marks(true, true), true, true, None, true);
+        let style = gutter_style(&same, marks(true, true), true, true, None, true);
         assert_eq!(
             (style.text, style.background, style.bold),
             (0xff0000, Some(0x00ff00), true)
         );
         // a bookmark without its color shown: the modified line's colors
-        let style = gutter_style(&c, &marks(false, true), true, true, None, true);
+        let style = gutter_style(&c, marks(false, true), true, true, None, true);
         assert_eq!((style.text, style.background), (0xff0000, Some(0x00ff00)));
         // a bookmark and no modification: the bookmark's colors
-        let style = gutter_style(&c, &marks(true, true), true, false, None, true);
+        let style = gutter_style(&c, marks(true, true), true, false, None, true);
         assert_eq!((style.text, style.background), (0xfffbf0, Some(0x0080c0)));
     }
 
@@ -2314,13 +2308,13 @@ mod tests {
     fn a_diff_mark_colors_the_line_number() {
         let c = colors();
         let m = marks(true, true);
-        let style = gutter_style(&c, &m, false, false, Some(DiffMark::Change), true);
+        let style = gutter_style(&c, m, false, false, Some(DiffMark::Change), true);
         assert_eq!((style.text, style.background), (0x006f00, Some(0xbdfdc0)));
         // the end of the file has the color of a deletion
-        let style = gutter_style(&c, &m, false, false, Some(DiffMark::DeleteEx), true);
+        let style = gutter_style(&c, m, false, false, Some(DiffMark::DeleteEx), true);
         assert_eq!((style.text, style.background), (0xd56a00, Some(0xffe9ac)));
         // without line numbers there is nothing to color
-        let style = gutter_style(&c, &m, false, false, Some(DiffMark::Append), false);
+        let style = gutter_style(&c, m, false, false, Some(DiffMark::Append), false);
         assert_eq!(style.background, None);
         // a color that is not shown leaves the line number alone
         let hidden = Colors {
@@ -2330,7 +2324,7 @@ mod tests {
             },
             ..c
         };
-        let style = gutter_style(&hidden, &m, false, false, Some(DiffMark::Append), true);
+        let style = gutter_style(&hidden, m, false, false, Some(DiffMark::Append), true);
         assert_eq!((style.text, style.background), (0x0000ff, None));
     }
 
@@ -2338,11 +2332,11 @@ mod tests {
     fn a_bookmark_wins_over_a_diff_mark_and_a_modified_line_passes_its_bold_on() {
         let c = colors();
         let m = marks(true, true);
-        let style = gutter_style(&c, &m, true, false, Some(DiffMark::Append), true);
+        let style = gutter_style(&c, m, true, false, Some(DiffMark::Append), true);
         assert_eq!((style.text, style.background), (0xfffbf0, Some(0x0080c0)));
         // a modified line with a diff mark: the colors of the mark, bold from the modified line
         // because the mark is as bold as the line number
-        let style = gutter_style(&c, &m, false, true, Some(DiffMark::Append), true);
+        let style = gutter_style(&c, m, false, true, Some(DiffMark::Append), true);
         assert_eq!(
             (style.text, style.background, style.bold),
             (0x0000d2, Some(0xa2d0ff), true)
@@ -2357,7 +2351,7 @@ mod tests {
         };
         let style = gutter_style(
             &bold,
-            &marks(true, false),
+            marks(true, false),
             false,
             true,
             Some(DiffMark::Append),
@@ -2455,7 +2449,7 @@ mod tests {
 
     fn cluster_texts(label: &str) -> Vec<(u32, String, u32)> {
         let widths = matsu_layout::WidthRule::default();
-        clusters(glyph_cells(0, label, |c| widths.columns(c)))
+        clusters(label, &glyph_cells(0, label, |c| widths.columns(c)))
             .into_iter()
             .map(|(col, bytes, cols)| (col, label[bytes].to_string(), cols))
             .collect()
@@ -2542,6 +2536,35 @@ mod tests {
         // an Arabic comma between two letters
         let comma = cluster_texts("\u{0645}\u{060C}\u{0645}");
         assert_eq!(comma.len(), 3);
+    }
+
+    #[test]
+    fn a_zwj_inside_an_arabic_word_does_not_cut_it() {
+        // noon, ZWJ, noon: the ZWJ asks for the joining form of the first
+        let got = cluster_texts("\u{0646}\u{200D}\u{0646}");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].2, 3);
+    }
+
+    #[test]
+    fn hangul_jamo_and_prepend_characters_stay_together() {
+        // a syllable of conjoining jamo (L, V, T), and an Arabic number sign (Prepend) with the digit
+        let got = cluster_texts("\u{1112}\u{1161}\u{11AB}\u{0600}\u{0661}x");
+        let texts: Vec<&str> = got.iter().map(|g| g.1.as_str()).collect();
+        assert_eq!(texts, ["\u{1112}\u{1161}\u{11AB}", "\u{0600}\u{0661}", "x"]);
+    }
+
+    #[test]
+    fn latin_letters_are_pieces_of_their_own() {
+        let got = cluster_texts("fi");
+        assert_eq!(got.len(), 2);
+    }
+
+    #[test]
+    fn a_conjunct_after_a_virama_outside_the_complex_scripts_is_one_cluster() {
+        // Syloti Nagri: ko, hasanta, kho
+        let got = cluster_texts("\u{A807}\u{A806}\u{A808}");
+        assert_eq!(got.len(), 1);
     }
 
     #[test]

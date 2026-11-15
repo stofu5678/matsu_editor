@@ -22,6 +22,10 @@
 //!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
 mod a11y;
+pub(crate) mod ai_log;
+// Used by the one-liner flow of the next PR (ADR-0030, AI-4).
+#[allow(dead_code)]
+mod ai_confirm;
 pub mod app;
 mod app_icon;
 pub mod back_image;
@@ -45,6 +49,7 @@ mod file_dialog;
 mod file_names;
 mod file_ops;
 mod file_watch;
+mod font_diagnostics;
 mod font_dialog;
 mod func_name;
 pub mod geometry;
@@ -64,6 +69,7 @@ pub(crate) mod menu_icons;
 mod menu_state;
 mod minimap;
 pub(crate) mod native_menu_icons;
+mod oneliner;
 pub mod open;
 mod outline;
 mod panes;
@@ -86,6 +92,7 @@ mod status_options;
 mod support;
 mod tabs;
 mod tags;
+pub(crate) mod terminal;
 mod type_settings;
 pub mod ui_command;
 mod ui_commands;

@@ -14,6 +14,7 @@ pub mod ime;
 pub mod macro_only;
 pub mod macros;
 pub mod mode;
+pub mod oneliner;
 pub mod search;
 pub mod select;
 pub mod settings;

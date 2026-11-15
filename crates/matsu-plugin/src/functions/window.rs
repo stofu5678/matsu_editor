@@ -165,7 +165,7 @@ pub struct Pending {
 
 impl Pending {
     /// The response line for the answer.
-    pub fn reply(&self, result: Value) -> String {
+    pub fn reply(&self, result: &Value) -> String {
         response_ok(&self.id, result)
     }
 }
@@ -364,8 +364,9 @@ pub const FUNCS: &[EditorFunc] = &[
         params: &[opt("defaultName", Ty::Str), opt("filter", Ty::Str)],
         result: Ty::Str,
         doc: "Lets the user choose a file to open and returns its full path, or an empty string \
-              when the dialog is cancelled. The default name and the filter are not used: the \
-              dialog of the platform takes neither.",
+              when the dialog is cancelled. The dialog starts in the folder of the default name \
+              (when it names one) with that name filled in. The filter is not used: the dialog \
+              of the platform takes none.",
         run: needs_window,
     },
     EditorFunc {
@@ -383,7 +384,7 @@ pub const FUNCS: &[EditorFunc] = &[
         result: Ty::Str,
         doc: "Lets the user choose a folder and returns its full path, or an empty string when \
               the dialog is cancelled. The message becomes the prompt text of the platform \
-              dialog where it has one; the default folder is not used.",
+              dialog where it has one; the dialog starts in the default folder when it is an existing folder.",
         run: needs_window,
     },
     EditorFunc {
@@ -430,11 +431,11 @@ mod tests {
 
     use super::*;
 
-    fn request(method: &str, params: Value) -> String {
+    fn request(method: &str, params: &Value) -> String {
         json!({"jsonrpc": "2.0", "id": 7, "method": method, "params": params}).to_string()
     }
 
-    fn pending(method: &str, params: Value) -> Pending {
+    fn pending(method: &str, params: &Value) -> Pending {
         parse(&request(method, params))
             .expect("a call that waits")
             .expect("good arguments")
@@ -442,7 +443,7 @@ mod tests {
 
     #[test]
     fn the_message_types_choose_buttons_and_icons() {
-        let p = pending("MessageBox", json!(["本文", 0x24]));
+        let p = pending("MessageBox", &json!(["本文", 0x24]));
         assert_eq!(
             p.what,
             Deferred::Message {
@@ -451,7 +452,7 @@ mod tests {
                 icon: Icon::Question
             }
         );
-        let p = pending("MessageBox", json!(["x"]));
+        let p = pending("MessageBox", &json!(["x"]));
         assert_eq!(
             p.what,
             Deferred::Message {
@@ -469,7 +470,7 @@ mod tests {
             (0x100, Buttons::Ok),
         ] {
             let Deferred::Message { buttons: got, .. } =
-                pending("MessageBox", json!(["x", kind])).what
+                pending("MessageBox", &json!(["x", kind])).what
             else {
                 panic!()
             };
@@ -487,7 +488,7 @@ mod tests {
             ("YesNoBox", Buttons::YesNo, Icon::Question),
         ] {
             assert_eq!(
-                pending(method, json!(["m"])).what,
+                pending(method, &json!(["m"])).what,
                 Deferred::Message {
                     text: "m".into(),
                     buttons,
@@ -522,33 +523,33 @@ mod tests {
     #[test]
     fn dialogs_and_sleep() {
         assert_eq!(
-            pending("FileOpenDialog", json!([])).what,
+            pending("FileOpenDialog", &json!([])).what,
             Deferred::FileOpen {
                 default: String::new(),
                 filter: String::new()
             }
         );
         assert_eq!(
-            pending("FileSaveDialog", json!(["メモ.txt", "*.txt"])).what,
+            pending("FileSaveDialog", &json!(["メモ.txt", "*.txt"])).what,
             Deferred::FileSave {
                 default: "メモ.txt".into(),
                 filter: "*.txt".into()
             }
         );
         assert_eq!(
-            pending("FolderDialog", json!(["選んで", "/tmp"])).what,
+            pending("FolderDialog", &json!(["選んで", "/tmp"])).what,
             Deferred::Folder {
                 message: "選んで".into(),
                 default: "/tmp".into()
             }
         );
         assert_eq!(
-            pending("Sleep", json!([250])).what,
+            pending("Sleep", &json!([250])).what,
             Deferred::Sleep { millis: 250 }
         );
         // a negative time is no time
         assert_eq!(
-            pending("Sleep", json!([-5])).what,
+            pending("Sleep", &json!([-5])).what,
             Deferred::Sleep { millis: 0 }
         );
     }
@@ -556,7 +557,7 @@ mod tests {
     #[test]
     fn input_box_takes_the_message_the_default_and_the_length() {
         assert_eq!(
-            pending("InputBox", json!(["名前は？"])).what,
+            pending("InputBox", &json!(["名前は？"])).what,
             Deferred::Input {
                 message: "名前は？".into(),
                 default: String::new(),
@@ -564,7 +565,7 @@ mod tests {
             }
         );
         assert_eq!(
-            pending("InputBox", json!(["m", "既定値", 10])).what,
+            pending("InputBox", &json!(["m", "既定値", 10])).what,
             Deferred::Input {
                 message: "m".into(),
                 default: "既定値".into(),
@@ -574,7 +575,7 @@ mod tests {
         // 0 or less is the default length
         for length in [0, -3] {
             let Deferred::Input { max_len, .. } =
-                pending("InputBox", json!(["m", "", length])).what
+                pending("InputBox", &json!(["m", "", length])).what
             else {
                 panic!()
             };
@@ -585,13 +586,13 @@ mod tests {
     #[test]
     fn the_default_of_input_box_is_cut_to_the_length_in_utf16_units() {
         let Deferred::Input { default, .. } =
-            pending("InputBox", json!(["m", "あいうえお", 3])).what
+            pending("InputBox", &json!(["m", "あいうえお", 3])).what
         else {
             panic!()
         };
         assert_eq!(default, "あいう");
         // a character outside the BMP is two units: it is not split
-        let Deferred::Input { default, .. } = pending("InputBox", json!(["m", "a𠮷b", 2])).what
+        let Deferred::Input { default, .. } = pending("InputBox", &json!(["m", "a𠮷b", 2])).what
         else {
             panic!()
         };
@@ -603,21 +604,21 @@ mod tests {
 
     #[test]
     fn create_menu_takes_the_place_and_the_menu_string() {
-        let p = pending("CreateMenu", json!([1, "[C]あ,-,い"]));
+        let p = pending("CreateMenu", &json!([1, "[C]あ,-,い"]));
         let Deferred::Menu { at_caret, nodes } = p.what else {
             panic!()
         };
         assert!(at_caret);
         assert_eq!(menu::item_count(&nodes), 2);
         for place in [0, 2, -1] {
-            let Deferred::Menu { at_caret, .. } = pending("CreateMenu", json!([place, "a"])).what
+            let Deferred::Menu { at_caret, .. } = pending("CreateMenu", &json!([place, "a"])).what
             else {
                 panic!()
             };
             assert!(!at_caret, "{place}");
         }
         // both arguments are needed
-        let line = parse(&request("CreateMenu", json!([1])))
+        let line = parse(&request("CreateMenu", &json!([1])))
             .unwrap()
             .unwrap_err();
         assert!(line.contains("-32602"), "{line}");
@@ -625,17 +626,17 @@ mod tests {
 
     #[test]
     fn bad_arguments_get_an_error_line_and_others_are_not_ours() {
-        let line = parse(&request("MessageBox", json!([5])))
+        let line = parse(&request("MessageBox", &json!([5])))
             .unwrap()
             .unwrap_err();
         assert!(line.contains("-32602"), "{line}");
         let long = "x".repeat(300);
-        let line = parse(&request("FileOpenDialog", json!([long])))
+        let line = parse(&request("FileOpenDialog", &json!([long])))
             .unwrap()
             .unwrap_err();
         assert!(line.contains("too long"), "{line}");
         // not a call that waits
-        assert!(parse(&request("GetClipboard", json!([]))).is_none());
+        assert!(parse(&request("GetClipboard", &json!([]))).is_none());
         assert!(parse("not json").is_none());
         // a notification gets no answer, so nothing waits for it
         assert!(parse(r#"{"jsonrpc":"2.0","method":"Sleep","params":[1]}"#).is_none());
@@ -645,8 +646,8 @@ mod tests {
 
     #[test]
     fn the_reply_carries_the_id() {
-        let p = pending("InfoMsg", json!(["m"]));
-        let line = p.reply(json!(1));
+        let p = pending("InfoMsg", &json!(["m"]));
+        let line = p.reply(&json!(1));
         let value: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(value["id"], json!(7));
         assert_eq!(value["result"], json!(1));

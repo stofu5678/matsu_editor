@@ -111,7 +111,7 @@ pub(crate) struct FileTreeDialog {
 
 impl FileTreeDialog {
     pub(crate) fn new(
-        setting: DialogSetting,
+        setting: &DialogSetting,
         inputs: Inputs,
         view: WeakEntity<EditorView>,
         pane: WeakEntity<OutlinePane>,
@@ -366,7 +366,7 @@ impl EditorView {
     /// open stays the only one.
     pub(crate) fn open_file_tree_dialog(
         &mut self,
-        setting: DialogSetting,
+        setting: &DialogSetting,
         inputs: Inputs,
         pane: WeakEntity<OutlinePane>,
         window: &mut Window,

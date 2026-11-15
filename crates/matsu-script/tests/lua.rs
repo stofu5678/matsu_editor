@@ -27,7 +27,7 @@ fn run_in(file: &str, code: &str, text: &str, timeout: Duration) -> (Report, Tex
     let dir = tempfile::tempdir().unwrap();
     let config = config(&dir, file, code, timeout);
     let mut doc = TextModel::new(text, Some(DOCUMENT_PATH.into()));
-    let report = session::run_blocking(config, |message| api::handle_message(&mut doc, message))
+    let report = session::run_blocking(&config, |message| api::handle_message(&mut doc, message))
         .expect("the host starts");
     (report, doc)
 }
@@ -109,7 +109,7 @@ fn a_script_in_a_path_with_japanese_runs_and_names_it_in_errors() {
     config.interpreter = env!("CARGO_BIN_EXE_matsu-script").into();
     let mut doc = TextModel::new("", None);
     let report =
-        session::run_blocking(config, |m| api::handle_message(&mut doc, m)).expect("starts");
+        session::run_blocking(&config, |m| api::handle_message(&mut doc, m)).expect("starts");
     assert_eq!(stdout(&report), ["ok"]);
     assert_eq!(report.finished.exit_code, Some(1));
     assert!(
@@ -221,11 +221,11 @@ fn the_script_sees_the_initialize_message() {
 
 #[test]
 fn output_stays_in_order_with_requests() {
-    // `io.write` has no line break before the request; the host splits the line at the RS.
+    // `io.write` has no line break before the request; the host joins it with the rest of its line (the line is not cut at the call).
     let code = "io.write('abc')\nEditor.InsText('x')\nprint('def')\nio.write('tail')";
     let (report, doc) = run(code, "");
     assert_clean_exit(&report);
-    assert_eq!(stdout(&report), ["abc", "def", "tail"]);
+    assert_eq!(stdout(&report), ["abcdef", "tail"]);
     assert_eq!(doc.text(), "x");
 }
 
@@ -277,7 +277,7 @@ fn the_macro_can_be_cancelled() {
     );
     let (tx, rx) = mpsc::channel();
     let session = session::start(
-        config,
+        &config,
         Arc::new(move |event| {
             let _ = tx.send(event);
         }),

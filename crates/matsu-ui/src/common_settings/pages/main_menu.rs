@@ -21,8 +21,8 @@
 //! A function row whose function cannot be read (a plug-in command, a macro name that does not exist)
 //! reads as function 0, and OK turns it into an empty node, as `GetDataTree` does with `F_NODE`.
 //!
-//! Not built: the plug-in commands (the kind プラグイン has none), the registered macros (the kind
-//! 外部マクロ lists every slot). A function or a separator on the menu bar itself (level 0) is kept in
+//! The kind プラグイン lists the commands of the plugins that are enabled, and the kind 外部マクロ
+//! lists every slot. A function or a separator on the menu bar itself (level 0) is kept in
 //! the file but not shown, because the menu bar here holds menus only. The access keys of the custom
 //! menus and the other menus that Sakura builds with `MakeMenuLabel` do not follow the setting
 //! 「アクセスキーを必ず( )付で表示」 (only the main menu does).
@@ -53,15 +53,17 @@ const KEY: &str = "mainmenu_key";
 
 /// `STR_SPECIAL_FUNC`: the kind that `CPropMainMenu::SetData` adds after the kinds of `CFuncLookup`.
 const SPECIAL_KIND: i32 = 18;
-/// The kinds the page offers: those of `CFuncLookup` and 特別機能.
-static PAGE_KINDS: [(&str, i32); 19] = {
-    let mut kinds = [("", 0); 19];
+/// The kinds the page offers: those of `CFuncLookup`, 特別機能, then MATSU's ワンライナー (the last of
+/// `KINDS`, whose value is 19).
+static PAGE_KINDS: [(&str, i32); 20] = {
+    let mut kinds = [("", 0); 20];
     let mut i = 0;
-    while i < KINDS.len() {
+    while i < KINDS.len() - 1 {
         kinds[i] = KINDS[i];
         i += 1;
     }
     kinds[SPECIAL_KIND as usize] = ("特別機能", SPECIAL_KIND);
+    kinds[SPECIAL_KIND as usize + 1] = KINDS[KINDS.len() - 1];
     kinds
 };
 /// The special function list of `sakura_core/func/Funccode.cpp` (`F_WINDOW_LIST` to `F_PLUGIN_LIST`).

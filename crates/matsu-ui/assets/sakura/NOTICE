@@ -31,3 +31,12 @@ Sakura Editor is licensed under the zlib License. Its copyright line and license
     2. Altered source versions must be plainly marked as such, and must not be
        misrepresented as being the original software.
     3. This notice may not be removed or altered from any source distribution.
+
+The pictures of "LF改行でコピー" and "CR改行でコピー" (F_COPY_LF, F_COPY_CR)
+---------------------------------------------------------------------------
+
+Sakura Editor has no buttons for these two functions (they are MATSU Editor's own). Their pictures
+are not stored as files: crates/matsu-ui/src/bars/icons.rs (`extra_pixels`) makes them when they are
+first drawn, from icon 162 of mytool.bmp (the picture of "CRLF改行でコピー", F_COPY_CRLF) by drawing
+a small white plate with the letters LF or CR on its bottom right corner. This is a modified copy
+of a part of the zlib-licensed picture and is marked as such here (zlib License, term 2).

@@ -109,6 +109,9 @@ pub struct HeaderContext {
     pub macro_path: Option<String>,
     /// The name of the profile, empty for the default one (`$<profile>`).
     pub profile: String,
+    /// The name of the print setting of the document's type (`$Q`; `m_szPrintSettingName` of
+    /// `m_nCurrentPrintSetting`). While a page is printed, the setting of the page is used.
+    pub print_setting_name: String,
     /// `${R?...}`.
     pub write_state: WriteState,
     /// The document has changes not saved (`${U?...}`).
@@ -141,6 +144,7 @@ impl Default for HeaderContext {
             ini_path: String::new(),
             macro_path: None,
             profile: String::new(),
+            print_setting_name: String::new(),
             write_state: WriteState::Writable,
             modified: false,
             recording_macro: false,
@@ -178,8 +182,20 @@ pub struct PageInfo<'a> {
 /// Other `$` sequences stay as they are. The result is cut at 1024 UTF-16 units, like Sakura's
 /// buffer (`DrawHeaderFooter` gives `nWorkLen` 1024), without splitting a character.
 pub fn expand_parameter(form: &str, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> String {
-    let mut out = expand(form, ctx, page);
-    limit_units(&mut out, MAX_EXPANDED_UNITS);
+    expand_parameter_limited(form, ctx, page, MAX_EXPANDED_UNITS)
+}
+
+/// [`expand_parameter`] with the result cut at `max_units` UTF-16 units instead of 1024: the
+/// size of the buffer the caller of `ExpandParameter` gives (a macro: 2047, `Command_EXECCOMMAND`:
+/// 1024).
+pub fn expand_parameter_limited(
+    form: &str,
+    ctx: &HeaderContext,
+    page: Option<&PageInfo<'_>>,
+    max_units: usize,
+) -> String {
+    let mut out = expand(form, ctx, page, max_units);
+    limit_units(&mut out, max_units);
     out
 }
 
@@ -198,11 +214,27 @@ fn limit_units(text: &mut String, max: usize) {
     }
 }
 
-fn expand(form: &str, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> String {
+/// Expands `form`, and stops as soon as the result has `max_units` UTF-16 units or more (the
+/// caller cuts the last piece), so a long format of big codes does not build a text that is
+/// thrown away.
+fn expand(
+    form: &str,
+    ctx: &HeaderContext,
+    page: Option<&PageInfo<'_>>,
+    max_units: usize,
+) -> String {
     let src: Vec<char> = form.chars().collect();
     let mut out = String::new();
+    let mut units = 0;
+    let mut counted = 0;
     let mut p = 0;
     while p < src.len() {
+        // Only the text added by the last step is counted: every step adds a bounded piece.
+        units += out[counted..].encode_utf16().count();
+        counted = out.len();
+        if units >= max_units {
+            break;
+        }
         if src[p] != '$' {
             out.push(src[p]);
             p += 1;
@@ -296,7 +328,10 @@ fn expand_one(c: char, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> Opti
         // Sakura shows the name of the type unless it is the basic one.
         'B' => ctx.type_name.clone().unwrap_or_default(),
         'b' => path.map(extension).unwrap_or_default().to_string(),
-        'Q' => page.map_or_else(String::new, |p| p.setting_name.to_string()),
+        'Q' => page.map_or_else(
+            || ctx.print_setting_name.clone(),
+            |p| p.setting_name.to_string(),
+        ),
         'C' => ctx.selected_text.clone(),
         'x' => ctx.caret_x.to_string(),
         'y' => ctx.caret_y.to_string(),
@@ -431,6 +466,29 @@ mod tests {
             file_path: Some(r"D:\source\Main.cpp".into()),
             ..HeaderContext::default()
         }
+    }
+
+    #[test]
+    fn a_long_format_is_cut_at_the_limit_and_stops_early() {
+        let ctx = HeaderContext {
+            selected_text: "あ".repeat(259),
+            ..HeaderContext::default()
+        };
+        // 1_000_000 codes would make 259 million characters; the work stops at the limit
+        let form = "$C".repeat(1_000_000);
+        let out = expand_parameter_limited(&form, &ctx, None, 2047);
+        assert_eq!(out.encode_utf16().count(), 2047);
+        let emoji = HeaderContext {
+            selected_text: "😀".repeat(100),
+            ..HeaderContext::default()
+        };
+        let out = expand_parameter_limited(&form, &emoji, None, 2047);
+        assert_eq!(out.chars().count(), 1023);
+        // the default limit
+        assert_eq!(
+            expand_parameter(&form, &ctx, None).encode_utf16().count(),
+            1024
+        );
     }
 
     fn ex(form: &str, ctx: &HeaderContext) -> String {

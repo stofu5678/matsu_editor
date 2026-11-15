@@ -248,8 +248,8 @@ impl EditorView {
     }
 
     /// The key the window searched for, or none for a window that is not a Grep window.
-    pub(crate) fn grep_key(&self) -> Option<String> {
-        self.grep.key.clone()
+    pub(crate) fn grep_key(&self) -> Option<&str> {
+        self.grep.key.as_deref()
     }
 
     /// The text of a Grep window's tab, `【Grep】key`.

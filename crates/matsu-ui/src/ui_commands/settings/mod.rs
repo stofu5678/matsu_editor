@@ -2,6 +2,7 @@
 
 pub mod changetype;
 pub mod font;
+pub mod oneliner_settings;
 pub mod option;
 pub mod option_backup;
 pub mod option_custmenu;

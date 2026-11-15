@@ -39,15 +39,16 @@ mod tests {
         // Counted without the generator, in sakura_core/macro/CSMacroMgr.cpp (commit
         // 48db6c7c25e2): 323 rows in m_MacroFuncInfoCommandArr, 62 in m_MacroFuncInfoArr, and
         // 175 `case F_...:` lines that are not commented out in CanFuncIsKeyMacro. MATSU Editor adds
-        // four commands of its own that a key macro records (`CopyLF`, `CopyCR`, `PreviewTab`, `ExecDatabaseChoice`).
-        assert_eq!(MACRO_COMMANDS.len(), 323 + 4);
+        // eleven commands of its own that a key macro records (`CopyLF`, `CopyCR`, `PreviewTab`, `ShellTab`, `ExecDatabaseChoice` and the six encodings of the selection).
+        // The one-liners (ADR-0029) add `OneLiner0` to `OneLiner49`, which a key macro records, and `OneLinerDialog`.
+        assert_eq!(MACRO_COMMANDS.len(), 323 + 11 + 51);
         assert_eq!(MACRO_FUNCTIONS.len(), 62);
         let recorded: HashSet<_> = MACRO_COMMANDS
             .iter()
             .filter(|f| f.key_macro)
             .map(|f| f.function)
             .collect();
-        assert_eq!(recorded.len(), 175 + 4);
+        assert_eq!(recorded.len(), 175 + 11 + 50);
         assert!(MACRO_FUNCTIONS.iter().all(|f| !f.key_macro));
     }
 

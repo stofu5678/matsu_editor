@@ -13,6 +13,7 @@
 //! Not done here: a call that waits for the user (a message box, a file dialog, `Sleep`) is
 //! answered with an error. Stopping a call by hand is not on a button yet; the time limit stops it.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -26,10 +27,10 @@ use matsu_config::Profile;
 use matsu_config::plugins::consent::{Consent, ConsentFile};
 use matsu_config::plugins::def::Jack;
 use matsu_config::plugins::options::PluginOptions;
-use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginDef, PluginSettings, SearchDirs};
+use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginDef, SearchDirs};
 use matsu_plugin::bridge;
 use matsu_plugin::plugin_host::{
-    self, HostSettings, Outcome, PluginApi, PluginHost, Progress, limit_of,
+    self, HostSettings, MAX_FAILURES, Outcome, PluginApi, PluginHost, Progress, limit_of,
 };
 use matsu_plugin::protocol::RpcError;
 use matsu_plugin::session::{Engine, Language, Stream};
@@ -45,6 +46,31 @@ thread_local! {
     /// The plugins that three failures in a row stopped, for the list of the settings page (which
     /// has no window to ask). Only the UI thread uses it.
     static STOPPED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
+thread_local! {
+    /// The failures in a row of each plugin, over all the languages of its handlers (the hosts count
+    /// their own too, but the plugin is what stops: ADR-0026).
+    static FAILURES: RefCell<HashMap<String, u32>> = RefCell::new(HashMap::new());
+}
+
+/// Counts the end of a call of the plugin `id`: a success starts the count over, a failure adds to
+/// it, and [`MAX_FAILURES`] in a row stop the plugin (all its hosts, whatever the language). Returns
+/// whether the plugin is stopped now.
+pub(crate) fn note_outcome(id: &str, outcome: &Outcome) -> bool {
+    FAILURES.with(|map| {
+        let mut map = map.borrow_mut();
+        if *outcome == Outcome::Ok {
+            map.remove(id);
+        } else if outcome.is_failure() {
+            let count = map.entry(id.to_owned()).or_insert(0);
+            *count += 1;
+            if *count >= MAX_FAILURES {
+                set_stopped(id, true);
+            }
+        }
+    });
+    is_stopped(id)
 }
 
 /// Whether three failures in a row stopped the plugin `id`.
@@ -64,18 +90,52 @@ pub(crate) fn set_stopped(id: &str, stopped: bool) {
 
 type SharedHost = Rc<RefCell<PluginHost>>;
 
-/// The hosts, by the ID of the plugin. A host is made at the first call.
+/// The hosts, by the ID of the plugin and the language of the handler (a plugin may have handlers in
+/// more than one language, and each language has a process of its own). A host is made at the first
+/// call.
 #[derive(Default)]
 struct Runtime {
-    hosts: HashMap<String, SharedHost>,
+    hosts: HashMap<(String, Language), SharedHost>,
+}
+
+impl Runtime {
+    /// The hosts of one plugin.
+    fn of<'a>(&'a self, id: &'a str) -> impl Iterator<Item = &'a SharedHost> {
+        self.hosts
+            .iter()
+            .filter(move |((host_id, _), _)| host_id == id)
+            .map(|(_, host)| host)
+    }
+
+    /// Takes the hosts of one plugin out.
+    fn take(&mut self, id: &str) -> Vec<SharedHost> {
+        let keys: Vec<_> = self
+            .hosts
+            .keys()
+            .filter(|(host_id, _)| host_id == id)
+            .cloned()
+            .collect();
+        keys.iter()
+            .filter_map(|key| self.hosts.remove(key))
+            .collect()
+    }
 }
 
 impl Global for Runtime {}
 
+/// A success of the plugin starts the failure count of every host of it over: only the count of
+/// the plugin stops it, so the hosts' own counts (which stop a host alone) must never get ahead of it.
+fn forgive_hosts(cx: &mut App, id: &str) {
+    for host in cx.default_global::<Runtime>().of(id) {
+        host.borrow_mut().reset();
+    }
+}
+
 /// The user enabled the plugin again: the failures start over.
 pub(crate) fn reset(cx: &mut App, id: &str) {
     set_stopped(id, false);
-    if let Some(host) = cx.default_global::<Runtime>().hosts.get(id) {
+    FAILURES.with(|map| map.borrow_mut().remove(id));
+    for host in cx.default_global::<Runtime>().of(id) {
         host.borrow_mut().reset();
     }
 }
@@ -83,7 +143,8 @@ pub(crate) fn reset(cx: &mut App, id: &str) {
 /// The plugin is off or gone: its process ends.
 pub(crate) fn shutdown(cx: &mut App, id: &str) {
     set_stopped(id, false);
-    if let Some(host) = cx.default_global::<Runtime>().hosts.remove(id) {
+    FAILURES.with(|map| map.borrow_mut().remove(id));
+    for host in cx.default_global::<Runtime>().take(id) {
         host.borrow_mut().shutdown();
     }
 }
@@ -91,13 +152,7 @@ pub(crate) fn shutdown(cx: &mut App, id: &str) {
 /// The editor quits: every plugin process ends now, also one whose handler loops (nothing but a
 /// kill stops it, and it would go on using the processor after the editor is gone).
 pub(crate) fn shutdown_all(cx: &mut App) {
-    let hosts: Vec<SharedHost> = cx
-        .default_global::<Runtime>()
-        .hosts
-        .drain()
-        .map(|(_, host)| host)
-        .collect();
-    for host in hosts {
+    for (_, host) in cx.default_global::<Runtime>().hosts.drain() {
         host.borrow_mut().shutdown_now();
     }
 }
@@ -153,9 +208,9 @@ impl DefApi {
         let label = params
             .get(1)
             .and_then(Value::as_str)
-            .map_or_else(|| handler.clone(), str::to_owned);
+            .map_or_else(|| handler.to_owned(), str::to_owned);
         let label = if label.is_empty() {
-            handler.clone()
+            handler.to_owned()
         } else {
             label
         };
@@ -164,7 +219,7 @@ impl DefApi {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned();
-        let path = Path::new(&handler);
+        let path = Path::new(handler);
         let inside = !handler.is_empty()
             && path.is_relative()
             && path
@@ -216,22 +271,21 @@ impl DefApi {
                 self.def.name.clone()
             },
             label,
-            handler,
-            icon,
+            handler: handler.to_owned(),
+            icon: icon.clone(),
             added: true,
         });
+        if let Some(file) = crate::bars::icons::plugin_icon_path(&self.dir, &icon) {
+            crate::bars::icons::set_plugin_icon(code, &file);
+        }
         Ok(Value::Null)
     }
 }
 
-fn text_at(params: &[Value], index: usize, name: &str) -> Result<String, RpcError> {
-    params
-        .get(index)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            RpcError::invalid_params(format!("{name}: argument {} must be a string", index + 1))
-        })
+fn text_at<'p>(params: &'p [Value], index: usize, name: &str) -> Result<&'p str, RpcError> {
+    params.get(index).and_then(Value::as_str).ok_or_else(|| {
+        RpcError::invalid_params(format!("{name}: argument {} must be a string", index + 1))
+    })
 }
 
 impl PluginApi for DefApi {
@@ -242,7 +296,7 @@ impl PluginApi for DefApi {
             // `F_PL_GETDEF`: a value of `plugin.def`; nothing is an empty string.
             "Plugin.GetDef" => {
                 let (section, key) = (text_at(params, 0, name)?, text_at(params, 1, name)?);
-                Ok(json!(self.main.get(&section, &key).unwrap_or_default()))
+                Ok(json!(self.main.get(section, key).unwrap_or_default()))
             }
             // `F_PL_GETOPTION`: the value in the options file; if there is none, the default of
             // the option in `plugin.def`.
@@ -252,7 +306,7 @@ impl PluginApi for DefApi {
                 let (section, key) = (text_at(params, 0, name)?, text_at(params, 1, name)?);
                 let value = self
                     .options
-                    .get(&section, &key)
+                    .get(section, key)
                     .map(str::to_owned)
                     .or_else(|| {
                         self.def
@@ -269,16 +323,16 @@ impl PluginApi for DefApi {
                 let section = text_at(params, 0, name)?;
                 let key = text_at(params, 1, name)?;
                 let value = match params.get(2) {
-                    Some(Value::String(text)) => text.clone(),
+                    Some(Value::String(text)) => Cow::Borrowed(text.as_str()),
                     Some(Value::Null) | None => {
                         return Err(RpcError::invalid_params(format!(
                             "{name}: argument 3 must be a value"
                         )));
                     }
-                    Some(other) => other.to_string(),
+                    Some(other) => Cow::Owned(other.to_string()),
                 };
                 self.options
-                    .set(&section, &key, &value)
+                    .set(section, key, &value)
                     .map_err(|e| RpcError::invalid_params(format!("{name}: {e}")))?;
                 self.options
                     .save()
@@ -306,7 +360,7 @@ impl PluginApi for DefApi {
                         "{name}: the candidate must not be empty"
                     )));
                 }
-                Ok(json!(list.borrow_mut().add(&word)))
+                Ok(json!(list.borrow_mut().add(word)))
             }
             // `F_PL_GETCOMMANDNO`
             "Plugin.GetCommandNo" => Ok(json!(self.command_no)),
@@ -342,25 +396,29 @@ fn plugin_host_error() -> i64 {
 /// Everything a call needs, checked: the host, the handler and the answers.
 pub(crate) struct Prepared {
     pub(crate) label: String,
-    pub(crate) id: String,
     host: SharedHost,
     jack: &'static str,
     handler: String,
     args: Value,
     api: DefApi,
-    /// An event jack (ADR-0026, PR 6): it runs quietly when it goes well, and the caller may wait for
-    /// it ([`EditorView::plugin_event_running`]).
-    event: bool,
-    /// The result of a call of the jack `Outline`, which the call ends in ([`prepare_outline`]).
-    outline: Option<Rc<RefCell<Collected>>>,
-    /// The folder of the plugin and, for an event, the plug: what [`Prepared::refresh`] prepares again.
+    /// The jack of an event (ADR-0026, PR 6; `None`: a command): an event runs quietly when it goes
+    /// well, and the caller may wait for it ([`EditorView::plugin_event_running`]). With the folder
+    /// and `handler` it is what [`Prepared::refresh`] prepares again. The result of a call of the jack
+    /// `Outline` and the list of a completion are in `api` ([`prepare_outline`],
+    /// [`Prepared::for_complement`]).
+    event: Option<Jack>,
+    /// The folder of the plugin.
     folder: String,
-    plug: Option<(Jack, String)>,
-    /// A call of a completion jack: the session of the list it fills, and the list.
-    complement: Option<(u64, crate::plugin_complement::Shared)>,
+    /// A call of a completion jack: the session of the list it fills (the list is `api.complement`).
+    complement: Option<u64>,
 }
 
 impl Prepared {
+    /// The ID of the plugin.
+    pub(crate) fn id(&self) -> &str {
+        &self.api.def.id
+    }
+
     /// Makes this the call of a completion jack for the word `word`: `Complement.GetCurrentWord`
     /// gives the word, `GetOption` the option, and `AddList` adds to `list`. The window shows what is
     /// added while the call runs (`session` names the list).
@@ -372,8 +430,8 @@ impl Prepared {
         list: crate::plugin_complement::Shared,
     ) -> Self {
         self.args = json!({"word": word, "option": option});
-        self.api.complement = Some(list.clone());
-        self.complement = Some((session, list));
+        self.api.complement = Some(list);
+        self.complement = Some(session);
         self
     }
 
@@ -381,17 +439,18 @@ impl Prepared {
     /// have been switched off, taken away or changed meanwhile, and the agreement of the user is of the
     /// files as they are at the moment the handler runs (ADR-0026). `None`: it must not run.
     pub(crate) fn refresh(self, cx: &mut App, dirs: &SearchDirs) -> Option<Prepared> {
-        let (jack, handler) = self.plug?;
+        let jack = self.event?;
+        let handler = self.handler;
         let mut fresh = prepare(cx, dirs, &self.folder, Target::Event { jack, handler }).ok()?;
         // The same plugin as the one the call was made for (the folder may hold another one now).
-        if fresh.id != self.id {
+        if fresh.id() != self.api.def.id {
             return None;
         }
         // A call of a completion jack keeps its word, its option and its list.
-        if let Some((session, list)) = self.complement {
+        if let Some(session) = self.complement {
             fresh.args = self.args;
-            fresh.api.complement = Some(list.clone());
-            fresh.complement = Some((session, list));
+            fresh.api.complement = self.api.complement;
+            fresh.complement = Some(session);
         }
         Some(fresh)
     }
@@ -452,19 +511,17 @@ pub(crate) fn prepare_function(
 ) -> Result<Prepared, String> {
     let info = plugin_commands::info(code)
         .ok_or("このプラグインコマンドは、今は使えません（プラグインが有効でないか、読み込まれていません）")?;
-    let profile =
-        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of);
     let folder = settings
         .table
         .get(info.slot)
         .filter(|rec| rec.is_used() && rec.id == info.plugin_id)
-        .map(|rec| rec.name.clone())
+        .map(|rec| rec.name.as_str())
         .ok_or("このプラグインはもう登録されていません")?;
     prepare(
         cx,
         dirs,
-        &folder,
+        folder,
         Target::Command {
             command: info.plug,
             handler: Some(info.handler),
@@ -493,8 +550,7 @@ pub(crate) fn prepare_outline(
         },
     )?;
     collected.borrow_mut().label = prepared.label.clone();
-    prepared.api.outline = Some(collected.clone());
-    prepared.outline = Some(collected);
+    prepared.api.outline = Some(collected);
     Ok(prepared)
 }
 
@@ -511,7 +567,7 @@ pub(crate) fn prepare_event(
         return Vec::new();
     };
     def.plugs
-        .iter()
+        .into_iter()
         .filter(|plug| plug.jack == jack)
         .filter_map(|plug| {
             prepare(
@@ -520,7 +576,7 @@ pub(crate) fn prepare_event(
                 folder,
                 Target::Event {
                     jack,
-                    handler: plug.handler.clone(),
+                    handler: plug.handler,
                 },
             )
             .ok()
@@ -554,9 +610,7 @@ fn prepare(
     folder: &str,
     target: Target,
 ) -> Result<Prepared, String> {
-    let profile =
-        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-    let settings = PluginSettings::from_profile(&profile);
+    let settings = crate::doc_types::with_user(cx, crate::plugin_commands::settings_of);
     if !settings.enabled {
         return Err(
             "「プラグインを有効にする」が入っていません。入れて OK で保存してから試してください"
@@ -575,9 +629,8 @@ fn prepare(
         return Err(crate::common_settings::plugin_unsupported_text(&why));
     }
     let plugin_dir = dirs.plugin_dir(folder);
-    match ConsentFile::load(&dirs.consent_file())
-        .consent_for_dir_cached(&def.id, plugin_dir.as_deref())
-    {
+    let consent_file = ConsentFile::load(&dirs.consent_file());
+    match consent_file.consent_for_dir_cached(&def.id, plugin_dir.as_deref()) {
         Consent::On => {}
         Consent::Off => {
             return Err(
@@ -590,7 +643,19 @@ fn prepare(
             );
         }
     }
-    let mut event_plug = None;
+    // The files the user agreed to: the host hashes what it reads against these, and hands Node.js
+    // only that text (a file that changed after the check above is refused there).
+    let agreed: std::collections::BTreeMap<String, String> = consent_file
+        .record(&def.id)
+        .map(|record| {
+            record
+                .files
+                .into_iter()
+                .map(|file| (file.path, file.sha256))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut event_jack = None;
     let (jack, handler, command, event) = match target {
         Target::Command { command, handler } => {
             let handler = match handler {
@@ -620,48 +685,58 @@ fn prepare(
                         .into(),
                 );
             }
-            event_plug = Some((jack, handler.clone()));
+            event_jack = Some(jack);
             (jack.name(), handler, 0, true)
         }
     };
-    if Language::of_file(Path::new(&handler)) != Some(Language::Bundled(Engine::QuickJs)) {
-        return Err(format!(
-            "{handler} は動かせません。今は .js のプラグインだけです"
-        ));
-    }
+    let language = match Language::of_file(Path::new(&handler)) {
+        Some(language) if language.serves_plugins() && language.runs_here() => language,
+        _ => {
+            return Err(format!(
+                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ) のどれかにしてください"
+            ));
+        }
+    };
+    let host_key = (def.id.clone(), language);
     let runtime = cx.default_global::<Runtime>();
     let want_resident = def.resident;
     let reuse = runtime
         .hosts
-        .get(&def.id)
+        .get(&host_key)
         .filter(|host| {
             let host = host.borrow();
             // A plugin that was replaced by another folder gets a host of its own folder.
             host.settings().resident == want_resident
                 && Some(&host.settings().dir) == plugin_dir.as_ref()
+                // A plugin that was agreed to again with other files starts a new process: the old
+                // one holds the modules of the old files.
+                && host.settings().verified.as_ref() == Some(&agreed)
         })
         .cloned();
     let host = match reuse {
         Some(host) => host,
         None => {
-            if let Some(old) = runtime.hosts.remove(&def.id) {
+            if let Some(old) = runtime.hosts.remove(&host_key) {
                 old.borrow_mut().shutdown();
             }
             let mut settings = HostSettings::new(
                 &def.id,
-                &plugin_dir.clone().unwrap_or_default(),
-                Language::Bundled(Engine::QuickJs),
+                &plugin_dir.unwrap_or_default(),
+                language,
                 want_resident,
-            );
-            if let Some(path) = test_interpreter() {
+            )
+            .with_verified(agreed);
+            if language == Language::Bundled(Engine::QuickJs)
+                && let Some(path) = test_interpreter()
+            {
                 settings.interpreter = path.into();
             }
             let host = Rc::new(RefCell::new(PluginHost::new(settings)));
-            runtime.hosts.insert(def.id.clone(), host.clone());
+            runtime.hosts.insert(host_key, host.clone());
             host
         }
     };
-    if host.borrow().is_stopped() {
+    if host.borrow().is_stopped() || is_stopped(&def.id) {
         return Err("失敗が続いたので止めています。もう一度「有効にする」を押すと戻ります".into());
     }
     let label = if def.name.is_empty() {
@@ -671,7 +746,6 @@ fn prepare(
     };
     Ok(Prepared {
         label,
-        id: def.id.clone(),
         host,
         jack,
         handler,
@@ -681,10 +755,8 @@ fn prepare(
             json!({"command": command})
         },
         api: DefApi::new(dirs, folder, def, command).in_slot(slot),
-        event,
-        outline: None,
+        event: event_jack,
         folder: folder.to_owned(),
-        plug: event_plug,
         complement: None,
     })
 }
@@ -932,26 +1004,26 @@ pub(crate) fn describe(outcome: &Outcome, limit: Duration) -> String {
 /// An event call (a plug of a jack such as `DocumentBeforeSave`) says nothing when it goes well: it
 /// happens at each save and each open, and the panel and the status bar are for what the user did. A
 /// failure is told as for a command.
-pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) -> bool {
+pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App) -> bool {
     let Prepared {
         label,
-        id,
         host,
         jack,
         handler,
         args,
         mut api,
         event,
-        outline,
-        complement,
+        complement: session,
         ..
     } = prepared;
+    let event = event.is_some();
+    let outline = api.outline.clone();
+    let complement = session.zip(api.complement.clone());
     let limit = TEST_LIMIT
         .with(std::cell::Cell::get)
         .unwrap_or_else(|| limit_of(jack));
     // The call of the jack `Outline` ends in its result (the pane waits for it).
     let end = {
-        let outline = outline.clone();
         move |ending: Ending| {
             if let Some(collected) = &outline {
                 collected.borrow_mut().ending = Some(ending);
@@ -981,7 +1053,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         }
         return false;
     }
-    if let Err(error) = host.borrow_mut().begin(jack, &handler, args, limit) {
+    if let Err(error) = host.borrow_mut().begin(jack, &handler, &args, limit) {
         end(Ending::Refused(error.to_string()));
         // A plugin that three failures stopped has said so already.
         if !(event && matches!(error, plugin_host::BeginError::Stopped)) {
@@ -1135,8 +1207,11 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     }
                 }
                 Progress::Done(outcome) => {
-                    let stopped = host.borrow().is_stopped();
-                    set_stopped(&id, stopped);
+                    let stopped = note_outcome(&api.def.id, &outcome);
+                    if outcome == Outcome::Ok {
+                        let id = api.def.id.clone();
+                        cx.update(|app| forgive_hosts(app, &id));
+                    }
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.macros.plugin_event = false;
@@ -1183,18 +1258,18 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                             view.macros.output.push(Kind::Err, text.clone());
                         }
                         let message = describe(&outcome, limit);
-                        view.macros.output.push(Kind::Note, message.clone());
+                        view.notice = Some(if event {
+                            format!("プラグイン {label}: {jack}: {message}")
+                        } else {
+                            format!("プラグイン {label}: {message}")
+                        });
+                        view.macros.output.push(Kind::Note, message);
                         if stopped {
                             view.macros.output.push(
                                 Kind::Note,
                                 "失敗が続いたので、このプラグインを止めました。もう一度「有効にする」を押すと戻ります",
                             );
                         }
-                        view.notice = Some(if event {
-                            format!("プラグイン {label}: {jack}: {message}")
-                        } else {
-                            format!("プラグイン {label}: {message}")
-                        });
                         cx.notify();
                     });
                     if ended.is_err() {

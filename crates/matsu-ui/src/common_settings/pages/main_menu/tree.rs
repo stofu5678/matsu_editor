@@ -5,8 +5,7 @@
 //! belongs to the closest row before it that is one level up.
 
 use matsu_config::settings::main_menu::{
-    F_NODE, F_OPTION, F_SEPARATOR, F_SPECIAL_FIRST, F_SPECIAL_LAST, MAX_MAIN_MENU_NAME_LEN,
-    MAX_MAINMENU, MAX_MAINMENU_TOP,
+    F_NODE, F_OPTION, F_SEPARATOR, MAX_MAIN_MENU_NAME_LEN, MAX_MAINMENU, MAX_MAINMENU_TOP,
 };
 use matsu_config::settings::{MenuRow, RowKind};
 
@@ -50,9 +49,9 @@ pub(super) struct Tree {
     pub func_count: usize,
 }
 
-/// `F_SPECIAL_FIRST..=F_SPECIAL_LAST`: a list that is filled in at run time.
+/// `F_SPECIAL_FIRST..=F_SPECIAL_LAST` and `F_ONELINER_LIST`: a list that is filled in at run time.
 pub(super) fn is_special(function: u16) -> bool {
-    (F_SPECIAL_FIRST..=F_SPECIAL_LAST).contains(&function)
+    matsu_config::settings::main_menu::is_special_function(function)
 }
 
 fn page_row(row: MenuRow) -> PageRow {

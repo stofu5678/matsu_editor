@@ -173,7 +173,7 @@ fn close_and_open_takes_only_the_first_file_and_replaces_the_document(cx: &mut T
     let all = files(&dir, &["a.txt", "b.txt"]);
     let handle = busy_window(cx);
     common(cx, "bDropFileAndClose=1");
-    drop_files(cx, handle, point(px(50.), px(10.)), all.clone());
+    drop_files(cx, handle, point(px(50.), px(10.)), all);
     // the document is modified: the question comes first, and nothing is lost before the answer
     assert_eq!(tab_count(cx, handle), 1);
     answer(cx, handle, DONT_SAVE);

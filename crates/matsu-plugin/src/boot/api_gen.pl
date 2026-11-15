@@ -132,9 +132,10 @@ sub IsPossibleRedo { shift; return $CALL->('IsPossibleRedo', @_) }
 # GetLineAttribute(line: int, type: int) -> int
 # An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
 # 1 when the line changed since the last save, type 1 the number of the undo step that last
-# touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
-# answer the error -32001 until the editor has them. A negative line, a line past the end
-# and any other type are errors.
+# touched it, type 2 the bookmark (1 or 0). Type 3 is the diff mark (0 none, 1 added, 2
+# changed, 3 deleted, 4 deleted after the end) and type 4 is 1 when the last outline
+# analysis found an item on the line. A negative line, a line past the end and any other
+# type are errors.
 sub GetLineAttribute { shift; return $CALL->('GetLineAttribute', @_) }
 
 # IsTextSelectingLock() -> int
@@ -300,13 +301,15 @@ sub IsCurTypeExt { shift; return $CALL->('IsCurTypeExt', @_) }
 sub IsSameTypeExt { shift; return $CALL->('IsSameTypeExt', @_) }
 
 # ExpandParameter(format: string) -> string
-# Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f (file name),
-# $g (file name without the extension), $/ (full path with /), $N (as $F), $b (extension),
-# $e and $E (folder), $C (the selected text or the word at the caret), $x and $y (caret
-# column in UTF-16 units and line, from 1), $S (the editor), $M (the macro file), $V
-# (version), $A (name), and conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a
-# file is (\u{7121}\u{984C}). $d $t $D $T $B $Q $I are not supported and stay as written. At most 2047
-# UTF-16 units.
+# Replaces the codes that start with $ in a string, as the window title does: $$ ($), $A
+# (name), $F (full path), $f (file name), $g (file name without the extension), $/ (full
+# path with /), $N (short path), $b (extension), $e (folder), $E (short folder), $n (number
+# of an untitled window), $B (document type), $Q (print setting), $C (the selected text or
+# the word at the caret), $x and $y (caret column in UTF-16 units and line, from 1), $d and
+# $t (date and time now), $D and $T (date and time of the file), $V (version), $h (Grep
+# key), $S (the editor), $I (the settings file), $M (the macro file), $<profile>, and
+# conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (\u{7121}\u{984C}). $p and $P are
+# the notice that they are for the print preview. At most 2047 UTF-16 units.
 sub ExpandParameter { shift; return $CALL->('ExpandParameter', @_) }
 
 # MessageBox(message: string, type: int?) -> int
@@ -341,8 +344,9 @@ sub YesNoBox { shift; return $CALL->('YesNoBox', @_) }
 
 # FileOpenDialog(defaultName: string?, filter: string?) -> string
 # Lets the user choose a file to open and returns its full path, or an empty string when the
-# dialog is cancelled. The default name and the filter are not used: the dialog of the
-# platform takes neither.
+# dialog is cancelled. The dialog starts in the folder of the default name (when it names
+# one) with that name filled in. The filter is not used: the dialog of the platform takes
+# none.
 sub FileOpenDialog { shift; return $CALL->('FileOpenDialog', @_) }
 
 # FileSaveDialog(defaultName: string?, filter: string?) -> string
@@ -354,7 +358,7 @@ sub FileSaveDialog { shift; return $CALL->('FileSaveDialog', @_) }
 # FolderDialog(message: string?, defaultFolder: string?) -> string
 # Lets the user choose a folder and returns its full path, or an empty string when the
 # dialog is cancelled. The message becomes the prompt text of the platform dialog where it
-# has one; the default folder is not used.
+# has one; the dialog starts in the default folder when it is an existing folder.
 sub FolderDialog { shift; return $CALL->('FolderDialog', @_) }
 
 # InputBox(message: string, defaultValue: string?, maxLength: int?) -> string
@@ -1391,6 +1395,36 @@ sub TABToSPACE { shift; return $CALL->('TABToSPACE', @_) }
 # does not have yet answers the error -32001 (not implemented).
 sub SPACEToTAB { shift; return $CALL->('SPACEToTAB', @_) }
 
+# EncodeUrl() -> null
+# MATSU Editor's own F_URL_ENCODE (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub EncodeUrl { shift; return $CALL->('EncodeUrl', @_) }
+
+# DecodeUrl() -> null
+# MATSU Editor's own F_URL_DECODE (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub DecodeUrl { shift; return $CALL->('DecodeUrl', @_) }
+
+# EscapeHtml() -> null
+# MATSU Editor's own F_HTML_ESCAPE (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub EscapeHtml { shift; return $CALL->('EscapeHtml', @_) }
+
+# UnescapeHtml() -> null
+# MATSU Editor's own F_HTML_UNESCAPE (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub UnescapeHtml { shift; return $CALL->('UnescapeHtml', @_) }
+
+# EncodeBase64() -> null
+# MATSU Editor's own F_BASE64_ENCODE (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub EncodeBase64 { shift; return $CALL->('EncodeBase64', @_) }
+
+# DecodeBase64() -> null
+# MATSU Editor's own F_BASE64_DECODE_TEXT (not in Sakura). Runs the command that a key, the
+# menu and a key macro run.
+sub DecodeBase64 { shift; return $CALL->('DecodeBase64', @_) }
+
 # AutoToSJIS() -> null
 # Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
 # key, the menu and a key macro run. The last arguments may be left out. A command that this
@@ -2054,6 +2088,266 @@ sub ActivateWinOutput { shift; return $CALL->('ActivateWinOutput', @_) }
 # MATSU Editor's own F_PREVIEW_TAB (not in Sakura). Runs the command that a key, the menu
 # and a key macro run.
 sub PreviewTab { shift; return $CALL->('PreviewTab', @_) }
+
+# ShellTab() -> null
+# MATSU Editor's own F_SHELL_TAB (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub ShellTab { shift; return $CALL->('ShellTab', @_) }
+
+# OneLiner0() -> null
+# MATSU Editor's own F_ONELINER_0 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner0 { shift; return $CALL->('OneLiner0', @_) }
+
+# OneLiner1() -> null
+# MATSU Editor's own F_ONELINER_1 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner1 { shift; return $CALL->('OneLiner1', @_) }
+
+# OneLiner2() -> null
+# MATSU Editor's own F_ONELINER_2 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner2 { shift; return $CALL->('OneLiner2', @_) }
+
+# OneLiner3() -> null
+# MATSU Editor's own F_ONELINER_3 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner3 { shift; return $CALL->('OneLiner3', @_) }
+
+# OneLiner4() -> null
+# MATSU Editor's own F_ONELINER_4 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner4 { shift; return $CALL->('OneLiner4', @_) }
+
+# OneLiner5() -> null
+# MATSU Editor's own F_ONELINER_5 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner5 { shift; return $CALL->('OneLiner5', @_) }
+
+# OneLiner6() -> null
+# MATSU Editor's own F_ONELINER_6 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner6 { shift; return $CALL->('OneLiner6', @_) }
+
+# OneLiner7() -> null
+# MATSU Editor's own F_ONELINER_7 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner7 { shift; return $CALL->('OneLiner7', @_) }
+
+# OneLiner8() -> null
+# MATSU Editor's own F_ONELINER_8 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner8 { shift; return $CALL->('OneLiner8', @_) }
+
+# OneLiner9() -> null
+# MATSU Editor's own F_ONELINER_9 (not in Sakura). Runs the command that a key, the menu and
+# a key macro run.
+sub OneLiner9 { shift; return $CALL->('OneLiner9', @_) }
+
+# OneLiner10() -> null
+# MATSU Editor's own F_ONELINER_10 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner10 { shift; return $CALL->('OneLiner10', @_) }
+
+# OneLiner11() -> null
+# MATSU Editor's own F_ONELINER_11 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner11 { shift; return $CALL->('OneLiner11', @_) }
+
+# OneLiner12() -> null
+# MATSU Editor's own F_ONELINER_12 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner12 { shift; return $CALL->('OneLiner12', @_) }
+
+# OneLiner13() -> null
+# MATSU Editor's own F_ONELINER_13 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner13 { shift; return $CALL->('OneLiner13', @_) }
+
+# OneLiner14() -> null
+# MATSU Editor's own F_ONELINER_14 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner14 { shift; return $CALL->('OneLiner14', @_) }
+
+# OneLiner15() -> null
+# MATSU Editor's own F_ONELINER_15 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner15 { shift; return $CALL->('OneLiner15', @_) }
+
+# OneLiner16() -> null
+# MATSU Editor's own F_ONELINER_16 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner16 { shift; return $CALL->('OneLiner16', @_) }
+
+# OneLiner17() -> null
+# MATSU Editor's own F_ONELINER_17 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner17 { shift; return $CALL->('OneLiner17', @_) }
+
+# OneLiner18() -> null
+# MATSU Editor's own F_ONELINER_18 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner18 { shift; return $CALL->('OneLiner18', @_) }
+
+# OneLiner19() -> null
+# MATSU Editor's own F_ONELINER_19 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner19 { shift; return $CALL->('OneLiner19', @_) }
+
+# OneLiner20() -> null
+# MATSU Editor's own F_ONELINER_20 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner20 { shift; return $CALL->('OneLiner20', @_) }
+
+# OneLiner21() -> null
+# MATSU Editor's own F_ONELINER_21 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner21 { shift; return $CALL->('OneLiner21', @_) }
+
+# OneLiner22() -> null
+# MATSU Editor's own F_ONELINER_22 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner22 { shift; return $CALL->('OneLiner22', @_) }
+
+# OneLiner23() -> null
+# MATSU Editor's own F_ONELINER_23 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner23 { shift; return $CALL->('OneLiner23', @_) }
+
+# OneLiner24() -> null
+# MATSU Editor's own F_ONELINER_24 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner24 { shift; return $CALL->('OneLiner24', @_) }
+
+# OneLiner25() -> null
+# MATSU Editor's own F_ONELINER_25 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner25 { shift; return $CALL->('OneLiner25', @_) }
+
+# OneLiner26() -> null
+# MATSU Editor's own F_ONELINER_26 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner26 { shift; return $CALL->('OneLiner26', @_) }
+
+# OneLiner27() -> null
+# MATSU Editor's own F_ONELINER_27 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner27 { shift; return $CALL->('OneLiner27', @_) }
+
+# OneLiner28() -> null
+# MATSU Editor's own F_ONELINER_28 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner28 { shift; return $CALL->('OneLiner28', @_) }
+
+# OneLiner29() -> null
+# MATSU Editor's own F_ONELINER_29 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner29 { shift; return $CALL->('OneLiner29', @_) }
+
+# OneLiner30() -> null
+# MATSU Editor's own F_ONELINER_30 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner30 { shift; return $CALL->('OneLiner30', @_) }
+
+# OneLiner31() -> null
+# MATSU Editor's own F_ONELINER_31 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner31 { shift; return $CALL->('OneLiner31', @_) }
+
+# OneLiner32() -> null
+# MATSU Editor's own F_ONELINER_32 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner32 { shift; return $CALL->('OneLiner32', @_) }
+
+# OneLiner33() -> null
+# MATSU Editor's own F_ONELINER_33 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner33 { shift; return $CALL->('OneLiner33', @_) }
+
+# OneLiner34() -> null
+# MATSU Editor's own F_ONELINER_34 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner34 { shift; return $CALL->('OneLiner34', @_) }
+
+# OneLiner35() -> null
+# MATSU Editor's own F_ONELINER_35 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner35 { shift; return $CALL->('OneLiner35', @_) }
+
+# OneLiner36() -> null
+# MATSU Editor's own F_ONELINER_36 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner36 { shift; return $CALL->('OneLiner36', @_) }
+
+# OneLiner37() -> null
+# MATSU Editor's own F_ONELINER_37 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner37 { shift; return $CALL->('OneLiner37', @_) }
+
+# OneLiner38() -> null
+# MATSU Editor's own F_ONELINER_38 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner38 { shift; return $CALL->('OneLiner38', @_) }
+
+# OneLiner39() -> null
+# MATSU Editor's own F_ONELINER_39 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner39 { shift; return $CALL->('OneLiner39', @_) }
+
+# OneLiner40() -> null
+# MATSU Editor's own F_ONELINER_40 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner40 { shift; return $CALL->('OneLiner40', @_) }
+
+# OneLiner41() -> null
+# MATSU Editor's own F_ONELINER_41 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner41 { shift; return $CALL->('OneLiner41', @_) }
+
+# OneLiner42() -> null
+# MATSU Editor's own F_ONELINER_42 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner42 { shift; return $CALL->('OneLiner42', @_) }
+
+# OneLiner43() -> null
+# MATSU Editor's own F_ONELINER_43 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner43 { shift; return $CALL->('OneLiner43', @_) }
+
+# OneLiner44() -> null
+# MATSU Editor's own F_ONELINER_44 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner44 { shift; return $CALL->('OneLiner44', @_) }
+
+# OneLiner45() -> null
+# MATSU Editor's own F_ONELINER_45 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner45 { shift; return $CALL->('OneLiner45', @_) }
+
+# OneLiner46() -> null
+# MATSU Editor's own F_ONELINER_46 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner46 { shift; return $CALL->('OneLiner46', @_) }
+
+# OneLiner47() -> null
+# MATSU Editor's own F_ONELINER_47 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner47 { shift; return $CALL->('OneLiner47', @_) }
+
+# OneLiner48() -> null
+# MATSU Editor's own F_ONELINER_48 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner48 { shift; return $CALL->('OneLiner48', @_) }
+
+# OneLiner49() -> null
+# MATSU Editor's own F_ONELINER_49 (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub OneLiner49 { shift; return $CALL->('OneLiner49', @_) }
+
+# OneLinerDialog() -> null
+# MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a key, the
+# menu and a key macro run.
+sub OneLinerDialog { shift; return $CALL->('OneLinerDialog', @_) }
 
 # TraceOut(arg1: string?, arg2: int?) -> null
 # MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a

@@ -45,6 +45,12 @@ pub(crate) fn preview_region(element: Stateful<Div>, name: &str) -> Stateful<Div
     element.role(Role::Document).aria_label(name.to_owned())
 }
 
+/// The region of a shell tab (ADR-0028): a terminal named by its shell. The screen is drawn as glyphs and
+/// not exposed yet (as the editor's is not), so a screen reader knows the terminal and what runs in it.
+pub(crate) fn terminal_region(element: Stateful<Div>, name: &str) -> Stateful<Div> {
+    element.role(Role::Terminal).aria_label(name.to_owned())
+}
+
 /// The name of a control for a screen reader, from a Sakura label: `フリーカーソル(&F)` is
 /// `フリーカーソル`, `&URL` is `URL`, `&&` is `&`. The access key is not part of the name (the
 /// platform has its own way to tell it).

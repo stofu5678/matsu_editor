@@ -1,0 +1,20 @@
+[book]
+title = "MATSU Editor ヘルプ"
+description = "MATSU Editor の使い方"
+language = "ja"
+# The Japanese source. An English one can be added later as `en/` (ADR-0031).
+src = "ja"
+
+[build]
+# Next to the Rust build output (which is not committed), not inside docs/.
+build-dir = "../../target/help"
+
+[output.html]
+# The one-page version (print.html), which the app can search with Ctrl+F when it has no search.
+[output.html.print]
+enable = true
+
+# mdBook's own search puts no Japanese word into its index (measured, ADR-0031). Pagefind builds the search
+# after the book (the `help` job of CI).
+[output.html.search]
+enable = false

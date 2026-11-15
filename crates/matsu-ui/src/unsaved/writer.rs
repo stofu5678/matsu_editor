@@ -54,11 +54,13 @@ impl Shared {
         *self.written.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub(crate) fn written_info(&self) -> Option<DocInfo> {
+    /// Whether the last write that succeeded had `info` (compared under the lock, not copied).
+    pub(crate) fn written_info_is(&self, info: &DocInfo) -> bool {
         self.written_info
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .as_ref()
+            == Some(info)
     }
 }
 
@@ -524,4 +526,24 @@ fn sync_dirs(store: &Store) {
     }
     #[cfg(not(unix))]
     let _ = store;
+}
+
+#[cfg(test)]
+mod written_info_tests {
+    use super::*;
+
+    #[test]
+    fn written_info_is_compares_under_the_lock() {
+        let shared = Shared::default();
+        let info = DocInfo::default();
+        // nothing was written yet: nothing equals it
+        assert!(!shared.written_info_is(&info));
+        let written = DocInfo {
+            encoding: "UTF-8".to_owned(),
+            ..DocInfo::default()
+        };
+        *shared.written_info.lock().unwrap() = Some(written.clone());
+        assert!(shared.written_info_is(&written));
+        assert!(!shared.written_info_is(&info));
+    }
 }

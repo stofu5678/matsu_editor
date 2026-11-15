@@ -264,6 +264,9 @@ impl CommonSettingsDialog {
                 |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         this.ok(window, cx);
+                    } else if matches!(event, InputEvent::Change) {
+                        // What a page shows of the text (the note under the shell's command line) follows it.
+                        cx.notify();
                     }
                 },
             ));
@@ -424,6 +427,9 @@ impl CommonSettingsDialog {
             }
             Target::Type(_) => type_settings::remember_page(cx, index),
         }
+        if matches!(&self.target, Target::Common) && Page::ALL.get(index) == Some(&Page::Plugin) {
+            super::pages::plugin::page_shown(self, cx);
+        }
         cx.notify();
     }
 
@@ -447,6 +453,15 @@ impl CommonSettingsDialog {
         if let Some(control) = self.control(id).filter(|c| self.is_usable(c)) {
             self.values.set(id, Value::Bool(on));
             (control.changed)(&mut self.values, id);
+            cx.notify();
+        }
+    }
+
+    /// Sets a check box even while it is greyed out, for a page that fills its fields from a row (a box
+    /// that only another box enables still shows the value the row has).
+    pub(crate) fn set_bool_greyed(&mut self, id: &'static str, on: bool, cx: &mut Context<Self>) {
+        if self.control(id).is_some() {
+            self.values.set(id, Value::Bool(on));
             cx.notify();
         }
     }
@@ -1580,11 +1595,25 @@ impl Render for CommonSettingsDialog {
                             .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
                     )
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .items_center()
-                            .child(Button::new("cs-help").label("ヘルプ(H)").disabled(true))
-                            .child(Self::not_available_note()),
+                        // the page of the help for the page of the sheet that is shown
+                        // (`PSN_HELP` of each page of `CPropCommon`)
+                        Button::new("cs-help")
+                            .label("ヘルプ(H)")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                // the sheet of a document type has its own pages (no table yet)
+                                let target = match this.target {
+                                    Target::Type(_) => "type-settings-window/index.md",
+                                    Target::Common => {
+                                        let page = Page::ALL
+                                            .get(this.page)
+                                            .copied()
+                                            .unwrap_or(Page::General);
+                                        crate::support::help::common_settings_page(page)
+                                            .unwrap_or("common-settings/index.md")
+                                    }
+                                };
+                                crate::support::help::open_page(cx, target, None);
+                            })),
                     ),
             )
     }

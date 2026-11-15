@@ -368,7 +368,7 @@ fn a_removal_that_failed_is_tried_again_until_it_works() {
     let path = dir.join(format!("{id}.doc"));
     // A folder with a file in it where the copy should be: it cannot be removed as a file.
     std::fs::create_dir_all(path.join("x")).unwrap();
-    writer.discard(id.clone());
+    writer.discard(id);
     writer.flush();
     assert!(writer.failed(), "the removal failed");
     // The obstacle goes; the writer finds the copy gone at its next try.
