@@ -291,7 +291,7 @@ pub(super) fn add_folder(
     let mut agreed = agreed_of(dialog.values());
     rows::set_consent(&mut list[index], &mut agreed, false, "");
     dialog.set_rows(LIST, list, cx);
-    dialog.set_rows(AGREED, agreed.to_rows(), cx);
+    dialog.set_rows(AGREED, agreed.into_rows(), cx);
     select(dialog, index, cx);
     Ok(index)
 }
@@ -501,7 +501,7 @@ pub(super) fn enable_row_checked(
         &matsu_config::plugins::consent::manifest_text(&files),
     );
     dialog.set_rows(LIST, list, cx);
-    dialog.set_rows(AGREED, agreed.to_rows(), cx);
+    dialog.set_rows(AGREED, agreed.into_rows(), cx);
     Ok(())
 }
 
@@ -519,7 +519,7 @@ pub(super) fn disable_selected(
         let mut agreed = agreed_of(dialog.values());
         rows::set_consent(row, &mut agreed, false, "");
         dialog.set_rows(LIST, list, cx);
-        dialog.set_rows(AGREED, agreed.to_rows(), cx);
+        dialog.set_rows(AGREED, agreed.into_rows(), cx);
     }
 }
 
@@ -539,7 +539,7 @@ pub(super) fn remove_selected(
     let mut agreed = agreed_of(dialog.values());
     rows::uninstall(&mut list, &mut agreed, index, dirs);
     dialog.set_rows(LIST, list, cx);
-    dialog.set_rows(AGREED, agreed.to_rows(), cx);
+    dialog.set_rows(AGREED, agreed.into_rows(), cx);
 }
 
 /// 削除 asks first (`STR_PROPCOMPLG_DELETE`, with the name of the folder).
@@ -644,8 +644,12 @@ pub(super) fn refresh_states(
     let dirs = super::search_dirs(cx);
     let saved = rows::consent_of(dirs.as_ref());
     let mut list = dialog.values().rows(LIST).to_vec();
-    let agreed = agreed_of(dialog.values());
-    if rows::refresh_consent(&mut list, &agreed, dirs.as_ref(), &saved) {
+    if rows::refresh_consent(
+        &mut list,
+        dialog.values().rows(AGREED),
+        dirs.as_ref(),
+        &saved,
+    ) {
         dialog.set_rows(LIST, list, cx);
     }
 }

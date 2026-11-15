@@ -157,37 +157,40 @@ pub(super) fn standing(row: &Row) -> Standing {
 /// and the files it was enabled with. It is kept apart from the rows, as a hidden list of the page
 /// ([`agreed_spec`]) whose rows are the ID and the files as `consent::manifest_text`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(in crate::common_settings) struct Agreed(Vec<(String, String)>);
+pub(in crate::common_settings) struct Agreed(Vec<Row>);
+
+/// The files of the agreement made on this page for the plugin `id`, read from the rows of the
+/// hidden list as they are (nothing is copied; use [`Agreed`] only to change them).
+pub(in crate::common_settings) fn files_of<'a>(agreed: &'a [Row], id: &str) -> Option<&'a str> {
+    agreed
+        .iter()
+        .find(|row| row.first().is_some_and(|agreed| agreed == id))
+        .and_then(|row| row.get(1))
+        .map(String::as_str)
+}
 
 impl Agreed {
+    /// The agreements to change: a copy of the rows of the hidden list.
     pub(in crate::common_settings) fn from_rows(rows: &[Row]) -> Self {
-        Self(
-            rows.iter()
-                .filter_map(|row| Some((row.first()?.clone(), row.get(1)?.clone())))
-                .collect(),
-        )
+        Self(rows.to_vec())
     }
 
-    pub(super) fn to_rows(&self) -> Vec<Row> {
-        self.0
-            .iter()
-            .map(|(id, manifest)| vec![id.clone(), manifest.clone()])
-            .collect()
+    #[cfg(test)]
+    pub(super) fn as_rows(&self) -> &[Row] {
+        &self.0
     }
 
-    /// The files of the agreement made on this page for the plugin `id`.
-    pub(super) fn files_of(&self, id: &str) -> Option<&str> {
+    /// The rows to put back in the hidden list.
+    pub(super) fn into_rows(self) -> Vec<Row> {
         self.0
-            .iter()
-            .find(|(agreed, _)| agreed == id)
-            .map(|(_, manifest)| manifest.as_str())
     }
 
     /// Records the agreement of `id`; an empty `manifest` forgets it.
     fn set(&mut self, id: &str, manifest: &str) {
-        self.0.retain(|(agreed, _)| agreed != id);
+        self.0
+            .retain(|row| row.first().is_none_or(|agreed| agreed != id));
         if !id.is_empty() && !manifest.is_empty() {
-            self.0.push((id.to_owned(), manifest.to_owned()));
+            self.0.push(vec![id.to_owned(), manifest.to_owned()]);
         }
     }
 }
@@ -365,7 +368,7 @@ pub(super) fn row_of(
 /// fingerprint, so a folder that did not change is not hashed again. Returns whether a row changed.
 pub(super) fn refresh_consent(
     rows: &mut [Row],
-    agreed: &Agreed,
+    agreed: &[Row],
     dirs: Option<&SearchDirs>,
     saved: &ConsentFile,
 ) -> bool {
@@ -374,7 +377,7 @@ pub(super) fn refresh_consent(
         if !has_plugin(row) || agreement(row) == Agreement::Off {
             continue;
         }
-        let files = match agreed.files_of(&row[ID]) {
+        let files = match files_of(agreed, &row[ID]) {
             Some(manifest) => consent::parse_manifest(manifest),
             None => match saved.record(&row[ID]) {
                 Some(record) => record.files,
@@ -480,7 +483,7 @@ pub(super) fn uninstall(
 /// Returns whether the file changed.
 pub(in crate::common_settings) fn write_consent(
     rows: &[Row],
-    agreed: &Agreed,
+    agreed: &[Row],
     file: &mut ConsentFile,
 ) -> bool {
     let mut changed = false;
@@ -493,7 +496,7 @@ pub(in crate::common_settings) fn write_consent(
         match state_of(text(CODE)) {
             PluginState::None => {}
             PluginState::Deleted => changed |= file.disable(id),
-            _ => match (agreement(row), agreed.files_of(id)) {
+            _ => match (agreement(row), files_of(agreed, id)) {
                 // An agreement made on this page is saved whatever the row shows (on or changed,
                 // and stopped by failures: those are the state of the files and of the run); only
                 // 無効にする and 削除 clear it. The run-time check refuses until the files match it.

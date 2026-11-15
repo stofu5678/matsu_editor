@@ -143,8 +143,7 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     }
     let path = dirs.consent_file();
     let mut file = matsu_config::plugins::consent::ConsentFile::load(&path);
-    let agreed = rows::Agreed::from_rows(after.rows(list::AGREED));
-    if rows::write_consent(after.rows(list::LIST), &agreed, &mut file) {
+    if rows::write_consent(after.rows(list::LIST), after.rows(list::AGREED), &mut file) {
         // A file that cannot be written leaves the choice for this session only, as the settings do.
         let _ = file.save(&path);
     }

@@ -496,7 +496,7 @@ fn a_plugin_that_was_added_is_off_and_enabling_marks_the_row_with_the_files() {
     assert!(row_can_enable(&rows[0]));
     rows::set_consent(&mut rows[0], &mut agreed, true, "abc");
     assert_eq!(rows::shown_state(&rows[0]), "有効");
-    assert_eq!(agreed.files_of(&rows[0][ID]), Some("abc"));
+    assert_eq!(rows::files_of(agreed.as_rows(), &rows[0][ID]), Some("abc"));
     rows::set_consent(&mut rows[0], &mut agreed, false, "");
     assert_eq!(rows::shown_state(&rows[0]), "無効");
     // A slot with nothing, and one that MATSU cannot run, cannot be enabled.
@@ -522,24 +522,24 @@ fn what_ok_writes_to_plugins_ini_follows_the_rows() {
     let mut agreed = Agreed::default();
     let mut file = ConsentFile::default();
     // Nothing was done: nothing is written.
-    assert!(!write_consent(&rows, &agreed, &mut file));
+    assert!(!write_consent(&rows, agreed.as_rows(), &mut file));
     let files =
         matsu_config::plugins::consent::fingerprint(&dirs.plugin_dir("HelloJs").unwrap()).unwrap();
     let manifest = matsu_config::plugins::consent::manifest_text(&files);
     rows::set_consent(&mut rows[0], &mut agreed, true, &manifest);
-    assert!(write_consent(&rows, &agreed, &mut file));
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert_eq!(
         file.consent_for_dir(HELLO_JS_ID, dirs.plugin_dir("HelloJs").as_deref()),
         Consent::On
     );
     rows::set_consent(&mut rows[0], &mut agreed, false, "");
-    assert!(write_consent(&rows, &agreed, &mut file));
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert!(file.record(HELLO_JS_ID).is_none());
     // A removed plugin is forgotten too.
     rows::set_consent(&mut rows[0], &mut agreed, true, &manifest);
-    write_consent(&rows, &agreed, &mut file);
+    write_consent(&rows, agreed.as_rows(), &mut file);
     uninstall(&mut rows, &mut agreed, 0, Some(&dirs));
-    assert!(write_consent(&rows, &agreed, &mut file));
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert!(file.record(HELLO_JS_ID).is_none());
 }
 
@@ -796,7 +796,7 @@ fn a_plugin_that_three_failures_stopped_says_so_and_can_be_enabled_again() {
     assert!(row_can_enable(&rows[0]));
     // The agreement stays in `plugins.ini` when OK writes the rows.
     let mut file = ConsentFile::load(&dirs.consent_file());
-    assert!(!write_consent(&rows, &agreed, &mut file));
+    assert!(!write_consent(&rows, agreed.as_rows(), &mut file));
     assert!(file.record(HELLO_JS_ID).is_some());
 }
 
@@ -1192,7 +1192,7 @@ fn the_state_follows_the_files_when_the_rows_are_refreshed() {
     assert_eq!(rows::shown_state(&rows[0]), "有効");
     assert!(!rows::refresh_consent(
         &mut rows,
-        &agreed,
+        agreed.as_rows(),
         Some(&dirs),
         &consent
     ));
@@ -1205,7 +1205,7 @@ fn the_state_follows_the_files_when_the_rows_are_refreshed() {
     .unwrap();
     assert!(rows::refresh_consent(
         &mut rows,
-        &agreed,
+        agreed.as_rows(),
         Some(&dirs),
         &consent
     ));
@@ -1224,7 +1224,7 @@ fn the_state_follows_the_files_when_the_rows_are_refreshed() {
     assert_eq!(rows::shown_state(&rows[0]), "有効");
     assert!(!rows::refresh_consent(
         &mut rows,
-        &agreed,
+        agreed.as_rows(),
         Some(&dirs),
         &consent
     ));
@@ -1277,20 +1277,20 @@ fn a_pending_agreement_survives_a_refresh_that_sees_a_change() {
     let saved = ConsentFile::default();
     assert!(rows::refresh_consent(
         &mut rows,
-        &agreed,
+        agreed.as_rows(),
         Some(&dirs),
         &saved
     ));
     assert_eq!(rows::agreement(&rows[0]), Agreement::Changed);
     // OK still records what the user agreed to.
     let mut file = ConsentFile::default();
-    assert!(write_consent(&rows, &agreed, &mut file));
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert_eq!(file.record(HELLO_JS_ID).unwrap().files, files);
     // Putting the files back shows the agreement as on again.
     fs::write(&script, original).unwrap();
     assert!(rows::refresh_consent(
         &mut rows,
-        &agreed,
+        agreed.as_rows(),
         Some(&dirs),
         &saved
     ));
@@ -1315,10 +1315,10 @@ fn a_plugin_stopped_by_failures_stays_stopped_when_its_files_match_again() {
     let mut rows = rows_of(&settings, Some(&dirs));
     let agreed = Agreed::default();
     fs::write(&script, "Editor.InsText('changed, longer');").unwrap();
-    rows::refresh_consent(&mut rows, &agreed, Some(&dirs), &consent);
+    rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &consent);
     assert_eq!(rows::agreement(&rows[0]), Agreement::Changed);
     fs::write(&script, original).unwrap();
-    rows::refresh_consent(&mut rows, &agreed, Some(&dirs), &consent);
+    rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &consent);
     // The files match again: the agreement is on, and the plugin is still stopped by the failures.
     assert_eq!(rows::agreement(&rows[0]), Agreement::On);
     assert_eq!(rows::standing(&rows[0]), Standing::Stopped);
@@ -1373,22 +1373,22 @@ fn a_pending_agreement_is_kept_by_ok_through_changes_and_stops_until_disabled() 
             "agree to B" => rows::set_consent(&mut rows[0], &mut agreed, true, &manifest_text(&b)),
             "files become C, refresh" => {
                 put_c();
-                rows::refresh_consent(&mut rows, &agreed, Some(&dirs), &saved);
+                rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &saved);
             }
             "three failures stop it, files back to B, refresh" => {
                 crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
                 set("Editor.InsText('B, longer');");
-                rows::refresh_consent(&mut rows, &agreed, Some(&dirs), &saved);
+                rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &saved);
             }
             "not stopped any more, files back to B, refresh" => {
                 set("Editor.InsText('B, longer');");
-                rows::refresh_consent(&mut rows, &agreed, Some(&dirs), &saved);
+                rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &saved);
             }
             _ => rows::set_consent(&mut rows[0], &mut agreed, false, ""),
         }
         assert_eq!(rows::standing(&rows[0]), shows, "{step}");
         let mut file = ConsentFile::load(&dirs.consent_file());
-        write_consent(&rows, &agreed, &mut file);
+        write_consent(&rows, agreed.as_rows(), &mut file);
         assert_eq!(
             file.record(HELLO_JS_ID).map(|record| record.files),
             holds.cloned(),
