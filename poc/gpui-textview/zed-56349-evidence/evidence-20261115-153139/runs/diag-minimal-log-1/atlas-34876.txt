@@ -1,0 +1,11 @@
+   0.000 s  texture Subpixel[0] created: 1024x1024 R8G8B8A8_UNORM, 4096 KiB; private 58.7 -> 62.7 MB (+4124 KiB)
+   0.001 s  upload method: UpdateSubresource
+   0.001 s  upload 1 to Subpixel[0] with UpdateSubresource: 20x19 at (0, 0); private 62.7 -> 66.7 MB (+4108 KiB, sum 4.0 MB)
+   0.002 s  upload 2 to Subpixel[0] with UpdateSubresource: 22x21 at (20, 0); private 66.7 -> 70.8 MB (+4108 KiB, sum 8.0 MB)
+   0.003 s  upload 3 to Subpixel[0] with UpdateSubresource: 20x21 at (42, 0); private 70.8 -> 74.8 MB (+4108 KiB, sum 12.0 MB)
+   0.004 s  upload 4 to Subpixel[0] with UpdateSubresource: 21x21 at (62, 0); private 74.8 -> 78.8 MB (+4108 KiB, sum 16.0 MB)
+   0.005 s  upload 5 to Subpixel[0] with UpdateSubresource: 22x21 at (83, 0); private 78.8 -> 82.8 MB (+4108 KiB, sum 20.1 MB)
+   0.006 s  upload 6 to Subpixel[0] with UpdateSubresource: 12x21 at (105, 0); private 82.8 -> 86.8 MB (+4108 KiB, sum 24.1 MB)
+   0.007 s  upload 7 to Subpixel[0] with UpdateSubresource: 11x20 at (117, 0); private 86.8 -> 90.8 MB (+4108 KiB, sum 28.1 MB)
+   0.008 s  upload 8 to Subpixel[0] with UpdateSubresource: 12x20 at (128, 0); private 90.8 -> 94.8 MB (+4108 KiB, sum 32.1 MB)
+   0.009 s  upload 9 to Subpixel[0] with UpdateSubresource: 8x20 at (140, 0); private 94.8 -> 98.8 MB (+4108 KiB, sum 36.1 MB)

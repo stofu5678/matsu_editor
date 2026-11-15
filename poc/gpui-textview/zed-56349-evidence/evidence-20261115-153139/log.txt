@@ -1,0 +1,92 @@
+zed-56349-evidence, 2026-11-15 15:31:39 +09:00
+This takes 15 to 25 minutes. Windows open and close one at a time; leave the machine alone until it ends.
+Work folder: C:\work\zed-56349
+
+Taking the prototype at 97908ca and the diagnostic patch at HEAD out of the clone.
+Recording the machine.
+  Windows: Microsoft Windows 11 Pro 26H2, build 26300.9974, Arm64
+  Model: Dell Inc. XPS 13 9345
+  CPU: Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU
+  Memory: 63.5 GiB
+  GPU: Qualcomm(R) Adreno(TM) X1-85 GPU, driver 31.0.170.0 (2026-07-25)
+  Display: 2880x1800
+  Display scale: AppliedDPI 144 (150 %)
+  Font smoothing: FontSmoothing 2, FontSmoothingType 2 (2 is ClearType; GPUI then draws glyphs as Subpixel)
+  BIZ UDGothic (used by minimal): installed
+  PowerShell: 5.1.26100.9974
+  Rust: rustc 1.99.0, host aarch64-pc-windows-msvc; cargo 1.99.0 (5f94df478 2026-08-27)
+  Git: git version 2.51.2.windows.1
+  Zed main: zed-industries/zed@e2f00a41ac67 (2026-11-15T05:20:14Z), crates/gpui_windows/src/directx_atlas.rs: UpdateSubresource( on line 304; D3D11_USAGE_STAGING appears 0 times
+
+Building "gpui": cargo build --release --target aarch64-pc-windows-msvc --target-dir C:\work\zed-56349\target --locked
+Published crate: %USERPROFILE%\.cargo\registry\cache\index.crates.io-1949cf8c6b5b557f\gpui-pre-windows-0.3.8.crate (SHA-256 matches Cargo.lock)
+  Zed main: The file is the same as src/directx_atlas.rs in the published gpui-pre-windows 0.3.8, which the three builds start from (line ends aside).
+  C:\work\zed-56349\patch-fix.toml: [patch.crates-io] gpui-pre-windows = { path = "C:/work/zed-56349/crate-fix/gpui-pre-windows-0.3.8" }
+Building "fix": cargo build --release --target aarch64-pc-windows-msvc --target-dir C:\work\zed-56349\target-fix --config C:\work\zed-56349\patch-fix.toml
+  C:\work\zed-56349\patch-diag.toml: [patch.crates-io] gpui-pre-windows = { path = "C:/work/zed-56349/crate-diag/gpui-pre-windows-0.3.8" }
+Building "diag": cargo build --release --target aarch64-pc-windows-msvc --target-dir C:\work\zed-56349\target-diag --config C:\work\zed-56349\patch-diag.toml
+
+Measuring: 50 windows, one at a time.
+[ 1/50] gpui-minimal-1                6 s  working set   91.0 MiB  private   98.7 MiB
+        picture: 1522x1106 pixels, 567 colors
+[ 2/50] fix-minimal-1                 6 s  working set   55.8 MiB  private   62.7 MiB
+        picture: 1522x1106 pixels, 556 colors
+[ 3/50] gpui-minimal-2                6 s  working set   84.0 MiB  private   98.2 MiB
+[ 4/50] fix-minimal-2                 6 s  working set   48.7 MiB  private   62.7 MiB
+[ 5/50] gpui-minimal-3                6 s  working set   84.0 MiB  private   98.2 MiB
+[ 6/50] fix-minimal-3                 6 s  working set   48.3 MiB  private   62.3 MiB
+[ 7/50] gpui-minimal-jp-1             6 s  working set  148.2 MiB  private  162.7 MiB
+        picture: 1522x1106 pixels, 983 colors
+[ 8/50] fix-minimal-jp-1              6 s  working set   50.3 MiB  private   63.8 MiB
+        picture: 1522x1106 pixels, 983 colors
+[ 9/50] gpui-minimal-jp-2             6 s  working set  148.2 MiB  private  162.5 MiB
+[10/50] fix-minimal-jp-2              6 s  working set   49.2 MiB  private   62.5 MiB
+[11/50] gpui-minimal-jp-3             6 s  working set  147.8 MiB  private  162.5 MiB
+[12/50] fix-minimal-jp-3              6 s  working set   49.0 MiB  private   62.4 MiB
+[13/50] gpui-poc-1                    6 s  working set  315.5 MiB  private  320.5 MiB
+        picture: 1522x1106 pixels, 1000+ colors
+[14/50] fix-poc-1                     6 s  working set   61.0 MiB  private   65.2 MiB
+        picture: 1522x1106 pixels, 1000+ colors
+[15/50] gpui-poc-2                    6 s  working set  308.2 MiB  private  319.9 MiB
+[16/50] fix-poc-2                     6 s  working set   54.8 MiB  private   65.3 MiB
+[17/50] gpui-poc-3                    6 s  working set  307.7 MiB  private  319.9 MiB
+[18/50] fix-poc-3                     6 s  working set   53.5 MiB  private   64.2 MiB
+[19/50] gpui-poc-memstat-1            6 s  working set  308.3 MiB  private  319.9 MiB
+[19/50] gpui-poc-memstat-1            8 s  working set  308.3 MiB  private  319.8 MiB
+[20/50] fix-poc-memstat-1             6 s  working set   53.7 MiB  private   64.8 MiB
+[20/50] fix-poc-memstat-1             8 s  working set   53.7 MiB  private   64.7 MiB
+[21/50] gpui-poc-40s-1                6 s  working set  308.0 MiB  private  319.8 MiB
+[21/50] gpui-poc-40s-1               40 s  working set  309.0 MiB  private  319.8 MiB
+[22/50] gpui-minimal-jp-gray-1        6 s  working set   76.7 MiB  private   84.6 MiB
+[23/50] gpui-poc-gray-1               6 s  working set  204.7 MiB  private  210.2 MiB
+[24/50] gpui-minimal-jp-gray-2        6 s  working set   70.2 MiB  private   84.3 MiB
+[25/50] gpui-poc-gray-2               6 s  working set  198.1 MiB  private  209.8 MiB
+[26/50] gpui-minimal-jp-gray-3        6 s  working set   70.2 MiB  private   84.4 MiB
+[27/50] gpui-poc-gray-3               6 s  working set  198.0 MiB  private  209.8 MiB
+[28/50] diag-poc-log-1                6 s  working set  314.9 MiB  private  320.3 MiB
+[29/50] diag-poc-update1-log-1        6 s  working set  307.8 MiB  private  320.0 MiB
+[30/50] diag-poc-flush-log-1          6 s  working set   94.0 MiB  private  104.8 MiB
+[31/50] diag-poc-log-2                6 s  working set  308.1 MiB  private  319.9 MiB
+[32/50] diag-poc-update1-log-2        6 s  working set  308.0 MiB  private  319.8 MiB
+[33/50] diag-poc-flush-log-2          6 s  working set   72.3 MiB  private   83.4 MiB
+[34/50] diag-poc-log-3                6 s  working set  308.0 MiB  private  319.8 MiB
+[35/50] diag-poc-update1-log-3        6 s  working set  307.6 MiB  private  319.8 MiB
+[36/50] diag-poc-flush-log-3          6 s  working set   68.1 MiB  private   79.3 MiB
+[37/50] diag-poc-memstat-log-1        6 s  working set  308.0 MiB  private  319.9 MiB
+[37/50] diag-poc-memstat-log-1        8 s  working set  308.1 MiB  private  319.8 MiB
+[38/50] diag-poc-gray-log-1           6 s  working set  204.4 MiB  private  210.0 MiB
+[39/50] diag-minimal-log-1            6 s  working set   90.9 MiB  private   98.8 MiB
+[40/50] diag-minimal-jp-log-1         6 s  working set  147.8 MiB  private  162.5 MiB
+[41/50] diag-poc-nolog-1              6 s  working set  308.0 MiB  private  319.8 MiB
+[42/50] diag-poc-update1-nolog-1      6 s  working set  307.5 MiB  private  319.8 MiB
+[43/50] diag-poc-flush-nolog-1        6 s  working set  128.4 MiB  private  139.3 MiB
+[44/50] diag-poc-nolog-2              6 s  working set  308.0 MiB  private  319.8 MiB
+[45/50] diag-poc-update1-nolog-2      6 s  working set  307.5 MiB  private  319.8 MiB
+[46/50] diag-poc-flush-nolog-2        6 s  working set   77.0 MiB  private   87.7 MiB
+[47/50] diag-poc-nolog-3              6 s  working set  307.9 MiB  private  319.8 MiB
+[48/50] diag-poc-update1-nolog-3      6 s  working set  307.8 MiB  private  319.8 MiB
+[49/50] diag-poc-flush-nolog-3        6 s  working set   80.8 MiB  private   92.0 MiB
+[50/50] diag-poc-flush-nolog-40s-1    6 s  working set  102.6 MiB  private  113.4 MiB
+[50/50] diag-poc-flush-nolog-40s-1   40 s  working set  102.6 MiB  private  113.3 MiB
+
+Done in 9 minutes.

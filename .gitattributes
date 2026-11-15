@@ -3,3 +3,6 @@
 crates/matsu/tests/sakura_oracle/** -text
 # The sample plugin definitions are read as they are (a BOM and CRLF, like the files of Sakura plugins).
 crates/matsu-plugin/samples/plugins/**/*.def -text
+# The output of one run of docs/upstream/zed-56349-evidence.ps1, byte for byte as the script wrote it (CRLF): its
+# versions.txt has the SHA-256 of the script as run, and inputs/ has that file.
+poc/gpui-textview/zed-56349-evidence/** -text

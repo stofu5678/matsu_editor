@@ -1,0 +1,23 @@
+clone: 32ec53fdafe5a61531ee3941412ec3b598fdb812 (docs/zed-56349-repro)
+script: docs/upstream/zed-56349-evidence.ps1, git object 8054dd970b43ac561626754e28bb7162505538cd, SHA-256 of the file f5b848c416e145c973eb404d749c94f49227ad2014f6dbbfd3516037db7ec4cc, same as the commit: yes
+prototype: 97908ca0d9f48571cced7f7c82c6cdbfca7353f5
+gpui-pre: 0.3.8, zed-rev 279fe070bb389b79652e52065b2f001edcc0b11b
+gpui-pre-windows-0.3.8.crate: SHA-256 371f9bb13f97e3bea2f8b8e5e81232bb74d735153c244ae67f7400e743925b1c
+fix patch: SHA-256 6e9ee0f5b8f633de5001327e94e80475f8bd3981f370be8fc4b22ef9bddb8e1a
+diag patch: SHA-256 b3be0c2dd84f65b4c3c071fada33d49a57808cef0b85c207b3b25fc62d6fe122
+Zed main directx_atlas.rs: The file is the same as src/directx_atlas.rs in the published gpui-pre-windows 0.3.8, which the three builds start from (line ends aside).
+gpui minimal.exe: ARM64, SHA-256 92aa084255804f6a299f65efc481d09b3dc25842b6e896f4abd5a1e4b86c64fe
+gpui gpui-textview-poc.exe: ARM64, SHA-256 1a9b8dd20dfed0cd07b0810ec4fd4e492bbe10bec0d10f14e1294859718b6d97
+fix minimal.exe: ARM64, SHA-256 6a3b972307db48698dee3afb7083e9cea4bfe9fe727287d059c70b764b84d9dc
+fix gpui-textview-poc.exe: ARM64, SHA-256 8660c8c1db6377ebabab6e732b84c76c2a671c4d065d45829388ccca351576c5
+diag minimal.exe: ARM64, SHA-256 75061f69ea78774856d69713acac01695fc0271d3ca3cb67dadd12372c908ffb
+diag gpui-textview-poc.exe: ARM64, SHA-256 9376917916f90d529298f3a664a6dad3358c7c3dc189cc34393b4ac79b3c2fb2
+rustc -vV:
+  rustc 1.99.0 (b940084d7 2026-09-28)
+  binary: rustc
+  commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+  commit-date: 2026-09-28
+  host: aarch64-pc-windows-msvc
+  release: 1.99.0
+  LLVM version: 23.1.1
+build settings in the environment: none

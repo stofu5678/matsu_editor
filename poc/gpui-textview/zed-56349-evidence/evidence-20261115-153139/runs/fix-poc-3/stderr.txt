@@ -1,0 +1,1 @@
+first frame: 294.4 ms

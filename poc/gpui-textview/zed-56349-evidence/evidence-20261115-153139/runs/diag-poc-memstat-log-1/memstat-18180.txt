@@ -1,0 +1,68 @@
+working set         308.0 MB
+private usage       319.9 MB
+rust heap live        2.7 MB  (peak      2.8 MB)
+win32 heaps           7.3 MB  committed,      6.8 MB allocated, 5 heaps
+
+                                               committed          ws   ws shared
+private                                         304.2 MB    269.5 MB      0.0 MB
+mapped                                           54.7 MB      1.9 MB      1.9 MB
+image                                           239.7 MB     38.7 MB     36.5 MB
+
+top image by working set:
+  gpui-textview-poc.exe                          15.8 MB      4.3 MB      4.3 MB
+  ntdll.dll                                       4.3 MB      3.7 MB      3.6 MB
+  qcgpuarm64xcompilercore.DLL                    49.6 MB      3.0 MB      2.7 MB
+  combase.dll                                     6.8 MB      2.4 MB      2.3 MB
+  qcdx11arm64xum.dll                             16.1 MB      1.9 MB      1.8 MB
+  DWrite.dll                                      4.6 MB      1.2 MB      1.2 MB
+  KernelBase.dll                                  6.9 MB      1.2 MB      1.1 MB
+  d3d11.dll                                       4.8 MB      1.2 MB      1.1 MB
+  TextInputFramework.dll                          2.6 MB      1.1 MB      1.0 MB
+  shell32.dll                                    15.1 MB      1.1 MB      1.0 MB
+  D3DSCache.dll                                   1.6 MB      1.0 MB      1.0 MB
+  CoreMessaging.dll                               2.6 MB      0.9 MB      0.9 MB
+  msctf.dll                                       2.5 MB      0.8 MB      0.8 MB
+  windows.storage.dll                            18.7 MB      0.8 MB      0.8 MB
+  dxgi.dll                                        2.3 MB      0.8 MB      0.7 MB
+  rpcrt4.dll                                      2.0 MB      0.7 MB      0.7 MB
+  UIAutomationCore.dll                            8.2 MB      0.6 MB      0.6 MB
+  CoreUIComponents.dll                            6.5 MB      0.6 MB      0.6 MB
+  user32.dll                                      2.7 MB      0.5 MB      0.5 MB
+  ucrtbase.dll                                    2.2 MB      0.5 MB      0.5 MB
+  dcomp.dll                                       4.1 MB      0.4 MB      0.4 MB
+  uxtheme.dll                                     1.1 MB      0.4 MB      0.4 MB
+  directmanipulation.dll                          1.1 MB      0.4 MB      0.4 MB
+  directxdatabasehelper.dll                       0.7 MB      0.4 MB      0.4 MB
+  msvcp_win.dll                                   1.4 MB      0.4 MB      0.4 MB
+
+top mapped by working set:
+  (anonymous)                                     5.7 MB      1.2 MB      1.2 MB
+  ~FontCache-FontFace.dat                        16.0 MB      0.2 MB      0.2 MB
+  ~FontCache-S-1-5-21-263988513-1405807638-568130722-1001.dat      8.0 MB      0.1 MB      0.1 MB
+  C_932.NLS                                       0.3 MB      0.1 MB      0.1 MB
+  SortDefault.nls                                 3.2 MB      0.1 MB      0.1 MB
+  locale.nls                                      0.8 MB      0.1 MB      0.1 MB
+  DirectXApps.sdb                                 1.6 MB      0.1 MB      0.1 MB
+  52264C4C-172F-41B9-91B8-7F0C3B1E9021_VEN_4D4F4351&DEV_36334330&SUBSYS_39364330&REV_88.dxcache-shm      0.0 MB      0.0 MB      0.0 MB
+  YuGothM.ttc                                    13.3 MB      0.0 MB      0.0 MB
+  BIZ-UDGothicR.ttc                               4.8 MB      0.0 MB      0.0 MB
+  KernelBase.dll.mui                              0.9 MB      0.0 MB      0.0 MB
+  l_intl.nls                                      0.0 MB      0.0 MB      0.0 MB
+  oleaccrc.dll                                    0.0 MB      0.0 MB      0.0 MB
+
+private allocations by committed size (rounded up to MB):
+     5 MB x 61    ws    244.5 MB
+    31 MB x 1     ws     21.4 MB
+     4 MB x 1     ws      3.1 MB
+     1 MB x 32    ws      0.4 MB
+    25 MB x 1     ws      0.0 MB
+
+top private allocations by committed size:
+  0x000001970e000000                               30.2 MB     21.4 MB      0.0 MB
+  0x0000019711000000                               24.3 MB      0.0 MB      0.0 MB
+  0x000001970a000000                                4.2 MB      4.3 MB      0.0 MB
+  0x0000019720150000                                4.0 MB      4.0 MB      0.0 MB
+  0x0000019718770000                                4.0 MB      4.0 MB      0.0 MB
+  0x0000019719fd0000                                4.0 MB      4.0 MB      0.0 MB
+  0x000001971c870000                                4.0 MB      4.0 MB      0.0 MB
+  0x0000019720560000                                4.0 MB      4.0 MB      0.0 MB

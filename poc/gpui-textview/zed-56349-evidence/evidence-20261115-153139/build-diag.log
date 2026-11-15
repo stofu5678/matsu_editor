@@ -1,0 +1,6 @@
+     Locking 1 package to highest Rust 1.99.0 compatible version
+      Adding gpui-pre-windows v0.3.8 (C:\work\zed-56349\crate-diag\gpui-pre-windows-0.3.8)
+   Compiling gpui-pre-windows v0.3.8 (C:\work\zed-56349\crate-diag\gpui-pre-windows-0.3.8)
+   Compiling gpui-pre-platform v0.3.8
+   Compiling gpui-textview-poc v0.0.0 (C:\work\zed-56349\src\poc\gpui-textview)
+    Finished `release` profile [optimized] target(s) in 31.55s

@@ -1,0 +1,13 @@
+Windows: Microsoft Windows 11 Pro 26H2, build 26300.9974, Arm64
+Model: Dell Inc. XPS 13 9345
+CPU: Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU
+Memory: 63.5 GiB
+GPU: Qualcomm(R) Adreno(TM) X1-85 GPU, driver 31.0.170.0 (2026-07-25)
+Display: 2880x1800
+Display scale: AppliedDPI 144 (150 %)
+Font smoothing: FontSmoothing 2, FontSmoothingType 2 (2 is ClearType; GPUI then draws glyphs as Subpixel)
+BIZ UDGothic (used by minimal): installed
+PowerShell: 5.1.26100.9974
+Rust: rustc 1.99.0, host aarch64-pc-windows-msvc; cargo 1.99.0 (5f94df478 2026-08-27)
+Git: git version 2.51.2.windows.1
+Zed main: zed-industries/zed@e2f00a41ac67 (2026-11-15T05:20:14Z), crates/gpui_windows/src/directx_atlas.rs: UpdateSubresource( on line 304; D3D11_USAGE_STAGING appears 0 times
