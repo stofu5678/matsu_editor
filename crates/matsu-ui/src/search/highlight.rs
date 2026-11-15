@@ -9,7 +9,7 @@
 
 use matsu_core::buffer::Document;
 use matsu_core::search::Matcher;
-use matsu_layout::{DocumentLayout, RowInfo};
+use matsu_layout::{DocumentLayout, RowInfo, X};
 
 /// Lines longer than this are not searched for the highlight: the highlight is redone on every
 /// paint, and a line this long is searched whole (matchers see whole lines).
@@ -61,7 +61,8 @@ pub fn highlight_columns(
         if row.eol.is_some()
             && let Some(slot) = line_matches.and_then(|m| m.eol)
         {
-            cols.push((row.end_column, row.end_column + 1, slot));
+            let end = layout.config().width.to_columns(row.end_x);
+            cols.push((end, end + 1, slot));
         }
         out.push(cols);
     }
@@ -77,7 +78,7 @@ struct ColumnWalk<'a> {
     chars: std::str::CharIndices<'a>,
     /// The line offset and the column at the start of the chars not yet read.
     at: usize,
-    col: u32,
+    col: X,
     /// The offset of the row in its line.
     base: usize,
 }
@@ -88,21 +89,22 @@ impl<'a> ColumnWalk<'a> {
             layout,
             chars: row.text().char_indices(),
             at: row.start.col,
-            col: row.start_column,
+            col: row.start_x,
             base: row.start.col,
         }
     }
 
     /// The column of the line offset `target` (at the row's end if it is past it).
     fn column_at(&mut self, target: usize) -> u32 {
+        // The layout counts in `X`; the matches are in columns until ADR-0034 stage 3.
         while self.at < target {
             let Some((i, c)) = self.chars.next() else {
                 break;
             };
-            self.col += self.layout.config().columns_of(c, self.col);
+            self.col += self.layout.config().advance(c, self.col);
             self.at = self.base + i + c.len_utf8();
         }
-        self.col
+        self.layout.config().width.to_columns(self.col)
     }
 }
 

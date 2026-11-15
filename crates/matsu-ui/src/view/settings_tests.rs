@@ -378,11 +378,17 @@ fn a_click_lands_on_the_column_of_the_spaced_cell(cx: &mut TestAppContext) {
 fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, "a\tbb\ncccc\td\n");
     let stops = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
-        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+        view.read_with(cx, |v, _| {
+            let widths = v.layout.config().width;
+            (v.layout.config().tsv.ends().iter())
+                .map(|&e| widths.to_columns(e))
+                .collect::<Vec<_>>()
+        })
     };
     let column = |view: &Entity<EditorView>, cx: &mut VisualTestContext, pos| {
         view.read_with(cx, |v, cx| {
-            v.layout.pos_to_row(v.doc(cx), pos).unwrap().column
+            let at = v.layout.pos_to_row(v.doc(cx), pos).unwrap();
+            v.layout.config().width.to_columns(at.x)
         })
     };
     assert!(stops(&view, cx).is_empty());
@@ -446,7 +452,12 @@ fn a_new_pane_keeps_the_tsv_stops_of_the_pane_it_comes_from(cx: &mut TestAppCont
     let pane =
         cx.new(|cx| EditorView::new_pane(document, seed, gpui::WeakEntity::new_invalid(), cx));
     let ends = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
-        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+        view.read_with(cx, |v, _| {
+            let widths = v.layout.config().width;
+            (v.layout.config().tsv.ends().iter())
+                .map(|&e| widths.to_columns(e))
+                .collect::<Vec<_>>()
+        })
     };
     assert_eq!(ends(&view, cx), [6, 10]);
     assert_eq!(ends(&pane, cx), [6, 10]);
@@ -468,7 +479,12 @@ fn the_stops_are_counted_a_piece_a_frame_and_end_as_a_whole_count_does(cx: &mut 
     let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
     let stops = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
-        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+        view.read_with(cx, |v, _| {
+            let widths = v.layout.config().width;
+            (v.layout.config().tsv.ends().iter())
+                .map(|&e| widths.to_columns(e))
+                .collect::<Vec<_>>()
+        })
     };
     // frames with no time read a few lines each (the budget is tested in `matsu_layout::tsv`);
     // the count ends as the whole one does

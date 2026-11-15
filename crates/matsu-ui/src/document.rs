@@ -240,7 +240,7 @@ impl SharedDocument {
     pub fn step_tsv_stops(
         &self,
         mode: matsu_layout::TsvMode,
-        width: &matsu_layout::WidthRule,
+        width: &matsu_layout::Widths,
         budget: std::time::Duration,
     ) -> bool {
         let mut state = self.tsv.borrow_mut();

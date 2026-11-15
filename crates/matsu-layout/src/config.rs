@@ -27,7 +27,8 @@
 
 use crate::kinsoku::{CharSet, Kinsoku};
 use crate::tsv::{TsvMode, TsvStops};
-use crate::width::WidthRule;
+use crate::width::Widths;
+use crate::x::X;
 
 /// The most columns Sakura lets a line have (`MAXLINEKETAS`, `config/app_constants.h`). It is
 /// also the width when lines are "not wrapped" (`CEditDoc::OnChangeSetting`: "otherwise
@@ -86,7 +87,7 @@ pub struct LayoutConfig {
     /// 英文ワードラップ (`m_bWordWrap`): a line breaks before an English word rather than in it.
     pub word_wrap: bool,
     pub kinsoku: Kinsoku,
-    pub width: WidthRule,
+    pub width: Widths,
     pub indent: WrapIndent,
     /// The TSV or CSV mode and where its fields end (`m_nTsvMode`). Not the same as the tab
     /// width: in these modes the delimiter goes to the end of the field.
@@ -102,7 +103,7 @@ impl Default for LayoutConfig {
             tab_width: 4,
             word_wrap: false,
             kinsoku: Kinsoku::default(),
-            width: WidthRule::default(),
+            width: Widths::default(),
             indent: WrapIndent::None,
             tsv: TsvStops::none(),
         }
@@ -110,7 +111,8 @@ impl Default for LayoutConfig {
 }
 
 impl LayoutConfig {
-    /// The columns in a row (`GetMaxLineKetas`).
+    /// The columns in a row (`GetMaxLineKetas`). The setting, in columns; the layout counts in
+    /// [`max_x`](Self::max_x).
     pub fn max_columns(&self) -> u32 {
         match self.wrap {
             Wrap::None => MAX_LINE_COLUMNS,
@@ -118,41 +120,52 @@ impl LayoutConfig {
         }
     }
 
+    /// The width of a row in `X`: the wrap columns times the `X` of a column (`GetMaxLineLayout`).
+    pub fn max_x(&self) -> X {
+        self.width.to_x(self.max_columns())
+    }
+
     /// The tab width in use: the setting, or 4 when it is not less than the wrap column
-    /// (`CLayoutMgr::_DoLayoutSub`, "Nov. 16, 2002 genta"). 0 counts as 1.
+    /// (`CLayoutMgr::_DoLayoutSub`, "Nov. 16, 2002 genta"). 0 counts as 1. In columns, as the
+    /// setting is; the layout counts in [`tab_x`](Self::tab_x).
     pub fn effective_tab_width(&self) -> u32 {
         let tab = self.tab_width.max(1);
         if tab >= self.max_columns() { 4 } else { tab }
     }
 
-    /// The most columns one character can take: a tab, a delimiter of the TSV or CSV mode, a
-    /// full-width character or a stand-in for an invalid byte (at least 2).
-    pub fn widest_character(&self) -> u32 {
-        self.effective_tab_width()
-            .max(2)
-            .max(self.width.invalid_byte)
-            .max(self.tsv.widest_delimiter())
+    /// The tab width in `X` (`GetTabSpace`: the columns times the `X` of a column).
+    pub fn tab_x(&self) -> X {
+        self.width.to_x(self.effective_tab_width())
     }
 
-    /// The columns `c` takes when it starts at column `x`: a tab goes to the next tab stop
-    /// (`GetActualTsvSpace`, `TSV_MODE_NONE`: `tab - x % tab`, 1 to the tab width), and the other
-    /// characters have their own width ([`WidthRule::columns`]). Control characters take 1, like
-    /// the proxy character Sakura measures for them (`CCharWidthCache::QueryPixelWidth`).
+    /// The most `X` one character can take: a tab, a delimiter of the TSV or CSV mode, a
+    /// full-width character or a stand-in for an invalid byte (at least 2 columns). `None` when
+    /// the width form has no such limit ([`Widths::widest_char`]).
+    pub fn widest_character(&self) -> Option<X> {
+        let plain = self.width.widest_char()?;
+        Some(plain.max(self.tab_x()).max(self.tsv.widest_delimiter()))
+    }
+
+    /// The `X` that `c` takes when it starts at `x`: a tab goes to the next tab stop
+    /// (`GetActualTsvSpace`, `TSV_MODE_NONE`: `tab - x % tab` with `tab` in `X`, so the stops are
+    /// multiples of the tab width times `per_column`), and the other characters have their own
+    /// width ([`Widths::width_of`]). Control characters take 1 column, like the proxy character
+    /// Sakura measures for them (`CCharWidthCache::QueryPixelWidth`).
     ///
     /// In TSV mode a tab, and in CSV mode a comma, goes to the end of its field
-    /// ([`TsvStops::delimiter_columns`]). A tab in CSV mode takes 1 column: Sakura gives it
+    /// ([`TsvStops::delimiter_width`]). A tab in CSV mode takes 1 column: Sakura gives it
     /// `m_nCharLayoutXPerKeta - 1` pixels, one pixel short of the column it is drawn in (a
     /// slip, so the columns that follow it are not lined up with the pixels; type A of
     /// ADR-0018).
-    pub fn columns_of(&self, c: char, x: u32) -> u32 {
+    pub fn advance(&self, c: char, x: X) -> X {
         match (self.tsv.mode(), c) {
-            (TsvMode::Tsv, '\t') | (TsvMode::Csv, ',') => self.tsv.delimiter_columns(x),
-            (TsvMode::Csv, '\t') => 1,
+            (TsvMode::Tsv, '\t') | (TsvMode::Csv, ',') => self.tsv.delimiter_width(x),
+            (TsvMode::Csv, '\t') => self.width.to_x(1),
             (_, '\t') => {
-                let tab = self.effective_tab_width();
+                let tab = self.tab_x();
                 tab - x % tab
             }
-            _ => self.width.columns(c),
+            _ => self.width.width_of(c),
         }
     }
 }
@@ -161,43 +174,47 @@ impl LayoutConfig {
 mod tests {
     use super::*;
 
+    /// The `X` of `c` at `at`, as a number: these configs have one `X` per column.
+    fn advance(cfg: &LayoutConfig, c: char, at: u32) -> u32 {
+        cfg.advance(c, X::from_raw(at)).raw()
+    }
+
     #[test]
     fn tab_goes_to_the_next_stop() {
         let cfg = LayoutConfig::default();
         // GetActualTsvSpace: tab - pos % tab, so a tab on a stop takes the whole width.
-        assert_eq!(cfg.columns_of('\t', 0), 4);
-        assert_eq!(cfg.columns_of('\t', 1), 3);
-        assert_eq!(cfg.columns_of('\t', 3), 1);
-        assert_eq!(cfg.columns_of('\t', 4), 4);
-        assert_eq!(cfg.columns_of('\t', 6), 2);
+        assert_eq!(advance(&cfg, '\t', 0), 4);
+        assert_eq!(advance(&cfg, '\t', 1), 3);
+        assert_eq!(advance(&cfg, '\t', 3), 1);
+        assert_eq!(advance(&cfg, '\t', 4), 4);
+        assert_eq!(advance(&cfg, '\t', 6), 2);
     }
 
     #[test]
     fn the_tsv_modes_send_the_delimiter_to_the_end_of_its_field() {
-        use crate::width::WidthRule;
         let lines = ["ab\tc,d", "e\tfgh,i"];
-        let stops = |mode| TsvStops::from_lines(mode, &WidthRule::default(), lines);
+        let stops = |mode| TsvStops::from_lines(mode, &Widths::default(), lines);
         let tsv = LayoutConfig {
             tsv: stops(TsvMode::Tsv),
             ..LayoutConfig::default()
         };
         // field 0 is 2 wide (ab), so its stop is 4
-        assert_eq!(tsv.columns_of('\t', 2), 2);
-        assert_eq!(tsv.columns_of('\t', 1), 3);
+        assert_eq!(advance(&tsv, '\t', 2), 2);
+        assert_eq!(advance(&tsv, '\t', 1), 3);
         // the comma is an ordinary character
-        assert_eq!(tsv.columns_of(',', 6), 1);
+        assert_eq!(advance(&tsv, ',', 6), 1);
         let csv = LayoutConfig {
             tsv: stops(TsvMode::Csv),
             ..LayoutConfig::default()
         };
         // the widest first field is "e\tfgh", 5 columns, so the first stop is 7
-        assert_eq!(csv.tsv.ends()[0], 7);
-        assert_eq!(csv.columns_of(',', 4), 3);
-        assert_eq!(csv.columns_of('\t', 4), 1);
-        assert_eq!(csv.columns_of('x', 4), 1);
+        assert_eq!(csv.tsv.ends()[0], X::from_raw(7));
+        assert_eq!(advance(&csv, ',', 4), 3);
+        assert_eq!(advance(&csv, '\t', 4), 1);
+        assert_eq!(advance(&csv, 'x', 4), 1);
         // the mode None is unchanged
-        assert_eq!(LayoutConfig::default().columns_of('\t', 2), 2);
-        assert_eq!(LayoutConfig::default().columns_of(',', 2), 1);
+        assert_eq!(advance(&LayoutConfig::default(), '\t', 2), 2);
+        assert_eq!(advance(&LayoutConfig::default(), ',', 2), 1);
     }
 
     #[test]

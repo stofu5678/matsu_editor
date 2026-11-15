@@ -25,24 +25,25 @@
 
 use crate::config::LayoutConfig;
 use crate::wrap::Row;
+use crate::x::X;
 
-/// A place on the screen: a row of the line and a column in it.
+/// A place on the screen: a row of the line and a position in it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Position {
     /// The index into the rows of the line.
     pub row: usize,
-    /// The display column, counted from the left edge (the indent is included).
-    pub column: u32,
+    /// The display position, counted from the left edge (the indent is included).
+    pub x: X,
 }
 
-/// A place in the text, with the columns that were asked for beyond it.
+/// A place in the text, with the width that was asked for beyond it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Located {
     /// The byte offset in the line, on a character boundary.
     pub offset: usize,
-    /// The columns between the end of the row and the column that was asked for, when that is
+    /// The width between the end of the row and the position that was asked for, when that is
     /// past the end (`CLogicPointEx::ext` in Sakura). 0 inside the row.
-    pub extra_columns: u32,
+    pub extra_x: X,
 }
 
 /// The display position of the byte `offset` of the line (`CLayoutMgr::LogicToLayout`).
@@ -58,32 +59,32 @@ pub struct Located {
 /// `rows` is what [`crate::layout_line`] made of `text`.
 pub fn offset_to_position(text: &str, rows: &[Row], cfg: &LayoutConfig, offset: usize) -> Position {
     let Some(last) = rows.last() else {
-        return Position { row: 0, column: 0 };
+        return Position { row: 0, x: X::ZERO };
     };
     let offset = offset.min(last.range.end);
     let row = rows
         .partition_point(|r| r.range.start <= offset)
         .saturating_sub(1);
     let r = &rows[row];
-    let mut x = r.start_column;
+    let mut x = r.start_x;
     for (i, c) in text[r.range.clone()].char_indices() {
         // The offset in the middle of a character is the start of it.
         if r.range.start + i + c.len_utf8() > offset {
             break;
         }
-        x += cfg.columns_of(c, x);
+        x += cfg.advance(c, x);
     }
-    Position { row, column: x }
+    Position { row, x }
 }
 
-/// The byte offset at the display position (`row`, `column`) (`CLayoutMgr::LayoutToLogicEx`),
+/// The byte offset at the display position (`row`, `x`) (`CLayoutMgr::LayoutToLogicEx`),
 /// for a click or for moving the caret up and down.
 ///
-/// - The column inside a full-width character or a tab snaps to the left edge of it
+/// - A position inside a full-width character or a tab snaps to the left edge of it
 ///   (`nX + nCharKetas > ptLayout.x` stops before the character).
-/// - A column left of the first character, in the indent, is the start of the row.
-/// - A column past the end of the row is the end of the row, and the columns past it are in
-///   [`Located::extra_columns`]. Note that the end of a wrapped row is the start of the next
+/// - A position left of the first character, in the indent, is the start of the row.
+/// - A position past the end of the row is the end of the row, and the width past it is in
+///   [`Located::extra_x`]. Note that the end of a wrapped row is the start of the next
 ///   row, as in Sakura; the caller shows the caret at the left of the next row, or keeps it at
 ///   the end of this one, as it likes.
 /// - A `row` past the last one is the last one.
@@ -92,28 +93,28 @@ pub fn position_to_offset(
     rows: &[Row],
     cfg: &LayoutConfig,
     row: usize,
-    column: u32,
+    x: X,
 ) -> Located {
     let Some(last) = rows.last() else {
         return Located {
             offset: 0,
-            extra_columns: column,
+            extra_x: x,
         };
     };
     let r = rows.get(row).unwrap_or(last);
-    let mut x = r.start_column;
+    let mut at = r.start_x;
     for (i, c) in text[r.range.clone()].char_indices() {
-        let w = cfg.columns_of(c, x);
-        if x + w > column {
+        let w = cfg.advance(c, at);
+        if at + w > x {
             return Located {
                 offset: r.range.start + i,
-                extra_columns: 0,
+                extra_x: X::ZERO,
             };
         }
-        x += w;
+        at += w;
     }
     Located {
         offset: r.range.end,
-        extra_columns: column.saturating_sub(x),
+        extra_x: x.saturating_sub(at),
     }
 }

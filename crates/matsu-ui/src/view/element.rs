@@ -753,7 +753,10 @@ impl Element for EditorElement {
         let version = editor.document.read(cx).version();
         let mut carried: Option<(usize, ColorState)> = None;
         for (row_index, row) in rows.iter().enumerate() {
-            widest = widest.max(row.end_column);
+            // The layout counts in `X`; the painting is in columns (ADR-0034 stage 3 changes that).
+            let (start_col, end_col) =
+                (widths.to_columns(row.start_x), widths.to_columns(row.end_x));
+            widest = widest.max(end_col);
             let bookmarked = !row.is_eof_row && bookmarks.contains(row.line);
             // the empty row after the last line break is no line (Sakura has no layout for it)
             let modified = !row.is_eof_row && model.is_line_modified(row.line);
@@ -864,7 +867,7 @@ impl Element for EditorElement {
                 rules,
                 &syntax::RowInput {
                     text: row.text(),
-                    start_col: row.start_column,
+                    start_col,
                     cfg: layout.config(),
                     runs: &row_runs,
                     found: &row_found,
@@ -969,19 +972,16 @@ impl Element for EditorElement {
                     // The mark is in its own color, or in the color of the text it ends.
                     // A search that matches the line break colors its mark (the match covers the
                     // line ending: `highlight_columns` gives the column of the mark).
-                    let eol_found = row_found
-                        .iter()
-                        .find(|r| r.0 == row.end_column)
-                        .map(|r| r.2);
+                    let eol_found = row_found.iter().find(|r| r.0 == end_col).map(|r| r.2);
                     let around = syntax::entry_of(&colors, rules, eol_color, eol_found);
                     let mark = syntax::space_style(&colors.eol_entry, &around, &colors);
                     if let (Some(_), Some(back)) = (eol_found, mark.style.back) {
-                        backs.push((row.end_column, row.end_column + 1, back));
+                        backs.push((end_col, end_col + 1, back));
                     }
                     place(
                         window,
                         &mut marks,
-                        (row.end_column, eol_mark(eol), &mark.style),
+                        (end_col, eol_mark(eol), &mark.style),
                         |_: char| 1,
                         grid,
                         &shape_styled,
@@ -989,14 +989,14 @@ impl Element for EditorElement {
                 }
             } else if !row.wrapped && row.line == last_line && marks_shown.eof {
                 backs.push((
-                    row.end_column,
-                    row.end_column + eof_width,
+                    end_col,
+                    end_col + eof_width,
                     eof_style.back.unwrap_or_default(),
                 ));
                 place(
                     window,
                     &mut marks,
-                    (row.end_column, EOF_MARK, &eof_style),
+                    (end_col, EOF_MARK, &eof_style),
                     |_: char| 1,
                     grid,
                     &shape_styled,
@@ -1012,7 +1012,8 @@ impl Element for EditorElement {
                         layout.pos_to_row(doc, a).ok()?,
                         layout.pos_to_row(doc, b).ok()?,
                     );
-                    (a.row == row.row && b.row == row.row).then_some((a.column, b.column))
+                    (a.row == row.row && b.row == row.row)
+                        .then_some((widths.to_columns(a.x), widths.to_columns(b.x)))
                 });
             let has_number_area = show_line_numbers && !row.is_eof_row;
             let term = if has_number_area {
@@ -1076,7 +1077,7 @@ impl Element for EditorElement {
                         cell,
                         matsu_platform::caret_width::os_caret_width(),
                     );
-                    (i, caret_column.max(at.column), shape)
+                    (i, caret_column.max(widths.to_columns(at.x)), shape)
                 })
         });
 
@@ -1091,7 +1092,7 @@ impl Element for EditorElement {
         let caret_total_column = layout
             .pos_to_row(doc, caret_pos)
             .ok()
-            .map(|at| caret_column.max(at.column));
+            .map(|at| caret_column.max(widths.to_columns(at.x)));
 
         // The right end of the selection, which the range of the horizontal scroll bar covers when
         // the text does not wrap (`GetRightEdgeForScrollBar`), and the caret of the free cursor.
@@ -1100,7 +1101,12 @@ impl Element for EditorElement {
             .selection()
             .into_iter()
             .flat_map(|(from, to)| [from, to])
-            .filter_map(|pos| layout.pos_to_row(doc, pos).ok().map(|at| at.column))
+            .filter_map(|pos| {
+                layout
+                    .pos_to_row(doc, pos)
+                    .ok()
+                    .map(|at| widths.to_columns(at.x))
+            })
             .chain(options.free_cursor.then_some(caret_total_column).flatten())
             // A box selection can end right of the text: its corners have columns of their own.
             .chain(
@@ -2148,7 +2154,7 @@ mod tests {
         let config = matsu_layout::LayoutConfig {
             tsv: matsu_layout::TsvStops::from_lines(
                 matsu_layout::TsvMode::Csv,
-                &matsu_layout::WidthRule::default(),
+                &matsu_layout::Widths::default(),
                 ["abcdefgh,d"],
             ),
             ..Default::default()
@@ -2423,7 +2429,9 @@ mod tests {
         // a tab takes the columns to the next stop
         let cfg = matsu_layout::LayoutConfig::default();
         assert_eq!(
-            glyph_cells(1, "\t", |c| cfg.columns_of(c, 1)),
+            glyph_cells(1, "\t", |c| {
+                cfg.width.to_columns(cfg.advance(c, cfg.width.to_x(1)))
+            }),
             [(1, '\t', 3)]
         );
     }

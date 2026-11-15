@@ -41,7 +41,7 @@ pub(crate) struct Snapshot {
     /// The fixed end of the selection (the caret when nothing is selected) and the caret.
     pub(crate) anchor: Spot,
     pub(crate) focus: Spot,
-    /// For the width of tabs and wide characters (`LayoutConfig::columns_of`); the rest of the
+    /// For the width of tabs and wide characters (`LayoutConfig::advance`); the rest of the
     /// configuration is not used.
     pub(crate) columns: LayoutConfig,
     /// The left edge of column 0 of the text and the top edge of the first row, in pixels of the
@@ -137,15 +137,17 @@ impl Snapshot {
     fn run(&self, index: usize, row: &RowInfo, stops_both_ends: bool) -> Run {
         let mut value = String::from(row.text());
         let mut char_lengths: Vec<u8> = value.chars().map(|c| c.len_utf8() as u8).collect();
-        let mut x = row.start_column;
+        // The layout counts in `X`; the cells here are columns (ADR-0034 stage 3 changes that).
+        let cols = self.columns.width;
+        let mut x = row.start_x;
         let mut positions = Vec::with_capacity(char_lengths.len() + 1);
         let mut widths = Vec::with_capacity(char_lengths.len() + 1);
         let unit = self.cell * self.scale;
         let origin = x;
         for c in value.chars() {
-            let w = self.columns.columns_of(c, x);
-            positions.push((x - origin) as f32 * unit);
-            widths.push(w as f32 * unit);
+            let w = self.columns.advance(c, x);
+            positions.push(cols.to_columns(x - origin) as f32 * unit);
+            widths.push(cols.to_columns(w) as f32 * unit);
             x += w;
         }
         if row.eol.is_some() {
@@ -153,9 +155,9 @@ impl Snapshot {
             // rule), after the last character, one cell wide as its mark.
             value.push('\n');
             char_lengths.push(1);
-            positions.push((x - origin) as f32 * unit);
+            positions.push(cols.to_columns(x - origin) as f32 * unit);
             widths.push(unit);
-            x += 1;
+            x += cols.to_x(1);
         }
         // A row that goes on from a soft wrap continues the word before it unless the characters
         // around the wrap say otherwise. Without the row before it (it is above the screen),
@@ -174,8 +176,9 @@ impl Snapshot {
             word_starts(row.text(), before, row.eol.is_some(), stops_both_ends)
         };
         // The width counts the cell of the mark of the end of the text, where the caret can be.
-        let width = (x - origin + u32::from(row.eol.is_none())) as f32 * unit;
-        let x0 = f64::from((self.left + row.start_column as f32 * self.cell) * self.scale);
+        let width = (cols.to_columns(x - origin) + u32::from(row.eol.is_none())) as f32 * unit;
+        let x0 =
+            f64::from((self.left + cols.to_columns(row.start_x) as f32 * self.cell) * self.scale);
         let y0 = f64::from((self.top + index as f32 * self.line_height) * self.scale);
         Run {
             row: row.row,

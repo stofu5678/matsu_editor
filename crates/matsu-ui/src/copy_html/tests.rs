@@ -56,7 +56,7 @@ impl Fixture {
     fn pos_at(&self, (line, col): (usize, usize)) -> Pos {
         let row = self.layout.first_row_of_line(line);
         self.layout
-            .row_to_pos(&self.doc, row, col as u32)
+            .row_to_pos(&self.doc, row, self.layout.config().width.to_x(col as u32))
             .unwrap()
             .pos
     }

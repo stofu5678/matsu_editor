@@ -36,7 +36,7 @@ pub(crate) fn cell_is_selected(
         layout
             .pos_to_row(doc, pos)
             .ok()
-            .map(|at| (at.row, at.column))
+            .map(|at| (at.row, layout.config().width.to_columns(at.x)))
     };
     match (cell(start), cell(end)) {
         (Some(from), Some(to)) => (from..to).contains(&(row, col)),

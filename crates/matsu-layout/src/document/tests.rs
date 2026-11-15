@@ -10,6 +10,12 @@ use matsu_core::buffer::{Document, Pos};
 use super::*;
 use crate::config::{Wrap, WrapIndent};
 use crate::kinsoku::Kinsoku;
+use crate::width::{WidthRule, Widths};
+
+/// A position or a width in `X`; the layouts here have one `X` per column.
+fn x(n: u32) -> X {
+    X::from_raw(n)
+}
 
 struct Rng(u64);
 
@@ -159,9 +165,9 @@ fn assert_matches(idx: &DocumentLayout, doc: &Document, cfg: &LayoutConfig) {
         for col in offsets.into_iter().step_by(step).chain([text.len()]) {
             let pos = Pos::new(line, col);
             let at = idx.pos_to_row(doc, pos).unwrap();
-            let back = idx.row_to_pos(doc, at.row, at.column).unwrap();
+            let back = idx.row_to_pos(doc, at.row, at.x).unwrap();
             assert_eq!(back.pos, pos, "{pos:?} -> {at:?}");
-            assert_eq!(back.extra_columns, 0);
+            assert_eq!(back.extra_x.raw(), 0);
             // The row is a row of this line.
             let r = idx.locate_row(at.row);
             assert_eq!(r.line, line);
@@ -174,11 +180,11 @@ fn assert_matches(idx: &DocumentLayout, doc: &Document, cfg: &LayoutConfig) {
             at,
             RowPos {
                 row: idx.eof_row(),
-                column: 0
+                x: x(0)
             }
         );
-        let back = idx.row_to_pos(doc, at.row, 7).unwrap();
-        assert_eq!((back.pos, back.extra_columns), (end, 7));
+        let back = idx.row_to_pos(doc, at.row, x(7)).unwrap();
+        assert_eq!((back.pos, back.extra_x.raw()), (end, 7));
     }
 }
 
@@ -195,7 +201,7 @@ fn empty_document_has_only_the_eof_row() {
     assert_eq!(idx.locate_row(0).line, 0);
     assert_eq!(
         idx.pos_to_row(&d, Pos::new(0, 0)).unwrap(),
-        RowPos { row: 0, column: 0 }
+        RowPos { row: 0, x: x(0) }
     );
     assert_matches(&idx, &d, &wrap(10));
 }
@@ -283,23 +289,23 @@ fn rows_and_positions_of_a_wrapped_document() {
     assert_eq!(idx.first_row_of_line(2), 4);
     assert_eq!(
         idx.pos_to_row(&d, Pos::new(0, 12)).unwrap(),
-        RowPos { row: 1, column: 2 }
+        RowPos { row: 1, x: x(2) }
     );
     // The start of a wrapped row is at the left of that row, not the right end of the previous.
     assert_eq!(
         idx.pos_to_row(&d, Pos::new(0, 10)).unwrap(),
-        RowPos { row: 1, column: 0 }
+        RowPos { row: 1, x: x(0) }
     );
-    let t = idx.row_to_pos(&d, 1, 2).unwrap();
+    let t = idx.row_to_pos(&d, 1, x(2)).unwrap();
     assert_eq!(t.pos, Pos::new(0, 12));
     // Full-width chars: a column inside one snaps to its left edge.
-    let t = idx.row_to_pos(&d, 4, 3).unwrap();
+    let t = idx.row_to_pos(&d, 4, x(3)).unwrap();
     assert_eq!(t.pos, Pos::new(2, 3));
     // Past the end of the row: the end and the extra columns.
-    let t = idx.row_to_pos(&d, 3, 5).unwrap();
-    assert_eq!((t.pos, t.extra_columns), (Pos::new(1, 1), 4));
+    let t = idx.row_to_pos(&d, 3, x(5)).unwrap();
+    assert_eq!((t.pos, t.extra_x.raw()), (Pos::new(1, 1), 4));
     // A row past the last one is the last one.
-    let t = idx.row_to_pos(&d, 999, 0).unwrap();
+    let t = idx.row_to_pos(&d, 999, x(0)).unwrap();
     assert_eq!(t.row, idx.eof_row());
     assert_matches(&idx, &d, &cfg);
 }
@@ -308,17 +314,17 @@ fn rows_and_positions_of_a_wrapped_document() {
 fn moving_up_and_down_keeps_the_goal_column() {
     let d = doc("abcdef\n日本語\nx\n");
     let idx = DocumentLayout::laid_out(&d, wrap(80)).unwrap();
-    let down = idx.move_rows(&d, Pos::new(0, 3), 1, 3).unwrap();
+    let down = idx.move_rows(&d, Pos::new(0, 3), 1, x(3)).unwrap();
     // Column 3 is inside the second full-width char (columns 2-3): its left edge.
     assert_eq!(down.pos, Pos::new(1, 3));
-    let down = idx.move_rows(&d, down.pos, 1, 3).unwrap();
-    assert_eq!((down.pos, down.extra_columns), (Pos::new(2, 1), 2));
+    let down = idx.move_rows(&d, down.pos, 1, x(3)).unwrap();
+    assert_eq!((down.pos, down.extra_x.raw()), (Pos::new(2, 1), 2));
     // Down from the last line goes to the EOF row, and not further.
-    let eof = idx.move_rows(&d, down.pos, 1, 3).unwrap();
+    let eof = idx.move_rows(&d, down.pos, 1, x(3)).unwrap();
     assert_eq!(eof.pos, Pos::new(3, 0));
-    let stay = idx.move_rows(&d, eof.pos, 5, 0).unwrap();
+    let stay = idx.move_rows(&d, eof.pos, 5, x(0)).unwrap();
     assert_eq!(stay.pos, Pos::new(3, 0));
-    let up = idx.move_rows(&d, eof.pos, -100, 0).unwrap();
+    let up = idx.move_rows(&d, eof.pos, -100, x(0)).unwrap();
     assert_eq!(up.pos, Pos::new(0, 0));
 }
 
@@ -327,9 +333,9 @@ fn vertical_moves_across_wrapped_rows() {
     let d = doc("abcdefghijklmnopqrst\nuvw");
     let idx = DocumentLayout::laid_out(&d, wrap(8)).unwrap();
     // Rows: abcdefgh / ijklmnop / qrst, uvw.
-    let t = idx.move_rows(&d, Pos::new(0, 2), 1, 2).unwrap();
+    let t = idx.move_rows(&d, Pos::new(0, 2), 1, x(2)).unwrap();
     assert_eq!(t.pos, Pos::new(0, 10));
-    let t = idx.move_rows(&d, t.pos, 2, 2).unwrap();
+    let t = idx.move_rows(&d, t.pos, 2, x(2)).unwrap();
     assert_eq!(t.pos, Pos::new(1, 2));
 }
 
@@ -441,7 +447,7 @@ fn queries_agree_with_the_counts_before_the_layout_reaches_a_line() {
     for row in 0..idx.row_count() {
         let info = idx.row(&d, row).unwrap();
         assert_eq!(info.row, row);
-        assert_eq!(idx.row_to_pos(&d, row, 0).unwrap().pos, info.start);
+        assert_eq!(idx.row_to_pos(&d, row, x(0)).unwrap().pos, info.start);
         assert_eq!(idx.pos_to_row(&d, info.start).unwrap().row, row);
     }
     assert_eq!(idx.row(&d, 0).unwrap().text(), "abcd");
@@ -811,6 +817,7 @@ mod long_lines {
     use matsu_core::encoding::Encoding;
 
     use super::super::{DocumentLayout, LONG_ROW_BYTES};
+    use super::x;
     use crate::config::LayoutConfig;
 
     /// A source that counts the bytes it hands out.
@@ -903,7 +910,7 @@ mod long_lines {
         for c in line.chars() {
             let pos = Pos::new(1, col);
             let at = layout.pos_to_row(&doc, pos).unwrap();
-            let back = layout.row_to_pos(&doc, at.row, at.column).unwrap();
+            let back = layout.row_to_pos(&doc, at.row, at.x).unwrap();
             assert_eq!(back.pos, pos, "col {col}");
             // the row is the one that holds the column
             let row = layout.row(&doc, at.row).unwrap();
@@ -911,9 +918,11 @@ mod long_lines {
             col += c.len_utf8();
         }
         // moving by rows stays in the line, and the ends of the text are the ends of the line
-        let down = layout.move_rows(&doc, Pos::new(1, 10), 2, 5).unwrap();
+        let down = layout.move_rows(&doc, Pos::new(1, 10), 2, x(5)).unwrap();
         assert_eq!(down.pos.line, 1);
-        let far = layout.move_rows(&doc, Pos::new(1, 10), 10_000, 5).unwrap();
+        let far = layout
+            .move_rows(&doc, Pos::new(1, 10), 10_000, x(5))
+            .unwrap();
         assert!(far.row <= layout.row_count());
     }
 
@@ -945,7 +954,7 @@ mod long_lines {
         });
         let middle = middle.unwrap();
         used("a click in the middle", 64 * 1024, &mut || {
-            let target = layout.row_to_pos(&doc, middle.row, 7).unwrap();
+            let target = layout.row_to_pos(&doc, middle.row, x(7)).unwrap();
             assert_eq!(target.pos.line, 1);
         });
         // a screen of 40 rows: about the text of the rows
@@ -1037,7 +1046,7 @@ fn measure_layout_of_a_file() {
         layout.rows(&doc, rows / 2, 60).unwrap();
     });
     time("a click in the middle", &mut || {
-        layout.row_to_pos(&doc, rows / 2, 10).unwrap();
+        layout.row_to_pos(&doc, rows / 2, x(10)).unwrap();
     });
     time("the position of the end", &mut || {
         let end = doc.end_pos().unwrap();
@@ -1046,7 +1055,7 @@ fn measure_layout_of_a_file() {
     time(
         "the caret one char left of a place in the middle",
         &mut || {
-            let at = layout.row_to_pos(&doc, rows / 2, 10).unwrap().pos;
+            let at = layout.row_to_pos(&doc, rows / 2, x(10)).unwrap().pos;
             matsu_core::cursor::char_left(&doc, at).unwrap();
             matsu_core::cursor::char_right(&doc, Pos::new(at.line, at.col)).unwrap();
         },
@@ -1061,24 +1070,24 @@ fn the_widest_line_is_found_in_pieces() {
     let text = format!("ab\n\ta\n{}\n\u{3042}\u{3044}\n", "x".repeat(20));
     let d = doc(&text);
     let idx = DocumentLayout::laid_out(&d, LayoutConfig::default()).unwrap();
-    let (widest, next) = idx.widest_columns(&d, 0, Duration::from_secs(10)).unwrap();
-    assert_eq!((widest, next), (20, d.line_count()));
+    let (widest, next) = idx.widest_x(&d, 0, Duration::from_secs(10)).unwrap();
+    assert_eq!((widest, next), (x(20), d.line_count()));
     // From the last line: the wide characters take 4 columns.
-    let (widest, _) = idx.widest_columns(&d, 3, Duration::from_secs(10)).unwrap();
-    assert_eq!(widest, 4);
+    let (widest, _) = idx.widest_x(&d, 3, Duration::from_secs(10)).unwrap();
+    assert_eq!(widest, x(4));
     // Nothing left to go through.
     let (widest, next) = idx
-        .widest_columns(&d, d.line_count(), Duration::from_secs(10))
+        .widest_x(&d, d.line_count(), Duration::from_secs(10))
         .unwrap();
-    assert_eq!((widest, next), (0, d.line_count()));
+    assert_eq!((widest, next), (x(0), d.line_count()));
 }
 
 #[test]
 fn a_wrapped_line_is_as_wide_as_its_widest_row() {
     let d = doc(&"x".repeat(25));
     let idx = DocumentLayout::laid_out(&d, wrap(10)).unwrap();
-    let (widest, _) = idx.widest_columns(&d, 0, Duration::from_secs(10)).unwrap();
-    assert_eq!(widest, 10);
+    let (widest, _) = idx.widest_x(&d, 0, Duration::from_secs(10)).unwrap();
+    assert_eq!(widest, x(10));
 }
 
 /// It is not laid out; 4 bytes a column is the least it can be.
@@ -1087,6 +1096,77 @@ fn a_line_too_big_to_lay_out_in_a_frame_counts_as_wide() {
     let text = format!("ab\n{}\ncd\n", "x".repeat(20 * 1024));
     let d = doc(&text);
     let idx = DocumentLayout::laid_out(&d, LayoutConfig::default()).unwrap();
-    let (widest, next) = idx.widest_columns(&d, 0, Duration::from_secs(10)).unwrap();
-    assert_eq!((widest, next), (5 * 1024, d.line_count()));
+    let (widest, next) = idx.widest_x(&d, 0, Duration::from_secs(10)).unwrap();
+    assert_eq!((widest, next), (x(5 * 1024), d.line_count()));
+}
+
+/// ADR-0034, "3. the same as now with a fixed-pitch font": with more `X` for a column the
+/// document gives the same rows, and positions that are the columns times `per_column`. The
+/// no-wrap shortcut (a line that cannot reach the maximum is one row) holds in `X` too.
+#[test]
+fn a_larger_x_for_a_column_gives_the_same_document_layout() {
+    let long = "x".repeat(10_240 + 5);
+    let text = format!(
+        "ab\n\tあい\u{3000}tab\nsome words that wrap around the edge of the row\n{long}\n日本語、のテキスト。\n"
+    );
+    let d = doc(&text);
+    let mut cfgs = configs();
+    cfgs.push(LayoutConfig::default());
+    for cfg in cfgs {
+        let plain = DocumentLayout::laid_out(&d, cfg.clone()).unwrap();
+        for per_column in [64, 80] {
+            let big_cfg = LayoutConfig {
+                width: Widths::grid_scaled(WidthRule::default(), per_column),
+                ..cfg.clone()
+            };
+            let big = DocumentLayout::laid_out(&d, big_cfg).unwrap();
+            let tag = format!("{cfg:?} x{per_column}");
+            assert_eq!(plain.row_count(), big.row_count(), "{tag}");
+            let times = |n: X| x(n.raw() * per_column);
+            let count = plain.row_count();
+            let (a, b) = (
+                plain.rows(&d, 0, count).unwrap(),
+                big.rows(&d, 0, count).unwrap(),
+            );
+            for (a, b) in a.iter().zip(&b) {
+                assert_eq!(
+                    (a.start, a.end, a.wrapped),
+                    (b.start, b.end, b.wrapped),
+                    "{tag}"
+                );
+                assert_eq!(
+                    (times(a.start_x), times(a.end_x)),
+                    (b.start_x, b.end_x),
+                    "{tag}"
+                );
+                let (p, q) = (
+                    plain.pos_to_row(&d, a.start).unwrap(),
+                    big.pos_to_row(&d, a.start).unwrap(),
+                );
+                assert_eq!((p.row, times(p.x)), (q.row, q.x), "{tag}");
+                let back = big.row_to_pos(&d, q.row, q.x).unwrap();
+                assert_eq!(
+                    back.pos,
+                    plain.row_to_pos(&d, p.row, p.x).unwrap().pos,
+                    "{tag}"
+                );
+            }
+            let (widest, _) = plain.widest_x(&d, 0, Duration::from_secs(10)).unwrap();
+            let (big_widest, _) = big.widest_x(&d, 0, Duration::from_secs(10)).unwrap();
+            assert_eq!(times(widest), big_widest, "{tag}");
+        }
+    }
+}
+
+/// A width without a known limit (the table form of stage 4) is laid out line by line, never
+/// taken as one row by the byte length. The grid has the limit, so the shortcut is on.
+#[test]
+fn the_grid_has_a_limit_for_the_shortcut() {
+    let cfg = wrap(10);
+    assert_eq!(cfg.widest_character(), Some(x(4)));
+    let scaled = LayoutConfig {
+        width: Widths::grid_scaled(WidthRule::default(), 64),
+        ..cfg
+    };
+    assert_eq!(scaled.widest_character(), Some(x(4 * 64)));
 }

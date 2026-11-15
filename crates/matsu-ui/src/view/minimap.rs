@@ -168,7 +168,7 @@ impl EditorView {
                 rules,
                 &syntax::RowInput {
                     text: clipped,
-                    start_col: row.start_column,
+                    start_col: layout.config().width.to_columns(row.start_x),
                     cfg: layout.config(),
                     runs: &row_runs,
                     found: &row_found,

@@ -32,7 +32,7 @@
 //! In these modes the delimiter (a tab in TSV, a comma in CSV) does not go to a tab stop of
 //! the tab width; it goes to the end of the widest field of that column in the whole document,
 //! plus two columns. [`TsvStops::scan`] finds those ends the way `CTsvModeInfo::CalcTabLength`
-//! does, and [`LayoutConfig::columns_of`](crate::LayoutConfig::columns_of) uses them.
+//! does, and [`LayoutConfig::advance`](crate::LayoutConfig::advance) uses them.
 //!
 //! As in Sakura:
 //!
@@ -55,7 +55,8 @@ use std::time::{Duration, Instant};
 
 use matsu_core::buffer::{Document, Result};
 
-use crate::width::WidthRule;
+use crate::width::Widths;
+use crate::x::X;
 
 /// `TSV_MODE_NONE`, `TSV_MODE_TSV` and `TSV_MODE_CSV` (`CTsvModeInfo.h`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -94,12 +95,15 @@ impl TsvMode {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TsvStops {
     mode: TsvMode,
-    /// For field `i`, the column where the delimiter after it ends: the widest field `0..=i`
+    /// For field `i`, the `X` where the delimiter after it ends: the widest field `0..=i`
     /// of any line, with two columns after each. Increasing.
-    ends: Arc<[u32]>,
-    /// The most columns a delimiter can take: the first stop, the widest gap between two stops,
-    /// or 2 past the last (see [`delimiter_columns`](Self::delimiter_columns)).
-    widest: u32,
+    ends: Arc<[X]>,
+    /// The most a delimiter can take: the first stop, the widest gap between two stops, or two
+    /// columns past the last (see [`delimiter_width`](Self::delimiter_width)). Zero with no
+    /// stops.
+    widest: X,
+    /// What a delimiter past the last stop takes: two columns.
+    past_last: X,
 }
 
 /// The characters that end the line in the loop of `CalcTabLength` (`WCODE::IsLineDelimiter(ch,
@@ -115,9 +119,9 @@ impl TsvStops {
     }
 
     /// The stops of the lines `lines` (their text without the line ending) in `mode`
-    /// (`CTsvModeInfo::CalcTabLength`). `width` gives the columns of a character
+    /// (`CTsvModeInfo::CalcTabLength`). `width` gives the width of a character
     /// (`CNativeW::GetKetaOfChar`).
-    pub fn from_lines<I, S>(mode: TsvMode, width: &WidthRule, lines: I) -> Self
+    pub fn from_lines<I, S>(mode: TsvMode, width: &Widths, lines: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -131,53 +135,54 @@ impl TsvStops {
 
     /// Reads `doc` a line at a time and works out the stops, all at once. A very long line is
     /// left out. A large document is better scanned with a [`TsvScan`] a piece at a time.
-    pub fn scan(doc: &Document, mode: TsvMode, width: &WidthRule) -> Result<Self> {
+    pub fn scan(doc: &Document, mode: TsvMode, width: &Widths) -> Result<Self> {
         let mut scan = TsvScan::new(mode, *width);
         scan.advance(doc, Duration::MAX)?;
         Ok(scan.finish())
     }
 
-    /// The most columns a delimiter can take. 2 when there are no stops.
-    pub fn widest_delimiter(&self) -> u32 {
-        self.widest.max(2)
+    /// The most `X` a delimiter can take; [`X::ZERO`] when there are no stops (the caller takes
+    /// the larger of this and the widest ordinary character).
+    pub fn widest_delimiter(&self) -> X {
+        self.widest
     }
 
     pub fn mode(&self) -> TsvMode {
         self.mode
     }
 
-    /// The column where each field's delimiter ends, for the first field, the second, and so on.
-    pub fn ends(&self) -> &[u32] {
+    /// The `X` where each field's delimiter ends, for the first field, the second, and so on.
+    pub fn ends(&self) -> &[X] {
         &self.ends
     }
 
-    /// The columns a delimiter takes when it starts at column `x`
-    /// (`CTsvModeInfo::GetActualTabLength`): up to the first stop after `x`, or 2 when `x` is
-    /// past all of them.
-    pub fn delimiter_columns(&self, x: u32) -> u32 {
+    /// The `X` a delimiter takes when it starts at `x`
+    /// (`CTsvModeInfo::GetActualTabLength`): up to the first stop after `x`, or two columns when
+    /// `x` is past all of them.
+    pub fn delimiter_width(&self, x: X) -> X {
         let next = self.ends.partition_point(|&end| end <= x);
         match self.ends.get(next) {
-            Some(end) => end - x,
-            None => 2,
+            Some(&end) => end - x,
+            None => self.past_last,
         }
     }
 }
 
 /// The scan of a document for [`TsvStops`], done a piece at a time like
-/// [`DocumentLayout::widest_columns`](crate::DocumentLayout::widest_columns): each call to
+/// [`DocumentLayout::widest_x`](crate::DocumentLayout::widest_x): each call to
 /// [`advance`](Self::advance) reads lines for about a budget and remembers where it stopped.
 #[derive(Clone, Debug)]
 pub struct TsvScan {
     mode: TsvMode,
-    width: WidthRule,
+    width: Widths,
     /// The next line to read.
     next: usize,
     /// The widest field of each field number so far.
-    widest: Vec<u32>,
+    widest: Vec<X>,
 }
 
 impl TsvScan {
-    pub fn new(mode: TsvMode, width: WidthRule) -> Self {
+    pub fn new(mode: TsvMode, width: Widths) -> Self {
         Self {
             mode,
             width,
@@ -228,7 +233,7 @@ impl TsvScan {
             return;
         };
         let mut field = 0;
-        let mut field_width = 0u32;
+        let mut field_width = X::ZERO;
         for c in line.chars() {
             if is_line_delimiter(c) {
                 break;
@@ -236,12 +241,15 @@ impl TsvScan {
             if c == delimiter {
                 note(&mut self.widest, field, field_width);
                 field += 1;
-                field_width = 0;
+                field_width = X::ZERO;
                 continue;
             }
             // A tab that is not the delimiter (CSV) counts 1.
-            field_width =
-                field_width.saturating_add(if c == '\t' { 1 } else { self.width.columns(c) });
+            field_width += if c == '\t' {
+                self.width.to_x(1)
+            } else {
+                self.width.width_of(c)
+            };
         }
         note(&mut self.widest, field, field_width);
     }
@@ -252,14 +260,15 @@ impl TsvScan {
             return TsvStops::none();
         }
         // "m_tabLength[ui] += m_tabLength[ui-1] + 2"
-        let mut end = 0u32;
-        let mut gap = 2;
-        let ends: Vec<u32> = self
+        let two = self.width.to_x(2);
+        let mut end = X::ZERO;
+        let mut gap = two;
+        let ends: Vec<X> = self
             .widest
             .iter()
             .map(|&w| {
                 let before = end;
-                end = end.saturating_add(w).saturating_add(2);
+                end = end + w + two;
                 gap = gap.max(end - before);
                 end
             })
@@ -268,12 +277,13 @@ impl TsvScan {
             mode: self.mode,
             ends: ends.into(),
             widest: gap,
+            past_last: two,
         }
     }
 }
 
-/// Records that field number `field` of a line is `width` columns wide.
-fn note(widest: &mut Vec<u32>, field: usize, width: u32) {
+/// Records that field number `field` of a line is `width` wide.
+fn note(widest: &mut Vec<X>, field: usize, width: X) {
     if let Some(known) = widest.get_mut(field) {
         *known = (*known).max(width);
     } else {
@@ -286,10 +296,18 @@ fn note(widest: &mut Vec<u32>, field: usize, width: u32) {
 mod tests {
     use super::*;
 
+    /// The numbers of the stops: these tests have one `X` per column.
+    fn raws(ends: &[X]) -> Vec<u32> {
+        ends.iter().map(|e| e.raw()).collect()
+    }
+
     fn stops(mode: TsvMode, lines: &[&str]) -> Vec<u32> {
-        TsvStops::from_lines(mode, &WidthRule::default(), lines.iter().copied())
-            .ends()
-            .to_vec()
+        raws(TsvStops::from_lines(mode, &Widths::default(), lines.iter().copied()).ends())
+    }
+
+    /// The width a delimiter takes at `at`, as a number.
+    fn delimiter(s: &TsvStops, at: u32) -> u32 {
+        s.delimiter_width(X::from_raw(at)).raw()
     }
 
     #[test]
@@ -337,34 +355,35 @@ mod tests {
 
     #[test]
     fn a_delimiter_goes_to_the_next_stop_or_takes_two_columns_past_the_last() {
-        let s = TsvStops::from_lines(TsvMode::Tsv, &WidthRule::default(), ["abc\td"]);
-        assert_eq!(s.ends(), &[5, 8]);
-        assert_eq!(s.delimiter_columns(0), 5);
-        assert_eq!(s.delimiter_columns(3), 2);
-        assert_eq!(s.delimiter_columns(4), 1);
+        let s = TsvStops::from_lines(TsvMode::Tsv, &Widths::default(), ["abc\td"]);
+        assert_eq!(raws(s.ends()), &[5, 8]);
+        assert_eq!(delimiter(&s, 0), 5);
+        assert_eq!(delimiter(&s, 3), 2);
+        assert_eq!(delimiter(&s, 4), 1);
         // a stop is the first column of the next field: the delimiter that starts on it is
         // the next one (`pos < tabLength`)
-        assert_eq!(s.delimiter_columns(5), 3);
-        assert_eq!(s.delimiter_columns(8), 2);
-        assert_eq!(s.delimiter_columns(100), 2);
+        assert_eq!(delimiter(&s, 5), 3);
+        assert_eq!(delimiter(&s, 8), 2);
+        assert_eq!(delimiter(&s, 100), 2);
     }
 
     #[test]
     fn the_widest_delimiter_is_the_widest_gap() {
-        let s = TsvStops::from_lines(TsvMode::Tsv, &WidthRule::default(), ["abc\tdefghi\tj"]);
+        let s = TsvStops::from_lines(TsvMode::Tsv, &Widths::default(), ["abc\tdefghi\tj"]);
         // stops 5, 13, 16: the gaps are 5, 8 and 3
-        assert_eq!(s.ends(), &[5, 13, 16]);
-        assert_eq!(s.widest_delimiter(), 8);
-        assert_eq!(TsvStops::none().widest_delimiter(), 2);
+        assert_eq!(raws(s.ends()), &[5, 13, 16]);
+        assert_eq!(s.widest_delimiter(), X::from_raw(8));
+        // With no stops the caller's own widest character (2 columns) is the limit.
+        assert_eq!(TsvStops::none().widest_delimiter(), X::ZERO);
     }
 
     #[test]
     fn scan_reads_the_document_by_lines() {
         let doc = Document::from_utf8(b"a\tbb\r\nccc\td\r\n".to_vec()).unwrap();
-        let s = TsvStops::scan(&doc, TsvMode::Tsv, &WidthRule::default()).unwrap();
-        assert_eq!(s.ends(), &[5, 9]);
+        let s = TsvStops::scan(&doc, TsvMode::Tsv, &Widths::default()).unwrap();
+        assert_eq!(raws(s.ends()), &[5, 9]);
         assert_eq!(s.mode(), TsvMode::Tsv);
-        let none = TsvStops::scan(&doc, TsvMode::None, &WidthRule::default()).unwrap();
+        let none = TsvStops::scan(&doc, TsvMode::None, &Widths::default()).unwrap();
         assert_eq!(none, TsvStops::none());
     }
 
@@ -374,7 +393,7 @@ mod tests {
             .map(|i| format!("{}\t{}\r\n", "a".repeat(i % 7 + 1), "b".repeat(i % 13)))
             .collect();
         let doc = Document::from_utf8(text.into_bytes()).unwrap();
-        let width = WidthRule::default();
+        let width = Widths::default();
         let mut scan = TsvScan::new(TsvMode::Tsv, width);
         // an empty budget still reads a line, and only a few
         let done = scan.advance(&doc, Duration::ZERO).unwrap();
