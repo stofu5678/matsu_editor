@@ -13,7 +13,7 @@
 - サクラ: 文字ごとにフォントで幅を測って置く。
   - 幅: `CNativeW::GetHabaOfChar`（`sakura_core/mem/CNativeW.cpp`）が `CCharWidthCache::CalcPxWidthByFont` を呼び、`QueryPixelWidth`（`sakura_core/charset/charcode.cpp`）が `GetTextExtentPoint32W` で測る。固定幅のフォントで、半角より広い字形は半角の 2 倍に揃える（同ファイルの「半角より少しでも幅が広い場合は半角幅の2倍に揃える」）。結果は 65536 文字の表（`m_nCharPxWidthCache`）に覚える
   - 描画: 同じ幅を使う（`CTextMetrics::GenerateDxArray`、`sakura_core/view/CTextMetrics.cpp`。1 文字ずつの間隔の配列を作る）
-  - レイアウトの X は画素（`CLayoutXInt`）。設定の「桁」は 1 桁の画素数 `m_nCharLayoutXPerKeta` を掛けて画素にする（折り返し `GetMaxLineLayout`・タブ `GetTabSpace`・タブの位置 `GetActualTabSpace`。`sakura_core/doc/layout/CLayoutMgr.h` の 115・153・188 行）。1 桁は「半角の幅 + 文字の間隔」（`CLayoutMgr.cpp` の `SetLayoutInfo`、150 行）。折り返しの計算で使う最大の文字幅は `W` の幅（同 157 行）
+  - レイアウトの X は画素（`CLayoutXInt`）。設定の「桁」は 1 桁の画素数 `m_nCharLayoutXPerKeta` を掛けて画素にする（折り返し `GetMaxLineLayout`・タブ `GetTabSpace`・タブの位置 `GetActualTabSpace`。`sakura_core/doc/layout/CLayoutMgr.h` の 115・153・188 行）。1 桁は「半角の幅 + 文字の間隔」（`CLayoutMgr.cpp` の `SetLayoutInfo`、150 行）。文字の間隔は 1 文字ごとに足す。足す量は「文字の間隔 × その文字の桁数（半角 1・全角 2。BMP の外は 2）」で、桁数は幅が半角以下なら 1、それより広ければ 2（`CLayoutMgr.h` の `GetLayoutXOfChar`、`CNativeW::GetKetaOfChar`、`CTextMetrics::GenerateDxArray`）。つまり全角の文字は間隔を 2 回足す。`W` の幅（`CLayoutMgr.cpp` の 156 行）は `m_tsvInfo.m_nMaxCharLayoutX` に入り、TSV・CSV モードのタブの長さにだけ使う（`CTsvModeInfo::GetActualTabLength`、`CLayoutMgr.h` の 178 行、`CMemoryIterator.h` の 97・106 行）。折り返しには使わない
   - 状態バーの桁は、キャレットの X を 1 桁の画素数で割った値（`sakura_core/view/CCaret.cpp` の 723・735 行）
 - ユーザーが 2026-11-15 に、サクラに倣うことを決めた。それまでは、等幅のフォントを使うよう案内する。同日に別の PR で、エディタのフォントが等幅でないとき、シェルのタブは等幅のフォントで描く（端末の格子を保つため）ことも決めた。この ADR はそれを変えない
 - 今の MATSU は、サクラと違い、幅をフォントでなく Unicode の規則で決める（`crates/matsu-layout/src/width.rs` の `WidthRule`。OS によらず同じ折り返しにするため。`crates/matsu-layout/src/lib.rs` に差の一覧がある）。プロポーショナルフォントへの対応は、この規則の外にも出ることになる
@@ -26,7 +26,7 @@
 
 | 場所 | 今、桁で何をしているか | 変わること |
 |---|---|---|
-| `matsu-layout` の `width.rs`・`config.rs`（`columns_of`、`widest_character`） | 文字の幅は Unicode の規則で 1 か 2。タブは `tab - x % tab` | 幅は「幅の表」から引く（X）。タブは `tab × per_column` の倍数の位置へ（サクラの `GetActualTabSpace`）。`widest_character` は、決まった上限でなく、測った最大の幅（下の「巨大ファイル」） |
+| `matsu-layout` の `width.rs`・`config.rs`（`columns_of`、`widest_character`） | 文字の幅は Unicode の規則で 1 か 2。タブは `tab - x % tab` | 幅は「幅の表」から引く（X）。タブは `tab × per_column` の倍数の位置へ（サクラの `GetActualTabSpace`）。`widest_character` は、`Grid` では今の上限（タブ・TSV の区切り・全角・不正バイトの最大）のまま。`Table` では使わない（下の「巨大ファイル」） |
 | `wrap.rs`・`map.rs`（折り返し、禁則、桁と位置の変換） | 桁の足し算。折り返しは `Wrap::Columns(n)` | 足し算の単位を X にする。折り返しの幅は `n × per_column`。型を `u32` の「桁」から X の別名の型にする（意味の取り違えを防ぐ） |
 | `tsv.rs`（TSV・CSV の欄の幅） | 欄の最大の桁を求める | 欄の幅を X で求める。ファイル全体を 1 回走査する今の作りは同じ（文字ごとに表を引く） |
 | `document/mod.rs`（`DocumentLayout`） | 行ごとの行数だけを持つ。1 行の桁が `MAX_LINE_COLUMNS` に届かない行は、走査せず 1 行と数える（桁数の上限は「バイト数 × `widest_character`」） | 同じ作り。上限の掛け算の相手を X にする。フォントやその設定が変わったら `set_config` で作り直す（今、タブ幅や折り返しを変えたときと同じ道。`crates/matsu-ui/src/view/settings.rs` の `relayout_in`） |
@@ -54,13 +54,13 @@
 依存の向きは UI → コアの一方向（`CLAUDE.md`）。`matsu-layout` は UI にも GPUI にも依存しない。そこで、レイアウトの側に「幅の表」を置き、UI は「1 文字の幅を測る関数」を渡す。
 
 - `matsu-layout` に `Widths` を置く。2 つの形がある
-  - 格子（`Grid`）: 今の `WidthRule`（Unicode の規則）で 1 か 2 桁を決め、`per_column` を掛ける。フォントを見ない
+  - 格子（`Grid`）: 今の `WidthRule`（Unicode の規則）で 1 か 2 桁を決め、`per_column`（文字の間隔を含む。半角 1 桁分、全角 2 桁分）を掛ける。フォントを見ない
   - 表（`Table`）: 文字の X の幅を表から引く。表は、サクラの `m_nCharPxWidthCache` と同じに、まだ測っていない文字を「0（未測定）」にしておき、引いたときに初めて測って入れる。BMP は 256 文字ずつのページに分け、使ったページだけ持つ（最大で 65536 × 2 バイト）。BMP の外の文字は小さな `HashMap`。幅は 1 以上（サクラの `std::max(1, size.cx)`）
 - 測る関数 `Fn(char) -> u32`（`Send + Sync`）は UI が渡す。UI は、そのフォント（と代替のフォント）で、その 1 文字を shape して送り幅を測る。サクラも、文字ごとに使うフォントを切り替えて測る（`SelectHDC`）。制御文字は代わりの文字で測る（`QueryPixelWidth`）
 - 表は `Arc` で共有する。`LayoutConfig` は `Clone` と `PartialEq` を持ち、`relayout_in` が `config == *self.layout.config()` で作り直すかを決めている。表の中身は比べず、「フォントの識別（世代番号）」で比べる
 - 太字は、サクラと同じに、通常の字体の幅で置く（太字は同じ位置に太く描く）
 - フォントが変わったとき（フォント、サイズ、文字の間隔、型の切り替え）: 新しい世代の表で `set_config` を呼び、`layout_for` で予算ごとに作り直す。今、折り返しやタブ幅を変えたときと同じ道。矩形選択は、桁が意味を失うので解除する（今の `relayout_in` と同じ）
-- 巨大ファイル（ADR-0020）: 幅を測るのは、レイアウトが読む行の文字だけ（範囲ごと）。全文を走査して測ることはしない。表は文字の種類ごとに 1 回測るだけで、文書の大きさに比例しない。折り返しなしの行を走査せず 1 行と数える近道は、「バイト数 × 最大の文字の幅」が上限を超えない行にだけ使う。比例フォントでの最大の文字の幅は、サクラの `W` の幅（`CLayoutMgr.cpp` の 157 行）より安全に、`W`・`M`・全角の幅（半角の 2 倍）・1 em の最大にする。それでも広い字形（絵文字など）が上限を超えるときは、その行を走査する（遅くなるが、数え間違いはしない）
+- 巨大ファイル（ADR-0020）: 幅を測るのは、レイアウトが読む行の文字だけ（範囲ごと）。全文を走査して測ることはしない。表は文字の種類ごとに 1 回測るだけで、文書の大きさに比例しない。折り返しなしの行を走査せず 1 行と数える近道（`DocumentLayout` が `widest_character()` を上限として使う）は、その上限が本当の上限であるときだけ成り立つ。`Table` では、まだ測っていない字形がどれだけ広いか分からず、上限を証明できない（走査せずに飛ばした行の中の広い字形は、後から見つけられない）。そこで、`Table` ではこの近道を使わない。`Grid`（等幅）では今のまま使う（タブ・TSV の区切り・全角の上限が本当の上限）。費用: 比例フォントで折り返しなしの巨大ファイルを開くと、行ごとの行数を決めるために、すべての行の文字を表で引く走査が要る（今の等幅なら、バイト数だけの安い走査）。走査は予算ごとに進める（`layout_for`、先頭から表示できる）が、全体の行数・スクロールバーが確定するまでの時間は、ファイルの大きさに比例する。それが重すぎるときの手: 比例フォントでは、行のバイト数が `LONG_ROW_BYTES` を超える行だけを固定の長さで切る既存の作り（ADR-0020 の 9.10）に任せ、それ以外は 1 行ごとに数える。段階 4 で、巨大ファイルでの時間を測る。サクラの `W` の幅は折り返しに使わないので、この上限の根拠にしない
 - 測る関数が使えるスレッド: 今、レイアウトは 1 フレームの予算（`LAYOUT_BUDGET`、`layout_adapter.rs`）の中で UI の側から進めている。GPUI で、`Window` を持たずに 1 文字を shape できるか、別のスレッドから呼べるかは、まだ確かめていない（GPUI のソースをこの下調べで読んでいない）。段階 0 の試しで確かめる。呼べないときは、必要な文字を UI のスレッドで先に測る（文字を引いたとき未測定ならレイアウトを中断して測る）形にする
 
 ### 2. 桁のまま残すもの（サクラと同じ）
@@ -91,7 +91,7 @@
 
 ### 案 C: レイアウトの X を「半角の桁の 1/64」にする（推奨）
 
-- 案 A の作りで、単位を画素でなく「半角の幅の 1/64」にする。`per_column` は 64 に文字の間隔の分を足した値（`64 + round(間隔の画素 × 64 / 半角の画素)`）。幅の表の値は `round(送り幅 / 半角の幅 × 64)`、画素の位置は `X × (cell / per_column)`
+- 案 A の作りで、単位を画素でなく「半角の幅の 1/64」にする。文字の間隔の単位は `space_units = round(間隔の画素 × 64 / 半角の画素)`、`per_column = 64 + space_units`。幅の表に入れる値は、間隔を含めて `round(送り幅 / 半角の幅 × 64) + 桁数 × space_units` とする（桁数は、送り幅が半角以下なら 1、広ければ 2、BMP の外は 2。サクラが `GetKetaOfChar × 間隔` を文字ごとに足すのと同じ）。例: 半角の送り幅 8 画素・間隔 2 画素なら `space_units = 16`、`per_column = 80`、半角の字は `64 + 16 = 80`、全角の字は `128 + 32 = 160`。これで、表の幅・タブの位置・桁の設定が同じ `per_column` で合う。画素の位置は `X × (cell / per_column)`（`cell` は半角 + 間隔）
 - 長所
   - 等幅は 64 の倍数で、2 のべきの割り算なので、`f32` で誤差が出ず、今と同じ位置になる（案 A の端数の問題がない）
   - 画面の倍率やフォントのサイズが変わっても、文字の間隔が 0 なら作り直さない（幅の比がほぼ変わらないため）。フォントの種類・文字の間隔・型が変わったときだけ作り直す
@@ -112,7 +112,7 @@
 1. `matsu-layout`: `Widths`（`Grid` だけ）と X の型を入れ、`columns_of`・`wrap`・`map`・`tsv`・`DocumentLayout` を X で計算する。`per_column` は 1。結果は変わらない（既存のテストがそのまま通る）。UI は `per_column = 1` のまま
 2. `matsu-commands`・`matsu-core`: 桁の意味を X に読み替える（`display_col`・`pos_at_col`・矩形・フリーカーソル・空白の補い・マクロの関数）。`per_column` は 1 のまま。サクラの実装を読んで、空白を補う数え方を決める
 3. `matsu-ui`: `per_column` を 64 にし、描画・当たり判定・ルーラー・横スクロール・IME・キャレット・ミニマップ・状態バーを X からの換算にする。等幅の見た目が変わらないことを確かめる（この段階が最も大きい。ファイルのまとまりで 2 つに分けてもよい）
-4. 比例フォント: 測る関数、`Table`、世代番号、等幅の判定、1 文字ずつの描画、最大の文字の幅の上限。「ウィンドウ幅で折り返す」の扱い（サクラの実装を読む）。ここで初めて、比例フォントの見た目が変わる
+4. 比例フォント: 測る関数、`Table`、世代番号、等幅の判定、1 文字ずつの描画、巨大ファイルで近道を使わないときの時間の測定。「ウィンドウ幅で折り返す」の扱い（サクラの実装を読む）。ここで初めて、比例フォントの見た目が変わる
 5. 残り: 読み上げの位置、HTML のタブ展開、検索の強調の細部、ヘルプと README の「等幅のフォントを使ってください」の案内を外す
 6. 印刷（別のシリーズ。判断してほしいこと 2）
 
