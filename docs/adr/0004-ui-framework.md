@@ -49,6 +49,17 @@
 - Linux の X11（XIM）の日本語入力で、起動して最初の変換だけ候補の窓がウィンドウの左下に出る件の原因。Wayland（text-input-v3）では起きなかった（GPUI はフォーカスを得たときにカーソルの位置を IME に送る）
 - MPL-2.0 の依存（`cbindgen`、`option-ext`、`dwrote`）の配布前の扱い。MPL-2.0 は使ってよい（2026-10-10 のユーザーの判断）が、改変したファイルは公開する。Windows 版の試作の依存（gpui-component を含む）のライセンスは調べていない
 
+## 決めたことの変更
+
+### 2026-11-16: Adreno の回避策を `third_party/gpui-pre-windows` で当てた
+
+ユーザーが決めた。「試作の結果」にある、Qualcomm Adreno で文字を書き込むたびにメモリが約 4 MB 増える問題の回避策は、これまで本番に当てていなかった（ワークスペースに `[patch]` が無かった）。今は、`gpui-pre-windows` 0.3.8（Apache-2.0）をリポジトリの `third_party/gpui-pre-windows` に取り込み、ステージングテクスチャ + `CopySubresourceRegion` で書き込むパッチを当てて、ルートの `Cargo.toml` の `[patch.crates-io]` で crates.io のものと差し替えている。
+
+- 当て直しの手順は、`third_party/gpui-pre-windows/MATSU-CHANGES.md`。GPUI の版を上げるたびに、これに従う
+- パッチが消えていないかは、`crates/matsu/tests/vendored_gpui.rs` が確かめる
+- 測った結果（ユーザーの PC、起動 25 秒後）: 作業セット 397 MB → 73 MB、使用中の GPU メモリ 359 MB → 27 MB
+- 上流への報告: https://github.com/zed-industries/zed/issues/56349。直ったら、取り込みを消す
+
 ## 見送った候補
 
 - Unity / Godot / Bevy: ランタイムが重く、起動が遅い。テキスト入力と IME が弱い。状態がシーンやエディタに散り、AI がコードだけで全体を追えない
