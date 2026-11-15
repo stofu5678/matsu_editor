@@ -27,8 +27,8 @@
 //! [`migrate`] moves the slots that the old `[OneLiner]` marked with `AI[nnn]=1` into this section.
 
 use super::oneliner::{
-    COMMAND_MAX_UNITS, NAME_MAX_UNITS, OneLiner, OneLinerError, OneLiners, OutputTo,
-    SECTION as ONELINER, check, cut_name, has_break, key, units,
+    COMMAND_MAX_UNITS, NAME_MAX_UNITS, OneLinerError, OneLiners, OutputTo, SECTION as ONELINER,
+    check, cut_name, has_break, key, units,
 };
 use crate::profile::{Profile, ProfileError};
 
@@ -244,7 +244,7 @@ pub enum AiMigration {
     /// profile once and tells the user once.
     Moved { count: usize },
     /// `[AI]` has room for fewer than the `count` slots to move; **nothing changed**. The slots stay marked
-    /// ([`OneLiner::is_ai_marked`]) and must not run as one-liners. A later run moves them once there is room.
+    /// ([`super::oneliner::OneLiner::is_ai_marked`]) and must not run as one-liners. A later run moves them once there is room.
     Blocked { count: usize },
 }
 
@@ -271,7 +271,7 @@ impl AiMigration {
 /// refuses a key anyway, the error is returned and the profile may be half changed, so the caller drops it
 /// (it works on the profile it loaded and saves only on `Ok`).
 pub fn migrate(profile: &mut Profile) -> Result<AiMigration, ProfileError> {
-    let one = OneLiners::from_profile(profile);
+    let mut one = OneLiners::from_profile(profile);
     let marked = one.ai_marked();
     if marked.is_empty() {
         return Ok(AiMigration::NothingToMove);
@@ -283,15 +283,16 @@ pub fn migrate(profile: &mut Profile) -> Result<AiMigration, ProfileError> {
         });
     }
     for &from in &marked {
-        let slot: &OneLiner = &one.slots[from];
+        // The table is ours and each slot is moved once: take its strings instead of copying them.
+        let slot = std::mem::take(&mut one.slots[from]);
         // Same number if free, else the first free one.
         let to = match free.iter().position(|&i| i == from) {
             Some(at) => free.remove(at),
             None => free.remove(0),
         };
         let dest = AiDestination {
-            name: slot.name.clone(),
-            command: slot.command.clone(),
+            name: slot.name,
+            command: slot.command,
             output: slot.output.into(),
             ask_before_send: slot.ask_before_send,
         };

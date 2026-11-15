@@ -1,4 +1,5 @@
 use super::*;
+use crate::settings::oneliner::OneLiner;
 
 fn profile(text: &str) -> Profile {
     // A file with the BOM is UTF-8, as the one MATSU Editor writes.
