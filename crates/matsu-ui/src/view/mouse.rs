@@ -127,6 +127,15 @@ impl EditorView {
         .ok()
     }
 
+    /// `columns` columns as the `X` that the commands take. The hit test still counts columns, and
+    /// this is where they become `X` until the UI counts in `X` (ADR-0034 stage 3).
+    fn x_of_columns(&self, columns: usize) -> matsu_layout::X {
+        self.layout
+            .config()
+            .width
+            .to_x(u32::try_from(columns).unwrap_or(u32::MAX))
+    }
+
     /// The display column under the point when it is to the right of the text of its row, for the
     /// free cursor mode.
     fn free_column_for_point(&self, p: Point<Pixels>, cx: &gpui::App) -> Option<usize> {
@@ -436,7 +445,7 @@ impl EditorView {
     ) -> ((Pos, Pos), bool) {
         let m = event.modifiers;
         // A click to the right of the text puts the caret there in the free cursor mode.
-        let free = self.free_column_for_point(event.position, cx).unwrap_or(0);
+        let free = self.x_of_columns(self.free_column_for_point(event.position, cx).unwrap_or(0));
         if m.shift {
             // A box is dropped before the selection grows from the caret.
             if self.cursor.is_box() && self.cursor.has_selection() {
@@ -564,7 +573,8 @@ impl EditorView {
             }
             Drag::Box => {
                 if let Some((row, col)) = self.box_corner_for_point(event.position, cx) {
-                    self.run_with(cx, |command_cx| command_cx.mouse_box_to(row, col))
+                    let x = self.x_of_columns(col);
+                    self.run_with(cx, |command_cx| command_cx.mouse_box_to(row, x))
                         .ok();
                 }
             }

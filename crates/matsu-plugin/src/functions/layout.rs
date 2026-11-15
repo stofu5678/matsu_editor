@@ -7,6 +7,14 @@
 //! return all of them from 1. This editor's layout rows are Sakura's layout lines
 //! ([`matsu_commands::layout::Layout`]).
 //!
+//! The layout column of these functions is the layout's `X`, as in Sakura: they give and take the
+//! unit of `CLayoutXInt` (`GetSelectColumnFrom`, `LineColumnToIndex`, `LineIndexToColumn`,
+//! `GetStrLayoutLength`, `MoveCursorLayout`), and `GetDefaultCharLength` says how many of them
+//! make a half-width column (`CTextMetrics::GetLayoutXDefault`), so that a macro that divides
+//! by it gets columns. It is 1 while the screen lays out in whole columns. Only
+//! `GetStrWidth`, which counts `GetKetaOfChar` and the tab width, and `GetViewColumns`, the tab
+//! width and the wrap column, are in columns, as in Sakura.
+//!
 //! Differences from Sakura, where a position is outside the text:
 //!
 //! * A layout column past the end of a row gives the end of the text of the row. Sakura's loop
@@ -17,6 +25,7 @@
 //!   apart.
 
 use matsu_commands::context::CommandContext;
+use matsu_commands::layout::X;
 use matsu_core::buffer::Pos;
 use serde_json::Value;
 
@@ -34,11 +43,12 @@ pub const MIN_LINE_COLUMNS: i64 = 10;
 /// The widest tab that `ChangeTabWidth` accepts (the help of `S_ChangeTabWidth`: 1 to 64).
 pub const MAX_TAB_WIDTH: i64 = 64;
 
-/// The layout row of `pos` and its display column in the row, both counted from 0.
+/// The layout row of `pos` and its `X` in the row, both counted from 0 (the `X` as the number
+/// that macros see, not as a column count).
 pub(super) fn layout_point(cx: &CommandContext, pos: Pos) -> Result<(usize, usize)> {
     let row = cx.layout().row_index(cx.doc(), pos).map_err(command)?;
-    let col = cx.layout().display_col(cx.doc(), pos).map_err(command)?;
-    Ok((row, col))
+    let x = cx.layout().display_x(cx.doc(), pos).map_err(command)?;
+    Ok((row, x.raw() as usize))
 }
 
 /// The number of logical lines: the position after the last line break is not a line, and an
@@ -62,7 +72,7 @@ fn layout_line_count(cx: &CommandContext) -> Result<usize> {
     Ok(rows - usize::from(has_empty_last_row(cx)))
 }
 
-/// `CLayoutMgr::LogicToLayout`: the layout line and column (from 0) of the index `index16` (in
+/// `CLayoutMgr::LogicToLayout`: the layout line and `X` (from 0) of the index `index16` (in
 /// UTF-16 units, from 0) of the logical line `line`. A line past the last one is the line after
 /// the last layout line, column 0.
 fn logic_to_layout(cx: &CommandContext, line: usize, index16: i64) -> Result<(usize, usize)> {
@@ -77,11 +87,17 @@ fn logic_to_layout(cx: &CommandContext, line: usize, index16: i64) -> Result<(us
         .unwrap_or_default();
     let units = usize::try_from(index16).unwrap_or(0);
     if units > utf16_len(&text) {
-        // After the end: the column after the text, and the line ending mark if there is one.
+        // After the end: the `X` after the text, and the line ending mark (one column) if there
+        // is one.
         let end = Pos::new(line, text.len());
-        let (row, col) = layout_point(cx, end)?;
+        let (row, x) = layout_point(cx, end)?;
         let has_break = line + 1 < cx.doc().row_count();
-        return Ok((row, col + usize::from(has_break)));
+        let mark = if has_break {
+            cx.layout().column_x().raw() as usize
+        } else {
+            0
+        };
+        return Ok((row, x + mark));
     }
     layout_point(cx, Pos::new(line, byte_offset_for_utf16(&text, units)))
 }
@@ -114,11 +130,9 @@ fn layout_to_logic(cx: &CommandContext, row: usize, col: i64) -> Result<(usize, 
         .row_start_at(cx.doc(), row)
         .map_err(command)?
         .ok_or_else(|| RpcError::invalid_params("there is no such layout line"))?;
-    let col = usize::try_from(col).unwrap_or(0);
-    let pos = cx
-        .layout()
-        .pos_at_col(cx.doc(), start, col)
-        .map_err(command)?;
+    // negative counts as 0; an oversized column saturates, so it still means the end of the row
+    let x = X::from_raw(u32::try_from(col.max(0)).unwrap_or(u32::MAX));
+    let pos = cx.layout().pos_at_x(cx.doc(), start, x).map_err(command)?;
     let text = cx
         .doc()
         .line(pos.line)
@@ -183,9 +197,25 @@ fn line_index_to_column(ed: &mut Editor, args: &Args) -> Result {
     logic_to_layout_call(ed, args, true)
 }
 
-/// The width in cells of `text` that starts at layout column `start` (counted from 0): a tab
-/// goes to the next tab stop, the other characters have the width of the layout.
-fn text_width(cx: &CommandContext, text: &str, start: i64) -> i64 {
+/// The width of `text` in `X` that starts at `start` (counted from 0, in `X`): a tab goes to the
+/// next tab stop, the other characters have the width of the layout.
+fn text_x(cx: &CommandContext, text: &str, start: i64) -> i64 {
+    let tab = i64::from(cx.layout().tab_x().raw()).max(1);
+    let start = start.max(0);
+    let mut x = start;
+    for c in text.chars() {
+        if c == '\t' {
+            x = x.saturating_add(tab - x % tab);
+        } else {
+            x = x.saturating_add(i64::from(cx.layout().char_x(c).raw()));
+        }
+    }
+    x.saturating_sub(start)
+}
+
+/// The width in columns of `text` that starts at column `start` (counted from 0): a tab goes to
+/// the next tab stop, the other characters are 1 or 2 columns (`GetKetaOfChar`).
+fn text_columns(cx: &CommandContext, text: &str, start: i64) -> i64 {
     let tab = i64::try_from(cx.layout().tab_width()).unwrap_or(4).max(1);
     let start = start.max(0);
     let mut x = start;
@@ -199,8 +229,9 @@ fn text_width(cx: &CommandContext, text: &str, start: i64) -> i64 {
     x.saturating_sub(start)
 }
 
-/// F_GETSTRWIDTH: the width of a string in cells, from layout column `start` (from 1, default 1;
-/// the column matters for tabs). The line break of CR LF at the end counts as the CR alone
+/// F_GETSTRWIDTH: the width of a string in columns, from column `start` (from 1, default 1;
+/// the column matters for tabs). Sakura counts it in columns (`GetKetaOfChar` and
+/// `GetTabSpaceKetas`), unlike the other functions of this group. The line break of CR LF at the end counts as the CR alone
 /// (`pLine[nLen - 2] == CR && pLine[nLen - 1] == LF`: `nLen--`).
 fn get_str_width(ed: &mut Editor, args: &Args) -> Result {
     let text = args.str(0);
@@ -208,12 +239,13 @@ fn get_str_width(ed: &mut Editor, args: &Args) -> Result {
     let text = text
         .strip_suffix("\r\n")
         .map_or(text, |t| &text[..t.len() + 1]);
-    Ok(text_width(&*ed.cx, text, start).into())
+    Ok(text_columns(&*ed.cx, text, start).into())
 }
 
-/// F_GETSTRLAYOUTLENGTH: like `GetStrWidth`, but a line ending at the end is part of the string
-/// and takes one cell (its mark), whatever it is made of. (Sakura measures the string as a line
-/// of the document with `CMemoryIterator`; the width of a line ending there is one cell.)
+/// F_GETSTRLAYOUTLENGTH: the width of a string in `X` from `start` (from 1, in `X`; it matters
+/// for tabs). A line ending at the end is part of the string and takes one column (its mark),
+/// whatever it is made of. (Sakura measures the string as a line of the document with
+/// `CMemoryIterator`, in layout `X`; the width of a line ending there is one column here.)
 fn get_str_layout_length(ed: &mut Editor, args: &Args) -> Result {
     let text = args.str(0);
     let start = args.int_or(1, 1).saturating_sub(1);
@@ -221,18 +253,17 @@ fn get_str_layout_length(ed: &mut Editor, args: &Args) -> Result {
         .strip_suffix("\r\n")
         .or_else(|| text.strip_suffix(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']))
     {
-        Some(body) => (body, 1),
+        Some(body) => (body, i64::from(ed.cx.layout().column_x().raw())),
         None => (text, 0),
     };
-    Ok((text_width(&*ed.cx, body, start) + eol).into())
+    Ok((text_x(&*ed.cx, body, start) + eol).into())
 }
 
-/// F_GETDEFAULTCHARLENGTH: the layout width of a half-width character. Sakura answers in its
-/// layout unit (the pitch of the font in pixels, with the character spacing); this editor lays
-/// out in whole cells, so a half-width character is 1, and a macro that divides a width by it
-/// gets the number of cells.
-fn get_default_char_length(_: &mut Editor, _: &Args) -> Result {
-    Ok(1.into())
+/// F_GETDEFAULTCHARLENGTH: the layout width of a half-width character in `X`
+/// (`CTextMetrics::GetLayoutXDefault`, which is the pitch of the font in pixels with the
+/// character spacing in Sakura). A macro that divides a layout width by it gets columns.
+fn get_default_char_length(ed: &mut Editor, _: &Args) -> Result {
+    Ok(i64::from(ed.cx.layout().column_x().raw()).into())
 }
 
 fn view(ed: &Editor) -> Result<crate::host::ViewInfo> {
@@ -426,6 +457,8 @@ pub const FUNCS: &[EditorFunc] = &[
 mod tests {
     use serde_json::json;
 
+    use matsu_commands::layout::PlainLayout;
+
     use super::super::testing::Fixture;
 
     #[test]
@@ -444,6 +477,43 @@ mod tests {
         assert!(f.call("LayoutToLogicLineNum", json!([5])).is_err());
         assert!(f.call("LayoutToLogicLineNum", json!([0])).is_err());
         assert!(f.call("LogicToLayoutLineNum", json!([0, 1])).is_err());
+    }
+
+    /// The functions give the layout's `X`, as Sakura does (`CLayoutXInt`), and
+    /// `GetDefaultCharLength` says how many of them make a column; the ones that count
+    /// `GetKetaOfChar` (`GetStrWidth`) give columns. With 64 `X` for a column the numbers are
+    /// the ones of a column of 1 times 64.
+    #[test]
+    fn the_layout_functions_give_x_and_the_default_char_length_is_the_column() {
+        let mut f = Fixture::new("日a\tb\n");
+        f.layout = PlainLayout::scaled(64);
+        assert_eq!(f.ok("GetDefaultCharLength", json!([])), json!(64));
+        // 日 (2 columns), a (1), the tab to column 4, then b: `b` starts at column 4
+        assert_eq!(f.ok("LineIndexToColumn", json!([1, 4])), json!(4 * 64 + 1));
+        assert_eq!(f.ok("LineColumnToIndex", json!([1, 4 * 64 + 1])), json!(4));
+        // a position inside the tab is the tab
+        assert_eq!(f.ok("LineColumnToIndex", json!([1, 3 * 64 + 40])), json!(3));
+        // the width: in `X`, and in columns for `GetStrWidth`
+        assert_eq!(f.ok("GetStrLayoutLength", json!(["日a\tb"])), json!(5 * 64));
+        assert_eq!(f.ok("GetStrWidth", json!(["日a\tb"])), json!(5));
+        // the line ending is one column
+        assert_eq!(f.ok("GetStrLayoutLength", json!(["a\n"])), json!(2 * 64));
+        // the end of a selection
+        f.select((0, 0), (0, "日a".len()));
+        assert_eq!(f.ok("GetSelectColumnTo", json!([])), json!(3 * 64 + 1));
+    }
+
+    #[test]
+    fn an_oversized_column_means_the_end_of_the_row_and_a_negative_one_the_start() {
+        let mut f = Fixture::new("abc");
+        for col in [4_294_967_297_i64, 4_294_967_296, i64::MAX] {
+            assert_eq!(
+                f.ok("LineColumnToIndex", json!([1, col])),
+                json!(4),
+                "{col}"
+            );
+        }
+        assert_eq!(f.ok("LineColumnToIndex", json!([1, -5])), json!(1));
     }
 
     #[test]

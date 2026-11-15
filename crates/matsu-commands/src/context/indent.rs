@@ -16,6 +16,7 @@ use matsu_core::buffer::Pos;
 
 use super::CommandContext;
 use crate::command::Result;
+use crate::layout::X;
 
 /// How many bytes an edit put into (positive) or took out of (negative) the start of a line.
 type Shifts = Vec<(usize, isize)>;
@@ -81,12 +82,18 @@ impl CommandContext<'_> {
         unit == '\t' && self.ins_space
     }
 
-    /// The spaces that a soft tab typed at display column `col` is: up to the next tab stop
-    /// (`SSoftTabData::Len` in `Command_INDENT`; the width of a space is 1 column, and a
-    /// full-width char counts as 2 in `col`).
-    pub(crate) fn soft_tab_at(&self, col: usize) -> String {
-        let width = self.layout().tab_width().max(1);
-        " ".repeat(width - col % width)
+    /// The spaces that a soft tab typed at `x` is: as many as fill up to the next tab stop, each
+    /// as wide as a column. Sakura: `SSoftTabData::Len` in `Command_INDENT`
+    /// (`sakura_core/cmd/CViewCommander_Edit_advanced.cpp`), which counts
+    /// `(tab + w - (x + w) % tab) / dx` with `tab` the tab stop (`GetTabSpace`), `dx` a column
+    /// (`GetWidthPerKeta`) and `w = dx - 1`, so that an `x` a little past a stop counts the stop
+    /// as already passed.
+    pub(crate) fn soft_tab_at(&self, x: X) -> String {
+        let tab = self.layout().tab_x().raw().max(1);
+        let column = self.layout().column_x().raw().max(1);
+        let w = column - 1;
+        let count = (tab + w - (x.raw().saturating_add(w)) % tab) / column;
+        " ".repeat(count as usize)
     }
 
     /// Types `unit` at the caret, or in place of a selection inside one row. A soft tab is the
@@ -114,7 +121,7 @@ impl CommandContext<'_> {
             to = plan.end;
             pad = plan.pad;
         }
-        let spaces = self.soft_tab_at(self.layout().display_col(self.doc(), from)?);
+        let spaces = self.soft_tab_at(self.layout().display_x(self.doc(), from)?);
         let edit = self.replace(from, to, &format!("{spaces}{}", " ".repeat(pad)))?;
         self.cursor.move_to(
             matsu_core::buffer::Pos::new(edit.end.line, edit.end.col - pad),
@@ -141,7 +148,7 @@ impl CommandContext<'_> {
             return self.type_indent_unit(unit);
         }
         let unit_text = if self.is_soft_tab(unit) {
-            self.soft_tab_at(0)
+            self.soft_tab_at(X::ZERO)
         } else {
             unit.to_string()
         };

@@ -4018,6 +4018,7 @@ dependencies = [
  "chrono",
  "inventory",
  "matsu-core",
+ "matsu-layout",
 ]
 
 [[package]]

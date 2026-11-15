@@ -4,8 +4,8 @@
 //! coordinates) and a flag (`IsBoxSelecting`); the range is read as the corners of a rectangle.
 //! A corner can be to the right of the end of its row, where there is no text: while a box is
 //! selected the caret may go there (`CCaret::Cursor_UPDOWN`, `Command_RIGHT`). The cursor keeps
-//! the display column of each corner for that ([`Cursor::move_box_to`]); the position is then the
-//! end of the row.
+//! the horizontal position ([`X`]) of each corner for that ([`Cursor::move_box_to`]); the position
+//! is then the end of the row.
 //!
 //! The moves of the box commands are the ordinary moves ([`CommandContext::move_left`] and the
 //! others) run on a cursor that is in box mode; this file has the box versions of the moves
@@ -20,11 +20,7 @@ use matsu_core::cursor::char_left;
 
 use super::CommandContext;
 use crate::command::Result;
-
-/// The rightmost display column of a box caret: Sakura's `GetMaxLineLayout()`, which is the
-/// longest line (`m_nMaxLineKetas`, 10240 columns by default, `MAXLINEKETAS`). Without wrapping
-/// at the width of the window that is the limit; this crate has no setting for it yet.
-pub const MAX_BOX_COL: usize = 10240;
+use crate::layout::X;
 
 impl CommandContext<'_> {
     /// `F_BEGIN_BOX`: starts a box selection at the caret. A selection that was there is dropped.
@@ -48,16 +44,16 @@ impl CommandContext<'_> {
     }
 
     fn start_box(&mut self, lock: bool) -> Result<()> {
-        let col = self.box_caret_col()?;
-        self.cursor.begin_box(col, lock);
+        let x = self.box_caret_x()?;
+        self.begin_box_at(x, lock);
         Ok(())
     }
 
-    /// The display column of the caret: for a box selection the column of its corner, which can
-    /// be past the end of the text; otherwise that of the caret position.
-    pub fn box_caret_col(&self) -> Result<usize> {
-        let at = self.caret_col_with_free()?;
-        Ok(self.cursor.box_caret_col().map_or(at, |c| c.max(at)))
+    /// The `X` of the caret: for a box selection that of its corner, which can be past the end of
+    /// the text; otherwise that of the caret position.
+    pub fn box_caret_x(&self) -> Result<X> {
+        let at = self.caret_x_with_free()?;
+        Ok(self.stored_box_caret_x().map_or(at, |c| c.max(at)))
     }
 
     /// Whether the row of `row_pos` ends because the line wraps there. The end of such a row is
@@ -73,14 +69,14 @@ impl CommandContext<'_> {
         let caret = self.caret();
         Ok(self.cursor.is_box()
             && !self.row_is_wrapped(caret)?
-            && self.box_caret_col()? > self.caret_display_col()?)
+            && self.box_caret_x()? > self.caret_display_x()?)
     }
 
-    /// Moves the box caret to display column `col` of the row of `row_pos`: onto the char that
-    /// covers the column, or into the empty space after the text. On a wrapped row, the last char
-    /// of the row is as far as the caret goes.
-    pub(super) fn box_move_to_col(&mut self, row_pos: Pos, col: usize) -> Result<()> {
-        let mut pos = self.layout.pos_at_col(self.doc(), row_pos, col)?;
+    /// Moves the box caret to `x` on the row of `row_pos`: onto the char that covers it, or into
+    /// the empty space after the text. On a wrapped row, the last char of the row is as far as
+    /// the caret goes.
+    pub(super) fn box_move_to_x(&mut self, row_pos: Pos, x: X) -> Result<()> {
+        let mut pos = self.layout.pos_at_x(self.doc(), row_pos, x)?;
         let end = self.layout.row_end(self.doc(), row_pos)?;
         let wrapped = self.row_is_wrapped(row_pos)?;
         if pos == end && wrapped {
@@ -89,14 +85,13 @@ impl CommandContext<'_> {
             {
                 pos = last;
             }
-            let at = self.layout.display_col(self.doc(), pos)?;
-            self.cursor.move_box_to(pos, at);
+            let at = self.layout.display_x(self.doc(), pos)?;
+            self.set_box_caret(pos, at);
             return Ok(());
         }
-        let at = self.layout.display_col(self.doc(), pos)?;
-        let in_space = pos == end && at < col;
-        self.cursor
-            .move_box_to(pos, if in_space { col } else { at });
+        let at = self.layout.display_x(self.doc(), pos)?;
+        let in_space = pos == end && at < x;
+        self.set_box_caret(pos, if in_space { x } else { at });
         Ok(())
     }
 
@@ -114,48 +109,55 @@ impl CommandContext<'_> {
         {
             pos = last;
         }
-        let col = self.layout.display_col(self.doc(), pos)?;
-        self.cursor.move_box_to(pos, col);
+        let x = self.layout.display_x(self.doc(), pos)?;
+        self.set_box_caret(pos, x);
         Ok(())
     }
 
     /// One column left; through the empty space, then one char at a time over the text. The caret
     /// does not go to the previous row.
+    ///
+    /// In the empty space the move is one column (`dx_default`, [`column_x`](crate::layout::Layout::column_x))
+    /// and stops at the end of the text (`x = max(x - dx_default, end)`, `Command_LEFT`).
     pub(super) fn box_left(&mut self) -> Result<()> {
-        let (caret, col) = (self.caret(), self.box_caret_col()?);
+        let (caret, x) = (self.caret(), self.box_caret_x()?);
         if self.caret_is_in_empty_space()? {
             let end = self.layout.row_end(self.doc(), caret)?;
-            self.cursor.move_box_to(end, col - 1);
+            let text_end = self.layout.display_x(self.doc(), end)?;
+            let back = x.saturating_sub(self.layout.column_x()).max(text_end);
+            self.set_box_caret(end, back);
             return Ok(());
         }
         // inside the text: the previous char of the row, if there is one
         if caret > self.layout.row_start(self.doc(), caret)?
             && let Some(prev) = char_left(self.doc(), caret)?
         {
-            let col = self.layout.display_col(self.doc(), prev)?;
-            self.cursor.move_box_to(prev, col);
+            let x = self.layout.display_x(self.doc(), prev)?;
+            self.set_box_caret(prev, x);
         }
         Ok(())
     }
 
     /// One char right over the text, then one column at a time through the empty space up to
-    /// [`MAX_BOX_COL`]. The caret does not go to the next row, and not onto the end of a wrapped
-    /// row.
+    /// [`max_box_x`](Self::max_box_x) (`to_x = min(x + dx_default, x_max)`, `Command_RIGHT`). The
+    /// caret does not go to the next row, and not onto the end of a wrapped row.
     pub(super) fn box_right(&mut self) -> Result<()> {
-        let (caret, col) = (self.caret(), self.box_caret_col()?);
+        let (caret, x) = (self.caret(), self.box_caret_x()?);
         let end = self.layout.row_end(self.doc(), caret)?;
         let wrapped = self.row_is_wrapped(caret)?;
-        if !wrapped && col >= self.layout.display_col(self.doc(), end)? {
-            if col < MAX_BOX_COL {
-                self.cursor.move_box_to(end, col + 1);
+        if !wrapped && x >= self.layout.display_x(self.doc(), end)? {
+            let max = self.max_box_x();
+            if x < max {
+                let next = (x + self.layout.column_x()).min(max);
+                self.set_box_caret(end, next);
             }
             return Ok(());
         }
         if let Some(next) = matsu_core::cursor::char_right(self.doc(), caret)?
             && !(wrapped && next >= end)
         {
-            let col = self.layout.display_col(self.doc(), next)?;
-            self.cursor.move_box_to(next, col);
+            let x = self.layout.display_x(self.doc(), next)?;
+            self.set_box_caret(next, x);
         }
         Ok(())
     }
@@ -165,22 +167,22 @@ impl CommandContext<'_> {
     /// ending when the caret is not in the first column, so that the column does not change
     /// (Sakura: `CCaret::Cursor_UPDOWN`).
     pub(super) fn box_vertical(&mut self, rows: isize) -> Result<()> {
-        let caret_col = self.box_caret_col()?;
-        let goal = self.cursor.goal_col().unwrap_or(caret_col);
+        let caret_x = self.box_caret_x()?;
+        let goal = self.goal_x().unwrap_or(caret_x);
         let caret = self.caret();
         // The start of the row, not the position at the goal column: the end of a wrapped row
         // belongs to the next one.
-        let mut row = self.layout.move_rows(self.doc(), caret, rows, 0)?;
+        let mut row = self.layout.move_rows(self.doc(), caret, rows, X::ZERO)?;
         let eof_row = self.doc().line_count();
-        if rows > 0 && caret_col != 0 && row.line >= eof_row {
+        if rows > 0 && caret_x != X::ZERO && row.line >= eof_row {
             row = if caret.line >= eof_row {
-                self.layout.move_rows(self.doc(), caret, 0, 0)?
+                self.layout.move_rows(self.doc(), caret, 0, X::ZERO)?
             } else {
-                self.layout.move_rows(self.doc(), row, -1, 0)?
+                self.layout.move_rows(self.doc(), row, -1, X::ZERO)?
             };
         }
-        self.box_move_to_col(row, goal)?;
-        self.cursor.set_goal_col(Some(goal));
+        self.box_move_to_x(row, goal)?;
+        self.set_goal_x(Some(goal));
         Ok(())
     }
 }

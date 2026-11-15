@@ -36,8 +36,11 @@ mod mouse;
 mod mouse_drop;
 mod paragraph;
 mod smart_indent;
+mod units;
 mod view_mode;
 mod word;
+#[cfg(test)]
+mod x_units_tests;
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -49,16 +52,16 @@ use matsu_core::model::DocumentModel;
 use crate::clipboard::Clipboard;
 use crate::command::{CommandError, Result};
 use crate::input_options::{InputOptions, LineStartColors, SmartIndentCall};
-use crate::layout::Layout;
+use crate::layout::{Layout, X};
 
 pub use bookmarks::BookmarkJump;
-pub use boxsel::MAX_BOX_COL;
 pub(crate) use clipboard::QUOTE;
 pub use diff::DiffJump;
 pub use funclist::FuncListJump;
 pub use modes::{eol_of_macro_value, macro_value_of_eol};
 pub use modified_lines::ModifiedLineJump;
 pub use mouse::DragSelection;
+pub use units::MAX_BOX_COLUMNS;
 
 /// One edit of the text, in the coordinates of the document before the edit for `old_end` and
 /// after it for `new_end`: the text from `start` to `old_end` is gone, and the text from `start`
@@ -368,9 +371,10 @@ impl<'a> CommandContext<'a> {
         self.model.new_line()
     }
 
-    /// The display column of the caret.
-    pub fn caret_display_col(&self) -> Result<usize> {
-        Ok(self.layout.display_col(self.doc(), self.caret())?)
+    /// The horizontal position of the caret on the screen, without the free cursor's space (see
+    /// [`caret_x_with_free`](Self::caret_x_with_free)).
+    pub fn caret_display_x(&self) -> Result<X> {
+        Ok(self.layout.display_x(self.doc(), self.caret())?)
     }
 
     // ---- undo blocks ----
@@ -870,6 +874,12 @@ mod tests {
         fn tab_width(&self) -> usize {
             self.inner.tab_width()
         }
+        fn tab_x(&self) -> X {
+            self.inner.tab_x()
+        }
+        fn column_x(&self) -> X {
+            self.inner.column_x()
+        }
         fn edited(&mut self, doc: &Document, _change: &TextChange) {
             self.lines = doc.line_count();
             self.edits += 1;
@@ -878,8 +888,8 @@ mod tests {
             self.lines = doc.line_count();
             self.resets += 1;
         }
-        fn display_col(&self, doc: &Document, pos: Pos) -> matsu_core::buffer::Result<usize> {
-            self.inner.display_col(doc, pos)
+        fn display_x(&self, doc: &Document, pos: Pos) -> matsu_core::buffer::Result<X> {
+            self.inner.display_x(doc, pos)
         }
         fn row_start(&self, doc: &Document, pos: Pos) -> matsu_core::buffer::Result<Pos> {
             self.inner.row_start(doc, pos)
@@ -894,23 +904,18 @@ mod tests {
         ) -> matsu_core::buffer::Result<Option<Pos>> {
             self.inner.next_row_start(doc, pos)
         }
-        fn pos_at_col(
-            &self,
-            doc: &Document,
-            row_pos: Pos,
-            col: usize,
-        ) -> matsu_core::buffer::Result<Pos> {
-            self.inner.pos_at_col(doc, row_pos, col)
+        fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> matsu_core::buffer::Result<Pos> {
+            self.inner.pos_at_x(doc, row_pos, x)
         }
         fn move_rows(
             &self,
             doc: &Document,
             pos: Pos,
             rows: isize,
-            goal_col: usize,
+            goal: X,
         ) -> matsu_core::buffer::Result<Pos> {
             assert_eq!(self.lines, doc.line_count(), "the layout is stale");
-            self.inner.move_rows(doc, pos, rows, goal_col)
+            self.inner.move_rows(doc, pos, rows, goal)
         }
     }
 

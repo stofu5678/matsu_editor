@@ -261,7 +261,7 @@ mod tests {
     use matsu_core::model::DocumentModel;
 
     use super::*;
-    use crate::layout::Layout;
+    use crate::layout::{Layout, X};
     use crate::registry::Registry;
     use crate::testing::{Editor, check_with};
 
@@ -433,8 +433,16 @@ mod tests {
         fn tab_width(&self) -> usize {
             4
         }
-        fn display_col(&self, doc: &Document, pos: Pos) -> R<usize> {
-            Ok(pos.col - self.row_start(doc, pos)?.col)
+        fn tab_x(&self) -> X {
+            X::from_raw(4)
+        }
+        fn column_x(&self) -> X {
+            X::from_raw(1)
+        }
+        fn display_x(&self, doc: &Document, pos: Pos) -> R<X> {
+            Ok(X::from_raw(
+                (pos.col - self.row_start(doc, pos)?.col) as u32,
+            ))
         }
         fn row_start(&self, doc: &Document, pos: Pos) -> R<Pos> {
             let pos = doc.clamp_pos(pos)?;
@@ -452,11 +460,11 @@ mod tests {
             let start = self.row_start(doc, pos)?;
             Ok(Self::rows(doc).into_iter().find(|&r| r > start))
         }
-        fn pos_at_col(&self, doc: &Document, row_pos: Pos, col: usize) -> R<Pos> {
+        fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> R<Pos> {
             let start = self.row_start(doc, row_pos)?;
-            Ok(Pos::new(start.line, start.col + col))
+            Ok(Pos::new(start.line, start.col + x.raw() as usize))
         }
-        fn move_rows(&self, _: &Document, pos: Pos, _: isize, _: usize) -> R<Pos> {
+        fn move_rows(&self, _: &Document, pos: Pos, _: isize, _: X) -> R<Pos> {
             Ok(pos)
         }
     }

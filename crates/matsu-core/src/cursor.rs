@@ -25,6 +25,16 @@
 //! With Sakura's free cursor mode the caret may stand to the right of the end of a line
 //! (`m_bIsFreeCursorMode`). The position stays the end of the line and the cursor keeps the
 //! display column the caret stands at ([`Cursor::free_col`]), like the corners of a box do.
+//!
+//! # The unit of the columns
+//!
+//! The "display columns" here (the goal column, the free column, the corners of a box) are the
+//! layout's horizontal positions in its own unit, `matsu_layout::X` (ADR-0034), kept as plain
+//! numbers: `matsu-layout` depends on this crate, so the core cannot name the type. The cursor
+//! only stores and compares them and never turns them into columns or does arithmetic with
+//! them, so it does not need to know the unit. `matsu-commands` is where they are read and
+//! written as `X`; one half-width column is as many of them as the layout's `per_column` (1
+//! today).
 
 use crate::buffer::{Document, Pos, Result};
 use crate::jump_history::JumpHistory;

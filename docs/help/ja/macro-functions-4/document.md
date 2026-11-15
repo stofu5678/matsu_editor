@@ -33,7 +33,7 @@
 |---|---|---|---|---|---|
 | `IsTextSelected` | なし | 数 | 選択の種類。0 は選択なし、1 は通常の選択、2 は矩形選択 | しない | 違いなし。矩形選択は、何かを囲んでいるときに 2 |
 | `GetSelectLineFrom` | なし | 数 | 選択の始まりの、折り返しの行の番号（1 から） | しない | 折り返しているときは、文書の行の番号とずれる |
-| `GetSelectColmFrom` `GetSelectColumnFrom` | なし | 数 | 選択の始まりの表示桁（1 から） | しない | 2 つの名前は同じ関数。折り返した行の字下げも桁に入る |
+| `GetSelectColmFrom` `GetSelectColumnFrom` | なし | 数 | 選択の始まりの表示桁（1 から。レイアウトの単位。`GetDefaultCharLength` で割ると桁の数） | しない | 2 つの名前は同じ関数。折り返した行の字下げも桁に入る |
 | `GetSelectLineTo` | なし | 数 | 選択の終わりの、折り返しの行の番号 | しない | `GetSelectLineFrom` と同じ |
 | `GetSelectColmTo` `GetSelectColumnTo` | なし | 数 | 選択の終わりの表示桁 | しない | 2 つの名前は同じ関数 |
 

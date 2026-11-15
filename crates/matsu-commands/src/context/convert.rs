@@ -47,7 +47,8 @@ impl CommandContext<'_> {
     /// As [`convert_selection`](Self::convert_selection), for the conversions that depend on
     /// display columns. `convert` gets the selected text, the tab width (see
     /// [`tab_width`](Self::tab_width)) and the display column where the selection starts
-    /// (`nStartColumn`, `GetFrom().GetX2() / GetLayoutXDefault()` in Sakura).
+    /// (`nStartColumn`, `GetFrom().GetX2() / GetLayoutXDefault()` in Sakura: the whole columns of
+    /// the `X`, see [`whole_columns`](Self::whole_columns)).
     pub fn convert_selection_with_columns(
         &mut self,
         mut convert: impl FnMut(&str, usize, usize) -> String,
@@ -60,7 +61,7 @@ impl CommandContext<'_> {
         }
         let old = self.doc().text_between(from, to)?;
         let tab_width = self.tab_width();
-        let start_col = self.layout.display_col(self.doc(), from)?;
+        let start_col = self.whole_columns(self.layout.display_x(self.doc(), from)?);
         let new = convert(&old, tab_width, start_col);
         let end = if new == old {
             to
@@ -93,7 +94,10 @@ mod tests {
         for width in [1, 2, 4, 8] {
             let mut model = DocumentModel::new(Document::from_utf8(b"\tx".to_vec()).unwrap());
             let mut cursor = Cursor::default();
-            let mut layout = PlainLayout { tab_width: width };
+            let mut layout = PlainLayout {
+                tab_width: width,
+                ..PlainLayout::default()
+            };
             let cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
             assert_eq!(cx.tab_width(), width);
         }

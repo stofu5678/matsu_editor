@@ -240,6 +240,23 @@ impl Editor {
         self
     }
 
+    /// Counts the layout in `per_column` `X` for a column (1 by default, which is what the
+    /// screen does until ADR-0034 stage 3). The commands must give the same text, and the same
+    /// positions in columns, with any value: [`box_state`](Self::box_state) and
+    /// [`assert_box`](Self::assert_box) speak in columns, and [`xs`](Self::xs) converts a number
+    /// of columns to what the cursor keeps.
+    #[must_use]
+    pub fn with_per_column(mut self, per_column: u32) -> Self {
+        self.layout.per_column = per_column;
+        self
+    }
+
+    /// `columns` columns as the number that the cursor keeps for a goal, a free column or the
+    /// corner of a box (the `X`).
+    pub fn xs(&self, columns: usize) -> usize {
+        columns * self.layout.per_column.max(1) as usize
+    }
+
     /// Sets whether the Tab key inserts spaces (`bInsSpace`).
     #[must_use]
     pub fn with_ins_space(mut self, ins_space: bool) -> Self {
@@ -372,10 +389,16 @@ impl Editor {
 
     /// The corners of the box selection as `(line, display column)`: the anchor and the caret.
     /// `None` if there is no box selection (a box that covers nothing has both corners equal).
+    /// The columns are whole columns (the `X` of the cursor divided by `per_column`, see
+    /// [`with_per_column`](Self::with_per_column)).
     pub fn box_state(&self) -> Option<((usize, usize), (usize, usize))> {
         let c = &self.cursor;
-        let caret = (c.caret().line, c.box_caret_col()?);
-        let anchor = (c.anchor().unwrap_or(c.caret()).line, c.box_anchor_col()?);
+        let per = self.layout.per_column.max(1) as usize;
+        let caret = (c.caret().line, c.box_caret_col()? / per);
+        let anchor = (
+            c.anchor().unwrap_or(c.caret()).line,
+            c.box_anchor_col()? / per,
+        );
         Some((anchor, caret))
     }
 

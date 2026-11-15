@@ -12,7 +12,7 @@ use matsu_core::model::DocumentModel;
 use crate::clipboard::{ClipKind, MemoryClipboard};
 use crate::command::{Arg, CommandError};
 use crate::context::CommandContext;
-use crate::layout::{Layout, PlainLayout};
+use crate::layout::{Layout, PlainLayout, X};
 use crate::registry::Registry;
 use crate::testing::Editor;
 
@@ -23,7 +23,7 @@ fn boxed(text: &str, anchor: (usize, usize), caret: (usize, usize)) -> Editor {
     let layout = PlainLayout::default();
     let pos = |(line, col): (usize, usize)| {
         layout
-            .pos_at_col(&doc, Pos::new(line, 0), col)
+            .pos_at_x(&doc, Pos::new(line, 0), X::from_raw(col as u32))
             .expect("a position")
     };
     let mut cursor = Cursor::default();
@@ -498,7 +498,7 @@ fn indent_a_box_of_no_width_only_grows_it_to_the_right_edge() {
     assert_eq!(text_of(&e), "abc\ndef");
     assert_eq!(
         e.box_state(),
-        Some(((0, 1), (1, crate::context::MAX_BOX_COL)))
+        Some(((0, 1), (1, crate::context::MAX_BOX_COLUMNS as usize)))
     );
     // the next press indents
     e.run("indent_tab");
@@ -511,7 +511,7 @@ fn indent_tab_on_a_begin_box_with_nothing_selected_grows_the_box() {
     e.run("begin_box");
     e.run("indent_tab");
     assert_eq!(text_of(&e), "abc");
-    e.assert_box((0, 2), (0, crate::context::MAX_BOX_COL));
+    e.assert_box((0, 2), (0, crate::context::MAX_BOX_COLUMNS as usize));
 }
 
 #[test]
@@ -892,9 +892,17 @@ impl Layout for Wrap {
             crate::convert::tabs::char_width(c)
         }
     }
-    fn display_col(&self, doc: &Document, pos: Pos) -> R<usize> {
+    fn tab_x(&self) -> X {
+        X::from_raw(4)
+    }
+    fn column_x(&self) -> X {
+        X::from_raw(1)
+    }
+    fn display_x(&self, doc: &Document, pos: Pos) -> R<X> {
         let pos = doc.clamp_pos(pos)?;
-        Ok(pos.col - self.rows(doc)[self.index(doc, pos)].col)
+        Ok(X::from_raw(
+            (pos.col - self.rows(doc)[self.index(doc, pos)].col) as u32,
+        ))
     }
     fn row_start(&self, doc: &Document, pos: Pos) -> R<Pos> {
         Ok(self.rows(doc)[self.index(doc, pos)])
@@ -907,18 +915,21 @@ impl Layout for Wrap {
     fn next_row_start(&self, doc: &Document, pos: Pos) -> R<Option<Pos>> {
         Ok(self.rows(doc).get(self.index(doc, pos) + 1).copied())
     }
-    fn pos_at_col(&self, doc: &Document, row_pos: Pos, col: usize) -> R<Pos> {
+    fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> R<Pos> {
         let start = self.row_start(doc, row_pos)?;
         let end = self.row_end(doc, row_pos)?;
-        Ok(Pos::new(start.line, (start.col + col).min(end.col)))
+        Ok(Pos::new(
+            start.line,
+            (start.col + x.raw() as usize).min(end.col),
+        ))
     }
-    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: usize) -> R<Pos> {
+    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> R<Pos> {
         let all = self.rows(doc);
         let i = self
             .index(doc, pos)
             .saturating_add_signed(rows)
             .min(all.len() - 1);
-        self.pos_at_col(doc, all[i], goal)
+        self.pos_at_x(doc, all[i], goal)
     }
 }
 
@@ -938,7 +949,7 @@ fn run_wrapped(
     let rows = layout.rows(model.doc());
     let corner = |(row, col): (usize, usize)| {
         layout
-            .pos_at_col(model.doc(), rows[row], col)
+            .pos_at_x(model.doc(), rows[row], X::from_raw(col as u32))
             .expect("a position")
     };
     let mut cursor = Cursor::default();
@@ -1053,7 +1064,10 @@ fn text_that_reaches_the_wrap_point_moves_the_box_to_the_right_edge() {
     // columns; Sakura counts the columns up to the right edge (`GetMaxLineLayout()`).
     let (text, _, cursor) = run_wrapped("abcdef\nxy", (0, 1), (1, 2), "XY", "paste", &[]);
     assert_eq!(text, "aXYbcdXYef\nxy");
-    assert_eq!(cursor.box_caret_col(), Some(crate::context::MAX_BOX_COL));
+    assert_eq!(
+        cursor.box_caret_col(),
+        Some(crate::context::MAX_BOX_COLUMNS as usize)
+    );
 }
 
 #[test]

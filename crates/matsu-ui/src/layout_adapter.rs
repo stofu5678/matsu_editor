@@ -5,9 +5,7 @@
 //! columns counted from the left edge of the screen, so the indent of a wrapped row is included,
 //! and the goal column of the cursor means the same thing in every method.
 //!
-//! The layout counts in `X` ([`matsu_layout::X`], ADR-0034) and the trait in columns, so this is
-//! where they are converted, with [`matsu_layout::Widths::to_x`] and `to_columns`. The commands
-//! take `X` in stage 2, and the conversions go away.
+//! Both count in `X` ([`matsu_layout::X`], ADR-0034), so nothing is converted here.
 //!
 //! The context calls [`Layout::edited`] right after each edit and [`Layout::reset`] after an undo
 //! or a redo, so the layout matches the document all through a command (ADR-0013 section 4).
@@ -17,7 +15,7 @@ use std::time::Duration;
 use matsu_commands::context::TextChange;
 use matsu_commands::layout::Layout;
 use matsu_core::buffer::{Document, Edit, Pos, Result};
-use matsu_layout::DocumentLayout;
+use matsu_layout::{DocumentLayout, X};
 
 /// How long one frame may spend laying out the rest of a document.
 pub const LAYOUT_BUDGET: Duration = Duration::from_millis(4);
@@ -30,8 +28,20 @@ impl Layout for RowLayout<'_> {
         self.0.config().effective_tab_width() as usize
     }
 
+    fn tab_x(&self) -> X {
+        self.0.config().tab_x()
+    }
+
+    fn column_x(&self) -> X {
+        self.0.config().width.to_x(1)
+    }
+
     fn char_columns(&self, c: char) -> usize {
         self.0.config().width.columns(c) as usize
+    }
+
+    fn char_x(&self, c: char) -> X {
+        self.0.config().width.width_of(c)
     }
 
     fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
@@ -64,9 +74,8 @@ impl Layout for RowLayout<'_> {
         }
     }
 
-    fn display_col(&self, doc: &Document, pos: Pos) -> Result<usize> {
-        let x = self.0.pos_to_row(doc, pos)?.x;
-        Ok(self.0.config().width.to_columns(x) as usize)
+    fn display_x(&self, doc: &Document, pos: Pos) -> Result<X> {
+        Ok(self.0.pos_to_row(doc, pos)?.x)
     }
 
     fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos> {
@@ -87,16 +96,12 @@ impl Layout for RowLayout<'_> {
         Ok(Some(self.0.row(doc, next)?.start))
     }
 
-    fn pos_at_col(&self, doc: &Document, row_pos: Pos, col: usize) -> Result<Pos> {
+    fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> Result<Pos> {
         let row = self.0.pos_to_row(doc, row_pos)?.row;
-        let col = u32::try_from(col).unwrap_or(u32::MAX);
-        let x = self.0.config().width.to_x(col);
         Ok(self.0.row_to_pos(doc, row, x)?.pos)
     }
 
-    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal_col: usize) -> Result<Pos> {
-        let goal = u32::try_from(goal_col).unwrap_or(u32::MAX);
-        let goal = self.0.config().width.to_x(goal);
+    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> Result<Pos> {
         Ok(self.0.move_rows(doc, pos, rows, goal)?.pos)
     }
 }
@@ -109,7 +114,7 @@ mod tests {
     use matsu_commands::registry::Registry;
     use matsu_core::cursor::Cursor;
     use matsu_core::model::DocumentModel;
-    use matsu_layout::{LayoutConfig, Wrap};
+    use matsu_layout::{LayoutConfig, WidthRule, Widths, Wrap};
 
     use super::*;
 
@@ -148,10 +153,27 @@ mod tests {
     /// own tests use (tab stops every 4 columns, full-width chars take 2).
     #[test]
     fn agrees_with_the_plain_layout_without_wrapping() {
+        for per_column in PER_COLUMN {
+            agrees_with_the_plain_layout(per_column);
+        }
+    }
+
+    /// The column sizes that the commands must give the same result with (ADR-0034).
+    const PER_COLUMN: [u32; 2] = [1, 64];
+
+    fn scaled(per_column: u32) -> LayoutConfig {
+        LayoutConfig {
+            width: Widths::grid_scaled(WidthRule::default(), per_column),
+            ..LayoutConfig::default()
+        }
+    }
+
+    fn agrees_with_the_plain_layout(per_column: u32) {
         let d = doc("a\tb日c\r\n\r\nxyz\n");
-        let mut layout = laid_out(&d, LayoutConfig::default());
+        let mut layout = laid_out(&d, scaled(per_column));
         let real = RowLayout(&mut layout);
-        let plain = PlainLayout::default();
+        let plain = PlainLayout::scaled(per_column);
+        let x = |columns: u32| X::from_raw(columns * per_column);
         let positions = [
             Pos::new(0, 0),
             Pos::new(0, 1),
@@ -165,9 +187,9 @@ mod tests {
         ];
         for pos in positions {
             assert_eq!(
-                real.display_col(&d, pos).unwrap(),
-                plain.display_col(&d, pos).unwrap(),
-                "display_col {pos:?}"
+                real.display_x(&d, pos).unwrap(),
+                plain.display_x(&d, pos).unwrap(),
+                "display_x {pos:?}"
             );
             assert_eq!(
                 real.row_start(&d, pos).unwrap(),
@@ -187,8 +209,8 @@ mod tests {
             for rows in [-2, -1, 1, 2, 9] {
                 for goal in [0, 1, 4, 5, 6, 40] {
                     assert_eq!(
-                        real.move_rows(&d, pos, rows, goal).unwrap(),
-                        plain.move_rows(&d, pos, rows, goal).unwrap(),
+                        real.move_rows(&d, pos, rows, x(goal)).unwrap(),
+                        plain.move_rows(&d, pos, rows, x(goal)).unwrap(),
                         "move_rows {pos:?} {rows} {goal}"
                     );
                 }
@@ -196,9 +218,9 @@ mod tests {
         }
         for col in [0, 1, 3, 4, 5, 6, 7, 99] {
             assert_eq!(
-                real.pos_at_col(&d, Pos::new(0, 0), col).unwrap(),
-                plain.pos_at_col(&d, Pos::new(0, 0), col).unwrap(),
-                "pos_at_col {col}"
+                real.pos_at_x(&d, Pos::new(0, 0), x(col)).unwrap(),
+                plain.pos_at_x(&d, Pos::new(0, 0), x(col)).unwrap(),
+                "pos_at_x {col}"
             );
         }
     }
@@ -216,24 +238,31 @@ mod tests {
         let p = Pos::new(0, 6);
         assert_eq!(real.row_start(&d, p).unwrap(), Pos::new(0, 4));
         assert_eq!(real.row_end(&d, p).unwrap(), Pos::new(0, 8));
-        assert_eq!(real.display_col(&d, p).unwrap(), 2);
+        assert_eq!(real.display_x(&d, p).unwrap(), X::from_raw(2));
         assert_eq!(
             real.next_row_start(&d, p).unwrap(),
             Some(Pos::new(0, 8)),
             "the next row of the same line"
         );
-        assert_eq!(real.move_rows(&d, p, 1, 1).unwrap(), Pos::new(0, 9));
-        assert_eq!(real.move_rows(&d, p, -1, 3).unwrap(), Pos::new(0, 3));
-        assert_eq!(real.move_rows(&d, p, 2, 1).unwrap(), Pos::new(1, 1));
+        let x = X::from_raw;
+        assert_eq!(real.move_rows(&d, p, 1, x(1)).unwrap(), Pos::new(0, 9));
+        assert_eq!(real.move_rows(&d, p, -1, x(3)).unwrap(), Pos::new(0, 3));
+        assert_eq!(real.move_rows(&d, p, 2, x(1)).unwrap(), Pos::new(1, 1));
         assert_eq!(real.next_row_start(&d, Pos::new(1, 1)).unwrap(), None);
     }
 
     /// Runs commands the way `EditorView` does, and checks after each that the layout kept up
     /// equals a fresh layout of the document.
     fn run_all(text: &str, wrap: Wrap, steps: &[(&str, Vec<Arg>)]) {
+        for per_column in PER_COLUMN {
+            run_all_scaled(text, wrap, steps, per_column);
+        }
+    }
+
+    fn run_all_scaled(text: &str, wrap: Wrap, steps: &[(&str, Vec<Arg>)], per_column: u32) {
         let cfg = LayoutConfig {
             wrap,
-            ..LayoutConfig::default()
+            ..scaled(per_column)
         };
         let mut model = DocumentModel::new(doc(text));
         let mut cursor = Cursor::default();
@@ -341,9 +370,15 @@ mod tests {
     /// from the left edge of the row, and the caret may stand right of the text of a row.
     #[test]
     fn a_box_moves_by_the_rows_of_the_layout() {
+        for per_column in PER_COLUMN {
+            a_box_moves_by_the_rows(per_column);
+        }
+    }
+
+    fn a_box_moves_by_the_rows(per_column: u32) {
         let cfg = LayoutConfig {
             wrap: Wrap::Columns(4),
-            ..LayoutConfig::default()
+            ..scaled(per_column)
         };
         // rows: "abcd" "ef" | "x" | "ghij"
         let mut model = DocumentModel::new(doc("abcdef\nx\nghij"));
@@ -355,7 +390,15 @@ mod tests {
             Registry::global().run(id, &mut cx, &[]).unwrap();
             cx.finish();
         };
-        let corners = |c: &Cursor| (c.caret(), c.box_anchor_col(), c.box_caret_col());
+        // the cursor keeps `X`; the expected corners are in columns
+        let per = per_column as usize;
+        let corners = |c: &Cursor| {
+            (
+                c.caret(),
+                c.box_anchor_col().map(|x| x / per),
+                c.box_caret_col().map(|x| x / per),
+            )
+        };
         run("begin_box", &mut cursor);
         // down over the wrap: the second row of the line, then the short line
         run("cursor_down_box", &mut cursor);
@@ -385,9 +428,15 @@ mod tests {
     /// rest there, and the empty space exists only after the last row of a line.
     #[test]
     fn a_box_caret_does_not_rest_at_the_end_of_a_wrapped_row() {
+        for per_column in PER_COLUMN {
+            a_box_caret_stays_on_a_wrapped_row(per_column);
+        }
+    }
+
+    fn a_box_caret_stays_on_a_wrapped_row(per_column: u32) {
         let cfg = LayoutConfig {
             wrap: Wrap::Columns(4),
-            ..LayoutConfig::default()
+            ..scaled(per_column)
         };
         // rows: "abcd" "ef"
         let mut model = DocumentModel::new(doc("abcdef\n"));
@@ -399,7 +448,8 @@ mod tests {
             Registry::global().run(id, &mut cx, &[]).unwrap();
             cx.finish();
         };
-        let at = |c: &Cursor| (c.caret(), c.box_caret_col());
+        let per = per_column as usize;
+        let at = |c: &Cursor| (c.caret(), c.box_caret_col().map(|x| x / per));
         run("begin_box", &mut cursor);
         run("cursor_right_box", &mut cursor);
         assert_eq!(at(&cursor), (Pos::new(0, 2), Some(2)));

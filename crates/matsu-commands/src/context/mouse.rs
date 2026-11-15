@@ -12,6 +12,7 @@ use matsu_core::buffer::Pos;
 
 use super::CommandContext;
 use crate::command::Result;
+use crate::layout::X;
 
 /// The move of the mouse while a selection is being dragged: where it began and whether it goes
 /// by words.
@@ -113,16 +114,16 @@ impl CommandContext<'_> {
     /// the mouse is the one that moves the corner.
     pub fn mouse_begin_box(&mut self, pos: Pos) -> Result<()> {
         self.move_caret(pos, false)?;
-        let col = self.caret_display_col()?;
-        self.cursor.begin_box(col, false);
+        let x = self.caret_display_x()?;
+        self.begin_box_at(x, false);
         Ok(())
     }
 
-    /// The pointer of a box drag is on the row that contains `row_pos`, at display column `col`:
-    /// moves the corner there. Past the end of the text the corner is in the empty space
+    /// The pointer of a box drag is on the row that contains `row_pos`, at `x`: moves the corner
+    /// there. Past the end of the text the corner is in the empty space
     /// (`MoveCursorToClientPoint` in `OnMOUSEMOVE`).
-    pub fn mouse_box_to(&mut self, row_pos: Pos, col: usize) -> Result<()> {
-        self.box_move_to_col(row_pos, col.min(super::MAX_BOX_COL))
+    pub fn mouse_box_to(&mut self, row_pos: Pos, x: X) -> Result<()> {
+        self.box_move_to_x(row_pos, x.min(self.max_box_x()))
     }
 
     /// The mouse button was released: a box that covers nothing is not a selection (`m_sSelect.
@@ -142,6 +143,7 @@ mod tests {
     use matsu_core::buffer::Pos;
 
     use super::DragSelection;
+    use crate::layout::X;
     use crate::testing::Editor;
 
     fn drag(e: &mut Editor, bgn: (Pos, Pos), words: bool, at: Pos) {
@@ -220,18 +222,18 @@ mod tests {
         let mut e = Editor::new("a|bcd\nefgh\nij");
         e.with_context(|c| c.mouse_begin_box(Pos::new(0, 1)))
             .unwrap();
-        e.with_context(|c| c.mouse_box_to(Pos::new(1, 0), 3))
+        e.with_context(|c| c.mouse_box_to(Pos::new(1, 0), X::from_raw(3)))
             .unwrap();
         e.assert_box((0, 1), (1, 3));
         // back on the corner: nothing is covered, and the release ends the box
-        e.with_context(|c| c.mouse_box_to(Pos::new(0, 0), 1))
+        e.with_context(|c| c.mouse_box_to(Pos::new(0, 0), X::from_raw(1)))
             .unwrap();
         assert!(e.with_context(|c| c.mouse_end_empty_box()).unwrap());
         e.assert_marked("a|bcd\nefgh\nij");
         // the corner can be in the empty space of a short row
         e.with_context(|c| c.mouse_begin_box(Pos::new(0, 1)))
             .unwrap();
-        e.with_context(|c| c.mouse_box_to(Pos::new(2, 0), 5))
+        e.with_context(|c| c.mouse_box_to(Pos::new(2, 0), X::from_raw(5)))
             .unwrap();
         e.assert_box((0, 1), (2, 5));
         assert!(!e.with_context(|c| c.mouse_end_empty_box()).unwrap());
