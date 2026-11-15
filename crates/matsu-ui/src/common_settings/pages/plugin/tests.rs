@@ -11,7 +11,7 @@ use super::list::{
     install_error_text, remove_selected, select, web_address,
 };
 use super::rows::{
-    self, AUTHOR, CODE, COMMANDS, DESCRIPTION, FOLDER, ID, NAME, NUMBER, STATE, VERSION, rows_of,
+    self, AUTHOR, CODE, COMMANDS, DESCRIPTION, FOLDER, ID, NAME, NUMBER, VERSION, rows_of,
     settings_of, uninstall,
 };
 use crate::common_settings::model::{Kind, Values, controls};
@@ -76,7 +76,11 @@ fn an_empty_slot_shows_only_its_number() {
     assert_eq!(rows.len(), 40);
     assert_eq!(rows[0][NUMBER], "0");
     assert_eq!(rows[39][NUMBER], "39");
-    assert!(rows[7][NAME].is_empty() && rows[7][STATE].is_empty() && rows[7][FOLDER].is_empty());
+    assert!(
+        rows[7][NAME].is_empty()
+            && rows::shown_state(&rows[7]).is_empty()
+            && rows[7][FOLDER].is_empty()
+    );
     assert_eq!(rows[7][CODE], "none");
 }
 
@@ -91,7 +95,7 @@ fn a_registered_plugin_shows_what_its_definition_says() {
     let row = &rows[2];
     // The name is the one of the language file (the language is Japanese).
     assert_eq!(row[NAME], "ハロー (JavaScript)");
-    assert_eq!(row[STATE], "無効");
+    assert_eq!(rows::shown_state(row), "無効");
     assert_eq!(row[ID], HELLO_JS_ID);
     assert_eq!(row[FOLDER], "HelloJs");
     assert_eq!(row[COMMANDS], "1");
@@ -114,8 +118,8 @@ fn what_matsu_cannot_run_is_said_in_the_state() {
     added.state = PluginState::Installed;
     settings.table[1] = added;
     let rows = rows_of(&settings, Some(&dirs));
-    assert_eq!(rows[0][STATE], "VBScript は使えません");
-    assert_eq!(rows[1][STATE], "追加（VBScript は使えません）");
+    assert_eq!(rows::shown_state(&rows[0]), "VBScript は使えません");
+    assert_eq!(rows::shown_state(&rows[1]), "追加（VBScript は使えません）");
 
     // A DLL plugin and a plugin of a kind that nobody knows.
     let plugins = dir.path().join("plugins");
@@ -127,7 +131,7 @@ fn what_matsu_cannot_run_is_said_in_the_state() {
         )
         .unwrap();
         settings.table[2] = registered(name, name, 0);
-        let state = rows_of(&settings, Some(&dirs))[2][STATE].clone();
+        let state = rows::shown_state(&rows_of(&settings, Some(&dirs))[2]).clone();
         let expected = match name {
             "Dll" => "DLL プラグインは使えません",
             "Odd" => "種別「perl」は使えません",
@@ -145,10 +149,13 @@ fn a_plugin_whose_folder_is_gone_is_not_found() {
     settings.table[0] = registered("Gone", "gone", 2);
     let rows = rows_of(&settings, Some(&dirs));
     assert_eq!(rows[0][NAME], "-");
-    assert_eq!(rows[0][STATE], "見つかりません");
+    assert_eq!(rows::shown_state(&rows[0]), "見つかりません");
     assert_eq!(rows[0][FOLDER], "Gone");
     // With nowhere to look the plugins are not found either.
-    assert_eq!(rows_of(&settings, None)[0][STATE], "見つかりません");
+    assert_eq!(
+        rows::shown_state(&rows_of(&settings, None)[0]),
+        "見つかりません"
+    );
 }
 
 #[test]
@@ -183,8 +190,9 @@ fn a_removed_slot_keeps_its_id_and_loses_its_folder() {
     let mut settings = PluginSettings::default();
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
     let mut rows = rows_of(&settings, Some(&dirs));
-    uninstall(&mut rows, 0, Some(&dirs));
-    assert_eq!(rows[0][STATE], "削除");
+    let mut agreed = Agreed::default();
+    uninstall(&mut rows, &mut agreed, 0, Some(&dirs));
+    assert_eq!(rows::shown_state(&rows[0]), "削除");
     assert_eq!(rows[0][NAME], "-");
     assert_eq!(rows[0][FOLDER], "");
     assert_eq!(rows[0][ID], HELLO_JS_ID);
@@ -209,7 +217,7 @@ fn the_page_loads_through_the_places_the_thread_knows() {
     let lost = Values::load(&list, &profile);
     assert!(found.bool(ENABLE));
     assert_eq!(found.rows(LIST)[0][NAME], "ハロー (JavaScript)");
-    assert_eq!(lost.rows(LIST)[0][STATE], "見つかりません");
+    assert_eq!(rows::shown_state(&lost.rows(LIST)[0]), "見つかりません");
 }
 
 #[test]
@@ -256,6 +264,17 @@ fn row_texts(cx: &mut TestAppContext, index: usize) -> Vec<String> {
     with_dialog(cx, |d, _, _| d.values().rows(LIST)[index].clone())
 }
 
+/// The words of the column 状態 of a row of the open page (made from the row when asked).
+fn shown(cx: &mut TestAppContext, index: usize) -> String {
+    with_dialog(cx, |d, _, _| {
+        rows::shown_state(&d.values().rows(LIST)[index])
+    })
+}
+
+fn agreement_of(cx: &mut TestAppContext, index: usize) -> Agreement {
+    with_dialog(cx, |d, _, _| rows::agreement(&d.values().rows(LIST)[index]))
+}
+
 #[gpui::test]
 fn the_page_lists_the_registered_plugins(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, INI);
@@ -266,10 +285,10 @@ fn the_page_lists_the_registered_plugins(cx: &mut TestAppContext) {
     assert!(!with_dialog(cx, |d, _, _| d.page_controls()).is_empty());
     assert!(with_dialog(cx, |d, _, _| d.values().bool(ENABLE)));
     assert_eq!(with_dialog(cx, |d, _, _| d.values().rows(LIST).len()), 40);
-    assert_eq!(row_texts(cx, 0)[STATE], "無効");
-    assert_eq!(row_texts(cx, 1)[STATE], "VBScript は使えません");
-    assert_eq!(row_texts(cx, 2)[STATE], "見つかりません");
-    assert_eq!(row_texts(cx, 3)[STATE], "");
+    assert_eq!(shown(cx, 0), "無効");
+    assert_eq!(shown(cx, 1), "VBScript は使えません");
+    assert_eq!(shown(cx, 2), "見つかりません");
+    assert_eq!(shown(cx, 3), "");
     cancel(cx);
 }
 
@@ -328,7 +347,7 @@ fn a_new_plugin_goes_into_the_first_empty_slot_and_ok_writes_it(cx: &mut TestApp
         add_folder(d, &dirs, "Newer", false, dcx)
     });
     assert_eq!(index, Ok(3));
-    assert_eq!(row_texts(cx, 3)[STATE], "追加");
+    assert_eq!(shown(cx, 3), "追加");
     assert_eq!(row_texts(cx, 3)[COMMANDS], "2");
     assert_eq!(with_dialog(cx, |d, _, _| d.values().int(SELECTED)), 3);
     ok(cx);
@@ -373,7 +392,7 @@ fn the_same_id_asks_and_the_other_errors_are_reported(cx: &mut TestAppContext) {
     assert_eq!(row_texts(cx, 0)[FOLDER], "HelloJs");
     assert_eq!(add(cx, "Copy", true), Ok(0));
     assert_eq!(row_texts(cx, 0)[FOLDER], "Copy");
-    assert_eq!(row_texts(cx, 0)[STATE], "更新");
+    assert_eq!(shown(cx, 0), "更新");
     assert_eq!(add(cx, "Empty", false), Err(InstallError::NoDefinition));
     cancel(cx);
 }
@@ -385,12 +404,12 @@ fn removing_a_plugin_empties_its_slot_when_ok_is_pressed(cx: &mut TestAppContext
     run(cx, handle, "F_OPTION_PLUGIN");
     // Nothing is selected: nothing happens.
     with_dialog(cx, |d, _, dcx| remove_selected(d, None, dcx));
-    assert_eq!(row_texts(cx, 0)[STATE], "無効");
+    assert_eq!(shown(cx, 0), "無効");
     with_dialog(cx, |d, _, dcx| {
         select(d, 0, dcx);
         remove_selected(d, None, dcx);
     });
-    assert_eq!(row_texts(cx, 0)[STATE], "削除");
+    assert_eq!(shown(cx, 0), "削除");
     ok(cx);
     let profile = ini.profile();
     assert_eq!(profile.get("Plugin", "P[00].Name"), Some(""));
@@ -449,7 +468,7 @@ fn every_control_of_the_page_is_known_to_the_dialog() {
 // ---- what the user agreed to run (ADR-0026, chapter 4) ----
 
 use super::list::{DISABLE_ONE, ENABLE_ONE, can_disable, can_enable, disable_selected, enable_row};
-use super::rows::{CONSENT, MANIFEST, NOTE, can_enable as row_can_enable, write_consent};
+use super::rows::{Agreed, Agreement, NOTE, Standing, can_enable as row_can_enable, write_consent};
 use matsu_config::plugins::consent::{Consent, ConsentFile};
 
 fn consent_path(ini: &Ini) -> std::path::PathBuf {
@@ -472,13 +491,14 @@ fn a_plugin_that_was_added_is_off_and_enabling_marks_the_row_with_the_files() {
     let mut settings = PluginSettings::default();
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
     let mut rows = rows_of(&settings, Some(&dirs));
-    assert_eq!(rows[0][CONSENT], "off");
+    let mut agreed = Agreed::default();
+    assert_eq!(rows::agreement(&rows[0]), Agreement::Off);
     assert!(row_can_enable(&rows[0]));
-    rows::set_consent(&mut rows[0], true, "abc");
-    assert_eq!(rows[0][STATE], "有効");
-    assert_eq!(rows[0][MANIFEST], "abc");
-    rows::set_consent(&mut rows[0], false, "");
-    assert_eq!(rows[0][STATE], "無効");
+    rows::set_consent(&mut rows[0], &mut agreed, true, "abc");
+    assert_eq!(rows::shown_state(&rows[0]), "有効");
+    assert_eq!(rows::files_of(agreed.as_rows(), &rows[0][ID]), Some("abc"));
+    rows::set_consent(&mut rows[0], &mut agreed, false, "");
+    assert_eq!(rows::shown_state(&rows[0]), "無効");
     // A slot with nothing, and one that MATSU cannot run, cannot be enabled.
     assert!(!row_can_enable(&rows[5]));
     put_sample(dir.path(), "HelloVbs");
@@ -499,26 +519,27 @@ fn what_ok_writes_to_plugins_ini_follows_the_rows() {
     let mut settings = PluginSettings::default();
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
     let mut rows = rows_of(&settings, Some(&dirs));
+    let mut agreed = Agreed::default();
     let mut file = ConsentFile::default();
     // Nothing was done: nothing is written.
-    assert!(!write_consent(&rows, &mut file));
+    assert!(!write_consent(&rows, agreed.as_rows(), &mut file));
     let files =
         matsu_config::plugins::consent::fingerprint(&dirs.plugin_dir("HelloJs").unwrap()).unwrap();
     let manifest = matsu_config::plugins::consent::manifest_text(&files);
-    rows::set_consent(&mut rows[0], true, &manifest);
-    assert!(write_consent(&rows, &mut file));
+    rows::set_consent(&mut rows[0], &mut agreed, true, &manifest);
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert_eq!(
         file.consent_for_dir(HELLO_JS_ID, dirs.plugin_dir("HelloJs").as_deref()),
         Consent::On
     );
-    rows::set_consent(&mut rows[0], false, "");
-    assert!(write_consent(&rows, &mut file));
+    rows::set_consent(&mut rows[0], &mut agreed, false, "");
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert!(file.record(HELLO_JS_ID).is_none());
     // A removed plugin is forgotten too.
-    rows::set_consent(&mut rows[0], true, &manifest);
-    write_consent(&rows, &mut file);
-    uninstall(&mut rows, 0, Some(&dirs));
-    assert!(write_consent(&rows, &mut file));
+    rows::set_consent(&mut rows[0], &mut agreed, true, &manifest);
+    write_consent(&rows, agreed.as_rows(), &mut file);
+    uninstall(&mut rows, &mut agreed, 0, Some(&dirs));
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert!(file.record(HELLO_JS_ID).is_none());
 }
 
@@ -527,9 +548,9 @@ fn enabling_in_the_dialog_is_kept_by_ok_and_cancel_keeps_nothing(cx: &mut TestAp
     let (ini, handle) = setup(cx, INI);
     put_sample(&dir_of(&ini), "HelloJs");
     run(cx, handle, "F_OPTION_PLUGIN");
-    assert_eq!(row_texts(cx, 0)[STATE], "無効");
+    assert_eq!(shown(cx, 0), "無効");
     assert_eq!(enable(cx, 0), Ok(()));
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, 0), "有効");
     cancel(cx);
     assert!(!consent_path(&ini).exists(), "キャンセル writes nothing");
 
@@ -555,7 +576,7 @@ fn enabling_in_the_dialog_is_kept_by_ok_and_cancel_keeps_nothing(cx: &mut TestAp
 
     // The next time, the plugin is on.
     run(cx, handle, "F_OPTION_PLUGIN");
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, 0), "有効");
     cancel(cx);
 }
 
@@ -570,8 +591,8 @@ fn a_changed_file_stops_the_plugin_until_it_is_enabled_again(cx: &mut TestAppCon
     let script = dir_of(&ini).join("plugins/HelloJs/command.js");
     fs::write(&script, "Editor.InsText('changed');").unwrap();
     run(cx, handle, "F_OPTION_PLUGIN");
-    assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
-    assert_eq!(row_texts(cx, 0)[CONSENT], "changed");
+    assert_eq!(shown(cx, 0), "変更あり（停止）");
+    assert_eq!(agreement_of(cx, 0), Agreement::Changed);
     // OK without doing anything keeps the stop (and the old record).
     ok(cx);
     let record = ConsentFile::load(&consent_path(&ini))
@@ -585,16 +606,16 @@ fn a_changed_file_stops_the_plugin_until_it_is_enabled_again(cx: &mut TestAppCon
         assert!(can_enable(d.values()) && can_disable(d.values()));
     });
     enable(cx, 0).unwrap();
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, 0), "有効");
     ok(cx);
     run(cx, handle, "F_OPTION_PLUGIN");
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, 0), "有効");
 
     // A file that is added is a change too.
     fs::write(dir_of(&ini).join("plugins/HelloJs/extra.js"), "x").unwrap();
     cancel(cx);
     run(cx, handle, "F_OPTION_PLUGIN");
-    assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
+    assert_eq!(shown(cx, 0), "変更あり（停止）");
     cancel(cx);
 }
 
@@ -630,7 +651,7 @@ fn disabling_forgets_the_agreement_and_the_buttons_follow_the_state(cx: &mut Tes
         select(d, 0, dcx);
         disable_selected(d, w, dcx);
     });
-    assert_eq!(row_texts(cx, 0)[STATE], "無効");
+    assert_eq!(shown(cx, 0), "無効");
     ok(cx);
     assert!(
         ConsentFile::load(&consent_path(&ini))
@@ -661,12 +682,12 @@ fn adding_a_plugin_does_not_enable_it_and_removing_one_forgets_it(cx: &mut TestA
         add_folder(d, &dirs, "Newer", false, dcx)
     })
     .unwrap();
-    assert_eq!(row_texts(cx, index)[STATE], "追加");
-    assert_eq!(row_texts(cx, index)[CONSENT], "off");
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, index), "追加");
+    assert_eq!(agreement_of(cx, index), Agreement::Off);
+    assert_eq!(shown(cx, 0), "有効");
     // Enabling it shows in the state of the new row.
     enable(cx, index).unwrap();
-    assert_eq!(row_texts(cx, index)[STATE], "追加・有効");
+    assert_eq!(shown(cx, index), "追加・有効");
     with_dialog(cx, |d, _, dcx| {
         select(d, 0, dcx);
         remove_selected(d, None, dcx);
@@ -696,7 +717,7 @@ fn a_plugin_that_changed_while_the_screen_was_open_is_not_enabled(cx: &mut TestA
         enable_row_checked(d, 0, &dirs, Some(&shown), dcx)
     });
     assert!(result.unwrap_err().contains("変わりました"));
-    assert_eq!(row_texts(cx, 0)[CONSENT], "off");
+    assert_eq!(agreement_of(cx, 0), Agreement::Off);
     // Shown again with the new files, it can be enabled.
     let shown = matsu_config::plugins::consent::fingerprint(&dir).unwrap();
     let result = with_dialog(cx, |d, _, dcx| {
@@ -704,7 +725,7 @@ fn a_plugin_that_changed_while_the_screen_was_open_is_not_enabled(cx: &mut TestA
         enable_row_checked(d, 0, &dirs, Some(&shown), dcx)
     });
     assert_eq!(result, Ok(()));
-    assert_eq!(row_texts(cx, 0)[CONSENT], "on");
+    assert_eq!(agreement_of(cx, 0), Agreement::On);
     cancel(cx);
 }
 
@@ -722,7 +743,7 @@ fn a_plugin_that_is_removed_and_added_again_before_ok_is_off(cx: &mut TestAppCon
     );
 
     run(cx, handle, "F_OPTION_PLUGIN");
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, 0), "有効");
     with_dialog(cx, |d, _, dcx| {
         select(d, 0, dcx);
         remove_selected(d, None, dcx);
@@ -733,8 +754,8 @@ fn a_plugin_that_is_removed_and_added_again_before_ok_is_off(cx: &mut TestAppCon
     })
     .unwrap();
     // The agreement of the file does not come back with the folder.
-    assert_eq!(row_texts(cx, index)[CONSENT], "off");
-    assert_eq!(row_texts(cx, index)[STATE], "追加");
+    assert_eq!(agreement_of(cx, index), Agreement::Off);
+    assert_eq!(shown(cx, index), "追加");
     ok(cx);
     assert!(
         ConsentFile::load(&consent_path(&ini))
@@ -759,16 +780,23 @@ fn a_plugin_that_three_failures_stopped_says_so_and_can_be_enabled_again() {
     consent.save(&dirs.consent_file()).unwrap();
     let mut settings = PluginSettings::default();
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
-    assert_eq!(rows_of(&settings, Some(&dirs))[0][STATE], "有効");
+    assert_eq!(
+        rows::shown_state(&rows_of(&settings, Some(&dirs))[0]),
+        "有効"
+    );
     crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
     let rows = rows_of(&settings, Some(&dirs));
+    let agreed = Agreed::default();
+    // The row keeps the agreement; the stop is the plugin's, read when the words are made.
+    assert_eq!(rows::agreement(&rows[0]), Agreement::On);
+    assert_eq!(rows::standing(&rows[0]), Standing::Stopped);
+    assert_eq!(rows::shown_state(&rows[0]), "停止（失敗が続きました）");
     crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
-    assert_eq!(rows[0][STATE], "停止（失敗が続きました）");
-    assert_eq!(rows[0][CONSENT], "stopped");
+    assert_eq!(rows::shown_state(&rows[0]), "有効");
     assert!(row_can_enable(&rows[0]));
     // The agreement stays in `plugins.ini` when OK writes the rows.
     let mut file = ConsentFile::load(&dirs.consent_file());
-    assert!(!write_consent(&rows, &mut file));
+    assert!(!write_consent(&rows, agreed.as_rows(), &mut file));
     assert!(file.record(HELLO_JS_ID).is_some());
 }
 
@@ -968,10 +996,10 @@ fn a_zip_plugin_is_unpacked_and_added_off(cx: &mut TestAppContext) {
     let row = row_texts(cx, 3);
     assert_eq!(row[FOLDER], "Zipped");
     assert_eq!(row[ID], "zipped.id");
-    assert_eq!(row[STATE], "追加");
+    assert_eq!(rows::shown_state(&row), "追加");
     assert_eq!(row[COMMANDS], "1");
     // Added, not enabled: nothing runs until the user agrees.
-    assert_eq!(row[rows::CONSENT], "off");
+    assert_eq!(rows::agreement(&row), Agreement::Off);
     assert!(dir_of(&ini).join("plugins/Zipped/a.js").is_file());
     // Now it is registered: a new install of the same folder asks too.
     assert!(with_dialog(cx, |d, _, _| is_installed(
@@ -1001,7 +1029,7 @@ fn a_zip_plugin_over_a_registered_one_replaces_it(cx: &mut TestAppContext) {
     zip.extract(&dirs.user).unwrap();
     let index = with_dialog(cx, |d, _, dcx| register(d, &dirs, &zip, dcx));
     assert_eq!(index, Ok(0));
-    assert_eq!(row_texts(cx, 0)[STATE], "更新");
+    assert_eq!(shown(cx, 0), "更新");
     assert_eq!(row_texts(cx, 0)[VERSION], "9.9");
     cancel(cx);
 }
@@ -1160,8 +1188,14 @@ fn the_state_follows_the_files_when_the_rows_are_refreshed() {
     let mut settings = PluginSettings::default();
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
     let mut rows = rows_of(&settings, Some(&dirs));
-    assert_eq!(rows[0][STATE], "有効");
-    assert!(!rows::refresh_consent(&mut rows, Some(&dirs), &consent));
+    let mut agreed = Agreed::default();
+    assert_eq!(rows::shown_state(&rows[0]), "有効");
+    assert!(!rows::refresh_consent(
+        &mut rows,
+        agreed.as_rows(),
+        Some(&dirs),
+        &consent
+    ));
 
     // A file changes after the page was loaded.
     fs::write(
@@ -1169,21 +1203,32 @@ fn the_state_follows_the_files_when_the_rows_are_refreshed() {
         "Editor.InsText('changed, longer');",
     )
     .unwrap();
-    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &consent));
-    assert_eq!(rows[0][STATE], "変更あり（停止）");
-    assert_eq!(rows[0][CONSENT], "changed");
+    assert!(rows::refresh_consent(
+        &mut rows,
+        agreed.as_rows(),
+        Some(&dirs),
+        &consent
+    ));
+    assert_eq!(rows::shown_state(&rows[0]), "変更あり（停止）");
+    assert_eq!(rows::agreement(&rows[0]), Agreement::Changed);
     assert!(row_can_enable(&rows[0]));
 
     // Agreed again in the dialog: the manifest of the row is what was agreed.
     let now = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
     rows::set_consent(
         &mut rows[0],
+        &mut agreed,
         true,
         &matsu_config::plugins::consent::manifest_text(&now),
     );
-    assert_eq!(rows[0][STATE], "有効");
-    assert!(!rows::refresh_consent(&mut rows, Some(&dirs), &consent));
-    assert_eq!(rows[0][STATE], "有効");
+    assert_eq!(rows::shown_state(&rows[0]), "有効");
+    assert!(!rows::refresh_consent(
+        &mut rows,
+        agreed.as_rows(),
+        Some(&dirs),
+        &consent
+    ));
+    assert_eq!(rows::shown_state(&rows[0]), "有効");
 }
 
 #[gpui::test]
@@ -1194,7 +1239,7 @@ fn showing_the_page_again_shows_the_state_of_the_files_now(cx: &mut TestAppConte
     enable(cx, 0).unwrap();
     ok(cx);
     run(cx, handle, "F_OPTION_PLUGIN");
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, 0), "有効");
 
     // The files change while the dialog is open; showing the page sets the state.
     fs::write(
@@ -1203,9 +1248,9 @@ fn showing_the_page_again_shows_the_state_of_the_files_now(cx: &mut TestAppConte
     )
     .unwrap();
     with_dialog(cx, |d, _, dcx| d.select_page(Page::General, dcx));
-    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    assert_eq!(shown(cx, 0), "有効");
     with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
-    assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
+    assert_eq!(shown(cx, 0), "変更あり（停止）");
     cancel(cx);
 }
 
@@ -1220,24 +1265,36 @@ fn a_pending_agreement_survives_a_refresh_that_sees_a_change() {
     let mut settings = PluginSettings::default();
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
     let mut rows = rows_of(&settings, Some(&dirs));
+    let mut agreed = Agreed::default();
     let files = matsu_config::plugins::consent::fingerprint(&plugin_dir).unwrap();
     rows::set_consent(
         &mut rows[0],
+        &mut agreed,
         true,
         &matsu_config::plugins::consent::manifest_text(&files),
     );
     fs::write(&script, "Editor.InsText('changed, longer');").unwrap();
     let saved = ConsentFile::default();
-    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &saved));
-    assert_eq!(rows[0][CONSENT], "changed");
+    assert!(rows::refresh_consent(
+        &mut rows,
+        agreed.as_rows(),
+        Some(&dirs),
+        &saved
+    ));
+    assert_eq!(rows::agreement(&rows[0]), Agreement::Changed);
     // OK still records what the user agreed to.
     let mut file = ConsentFile::default();
-    assert!(write_consent(&rows, &mut file));
+    assert!(write_consent(&rows, agreed.as_rows(), &mut file));
     assert_eq!(file.record(HELLO_JS_ID).unwrap().files, files);
     // Putting the files back shows the agreement as on again.
     fs::write(&script, original).unwrap();
-    assert!(rows::refresh_consent(&mut rows, Some(&dirs), &saved));
-    assert_eq!(rows[0][CONSENT], "on");
+    assert!(rows::refresh_consent(
+        &mut rows,
+        agreed.as_rows(),
+        Some(&dirs),
+        &saved
+    ));
+    assert_eq!(rows::agreement(&rows[0]), Agreement::On);
 }
 
 #[test]
@@ -1256,14 +1313,17 @@ fn a_plugin_stopped_by_failures_stays_stopped_when_its_files_match_again() {
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
     crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
     let mut rows = rows_of(&settings, Some(&dirs));
+    let agreed = Agreed::default();
     fs::write(&script, "Editor.InsText('changed, longer');").unwrap();
-    rows::refresh_consent(&mut rows, Some(&dirs), &consent);
-    assert_eq!(rows[0][CONSENT], "changed");
+    rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &consent);
+    assert_eq!(rows::agreement(&rows[0]), Agreement::Changed);
     fs::write(&script, original).unwrap();
-    rows::refresh_consent(&mut rows, Some(&dirs), &consent);
+    rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &consent);
+    // The files match again: the agreement is on, and the plugin is still stopped by the failures.
+    assert_eq!(rows::agreement(&rows[0]), Agreement::On);
+    assert_eq!(rows::standing(&rows[0]), Standing::Stopped);
+    assert_eq!(rows::shown_state(&rows[0]), "停止（失敗が続きました）");
     crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
-    assert_eq!(rows[0][CONSENT], "stopped");
-    assert_eq!(rows[0][STATE], "停止（失敗が続きました）");
 }
 
 #[test]
@@ -1283,7 +1343,8 @@ fn a_pending_agreement_is_kept_by_ok_through_changes_and_stops_until_disabled() 
     let mut settings = PluginSettings::default();
     settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
     let mut rows = rows_of(&settings, Some(&dirs));
-    assert_eq!(rows[0][CONSENT], "on");
+    let mut agreed = Agreed::default();
+    assert_eq!(rows::standing(&rows[0]), Standing::On);
 
     // Files "B" are agreed to on this page.
     set("Editor.InsText('B, longer');");
@@ -1292,48 +1353,48 @@ fn a_pending_agreement_is_kept_by_ok_through_changes_and_stops_until_disabled() 
     let put_c = || set("Editor.InsText('C, even longer than B');");
 
     // (step, what the row shows after it, what plugins.ini holds after OK)
-    let mut steps: Vec<(&str, &str, Option<&Vec<_>>)> = Vec::new();
-    steps.push(("agree to B", "on", Some(&b)));
-    steps.push(("files become C, refresh", "changed", Some(&b)));
+    let mut steps: Vec<(&str, Standing, Option<&Vec<_>>)> = Vec::new();
+    steps.push(("agree to B", Standing::On, Some(&b)));
+    steps.push(("files become C, refresh", Standing::Changed, Some(&b)));
     steps.push((
         "three failures stop it, files back to B, refresh",
-        "stopped",
+        Standing::Stopped,
         Some(&b),
     ));
-    steps.push(("files become C, refresh", "changed", Some(&b)));
+    steps.push(("files become C, refresh", Standing::Changed, Some(&b)));
     steps.push((
         "not stopped any more, files back to B, refresh",
-        "on",
+        Standing::On,
         Some(&b),
     ));
-    steps.push(("disable", "off", None));
+    steps.push(("disable", Standing::Off, None));
     for (step, shows, holds) in steps {
         match step {
-            "agree to B" => rows::set_consent(&mut rows[0], true, &manifest_text(&b)),
+            "agree to B" => rows::set_consent(&mut rows[0], &mut agreed, true, &manifest_text(&b)),
             "files become C, refresh" => {
                 put_c();
-                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+                rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &saved);
             }
             "three failures stop it, files back to B, refresh" => {
                 crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
                 set("Editor.InsText('B, longer');");
-                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
-                crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
+                rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &saved);
             }
             "not stopped any more, files back to B, refresh" => {
                 set("Editor.InsText('B, longer');");
-                rows::refresh_consent(&mut rows, Some(&dirs), &saved);
+                rows::refresh_consent(&mut rows, agreed.as_rows(), Some(&dirs), &saved);
             }
-            _ => rows::set_consent(&mut rows[0], false, ""),
+            _ => rows::set_consent(&mut rows[0], &mut agreed, false, ""),
         }
-        assert_eq!(rows[0][CONSENT], shows, "{step}");
+        assert_eq!(rows::standing(&rows[0]), shows, "{step}");
         let mut file = ConsentFile::load(&dirs.consent_file());
-        write_consent(&rows, &mut file);
+        write_consent(&rows, agreed.as_rows(), &mut file);
         assert_eq!(
             file.record(HELLO_JS_ID).map(|record| record.files),
             holds.cloned(),
             "{step}"
         );
+        crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
         // Each OK is a fresh start for the next step from what the dialog holds, not from the file.
     }
 }
