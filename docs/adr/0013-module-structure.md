@@ -220,3 +220,15 @@ pub struct CommandContext<'a> {
 
 - 4（`CommandContext`）の形を、Phase 1 の始めに最初のコマンドを作るときに確かめる。編集のたびに割り付けを直す方式の速さも、そのときに確かめる
 - 2（`matsu-layout` の共有）が決定のとおりにできるかを、Phase 1 の始めに画面の折り返しを作るときに確かめる。3 の 2 層で、入力・スクロール・100 万行の性能が試作と同じになるかも、同じ時期に小さな縦切りで確かめる
+
+## 決めたことの変更
+
+### 2026-11-16: `matsu-commands` が `matsu-layout` に依存する（`X` の型のため）
+
+ユーザーが決めた（[ADR-0034](0034-proportional-fonts.md) の段階 2、PR #474）。依存の図（上）は `matsu-commands` から `matsu-layout` へ線を引いていたが、実際のコードでは、`Layout` トレイトが桁を `usize` で受け渡すだけで、`matsu-commands` は `matsu-layout` に依存していなかった（`matsu-ui` の `layout_adapter.rs` が橋渡しだった）。
+
+ADR-0034 で、レイアウトの横の位置を専用の型 `X`（`matsu-layout`）で数えることにした。`Layout` トレイトと、コマンドが持つ位置を `X` にするため、`matsu-commands` が `matsu-layout` に依存する（`matsu_commands::layout::X`）。
+
+- 依存の向きは変わらない: UI → コマンド → レイアウト → コア。`matsu-layout` は `matsu-core` だけに依存し、`matsu-commands` を知らないので、循環しない。「UI → コアの一方向」の決まりのままである
+- `matsu-core` は `matsu-layout` に依存できない（循環する）ので、`Cursor` は X の意味の数を `usize` で持つ（ADR-0034 の「段階 2 で決めたこと」）
+- `Layout` トレイトの実装は、今までどおり `matsu-ui`（`RowLayout`）と、テスト用の `PlainLayout`（`matsu-commands`）にある

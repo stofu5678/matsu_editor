@@ -209,3 +209,15 @@ Windows（11 26100 Arm64、144 dpi、DirectWrite、ビルド 47df92d6、13 px）
 - 測る関数は、UI のスレッドに限らず、`Arc<TextSystem>` を持つ `Send + Sync` のクロージャでよい（Linux で確かめた。Windows と macOS は、段階 4 で動かして確かめる）。レイアウトの予算の中で、`Table` の未測定の文字をその場で測れる
 - 測るのは `advance` でなく `layout_width`（代わりのフォントを含めた幅）
 - 測るときの書き込みのロックが、描画の shape と競合する。文字の種類は少なく（1 画面で約 100 種類）最初の測定だけなので問題は小さいが、Windows と macOS では、段階 4 で測る
+
+## 段階 2 で決めたこと
+
+2026-11-16 に、PR #474（段階 2）の「判断してほしいこと」にユーザーが答えた（すべて推奨どおり）。段階 2 は、`matsu-commands` のコマンドが持つ桁を X に読み替えた（`per_column` は 1 のまま）。
+
+1. **行末より右に空白を補う数え方**: 空白の数は `ceil(補う幅 ÷ 半角の空白 1 つの幅)`。端数があれば 1 つ多く、挿入する文字は頼んだ位置より少し右から始まる。サクラの `CEditView::InsertData_CEditView`（`sakura_core/view/CEditView_Command_New.cpp` の 134〜155 行）が、`nSpWidth = CalcTextWidth3(L" ", 1)` ずつ `i` を進め、`i < 挿入位置 - 行の幅` の間、空白を足すのと同じ。`per_column = 1` では、補う桁の数と同じ個数で、今までと変わらない。実装は `CommandContext::spaces_to_fill`。空白の幅は `Layout::char_x(' ')` で、段階 4 で文字ごとの幅になっても、式は変わらない。改行のある行でサクラはループの終わりが改行の幅（画素 1 つずつ）のぶん短いが、MATSU は改行に画素の幅を持たせないので、改行のない行の数え方に揃える（違いが出るのは、端数がちょうど 1 X のときだけ）
+2. **ソフトタブの空白の数**: `Command_INDENT` の `SSoftTabData::Len`（`sakura_core/cmd/CViewCommander_Edit_advanced.cpp` の 91 行）の式を X で数える: `(tab + w - (x + w) % tab) / dx`（`tab` はタブ幅の X、`dx` は 1 桁の X、`w = dx - 1`）。桁の少し先の `x` は、次の整数桁として数える。実装は `soft_tab_at`
+3. **`matsu-core` の `Cursor`**: 目標の桁・フリーカーソルの桁・矩形の隅は `usize` のまま持つ。`matsu-layout` が `matsu-core` に依存するので、コアが X の型を名指しできない（循環する）ため。コアはこの数を保存して比べるだけで、桁に直したり計算したりしない。X との換算は `matsu-commands` の `context/units.rs` の 1 か所に置く
+4. **マクロの関数**: サクラの設計（`sakura_core/macro/CMacro.cpp`）に従う。表示桁を渡す・返す関数（`GetSelectColumnFrom`・`GetSelectColumnTo`・`LineColumnToIndex`・`LineIndexToColumn`・`GetStrLayoutLength`・`MoveCursorLayout`）は X を使い、`GetDefaultCharLength`（2191 行、`GetLayoutXDefault()`）が 1 桁の X（`per_column`）を返す。`GetStrWidth`（2150〜2160 行）・`GetViewColumns`・タブ幅・折り返し桁は、サクラと同じく桁のまま。`per_column = 1` の今は、どれも以前と同じ数
+5. **サクラとの違いの選択（段階 2 で決めた型 A・B）**:
+   - 型 A: 矩形のスペースインデントで、サクラの「1 桁幅の矩形か」の判定 `1 == to.x - from.x`（`CViewCommander_Edit_advanced.cpp` の 172 行）は、X の 1 と比べているので、画素が単位だと 1 画素幅のときだけ真になる。意図は「1 桁幅」なので、`column_x` と比べる
+   - 型 B: フリーカーソル・矩形の「左へ 1 桁」は `max(x - column_x, 行の文字の終わり)`。サクラ（`Command_LEFT`）は改行のある行で `max(x - dx, 終わり + dx)` で、`x` が桁の整数倍でないときだけ違う（今は整数倍しか出ない）
