@@ -165,7 +165,7 @@ Linux（13 px）の結果（抜粋）:
 
 - 比例フォントの全角は、半角 `0` の 2 倍にならない（Noto Sans CJK JP は 1.8 倍、単位で 115）。1 文字ごとに表を引く ADR の作りが要る理由が、実測でも出ている。比例フォントでは、数字は同じ幅（64）で、`i` と `l` は半分（32 と 33）、`m` と `W` は 1.6 倍前後（107 と 101）
 - 等幅フォントでも、かなが代わりのフォントになると 2 倍にならない（Noto Sans Mono は 107）。これは「等幅は Unicode の規則で 1 か 2 桁（決めたこと 3）」の根拠の 1 つで、等幅のときフォントで幅を測らないという決めたことを変える結果ではない
-- Windows（Noto Sans JP、Yu Gothic UI）は、調整役が Windows サンドボックスで測る（`C:\Users\yamab\ume-sandbox\jobs\font-advances-BUILD.ps1`。標準エラーを `C:\work\out\font-advances-<rev>-default.txt` に保存する）。この PR の時点では未実施で、結果は PR の確認の欄か、この節への追記で足す
+- Windows（Noto Sans JP、Yu Gothic UI）は、調整役が Windows サンドボックスで測る（サンドボックスの jobs フォルダの `font-advances-BUILD.ps1`。標準エラーを `C:\work\out\font-advances-<rev>-default.txt` に保存する）。この PR の時点では未実施で、結果は PR の確認の欄か、この節への追記で足す
 
 ### 3. 1 文字ずつ shape する費用
 
