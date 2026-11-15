@@ -71,6 +71,8 @@ pub(crate) mod layout;
 mod layout_tests;
 pub(crate) mod menu;
 #[cfg(test)]
+mod menu_key_tests;
+#[cfg(test)]
 mod menu_tests;
 pub(crate) mod pane;
 #[cfg(test)]

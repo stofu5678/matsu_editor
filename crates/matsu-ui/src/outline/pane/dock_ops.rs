@@ -609,10 +609,18 @@ fn fill(
             }
             MenuEntry::Separator => popup.separator(),
             MenuEntry::Submenu { label, entries } => {
+                // The submenu takes the letters too (`CMenuDrawer::OnMenuChar` answers for whichever
+                // menu has the focus): it is registered, with the way to fill it again, as
+                // `menu_bar::fill` does for its submenus.
+                let keys = key_list(entries);
                 let (entries, pane, focus) = (entries.clone(), pane.clone(), focus.clone());
-                popup.submenu(*label, window, cx, move |sub, window, cx| {
+                let fill_again: Rebuild = Rc::new(move |sub, window, cx| {
                     let sub = sub.action_context(focus.clone());
                     fill(sub, &entries, &pane, &focus, window, cx)
+                });
+                popup.submenu(*label, window, cx, move |sub, window, cx| {
+                    popup_keys::register(&cx.entity(), keys.clone(), fill_again.clone(), cx);
+                    fill_again(sub, window, cx)
                 })
             }
         };
