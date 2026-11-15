@@ -180,6 +180,10 @@ pub(crate) fn start(cx: &mut App) {
     }
     // One write, so that the lines of a record from another thread do not split it.
     write!(std::io::stderr().lock(), "{}", start_text()).ok();
+    // Detached on purpose: the watch belongs to no window or entity (it reads all the windows) and
+    // has no state that something else must stop. It lives as long as the application, which is
+    // what a diagnostic asked for by the environment should do. It ends with the process, and
+    // nothing waits for it (it only prints).
     cx.spawn(async move |cx| watch(cx).await).detach();
 }
 
