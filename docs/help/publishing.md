@@ -11,11 +11,15 @@
 
 ## 持ち主がすること（1 度だけ）
 
-1. リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする
+どれも、**リポジトリ**の Settings で行う（アカウントの Settings の Pages には「Verified domains」しかない）。リポジトリの Settings のタブは、管理者の権限があるアカウントにだけ出る。
+
+1. https://github.com/stofu5678/matsu_editor/settings/pages の **Build and deployment → Source** を **GitHub Actions** にする（リポジトリのページの Settings のタブから、左の Code and automation → Pages でも開ける）
    - これで `github-pages` という環境（Environment）ができる。既定では、既定のブランチ（main）からだけ公開できる
-2. **Settings → Secrets and variables → Actions → Variables** に、リポジトリの変数 **`HELP_PAGES`** を作り、値を **`on`** にする
+2. https://github.com/stofu5678/matsu_editor/settings/variables/actions の **New repository variable** で、変数 **`HELP_PAGES`** を作り、値を **`on`** にする
    - この変数が `on` でない間は、公開のワークフローは何もしない（本を作るだけで、公開の手順を飛ばす）。1 の前に動いて失敗するのを防ぐため
-3. Actions の「Help pages」（下のワークフロー）を、手で 1 回動かす（Run workflow）。数分で上の場所に出る
+3. 公開のワークフロー（`.github/workflows/help-pages.yml`）が main に入ると、そのときの push で動いて公開する。動かなかったとき、または今すぐ出し直したいときは、Actions の「Help pages」を手で動かす（Run workflow）。手で動かすボタンは、ワークフローが main に入ってから出る。数分で上の場所に出る
+
+（2026-11-15: 1 と 2 は持ち主が済ませた。3 は、このファイルとワークフローを入れる PR のマージで動く。）
 
 トークンや秘密の値は要りません。ワークフローは、GitHub が用意する `GITHUB_TOKEN` と OIDC（`id-token: write`）だけで公開します。
 
