@@ -5,6 +5,10 @@
 //! columns counted from the left edge of the screen, so the indent of a wrapped row is included,
 //! and the goal column of the cursor means the same thing in every method.
 //!
+//! The layout counts in `X` ([`matsu_layout::X`], ADR-0034) and the trait in columns, so this is
+//! where they are converted, with [`matsu_layout::Widths::to_x`] and `to_columns`. The commands
+//! take `X` in stage 2, and the conversions go away.
+//!
 //! The context calls [`Layout::edited`] right after each edit and [`Layout::reset`] after an undo
 //! or a redo, so the layout matches the document all through a command (ADR-0013 section 4).
 
@@ -61,7 +65,8 @@ impl Layout for RowLayout<'_> {
     }
 
     fn display_col(&self, doc: &Document, pos: Pos) -> Result<usize> {
-        Ok(self.0.pos_to_row(doc, pos)?.column as usize)
+        let x = self.0.pos_to_row(doc, pos)?.x;
+        Ok(self.0.config().width.to_columns(x) as usize)
     }
 
     fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos> {
@@ -85,11 +90,13 @@ impl Layout for RowLayout<'_> {
     fn pos_at_col(&self, doc: &Document, row_pos: Pos, col: usize) -> Result<Pos> {
         let row = self.0.pos_to_row(doc, row_pos)?.row;
         let col = u32::try_from(col).unwrap_or(u32::MAX);
-        Ok(self.0.row_to_pos(doc, row, col)?.pos)
+        let x = self.0.config().width.to_x(col);
+        Ok(self.0.row_to_pos(doc, row, x)?.pos)
     }
 
     fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal_col: usize) -> Result<Pos> {
         let goal = u32::try_from(goal_col).unwrap_or(u32::MAX);
+        let goal = self.0.config().width.to_x(goal);
         Ok(self.0.move_rows(doc, pos, rows, goal)?.pos)
     }
 }
@@ -244,8 +251,7 @@ mod tests {
             let rows = layout.row_count();
             let a = layout.rows(model.doc(), 0, rows).unwrap();
             let b = fresh.rows(model.doc(), 0, rows).unwrap();
-            let key =
-                |r: &matsu_layout::RowInfo| (r.row, r.start, r.end, r.start_column, r.end_column);
+            let key = |r: &matsu_layout::RowInfo| (r.row, r.start, r.end, r.start_x, r.end_x);
             assert_eq!(
                 a.iter().map(key).collect::<Vec<_>>(),
                 b.iter().map(key).collect::<Vec<_>>(),

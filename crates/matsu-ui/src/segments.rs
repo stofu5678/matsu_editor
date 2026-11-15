@@ -46,7 +46,9 @@ pub fn row_segments_cut(
     cuts: &[usize],
 ) -> Vec<Segment> {
     let mut out: Vec<Segment> = Vec::new();
-    let mut col = start_col;
+    // The layout counts in `X`; the segments are in columns until ADR-0034 stage 3.
+    let widths = cfg.width;
+    let mut at = widths.to_x(start_col);
     // How wide each character of the last text segment is, so that a long row is cut in one pass.
     let mut run_width = 0;
     // The last character was a CSV delimiter, which goes to the end of its field and so is
@@ -54,7 +56,8 @@ pub fn row_segments_cut(
     let mut after_delimiter = false;
     let mut next_cut = 0;
     for (byte, c) in text.char_indices() {
-        let cols = cfg.columns_of(c, col);
+        let advance = cfg.advance(c, at);
+        let (col, cols) = (widths.to_columns(at), widths.to_columns(advance));
         let mut cut = false;
         while next_cut < cuts.len() && cuts[next_cut] <= byte {
             cut |= cuts[next_cut] == byte;
@@ -102,7 +105,7 @@ pub fn row_segments_cut(
             None => {}
         }
         after_delimiter = delimiter;
-        col += cols;
+        at += advance;
     }
     out
 }
@@ -137,10 +140,10 @@ mod tests {
 
     #[test]
     fn a_csv_comma_is_a_piece_of_its_own_at_the_end_of_its_field() {
-        use matsu_layout::{TsvMode, TsvStops, WidthRule};
+        use matsu_layout::{TsvMode, TsvStops, Widths};
         let lines = ["ab,,cd"];
         let cfg = LayoutConfig {
-            tsv: TsvStops::from_lines(TsvMode::Csv, &WidthRule::default(), lines),
+            tsv: TsvStops::from_lines(TsvMode::Csv, &Widths::default(), lines),
             ..LayoutConfig::default()
         };
         // fields: ab (4), empty (6), cd (10); each comma goes to the end of its field

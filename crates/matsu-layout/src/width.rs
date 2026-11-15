@@ -28,6 +28,8 @@
 
 use unicode_width::UnicodeWidthChar;
 
+use crate::x::X;
+
 /// The first of the stand-ins for invalid bytes (`INVALID_BYTE_BASE` in the codec contract of
 /// `matsu-core`). Byte `b` decodes to `U+10FF00 + b`.
 pub const INVALID_BYTE_BASE: u32 = 0x10FF00;
@@ -77,7 +79,7 @@ impl Default for WidthRule {
 }
 
 impl WidthRule {
-    /// The columns of `c`, 1 or 2 (a tab is not handled here, see `LayoutConfig::columns_of`).
+    /// The columns of `c`, 1 or 2 (a tab is not handled here, see `LayoutConfig::advance`).
     pub fn columns(&self, c: char) -> u32 {
         let cp = c as u32;
         // charcode.cpp, IsHankaku: "wc<=0x007E", and "0x7F ~ 0xA0 are half-width too".
@@ -127,6 +129,86 @@ impl WidthRule {
         match width {
             Some(2) => 2,
             _ => 1,
+        }
+    }
+}
+
+/// How wide a character is in [`X`], and the one place where columns and `X` are converted
+/// (ADR-0034, "Widths").
+///
+/// There is one form so far, [`Widths::Grid`]: the [`WidthRule`] gives 1 or 2 columns and a
+/// column is [`per_column`](Self::per_column) `X`. `per_column` includes the character spacing
+/// (ADR-0034, case C: 64 plus the spacing), and is 1 until the UI counts in `X` (stages 2 and 3).
+/// A form that reads the width of each character from a table (stage 4) is another variant, and
+/// the code that matches on `Widths` is where it has to be dealt with: [`Widths::widest_char`]
+/// says "no limit known" for it, and a caller of that must not take a shortcut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Widths {
+    /// Every character is 1 or 2 columns by Unicode ([`WidthRule`]); a column is `per_column` `X`.
+    Grid {
+        rule: WidthRule,
+        /// `X` in one column. 0 counts as 1.
+        per_column: u32,
+    },
+}
+
+impl Default for Widths {
+    fn default() -> Self {
+        Self::grid(WidthRule::default())
+    }
+}
+
+impl Widths {
+    /// The grid with one `X` for a column, which is what the layout counted before `X`.
+    pub fn grid(rule: WidthRule) -> Self {
+        Self::grid_scaled(rule, 1)
+    }
+
+    /// The grid with `per_column` `X` for a column.
+    pub fn grid_scaled(rule: WidthRule, per_column: u32) -> Self {
+        Self::Grid {
+            rule,
+            per_column: per_column.max(1),
+        }
+    }
+
+    /// `X` in one column.
+    pub fn per_column(&self) -> u32 {
+        match self {
+            Self::Grid { per_column, .. } => (*per_column).max(1),
+        }
+    }
+
+    /// `columns` columns as `X`.
+    pub fn to_x(&self, columns: u32) -> X {
+        X::from_raw(columns.saturating_mul(self.per_column()))
+    }
+
+    /// The whole columns in `x`, the rest dropped (the status bar's column is the caret's `X`
+    /// divided by the width of a column and rounded down: `CCaret.cpp`, ADR-0034).
+    pub fn to_columns(&self, x: X) -> u32 {
+        x.raw() / self.per_column()
+    }
+
+    /// The width of `c` in `X`, a tab not included (see `LayoutConfig::advance`).
+    pub fn width_of(&self, c: char) -> X {
+        match self {
+            Self::Grid { rule, .. } => self.to_x(rule.columns(c)),
+        }
+    }
+
+    /// The whole columns of `c`: [`width_of`](Self::width_of) as columns. For the code that still
+    /// counts columns (stages 2 and 3 take it away).
+    pub fn columns(&self, c: char) -> u32 {
+        self.to_columns(self.width_of(c))
+    }
+
+    /// The most `X` one character other than a tab can take, when there is a limit that holds
+    /// for every character of every text; `None` when it cannot be known without measuring
+    /// (the table form of stage 4). The layout of a document takes a shortcut only with `Some`.
+    pub fn widest_char(&self) -> Option<X> {
+        match self {
+            Self::Grid { rule, .. } => Some(self.to_x(rule.invalid_byte.max(2))),
         }
     }
 }

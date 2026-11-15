@@ -3,7 +3,7 @@
 //! layout what is at a row and a column.
 
 use matsu_core::buffer::{Document, Pos, Result};
-use matsu_layout::{DocumentLayout, RowInfo};
+use matsu_layout::{DocumentLayout, RowInfo, X};
 
 use crate::geometry::{Metrics, column_at, row_at};
 
@@ -38,8 +38,9 @@ pub fn free_column_at(
 ) -> Result<Option<usize>> {
     let row = row_at(m, scroll_y, y, layout.row_count());
     let (col, _) = column_at(m, x);
-    let target = layout.row_to_pos(doc, row, col)?;
-    Ok((target.extra_columns > 0).then_some(col as usize))
+    // The layout counts in `X`, this module in columns (stage 2 and 3 of ADR-0034 remove this).
+    let target = layout.row_to_pos(doc, row, layout.config().width.to_x(col))?;
+    Ok((target.extra_x > X::ZERO).then_some(col as usize))
 }
 
 /// Like [`position_at`], on a given row.
@@ -51,8 +52,9 @@ pub fn position_in_row(
     x: f32,
 ) -> Result<Pos> {
     let (col, _) = column_at(m, x);
-    let target = layout.row_to_pos(doc, row, col)?;
-    if target.extra_columns > 0 {
+    let widths = layout.config().width;
+    let target = layout.row_to_pos(doc, row, widths.to_x(col))?;
+    if target.extra_x > X::ZERO {
         return Ok(target.pos);
     }
     // Only the char at the column is needed: a very long line is not decoded as a whole.
@@ -66,8 +68,9 @@ pub fn position_in_row(
     let Some(c) = text.and_then(|rest| rest.chars().next()) else {
         return Ok(target.pos);
     };
-    let start = layout.pos_to_row(doc, target.pos)?.column;
-    let width = layout.config().columns_of(c, start);
+    let start_x = layout.pos_to_row(doc, target.pos)?.x;
+    let start = widths.to_columns(start_x);
+    let width = widths.to_columns(layout.config().advance(c, start_x));
     let into = (x / m.cell_width).max(0.0) - start as f32;
     Ok(if into * 2.0 >= width as f32 {
         Pos::new(target.pos.line, target.pos.col + c.len_utf8())
@@ -90,16 +93,17 @@ pub fn selected_columns(
     if to <= row.start || from > row.end || (row.wrapped && from == row.end) || from == to {
         return Ok(None);
     }
+    let widths = layout.config().width;
     let first = if from <= row.start {
-        row.start_column
+        widths.to_columns(row.start_x)
     } else {
-        layout.pos_to_row(doc, from)?.column
+        widths.to_columns(layout.pos_to_row(doc, from)?.x)
     };
     let breaks_line = !row.wrapped && !row.is_eof_row && to > row.end;
     let last = if to >= row.end {
-        row.end_column + u32::from(breaks_line)
+        widths.to_columns(row.end_x) + u32::from(breaks_line)
     } else {
-        layout.pos_to_row(doc, to)?.column
+        widths.to_columns(layout.pos_to_row(doc, to)?.x)
     };
     Ok((last > first).then_some((first, last)))
 }
@@ -133,9 +137,13 @@ impl BoxArea {
         cursor: &matsu_core::cursor::Cursor,
     ) -> Option<Self> {
         let ((anchor, anchor_col), (caret, caret_col)) = cursor.box_corners()?;
+        let widths = layout.config().width;
         let corner = |pos, col: usize| -> Option<(usize, u32)> {
             let at = layout.pos_to_row(doc, pos).ok()?;
-            Some((at.row, u32::try_from(col).ok()?.max(at.column)))
+            Some((
+                at.row,
+                u32::try_from(col).ok()?.max(widths.to_columns(at.x)),
+            ))
         };
         Self::between(corner(anchor, anchor_col)?, corner(caret, caret_col)?)
     }

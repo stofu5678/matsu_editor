@@ -780,14 +780,18 @@ impl EditorView {
     pub(crate) fn caret_row(&self, cx: &App) -> RowPos {
         self.layout
             .pos_to_row(self.doc(cx), self.cursor.caret())
-            .unwrap_or(RowPos { row: 0, column: 0 })
+            .unwrap_or(RowPos {
+                row: 0,
+                x: matsu_layout::X::ZERO,
+            })
     }
 
     /// The display column of the caret on its row. In a box selection the caret can be to the right
     /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`), and so can the caret of
     /// the free cursor mode (`Cursor::free_col`).
     pub(crate) fn caret_column(&self, cx: &App) -> u32 {
-        let column = self.caret_row(cx).column;
+        // The layout counts in `X`, the caret column in columns (ADR-0034 stage 2 changes that).
+        let column = self.layout.config().width.to_columns(self.caret_row(cx).x);
         // The free cursor mode: the caret to the right of the end of the line.
         let free = self
             .cursor

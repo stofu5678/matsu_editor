@@ -92,6 +92,7 @@ use matsu_core::buffer::{Document, Edit, Eol, LineSlice, Pos, Result};
 use crate::config::{LayoutConfig, Wrap};
 use crate::map::{offset_to_position, position_to_offset};
 use crate::wrap::{Row, layout_line};
+use crate::x::X;
 
 mod seq;
 #[cfg(test)]
@@ -106,7 +107,7 @@ const CACHE_LINES: usize = 512;
 /// until [`DocumentLayout::layout_chunk`] reaches them. It keeps the time of one edit short.
 const EDIT_EXACT_LIMIT: usize = 4096;
 
-/// A line with more bytes than this is left out of [`DocumentLayout::widest_columns`]: laying
+/// A line with more bytes than this is left out of [`DocumentLayout::widest_x`]: laying
 /// it out would take longer than a frame.
 const WIDTH_SKIP_BYTES: usize = 16 * 1024;
 
@@ -141,11 +142,11 @@ pub struct RowRef {
     pub row_in_line: usize,
 }
 
-/// A place on the screen: a row of the document and a display column (the indent included).
+/// A place on the screen: a row of the document and a display position (the indent included).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RowPos {
     pub row: usize,
-    pub column: u32,
+    pub x: X,
 }
 
 /// The place in the text of a row and a column ([`DocumentLayout::row_to_pos`]).
@@ -154,8 +155,8 @@ pub struct RowTarget {
     /// The row, after clamping to the last one.
     pub row: usize,
     pub pos: Pos,
-    /// The columns that were asked for beyond the end of the row (`Located::extra_columns`).
-    pub extra_columns: u32,
+    /// The width that was asked for beyond the end of the row (`Located::extra_x`).
+    pub extra_x: X,
 }
 
 /// How far the first layout is.
@@ -185,8 +186,8 @@ pub struct RowInfo {
     /// are `(line_count, 0)` on the EOF row.
     pub start: Pos,
     pub end: Pos,
-    pub start_column: u32,
-    pub end_column: u32,
+    pub start_x: X,
+    pub end_x: X,
     /// The row ends because the line wraps.
     pub wrapped: bool,
     /// The line ending that ends this row: set only on the last row of a line that has one. `None`
@@ -269,12 +270,18 @@ impl std::fmt::Debug for DocumentLayout {
 }
 
 /// The rows of a line, without laying it out when it cannot have more than one. A character takes
-/// at most `widest` columns, and a byte holds at most one character, so a line of `len` bytes
-/// takes at most `len * widest` columns (plus one for the line ending).
+/// at most `widest` of `X`, and a byte holds at most one character, so a line of `len` bytes
+/// takes at most `len * widest` (plus one column for the line ending). The shortcut is for the
+/// widths that have such a limit ([`LayoutConfig::widest_character`] is `Some`); without one a
+/// line is laid out (ADR-0034, "huge files").
 fn count_rows(cfg: &LayoutConfig, text: &str, has_eol: bool, scratch: &mut Vec<Row>) -> u32 {
-    let widest = u64::from(cfg.widest_character());
-    if text.len() as u64 * widest + u64::from(has_eol) <= u64::from(cfg.max_columns()) {
-        return 1;
+    if let Some(widest) = cfg.widest_character() {
+        let eol = if has_eol { cfg.width.to_x(1) } else { X::ZERO };
+        if u64::from(widest.raw()) * text.len() as u64 + u64::from(eol.raw())
+            <= u64::from(cfg.max_x().raw())
+        {
+            return 1;
+        }
     }
     layout_line(text, has_eol, cfg, scratch);
     scratch.len() as u32
@@ -430,21 +437,16 @@ impl DocumentLayout {
         Ok(())
     }
 
-    /// The widest end column among the rows of the lines `first..`, going on for about `budget`,
+    /// The widest end position among the rows of the lines `first..`, going on for about `budget`,
     /// and the line where it stopped (the line count when it is done). It is the text width that
     /// Sakura keeps in `CLayoutMgr::m_nTextWidth` (`CalculateTextWidth`), found here on request
     /// because the index does not lay a line out unless it can have more than one row. A line
     /// of more than 16 KiB (and a very long one) is not laid out: it counts as
     /// a quarter of its bytes in columns, the least it can have.
-    pub fn widest_columns(
-        &self,
-        doc: &Document,
-        first: usize,
-        budget: Duration,
-    ) -> Result<(u32, usize)> {
+    pub fn widest_x(&self, doc: &Document, first: usize, budget: Duration) -> Result<(X, usize)> {
         let start = Instant::now();
         let total = doc.line_count();
-        let mut widest = 0;
+        let mut widest = X::ZERO;
         let mut rows = Vec::new();
         let mut line = first;
         while line < total {
@@ -458,13 +460,13 @@ impl DocumentLayout {
             if raw > WIDTH_SKIP_BYTES || self.long_rows(doc, line)?.is_some() {
                 // Not laid out, but not narrow: a character takes at most 4 bytes and at least
                 // one column for each 4, so this many columns is a lower bound.
-                widest = widest.max(((raw / 4) as u32).min(self.cfg.max_columns()));
+                widest = widest.max(self.cfg.width.to_x((raw / 4) as u32).min(self.cfg.max_x()));
             } else {
                 let Some(text) = doc.line(line)? else {
                     return Ok((widest, total));
                 };
                 layout_line(&text.text, text.eol.is_some(), &self.cfg, &mut rows);
-                widest = rows.iter().map(|r| r.end_column).fold(widest, u32::max);
+                widest = rows.iter().map(|r| r.end_x).fold(widest, X::max);
             }
             line += 1;
         }
@@ -671,12 +673,12 @@ impl DocumentLayout {
         cfg.wrap = Wrap::Columns(u32::MAX);
         let mut laid = Vec::new();
         layout_line(&slice.text, false, &cfg, &mut laid);
-        let width = laid.last().map_or(0, |r| r.end_column);
+        let width = laid.last().map_or(X::ZERO, |r| r.end_x);
         let eol = if last { doc.line_eol(line)? } else { None };
         let row = Row {
             range: 0..slice.text.len(),
-            start_column: 0,
-            end_column: width,
+            start_x: X::ZERO,
+            end_x: width,
             wrapped: !last,
         };
         let layout = Arc::new(LineLayout {
@@ -705,8 +707,8 @@ impl DocumentLayout {
             row_in_line: k,
             start: Pos::new(line, layout.base + r.range.start),
             end: Pos::new(line, layout.base + r.range.end),
-            start_column: r.start_column,
-            end_column: r.end_column,
+            start_x: r.start_x,
+            end_x: r.end_x,
             wrapped: r.wrapped,
             eol: if in_layout + 1 >= layout.rows.len() {
                 layout.eol
@@ -726,8 +728,8 @@ impl DocumentLayout {
             row_in_line: 0,
             start: p,
             end: p,
-            start_column: 0,
-            end_column: 0,
+            start_x: X::ZERO,
+            end_x: X::ZERO,
             wrapped: false,
             eol: None,
             is_eof_row: true,
@@ -792,7 +794,7 @@ impl DocumentLayout {
         if pos.line >= self.seq.len() {
             return Ok(RowPos {
                 row: self.seq.total_rows() as usize,
-                column: 0,
+                x: X::ZERO,
             });
         }
         // a very long line: the row that holds the column, and the column on it
@@ -812,13 +814,13 @@ impl DocumentLayout {
             let shown = self.seq.get(pos.line).map_or(1, |c| c as usize);
             return Ok(RowPos {
                 row: self.first_row_of_line(pos.line) + k.min(shown - 1),
-                column: p.column,
+                x: p.x,
             });
         }
         let Some(layout) = self.line_layout(doc, pos.line)? else {
             return Ok(RowPos {
                 row: self.eof_row(),
-                column: 0,
+                x: X::ZERO,
             });
         };
         let p = offset_to_position(&layout.text, &layout.rows, &self.cfg, pos.col);
@@ -826,57 +828,51 @@ impl DocumentLayout {
         let shown = self.seq.get(pos.line).map_or(1, |c| c as usize);
         Ok(RowPos {
             row: self.first_row_of_line(pos.line) + p.row.min(shown - 1),
-            column: p.column,
+            x: p.x,
         })
     }
 
-    /// The position at row `row` and display column `column`, for a click or a vertical move. A
-    /// column inside a wide character or a tab is the left edge of it; a column past the end of
-    /// the row is the end of the row, with the rest in [`RowTarget::extra_columns`]
+    /// The position at row `row` and display position `x`, for a click or a vertical move. A
+    /// position inside a wide character or a tab is the left edge of it; one past the end of
+    /// the row is the end of the row, with the rest in [`RowTarget::extra_x`]
     /// (`position_to_offset`).
-    pub fn row_to_pos(&self, doc: &Document, row: usize, column: u32) -> Result<RowTarget> {
+    pub fn row_to_pos(&self, doc: &Document, row: usize, x: X) -> Result<RowTarget> {
         let row = row.min(self.row_count() - 1);
         let r = self.locate_row(row);
         let eof = RowTarget {
             row,
             pos: Pos::new(self.seq.len(), 0),
-            extra_columns: column,
+            extra_x: x,
         };
         if r.line >= self.seq.len() {
             return Ok(eof);
         }
         if let Some(rows) = self.long_rows(doc, r.line)? {
             let layout = self.long_row_layout(doc, r.line, r.row_in_line, rows as usize)?;
-            let at = position_to_offset(&layout.text, &layout.rows, &self.cfg, 0, column);
+            let at = position_to_offset(&layout.text, &layout.rows, &self.cfg, 0, x);
             return Ok(RowTarget {
                 row,
                 pos: Pos::new(r.line, layout.base + at.offset),
-                extra_columns: at.extra_columns,
+                extra_x: at.extra_x,
             });
         }
         let Some(layout) = self.line_layout(doc, r.line)? else {
             return Ok(eof);
         };
-        let at = position_to_offset(&layout.text, &layout.rows, &self.cfg, r.row_in_line, column);
+        let at = position_to_offset(&layout.text, &layout.rows, &self.cfg, r.row_in_line, x);
         Ok(RowTarget {
             row,
             pos: Pos::new(r.line, at.offset),
-            extra_columns: at.extra_columns,
+            extra_x: at.extra_x,
         })
     }
 
     /// Moves `delta` rows from `pos` (negative: up), stopping at the first and the last row, and
-    /// returns the position at display column `goal_column` there. The goal column is the one the
-    /// caller remembers while the caret moves up and down (the cursor of `matsu-core` keeps it).
-    pub fn move_rows(
-        &self,
-        doc: &Document,
-        pos: Pos,
-        delta: isize,
-        goal_column: u32,
-    ) -> Result<RowTarget> {
+    /// returns the position at display position `goal` there. The goal is the one the caller
+    /// remembers while the caret moves up and down (the cursor of `matsu-core` keeps it).
+    pub fn move_rows(&self, doc: &Document, pos: Pos, delta: isize, goal: X) -> Result<RowTarget> {
         let from = self.pos_to_row(doc, pos)?;
         let target = from.row.saturating_add_signed(delta).min(self.eof_row());
-        self.row_to_pos(doc, target, goal_column)
+        self.row_to_pos(doc, target, goal)
     }
 }

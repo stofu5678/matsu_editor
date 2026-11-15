@@ -29,6 +29,7 @@
 use std::ops::Range;
 
 use crate::config::{LayoutConfig, WrapIndent};
+use crate::x::X;
 
 /// One row of a laid-out line (Sakura's `CLayout`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,12 +37,12 @@ pub struct Row {
     /// The bytes of the line on this row. A line ending is not in the text, so the row that
     /// holds only the line ending (see [`layout_line`]) has an empty range.
     pub range: Range<usize>,
-    /// The column of the first character: the indent of a wrapped row (`CLayout::GetIndent`),
+    /// The position of the first character: the indent of a wrapped row (`CLayout::GetIndent`),
     /// 0 for the first row.
-    pub start_column: u32,
-    /// The column after the last character, without the line ending (`CLayout::CalcLayoutWidth`).
-    /// It can pass the wrap column by a hanging punctuation.
-    pub end_column: u32,
+    pub start_x: X,
+    /// The position after the last character, without the line ending
+    /// (`CLayout::CalcLayoutWidth`). It can pass the wrap width by a hanging punctuation.
+    pub end_x: X,
     /// The row ends because the line wraps, so another row of the same line follows.
     pub wrapped: bool,
 }
@@ -61,10 +62,10 @@ struct State {
     pos: usize,
     /// Where the row began (`nBgn`).
     bgn: usize,
-    /// The column of `pos`, with the indent (`nPosX`).
-    x: u32,
+    /// The position of `pos`, with the indent (`nPosX`).
+    x: X,
     /// The indent of this row (`nIndent`).
-    indent: u32,
+    indent: X,
     run: Run,
     /// The run is `word_bgn..word_bgn + word_len` (`nWordBgn`, `nWordLen`).
     word_bgn: usize,
@@ -83,7 +84,8 @@ fn is_word_byte(b: u8) -> bool {
 /// row, even for an empty line. (Sakura makes no row for an empty last line without a line
 /// ending; the document-wide layout decides that.)
 ///
-/// `has_eol` says the line ends with a line ending. It takes one column, as Sakura counts it
+/// `has_eol` says the line ends with a line ending. It takes one column (of `X`:
+/// `Widths::per_column`), as Sakura counts it
 /// (`CNativeW::GetHabaOfChar`: "HACK: returns 1 for a line ending"), so a line that fills the
 /// wrap column puts its line ending on a row of its own, unless [`crate::Kinsoku::hang_eol`]
 /// lets it hang. The row that holds only the line ending has an empty range at `text.len()`.
@@ -92,14 +94,17 @@ fn is_word_byte(b: u8) -> bool {
 pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec<Row>) {
     rows.clear();
     let len = text.len();
-    let max = cfg.max_columns();
+    let max = cfg.max_x();
+    let one = cfg.width.to_x(1);
+    let two = cfg.width.to_x(2);
+    let four = cfg.width.to_x(4);
     let k = &cfg.kinsoku;
     let kinsoku_enabled = cfg.word_wrap || k.any();
     let mut st = State {
         pos: 0,
         bgn: 0,
-        x: 0,
-        indent: 0,
+        x: X::ZERO,
+        indent: X::ZERO,
         run: Run::None,
         word_bgn: 0,
         word_len: 0,
@@ -134,7 +139,7 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
                     st.run = Run::None;
                 }
             } else if let Some(c) = ch {
-                let rest = i64::from(max) - i64::from(st.x);
+                let rest = i64::from(max.raw()) - i64::from(st.x.raw());
 
                 // _DoWordWrap: at the head of an English word, measure it and break before it
                 // if it would reach the last column.
@@ -146,16 +151,18 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
                     st.word_bgn = st.pos;
                     st.word_len = n;
                     st.run = Run::WordWrap;
-                    // Every character of a word is ASCII, one column each.
-                    if i64::from(st.x) + n as i64 >= i64::from(max) && st.pos > st.bgn {
+                    // Every character of a word is ASCII, one column each (the grid: the table
+                    // form of ADR-0034 stage 4 sums the widths of the characters instead).
+                    let word = one.saturating_mul(u32::try_from(n).unwrap_or(u32::MAX));
+                    if st.x + word >= max && st.pos > st.bgn {
                         break_row(text, cfg, max, &mut st, rows);
                     }
                 }
 
                 // _DoKutoBurasage: a punctuation that does not fit hangs over the edge. The
                 // width is the character's own, not the tab's (GetLayoutXOfChar).
-                if k.kuto && st.run == Run::None && rest < 2 {
-                    let w = i64::from(cfg.width.columns(c));
+                if k.kuto && st.run == Run::None && rest < i64::from(two.raw()) {
+                    let w = i64::from(cfg.width.width_of(c).raw());
                     if rest < w && k.is_kuto(c) {
                         st.word_bgn = st.pos;
                         st.word_len = c.len_utf8();
@@ -170,13 +177,13 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
                 if (k.head || k.tail)
                     && st.run == Run::None
                     && has_next
-                    && rest < 4
+                    && rest < i64::from(four.raw())
                     && st.x > st.indent
                 {
                     let next = text[after..].chars().next();
-                    let w1 = i64::from(cfg.width.columns(c));
+                    let w1 = i64::from(cfg.width.width_of(c).raw());
                     // The line ending is one column; beyond it there is nothing.
-                    let w2 = next.map_or(1, |n| i64::from(cfg.width.columns(n)));
+                    let w2 = i64::from(next.map_or(one, |n| cfg.width.width_of(n)).raw());
                     if k.head
                         && rest < w1 + w2
                         && next.is_some_and(|n| k.is_head(n))
@@ -199,7 +206,7 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
 
         // Place the character; break the row first if it does not fit. The row is never left
         // empty for this (Sakura cannot meet that case, the indent is kept small).
-        let w = ch.map_or(1, |c| cfg.columns_of(c, st.x));
+        let w = ch.map_or(one, |c| cfg.advance(c, st.x));
         if st.x + w > max && st.run != Run::Kuto && st.pos > st.bgn && !(k.hang_eol && at_eol) {
             break_row(text, cfg, max, &mut st, rows);
             continue;
@@ -215,8 +222,8 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
     if st.pos > st.bgn || eol_placed || rows.is_empty() {
         rows.push(Row {
             range: st.bgn..st.pos,
-            start_column: st.indent,
-            end_column: st.x - u32::from(eol_placed),
+            start_x: st.indent,
+            end_x: if eol_placed { st.x - one } else { st.x },
             wrapped: false,
         });
     }
@@ -227,11 +234,11 @@ fn is_word_byte_at(text: &str, pos: usize) -> bool {
 }
 
 /// `_OnLine1`: closes the row at `pos` and starts the next one at its indent.
-fn break_row(text: &str, cfg: &LayoutConfig, max: u32, st: &mut State, rows: &mut Vec<Row>) {
+fn break_row(text: &str, cfg: &LayoutConfig, max: X, st: &mut State, rows: &mut Vec<Row>) {
     rows.push(Row {
         range: st.bgn..st.pos,
-        start_column: st.indent,
-        end_column: st.x,
+        start_x: st.indent,
+        end_x: st.x,
         wrapped: true,
     });
     st.bgn = st.pos;
@@ -240,19 +247,19 @@ fn break_row(text: &str, cfg: &LayoutConfig, max: u32, st: &mut State, rows: &mu
 }
 
 /// The indent of the row after `prev` (`m_getIndentOffset`).
-fn next_indent(text: &str, cfg: &LayoutConfig, max: u32, prev: &Row) -> u32 {
+fn next_indent(text: &str, cfg: &LayoutConfig, max: X, prev: &Row) -> X {
     match &cfg.indent {
-        WrapIndent::None => 0,
+        WrapIndent::None => X::ZERO,
         // getIndentOffset_Tx2x
         WrapIndent::AfterLastTab => {
             // A wrapped row keeps the indent of the row before it.
             if prev.range.start > 0 {
-                return prev.start_column;
+                return prev.start_x;
             }
-            let mut col = prev.start_column;
-            let mut indent = prev.start_column;
+            let mut col = prev.start_x;
+            let mut indent = prev.start_x;
             for c in text[prev.range.clone()].chars() {
-                col += cfg.columns_of(c, col);
+                col += cfg.advance(c, col);
                 if c == '\t' {
                     indent = col;
                 }
@@ -265,9 +272,9 @@ fn next_indent(text: &str, cfg: &LayoutConfig, max: u32, prev: &Row) -> u32 {
             extra,
         } => {
             if prev.range.start > 0 {
-                return prev.start_column;
+                return prev.start_x;
             }
-            let mut col = prev.start_column;
+            let mut col = prev.start_x;
             for c in text[prev.range.clone()].chars() {
                 // WCODE::IsIndentChar, then the "other characters to indent".
                 let is_indent = c == '\t'
@@ -277,7 +284,7 @@ fn next_indent(text: &str, cfg: &LayoutConfig, max: u32, prev: &Row) -> u32 {
                 if !is_indent {
                     break;
                 }
-                col += cfg.columns_of(c, col);
+                col += cfg.advance(c, col);
             }
             clamp_indent(col, max, cfg)
         }
@@ -286,8 +293,8 @@ fn next_indent(text: &str, cfg: &LayoutConfig, max: u32, prev: &Row) -> u32 {
 
 /// "2010.07.06 Moca": when less than the tab width plus 2 columns remain, the indent is cut
 /// back, so that a tab always fits and the wrapping never loops.
-fn clamp_indent(indent: u32, max: u32, cfg: &LayoutConfig) -> u32 {
-    let need = cfg.effective_tab_width() + 2;
+fn clamp_indent(indent: X, max: X, cfg: &LayoutConfig) -> X {
+    let need = cfg.tab_x() + cfg.width.to_x(2);
     if max.saturating_sub(indent) < need {
         max.saturating_sub(need)
     } else {

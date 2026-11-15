@@ -198,16 +198,17 @@ fn row_chars(
     // The cache of the style of the last kind, which is the same for most characters.
     let mut cached: Option<(ColorKind, Option<u8>, Attr)> = None;
     let mut byte = row.start.col;
-    let (mut column, mut next_match) = (row.start_column, 0);
+    let widths = layout.config().width;
+    let (mut column, mut next_match) = (row.start_x, 0);
     let body = row.text().len();
     for c in text.chars() {
         let kind = kind_at(&colors.runs, byte);
         // The line ending is in the column of its mark.
-        let at = if byte - row.start.col < body {
+        let at = widths.to_columns(if byte - row.start.col < body {
             column
         } else {
-            row.end_column
-        };
+            row.end_x
+        });
         while matches.get(next_match).is_some_and(|m| m.1 <= at) {
             next_match += 1;
         }
@@ -221,7 +222,7 @@ fn row_chars(
             }
         };
         if byte - row.start.col < body {
-            column += layout.config().columns_of(c, column);
+            column += layout.config().advance(c, column);
         }
         chars.push(c);
         attrs.push(attr);
@@ -308,7 +309,10 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
                 // shorter has its end for both. The line ending is not in it.
                 let (left, right) = area.columns_on(info.row)?;
                 let index_at = |column: u32| -> Option<usize> {
-                    let at = layout.row_to_pos(doc, info.row, column).ok()?.pos;
+                    let at = layout
+                        .row_to_pos(doc, info.row, layout.config().width.to_x(column))
+                        .ok()?
+                        .pos;
                     let col = at.col.clamp(info.start.col, info.end.col);
                     Some(chars_before(info.text(), col - info.start.col))
                 };

@@ -101,12 +101,13 @@ fn marks_checked(
     let other = pair_of_start(doc, start, Some(reach)).ok()??;
     let other_at = layout.pos_to_row(doc, other).ok()?;
     // The pair has to be on the screen, or nothing is drawn.
-    if !screen.has(other_at.row, other_at.column) {
+    let widths = layout.config().width;
+    if !screen.has(other_at.row, widths.to_columns(other_at.x)) {
         return None;
     }
     let mut marks = Vec::with_capacity(2);
     for (pos, at) in [(other, other_at), (start.pos, start_at)] {
-        if !screen.has(at.row, at.column) {
+        if !screen.has(at.row, widths.to_columns(at.x)) {
             continue;
         }
         let ch = doc
@@ -117,8 +118,8 @@ fn marks_checked(
             .next()?;
         marks.push(Mark {
             row: at.row,
-            col: at.column,
-            cols: layout.config().columns_of(ch, at.column),
+            col: widths.to_columns(at.x),
+            cols: widths.to_columns(layout.config().advance(ch, at.x)),
             ch,
         });
     }

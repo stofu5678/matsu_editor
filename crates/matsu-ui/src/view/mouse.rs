@@ -155,7 +155,7 @@ impl EditorView {
         let row = row_at(&self.metrics, self.scroll_y, y, self.layout.row_count());
         let start = self
             .layout
-            .row_to_pos(self.document.read(cx).doc(), row, 0)
+            .row_to_pos(self.document.read(cx).doc(), row, matsu_layout::X::ZERO)
             .ok()?
             .pos;
         Some((start, (x / self.metrics.cell_width + 0.5).floor() as usize))

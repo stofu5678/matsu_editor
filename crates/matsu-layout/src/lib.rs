@@ -2,9 +2,11 @@
 //! display columns the way Sakura Editor does ([ADR-0013], the part that the screen and the
 //! printing share).
 //!
-//! It knows nothing of pixels, fonts, a UI, or an OS. Everything is counted in columns: a
-//! half-width character takes 1 and a full-width one 2 (see [`WidthRule`]). The caller draws a
-//! column as a cell of the font's half-width.
+//! It knows nothing of pixels, fonts, a UI, or an OS. Positions and widths are counted in [`X`]
+//! (ADR-0034), a unit of its own that is a column divided into [`Widths::per_column`] parts; the
+//! settings (the wrap column, the tab width) are columns, and [`Widths`] is where the two are
+//! converted. A half-width character takes 1 column and a full-width one 2 (see [`WidthRule`]).
+//! The caller draws a column as a cell of the font's half-width.
 //!
 //! ```
 //! use matsu_layout::{layout_line, LayoutConfig, Wrap};
@@ -70,6 +72,7 @@ mod map;
 mod tsv;
 mod width;
 mod wrap;
+mod x;
 
 pub use config::{LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap, WrapIndent};
 pub use document::{
@@ -78,8 +81,9 @@ pub use document::{
 pub use kinsoku::{CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku};
 pub use map::{Located, Position, offset_to_position, position_to_offset};
 pub use tsv::{TsvMode, TsvScan, TsvStops};
-pub use width::{INVALID_BYTE_BASE, WidthRule};
+pub use width::{INVALID_BYTE_BASE, WidthRule, Widths};
 pub use wrap::{Row, layout_line};
+pub use x::X;
 
 #[cfg(test)]
 mod tests;

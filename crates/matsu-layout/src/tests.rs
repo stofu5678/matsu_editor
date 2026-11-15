@@ -4,6 +4,12 @@
 
 use super::*;
 
+/// A position or a width in `X`. These tests lay out with one `X` per column (the default
+/// [`Widths`]), so the numbers are the columns that Sakura's layout gives.
+fn x(n: u32) -> X {
+    X::from_raw(n)
+}
+
 fn config(columns: u32) -> LayoutConfig {
     LayoutConfig {
         wrap: Wrap::Columns(columns),
@@ -45,7 +51,7 @@ fn wraps_at_the_wrap_column() {
     assert_eq!(rows.len(), 3);
     assert!(rows[0].wrapped && rows[1].wrapped && !rows[2].wrapped);
     assert_eq!(
-        rows.iter().map(|r| r.end_column).collect::<Vec<_>>(),
+        rows.iter().map(|r| r.end_x.raw()).collect::<Vec<_>>(),
         [10, 10, 1]
     );
 }
@@ -67,13 +73,13 @@ fn empty_line_has_one_row() {
         rows,
         [Row {
             range: 0..0,
-            start_column: 0,
-            end_column: 0,
+            start_x: x(0),
+            end_x: x(0),
             wrapped: false
         }]
     );
     let rows = lay("", true, &cfg);
-    assert_eq!((rows.len(), rows[0].end_column), (1, 0));
+    assert_eq!((rows.len(), rows[0].end_x.raw()), (1, 0));
 }
 
 #[test]
@@ -83,7 +89,7 @@ fn full_width_characters_do_not_straddle_the_edge() {
     assert_eq!(split("abcあい", false, &cfg), ["abcあ", "い"]);
     assert_eq!(split("abcdあ", false, &cfg), ["abcd", "あ"]);
     let rows = lay("abcdあ", false, &cfg);
-    assert_eq!(rows[0].end_column, 4);
+    assert_eq!(rows[0].end_x.raw(), 4);
 }
 
 #[test]
@@ -95,7 +101,7 @@ fn the_line_ending_takes_a_column() {
     let rows = lay("abcdefghij", true, &cfg);
     assert_eq!(rows[1].range, 10..10);
     // The end column does not count the line ending.
-    assert_eq!(lay("abc", true, &cfg)[0].end_column, 3);
+    assert_eq!(lay("abc", true, &cfg)[0].end_x.raw(), 3);
     // "改行文字をぶら下げる": m_bKinsokuRet keeps it on the row.
     let hang = LayoutConfig {
         kinsoku: Kinsoku {
@@ -105,7 +111,7 @@ fn the_line_ending_takes_a_column() {
         ..config(10)
     };
     assert_eq!(split("abcdefghij", true, &hang), ["abcdefghij"]);
-    assert_eq!(lay("abcdefghij", true, &hang)[0].end_column, 10);
+    assert_eq!(lay("abcdefghij", true, &hang)[0].end_x.raw(), 10);
 }
 
 #[test]
@@ -122,11 +128,11 @@ fn tabs_go_to_the_next_stop() {
     let cfg = config(40);
     let rows = lay("a\tb\t\tc", false, &cfg);
     // a: 1, tab: 3 (to 4), b: 5, tab: 3 (to 8), tab: 4 (to 12), c: 13.
-    assert_eq!(rows[0].end_column, 13);
+    assert_eq!(rows[0].end_x.raw(), 13);
     let text = "a\tb\t\tc";
-    assert_eq!(offset_to_position(text, &rows, &cfg, 2).column, 4);
-    assert_eq!(offset_to_position(text, &rows, &cfg, 4).column, 8);
-    assert_eq!(offset_to_position(text, &rows, &cfg, 5).column, 12);
+    assert_eq!(offset_to_position(text, &rows, &cfg, 2).x.raw(), 4);
+    assert_eq!(offset_to_position(text, &rows, &cfg, 4).x.raw(), 8);
+    assert_eq!(offset_to_position(text, &rows, &cfg, 5).x.raw(), 12);
 }
 
 #[test]
@@ -138,7 +144,7 @@ fn a_tab_that_does_not_fit_wraps() {
     let text = "abcdefgh\ti";
     let r = lay(text, false, &cfg);
     // On the new row the tab starts at column 0 and takes the whole 4.
-    assert_eq!(r[1].end_column, 5);
+    assert_eq!(r[1].end_x.raw(), 5);
 }
 
 #[test]
@@ -149,7 +155,7 @@ fn tab_width_not_less_than_the_wrap_column_is_4() {
         ..config(8)
     };
     let rows = lay("\ta", false, &cfg);
-    assert_eq!(rows[0].end_column, 5);
+    assert_eq!(rows[0].end_x.raw(), 5);
 }
 
 // ---- English word wrap ----
@@ -237,7 +243,7 @@ fn kuto_burasage_lets_punctuation_hang_over_the_edge() {
     };
     let rows = lay("あいうえお、か", false, &on);
     assert_eq!(rows[0].text("あいうえお、か"), "あいうえお、");
-    assert_eq!(rows[0].end_column, 12);
+    assert_eq!(rows[0].end_x.raw(), 12);
     assert_eq!(rows[1].text("あいうえお、か"), "か");
     // The head rule does not push お, because 、 left the head list (SetLayoutInfo).
     let both = LayoutConfig {
@@ -270,7 +276,7 @@ fn kuto_burasage_of_half_width_punctuation_needs_no_room() {
     // After a full row it hangs (rest 0 < width 1).
     let rows = lay("abcdefghij,k", false, &on);
     assert_eq!(rows[0].range, 0..11);
-    assert_eq!(rows[0].end_column, 11);
+    assert_eq!(rows[0].end_x.raw(), 11);
 }
 
 #[test]
@@ -292,7 +298,7 @@ fn a_hanging_punctuation_at_the_end_of_a_line_with_its_ending() {
     };
     let rows = lay(text, true, &hang);
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].end_column, 12);
+    assert_eq!(rows[0].end_x.raw(), 12);
 }
 
 #[test]
@@ -368,12 +374,12 @@ fn indent_after_the_last_tab() {
     let rows = lay(text, false, &cfg);
     assert_eq!(rows[0].text(text), "\tabcdefgh");
     // The second row starts under the end of the tab, and the third one keeps that.
-    assert_eq!(rows[1].start_column, 4);
+    assert_eq!(rows[1].start_x.raw(), 4);
     assert_eq!(rows[1].text(text), "ijklmnop");
-    assert_eq!(rows[2].start_column, 4);
+    assert_eq!(rows[2].start_x.raw(), 4);
     // Without a tab, no indent.
     let rows = lay("abcdefghijklmnopqrstu", false, &cfg);
-    assert_eq!(rows[1].start_column, 0);
+    assert_eq!(rows[1].start_x.raw(), 0);
 }
 
 #[test]
@@ -385,11 +391,11 @@ fn indent_under_the_text_after_leading_white_space() {
     };
     let text = "  \u{3000}abcdefghijklmnop";
     let rows = lay(text, false, &cfg);
-    assert_eq!(rows[0].end_column, 12);
-    assert_eq!(rows[1].start_column, 4);
+    assert_eq!(rows[0].end_x.raw(), 12);
+    assert_eq!(rows[1].start_x.raw(), 4);
     // A tab counts with its width.
     let rows = lay("\t abcdefghijklmnop", false, &cfg);
-    assert_eq!(rows[1].start_column, 5);
+    assert_eq!(rows[1].start_x.raw(), 5);
     // The full-width space is not white space when the setting says so.
     let strict = LayoutConfig {
         indent: WrapIndent::LeadingWhiteSpace {
@@ -398,7 +404,7 @@ fn indent_under_the_text_after_leading_white_space() {
         },
         ..config(12)
     };
-    assert_eq!(lay(text, false, &strict)[1].start_column, 2);
+    assert_eq!(lay(text, false, &strict)[1].start_x.raw(), 2);
     // Other characters to indent (m_szIndentChars).
     let extra = LayoutConfig {
         indent: WrapIndent::LeadingWhiteSpace {
@@ -407,7 +413,10 @@ fn indent_under_the_text_after_leading_white_space() {
         },
         ..config(12)
     };
-    assert_eq!(lay("*- abcdefghijklmnop", false, &extra)[1].start_column, 1);
+    assert_eq!(
+        lay("*- abcdefghijklmnop", false, &extra)[1].start_x.raw(),
+        1
+    );
 }
 
 #[test]
@@ -419,9 +428,9 @@ fn indent_is_cut_back_when_less_than_a_tab_and_2_remain() {
     };
     let text = "        abcdefghijklmnop";
     let rows = lay(text, false, &cfg);
-    assert_eq!(rows[1].start_column, 6);
+    assert_eq!(rows[1].start_x.raw(), 6);
     // The second row is wrapped at 12 from its own indent.
-    assert_eq!(rows[1].end_column, 12);
+    assert_eq!(rows[1].end_x.raw(), 12);
 }
 
 #[test]
@@ -435,9 +444,9 @@ fn tabs_on_an_indented_row_count_from_the_screen_edge() {
     let rows = lay(text, false, &cfg);
     // Second row starts at 4: ijkl to 8, then the tab goes to 12 (not 4 + 4 = 8 columns of
     // its own: the stops are counted from the left edge); m does not fit.
-    assert_eq!(rows[1].start_column, 4);
+    assert_eq!(rows[1].start_x.raw(), 4);
     assert_eq!(rows[1].text(text), "ijkl\t");
-    assert_eq!(rows[1].end_column, 12);
+    assert_eq!(rows[1].end_x.raw(), 12);
     assert_eq!(rows[2].text(text), "m");
 }
 
@@ -451,35 +460,35 @@ fn offsets_and_columns_on_wrapped_rows() {
     // The offset at the start of a wrapped row is at the left of that row (LogicToLayout:1067).
     assert_eq!(
         offset_to_position(text, &rows, &cfg, 10),
-        Position { row: 1, column: 0 }
+        Position { row: 1, x: x(0) }
     );
     assert_eq!(
         offset_to_position(text, &rows, &cfg, 9),
-        Position { row: 0, column: 9 }
+        Position { row: 0, x: x(9) }
     );
     assert_eq!(
         offset_to_position(text, &rows, &cfg, 12),
-        Position { row: 1, column: 2 }
+        Position { row: 1, x: x(2) }
     );
     // Past the end is the end.
-    assert_eq!(offset_to_position(text, &rows, &cfg, 99).column, 2);
+    assert_eq!(offset_to_position(text, &rows, &cfg, 99).x.raw(), 2);
     assert_eq!(
-        position_to_offset(text, &rows, &cfg, 1, 1),
+        position_to_offset(text, &rows, &cfg, 1, x(1)),
         Located {
             offset: 11,
-            extra_columns: 0
+            extra_x: x(0)
         }
     );
     // Beyond the row: its end, with the columns that are left over.
     assert_eq!(
-        position_to_offset(text, &rows, &cfg, 1, 5),
+        position_to_offset(text, &rows, &cfg, 1, x(5)),
         Located {
             offset: 12,
-            extra_columns: 3
+            extra_x: x(3)
         }
     );
     // A row past the last is the last.
-    assert_eq!(position_to_offset(text, &rows, &cfg, 7, 0).offset, 10);
+    assert_eq!(position_to_offset(text, &rows, &cfg, 7, x(0)).offset, 10);
 }
 
 #[test]
@@ -488,15 +497,18 @@ fn clicks_inside_a_full_width_character_snap_to_its_left() {
     let cfg = config(40);
     let text = "aあb";
     let rows = lay(text, false, &cfg);
-    let at = |col| position_to_offset(text, &rows, &cfg, 0, col).offset;
+    let at = |col| position_to_offset(text, &rows, &cfg, 0, x(col)).offset;
     assert_eq!(
         [at(0), at(1), at(2), at(3), at(4), at(5)],
         [0, 1, 1, 4, 5, 5]
     );
     // The extra columns past the end.
-    assert_eq!(position_to_offset(text, &rows, &cfg, 0, 7).extra_columns, 3);
+    assert_eq!(
+        position_to_offset(text, &rows, &cfg, 0, x(7)).extra_x.raw(),
+        3
+    );
     // The positions of the offsets (3-byte あ).
-    let col = |o| offset_to_position(text, &rows, &cfg, o).column;
+    let col = |o| offset_to_position(text, &rows, &cfg, o).x.raw();
     assert_eq!([col(0), col(1), col(4), col(5)], [0, 1, 3, 4]);
     // An offset inside a character is the start of it.
     assert_eq!(col(2), 1);
@@ -507,7 +519,7 @@ fn clicks_inside_a_tab_snap_to_its_left() {
     let cfg = config(40);
     let text = "a\tb";
     let rows = lay(text, false, &cfg);
-    let at = |col| position_to_offset(text, &rows, &cfg, 0, col).offset;
+    let at = |col| position_to_offset(text, &rows, &cfg, 0, x(col)).offset;
     // The tab spans columns 1 to 3.
     assert_eq!([at(0), at(1), at(2), at(3), at(4)], [0, 1, 1, 1, 2]);
     // Hmm: column 4 is the start of b.
@@ -525,10 +537,10 @@ fn the_indent_is_part_of_the_column() {
     // The wrapped row starts at column 4.
     assert_eq!(
         offset_to_position(text, &rows, &cfg, 9),
-        Position { row: 1, column: 4 }
+        Position { row: 1, x: x(4) }
     );
-    assert_eq!(position_to_offset(text, &rows, &cfg, 1, 0).offset, 9);
-    assert_eq!(position_to_offset(text, &rows, &cfg, 1, 5).offset, 10);
+    assert_eq!(position_to_offset(text, &rows, &cfg, 1, x(0)).offset, 9);
+    assert_eq!(position_to_offset(text, &rows, &cfg, 1, x(5)).offset, 10);
 }
 
 #[test]
@@ -539,9 +551,9 @@ fn the_end_of_a_line_with_its_ending_row() {
     // The end of the text is on the row of the line ending, as Sakura puts the caret there.
     assert_eq!(
         offset_to_position(text, &rows, &cfg, 10),
-        Position { row: 1, column: 0 }
+        Position { row: 1, x: x(0) }
     );
-    assert_eq!(position_to_offset(text, &rows, &cfg, 1, 0).offset, 10);
+    assert_eq!(position_to_offset(text, &rows, &cfg, 1, x(0)).offset, 10);
 }
 
 #[test]
@@ -554,9 +566,9 @@ fn a_column_in_the_indent_of_an_empty_row_is_its_start() {
     let text = "\tabcdefgh";
     let rows = lay(text, true, &cfg);
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[1].start_column, 4);
-    let at = position_to_offset(text, &rows, &cfg, 1, 1);
-    assert_eq!((at.offset, at.extra_columns), (text.len(), 0));
+    assert_eq!(rows[1].start_x.raw(), 4);
+    let at = position_to_offset(text, &rows, &cfg, 1, x(1));
+    assert_eq!((at.offset, at.extra_x.raw()), (text.len(), 0));
 }
 
 #[test]
@@ -564,9 +576,9 @@ fn empty_rows_map_to_zero() {
     let cfg = config(10);
     assert_eq!(
         offset_to_position("", &[], &cfg, 3),
-        Position { row: 0, column: 0 }
+        Position { row: 0, x: x(0) }
     );
-    assert_eq!(position_to_offset("", &[], &cfg, 0, 3).extra_columns, 3);
+    assert_eq!(position_to_offset("", &[], &cfg, 0, x(3)).extra_x.raw(), 3);
 }
 
 // ---- invariants over many lines ----
@@ -641,7 +653,7 @@ fn configs() -> Vec<LayoutConfig> {
                         tab_width,
                         word_wrap,
                         kinsoku: k.clone(),
-                        width: WidthRule::default(),
+                        width: Widths::default(),
                         indent: indent.clone(),
                         tsv: TsvStops::none(),
                     });
@@ -677,32 +689,34 @@ fn rows_cover_the_line_and_round_trip() {
         }
         assert!(!rows.last().unwrap().wrapped);
 
-        let max = cfg.max_columns();
+        let max = cfg.max_x();
         for (i, row) in rows.iter().enumerate() {
-            let mut x = row.start_column;
+            let mut at = row.start_x;
             for c in row.text(&text).chars() {
-                x += cfg.columns_of(c, x);
+                at += cfg.advance(c, at);
             }
-            assert_eq!(x, row.end_column, "{text:?} {cfg:?} row {i}");
+            assert_eq!(at, row.end_x, "{text:?} {cfg:?} row {i}");
             if i + 1 < rows.len() {
                 assert!(!row.range.is_empty(), "{text:?} {cfg:?} row {i}");
             }
             // A row is within the wrap column, except for a first character that is wider than
             // the column (Sakura keeps the column at 10 or more, so it never meets that) and a
             // hanging punctuation (at most 2 columns over).
-            let first = row.text(&text).chars().next().map_or(0, |c| {
-                row.start_column + cfg.columns_of(c, row.start_column)
-            });
-            let limit = max.max(first) + if cfg.kinsoku.kuto { 2 } else { 0 };
-            assert!(row.end_column <= limit, "{text:?} {cfg:?} row {i}");
+            let first = row
+                .text(&text)
+                .chars()
+                .next()
+                .map_or(X::ZERO, |c| row.start_x + cfg.advance(c, row.start_x));
+            let limit = max.max(first) + cfg.width.to_x(if cfg.kinsoku.kuto { 2 } else { 0 });
+            assert!(row.end_x <= limit, "{text:?} {cfg:?} row {i}");
         }
 
         // Every character boundary maps to a column and back.
         for (o, _) in text.char_indices().chain([(text.len(), ' ')]) {
             let p = offset_to_position(&text, &rows, cfg, o);
-            let back = position_to_offset(&text, &rows, cfg, p.row, p.column);
+            let back = position_to_offset(&text, &rows, cfg, p.row, p.x);
             assert_eq!(
-                (back.offset, back.extra_columns),
+                (back.offset, back.extra_x.raw()),
                 (o, 0),
                 "{text:?} {cfg:?} offset {o}"
             );
@@ -742,9 +756,9 @@ fn a_one_megabyte_line_wraps_fast() {
         };
         layout_line(&format!("\t {text}"), false, &indented, &mut rows);
         assert!(rows.len() > 10_000);
-        let indent = rows[1].start_column;
+        let indent = rows[1].start_x.raw();
         assert!(indent > 0);
-        assert!(rows[1..].iter().all(|r| r.start_column == indent));
+        assert!(rows[1..].iter().all(|r| r.start_x.raw() == indent));
     }
     // One long word, and a line without any break opportunity.
     layout_line(&"a".repeat(1_000_000), false, &cfg, &mut rows);
@@ -758,7 +772,7 @@ fn a_one_megabyte_line_wraps_fast() {
 fn tsv_config(mode: TsvMode, lines: &[&str], columns: u32) -> LayoutConfig {
     LayoutConfig {
         wrap: Wrap::Columns(columns),
-        tsv: TsvStops::from_lines(mode, &WidthRule::default(), lines.iter().copied()),
+        tsv: TsvStops::from_lines(mode, &Widths::default(), lines.iter().copied()),
         ..LayoutConfig::default()
     }
 }
@@ -768,14 +782,14 @@ fn a_tsv_line_has_its_fields_in_the_columns_of_the_widest_ones() {
     let lines = ["name\tage", "Bob\t7", "Alexander\t42"];
     let cfg = tsv_config(TsvMode::Tsv, &lines, 80);
     // field 0 is "Alexander", 9 wide: the stop is 11
-    assert_eq!(cfg.tsv.ends(), &[11, 16]);
+    assert_eq!(cfg.tsv.ends(), &[x(11), x(16)]);
     for (line, age_column) in [("name\tage", 11), ("Bob\t7", 11), ("Alexander\t42", 11)] {
         let rows = lay(line, false, &cfg);
         assert_eq!(rows.len(), 1);
         let tab = line.find('\t').unwrap();
         // the column right after the tab is where the second field starts
         let at = offset_to_position(line, &rows, &cfg, tab + 1);
-        assert_eq!(at.column, age_column, "{line}");
+        assert_eq!(at.x.raw(), age_column, "{line}");
     }
 }
 
@@ -785,7 +799,7 @@ fn the_tsv_mode_off_is_the_tab_width_as_before() {
     let off = tsv_config(TsvMode::None, &lines, 80);
     let rows = lay("name\tage", false, &off);
     let at = offset_to_position("name\tage", &rows, &off, 5);
-    assert_eq!(at.column, 8, "the next multiple of 4 after 4 columns");
+    assert_eq!(at.x.raw(), 8, "the next multiple of 4 after 4 columns");
     assert_eq!(
         off,
         LayoutConfig {
@@ -800,10 +814,10 @@ fn csv_commas_and_empty_fields_and_a_tab_in_a_field() {
     let lines = ["a,,ccc", "dddd,e\tf,"];
     let cfg = tsv_config(TsvMode::Csv, &lines, 80);
     // field 0 is 4 wide (6), field 1 is "e\tf" = 3 (6 + 3 + 2 = 11), field 2 is ccc (11 + 3 + 2 = 16)
-    assert_eq!(cfg.tsv.ends(), &[6, 11, 16]);
+    assert_eq!(cfg.tsv.ends(), &[x(6), x(11), x(16)]);
     let text = "a,,ccc";
     let rows = lay(text, false, &cfg);
-    let col = |offset| offset_to_position(text, &rows, &cfg, offset).column;
+    let col = |offset| offset_to_position(text, &rows, &cfg, offset).x.raw();
     assert_eq!(col(1), 1, "before the first comma");
     assert_eq!(
         col(2),
@@ -818,17 +832,17 @@ fn csv_commas_and_empty_fields_and_a_tab_in_a_field() {
     // a tab in CSV mode takes 1 column
     let tab = "e\tf";
     let rows = lay(tab, false, &cfg);
-    assert_eq!(offset_to_position(tab, &rows, &cfg, 2).column, 2);
+    assert_eq!(offset_to_position(tab, &rows, &cfg, 2).x.raw(), 2);
 }
 
 #[test]
 fn a_delimiter_past_the_last_stop_takes_two_columns() {
     let cfg = tsv_config(TsvMode::Csv, &["a,b"], 80);
-    assert_eq!(cfg.tsv.ends(), &[3, 6]);
+    assert_eq!(cfg.tsv.ends(), &[x(3), x(6)]);
     // "a,b,c,d": the third and fourth commas are past every stop
     let text = "a,b,c,d";
     let rows = lay(text, false, &cfg);
-    let col = |offset| offset_to_position(text, &rows, &cfg, offset).column;
+    let col = |offset| offset_to_position(text, &rows, &cfg, offset).x.raw();
     assert_eq!(col(2), 3);
     assert_eq!(col(4), 6);
     assert_eq!(
@@ -846,16 +860,16 @@ fn tsv_columns_round_trip_through_the_mouse() {
     let rows = lay(text, false, &cfg);
     // the click inside a tab snaps to the left edge of it, as with an ordinary tab
     for column in 0..12 {
-        let located = position_to_offset(text, &rows, &cfg, 0, column);
+        let located = position_to_offset(text, &rows, &cfg, 0, x(column));
         let back = offset_to_position(text, &rows, &cfg, located.offset);
-        assert!(back.column <= column, "column {column}");
+        assert!(back.x <= x(column), "column {column}");
     }
-    let located = position_to_offset(text, &rows, &cfg, 0, 5);
+    let located = position_to_offset(text, &rows, &cfg, 0, x(5));
     assert_eq!(
         located.offset, 2,
         "the tab starts at column 2 and ends at the stop 8"
     );
-    let located = position_to_offset(text, &rows, &cfg, 0, 8);
+    let located = position_to_offset(text, &rows, &cfg, 0, x(8));
     assert_eq!(located.offset, 3);
 }
 
@@ -877,7 +891,7 @@ fn a_delimiter_wider_than_the_wrap_column_does_not_hide_text_in_the_row_count() 
     let text = format!("{long}\tz\na\tb");
     let doc = matsu_core::buffer::Document::from_utf8(text.into_bytes()).unwrap();
     let cfg = tsv_config(TsvMode::Tsv, &[&long, "a\tb"], 80);
-    assert!(cfg.widest_character() >= 102);
+    assert!(cfg.widest_character() >= Some(x(102)));
     let layout = DocumentLayout::laid_out(&doc, cfg.clone()).unwrap();
     let rows = layout.rows_in_line(1).unwrap();
     assert_eq!(rows, 3, "a, the tab on a row of its own, b");
@@ -891,4 +905,136 @@ fn a_delimiter_wider_than_the_wrap_column_does_not_hide_text_in_the_row_count() 
     assert_eq!(shown, "a\tb");
     // the same as laying the line out directly
     assert_eq!(split("a\tb", false, &cfg).len(), 3);
+}
+
+// ---- X with more than one `X` for a column (ADR-0034, "3. the same as now with a fixed-pitch font") ----
+
+/// `cfg` counting `per_column` `X` for a column. The settings (wrap columns, tab width) are
+/// columns, so they stay; the TSV stops are worked out again in the scaled `X`.
+fn scaled(cfg: &LayoutConfig, per_column: u32, lines: &[&str]) -> LayoutConfig {
+    let width = Widths::grid_scaled(WidthRule::default(), per_column);
+    LayoutConfig {
+        width,
+        tsv: TsvStops::from_lines(cfg.tsv.mode(), &width, lines.iter().copied()),
+        ..cfg.clone()
+    }
+}
+
+#[test]
+fn x_and_columns_convert_in_the_widths_only() {
+    let one = Widths::default();
+    assert_eq!(
+        (one.per_column(), one.to_x(7), one.to_columns(x(7))),
+        (1, x(7), 7)
+    );
+    let w = Widths::grid_scaled(WidthRule::default(), 80);
+    assert_eq!(w.to_x(3), x(240));
+    // The whole columns of an `X`: the rest is dropped.
+    assert_eq!((w.to_columns(x(239)), w.to_columns(x(240))), (2, 3));
+    // A full-width character is two columns, the spacing included.
+    assert_eq!((w.width_of('a'), w.width_of('あ')), (x(80), x(160)));
+    assert_eq!((w.columns('a'), w.columns('あ')), (1, 2));
+    // 0 `X` for a column would never move; it counts as 1.
+    assert_eq!(Widths::grid_scaled(WidthRule::default(), 0).per_column(), 1);
+    // Very large counts do not overflow.
+    assert_eq!(w.to_x(u32::MAX), x(u32::MAX));
+}
+
+#[test]
+fn a_larger_x_for_a_column_gives_the_same_rows_and_positions() {
+    let mut rng = Lcg(11);
+    let cfgs = configs();
+    let (mut rows, mut big_rows) = (Vec::new(), Vec::new());
+    for round in 0..2000 {
+        let n = (rng.next() % 40) as usize;
+        let text: String = (0..n)
+            .map(|_| POOL[(rng.next() % POOL.len() as u64) as usize])
+            .collect();
+        let has_eol = rng.next().is_multiple_of(2);
+        let cfg = &cfgs[round % cfgs.len()];
+        layout_line(&text, has_eol, cfg, &mut rows);
+        for per_column in [64, 80] {
+            let big = scaled(cfg, per_column, &[]);
+            layout_line(&text, has_eol, &big, &mut big_rows);
+            let times = |n: X| x(n.raw() * per_column);
+            let tag = format!("{text:?} {cfg:?} x{per_column}");
+            assert_eq!(rows.len(), big_rows.len(), "{tag}");
+            for (a, b) in rows.iter().zip(&big_rows) {
+                assert_eq!(a.range, b.range, "{tag}");
+                assert_eq!(a.wrapped, b.wrapped, "{tag}");
+                assert_eq!(times(a.start_x), b.start_x, "{tag}");
+                assert_eq!(times(a.end_x), b.end_x, "{tag}");
+            }
+            for (o, _) in text.char_indices().chain([(text.len(), ' ')]) {
+                let (p, q) = (
+                    offset_to_position(&text, &rows, cfg, o),
+                    offset_to_position(&text, &big_rows, &big, o),
+                );
+                assert_eq!((p.row, times(p.x)), (q.row, q.x), "{tag} offset {o}");
+                // The start of the column, and the last `X` before the next one (inside the
+                // same character), find the same offset.
+                for extra in [0, per_column - 1] {
+                    let at = x(p.x.raw() * per_column + extra);
+                    let back = position_to_offset(&text, &big_rows, &big, p.row, at);
+                    let small = position_to_offset(&text, &rows, cfg, p.row, p.x);
+                    assert_eq!(back.offset, small.offset, "{tag} offset {o} +{extra}");
+                }
+            }
+            // The width past the end of the row is in `X`.
+            let last = rows.len() - 1;
+            let end = rows[last].end_x.raw();
+            let past = position_to_offset(&text, &rows, cfg, last, x(end + 3));
+            let big_at = x((end + 3) * per_column);
+            let big_past = position_to_offset(&text, &big_rows, &big, last, big_at);
+            assert_eq!(past.offset, big_past.offset, "{tag}");
+            assert_eq!(times(past.extra_x), big_past.extra_x, "{tag}");
+        }
+    }
+}
+
+#[test]
+fn tab_stops_are_multiples_of_the_tab_width_in_x() {
+    let cfg = LayoutConfig {
+        width: Widths::grid_scaled(WidthRule::default(), 80),
+        tab_width: 4,
+        ..LayoutConfig::default()
+    };
+    assert_eq!(cfg.tab_x(), x(320));
+    for (at, takes) in [(0, 320), (80, 240), (240, 80), (320, 320), (480, 160)] {
+        assert_eq!(cfg.advance('\t', x(at)), x(takes), "tab at {at}");
+    }
+    // The wrap width is `n` columns of `X`.
+    let wrapped = LayoutConfig {
+        wrap: Wrap::Columns(10),
+        ..cfg
+    };
+    assert_eq!(wrapped.max_x(), x(800));
+    assert_eq!(split("abcdefghijk", false, &wrapped), ["abcdefghij", "k"]);
+}
+
+#[test]
+fn the_tsv_modes_give_the_same_rows_with_a_larger_x_for_a_column() {
+    let lines = ["name\tage,city", "あい\t3,東京\tx", "a\tb,c,dddddd"];
+    for mode in [TsvMode::Tsv, TsvMode::Csv] {
+        let cfg = tsv_config(mode, &lines, 12);
+        for per_column in [64, 80] {
+            let big = scaled(&cfg, per_column, &lines);
+            let stops: Vec<u32> = cfg
+                .tsv
+                .ends()
+                .iter()
+                .map(|e| e.raw() * per_column)
+                .collect();
+            let big_stops: Vec<u32> = big.tsv.ends().iter().map(|e| e.raw()).collect();
+            assert_eq!(stops, big_stops, "{mode:?} x{per_column}");
+            for line in lines {
+                let (a, b) = (lay(line, true, &cfg), lay(line, true, &big));
+                assert_eq!(a.len(), b.len(), "{line:?} {mode:?} x{per_column}");
+                for (a, b) in a.iter().zip(&b) {
+                    assert_eq!(a.range, b.range, "{line:?} {mode:?} x{per_column}");
+                    assert_eq!(x(a.end_x.raw() * per_column), b.end_x, "{line:?} {mode:?}");
+                }
+            }
+        }
+    }
 }

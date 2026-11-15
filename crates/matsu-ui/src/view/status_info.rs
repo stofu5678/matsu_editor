@@ -133,11 +133,13 @@ impl EditorView {
                     .layout
                     .rows(doc, at.row - before, before)
                     .unwrap_or_default();
+                let widths = self.layout.config().width;
                 rows.iter()
-                    .map(|r| r.end_column.saturating_sub(r.start_column))
+                    .map(|r| widths.to_columns(r.end_x.saturating_sub(r.start_x)))
                     .sum()
             };
-            wide + self.caret_column(cx).saturating_sub(info.start_column)
+            let indent = self.layout.config().width.to_columns(info.start_x);
+            wide + self.caret_column(cx).saturating_sub(indent)
         } else {
             self.caret_column(cx)
         };
