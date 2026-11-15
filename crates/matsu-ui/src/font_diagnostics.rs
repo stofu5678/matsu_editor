@@ -138,6 +138,9 @@ pub(crate) struct Facts {
     /// The font the text is drawn with, and why (`view::text_font`): on macOS, what stands in for
     /// a family that is not installed.
     pub used_font: String,
+    /// The font the shell tab is drawn with, and why: the editor's font when it is monospaced, else
+    /// a monospaced one.
+    pub shell_font: String,
     pub font_size: f32,
     /// The document types that have a font of their own (`bUseTypeFont`): the type's index and
     /// the family asked of GPUI for it. A window draws with the font of its document's type, which
@@ -220,6 +223,10 @@ pub(crate) fn render(facts: &Facts) -> String {
     ));
     line(format!("family asked of GPUI: {:?}", facts.asked_family));
     line(format!("font the text is drawn with: {}", facts.used_font));
+    line(format!(
+        "font the shell tab is drawn with: {}",
+        facts.shell_font
+    ));
     line(format!(
         "font size: {} px, weight {}, italic {}",
         facts.font_size, facts.weight, facts.italic
@@ -395,6 +402,8 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
         },
         ..used.font()
     });
+    let used_font = used.describe();
+    let shell_font = crate::view::text_font::for_shell(used, font_size, cx).describe();
     let size = gpui::px(font_size);
     let advances = PROBE_CHARS
         .iter()
@@ -414,7 +423,8 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
         settings_family: settings.font_family.clone(),
         default_family,
         asked_family,
-        used_font: used.describe(),
+        used_font,
+        shell_font,
         font_size,
         type_fonts,
         weight: settings.gpui_font_weight(),
@@ -603,6 +613,7 @@ mod tests {
             default_family: "BIZ UDGothic".into(),
             asked_family: "BIZ UDGothic".into(),
             used_font: "\"Menlo\" with fallbacks [\"Hiragino Sans\"] (\"BIZ UDGothic\" is not installed: Menlo with Hiragino Sans)".into(),
+            shell_font: "\"Menlo\" (as asked)".into(),
             font_size: 16.0,
             type_fonts: Vec::new(),
             weight: 400.0,
