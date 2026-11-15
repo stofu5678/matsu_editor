@@ -240,3 +240,24 @@ Output[001]=0
 3. **文字コード**（案 4）: PowerShell と Unix のシェルは UTF-8、cmd は OEM コードページ（CP932）にする。書けない文字があれば実行しない
 4. **失敗のとき**（案 6）: エラー出力は文書に入れない。終了コードが 0 以外なら、文書を変えず、アウトプットに出す
 5. **セキュリティ**（案 8）: 文字列は標準入力だけで渡す。登録は利用者だけ。実行のたびの確認はなし。自動では動かさない
+
+## 決めたことの変更
+
+### 2026-11-16: PowerShell で、フィルター専用のコマンドで始まる行には `$input |` を足す（案 4）
+
+ユーザーが決めた。今は、選んだ文字列が `$input`（行の並び）として読める（`crates/matsu-oneliner/src/powershell.rs`）。ただし、行が `ForEach-Object { ... }` のように、入力だけを受けるコマンドで始まっていても、`$input |` を自分で書かないと、文字列がそのコマンドに流れない。
+
+決めたこと:
+
+- 行の最初の語が、入力を絞る・並べる・整えるだけのコマンド（フィルター専用）のとき、MATSU が、行の前に `$input | ` があるものとして実行する
+  - 対象（最初の語の大文字小文字は問わない。別名も含む）: `ForEach-Object`（`%`、`foreach`）、`Where-Object`（`?`、`where`）、`Sort-Object`（`sort`）、`Select-Object`（`select`）、`Group-Object`（`group`）、`Measure-Object`（`measure`）、`Get-Unique`（`gu`）、`Select-String`（`sls`）、`Tee-Object`（`tee`）、`Out-String`、`Format-List`（`fl`）、`Format-Table`（`ft`）、`ConvertTo-Json`、`ConvertTo-Csv`。これは実装の PR の出発点で、同じ性質のものを足してよい
+  - ほかの行は変えない。`Remove-Item` などは、文字列を受け取るとパスとして扱ってしまうため、足さない
+  - 行が `$input` を使っていれば、行の中に自分で書いてあるので、足さない（`$input | ...` と書く利用者の動きを変えない）
+- 行が `$input` を使っていなくて、終了コードが 0 以外で終わったとき、アウトプットのエラーの文に「選んだ文字列は `$input` で読めます。例: `$input | Sort-Object`」というヒントを足す
+- `cmd` と `sh` などの行は、変えない
+
+実装は別の PR で行う。ヘルプ（`docs/help/ja/matsu-only/oneliner.md`）も、その PR で直す。
+
+### 2026-11-16: AI の機能を、ワンライナーから分ける
+
+案 2 と案 7 の AI に関わる部分（右クリックのサブメニューの最後の「AI ログを表示」、設定のページの AI の欄）と、ADR-0030 の決めたこと 7（`AI[nnn]` と `AskBeforeSend[nnn]`）は、[ADR-0035](0035-ai-send-split.md) で置き換えた（ユーザーが 2026-11-16 に決めた）。実装が入るまでは、ここに書いたとおりに動く。
