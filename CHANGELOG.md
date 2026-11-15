@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.15.0](https://github.com/stofu5678/matsu_editor/compare/v0.14.0...v0.15.0) (2026-11-15)
+
+
+### Features
+
+* **help:** a Pagefind search page for the help on GitHub Pages ([#462](https://github.com/stofu5678/matsu_editor/issues/462)) ([c2c0f64](https://github.com/stofu5678/matsu_editor/commit/c2c0f645130a734287713ac95e5e5b6a4bbd3e66))
+* **help:** open the help on GitHub Pages when none is bundled ([#457](https://github.com/stofu5678/matsu_editor/issues/457)) ([00b5318](https://github.com/stofu5678/matsu_editor/commit/00b5318aec248ede9305ab20b8a72a3949fc60f1))
+
+
+### Bug Fixes
+
+* **platform:** leave vertical and raster fonts out of the Windows font dialog ([#463](https://github.com/stofu5678/matsu_editor/issues/463)) ([be3f87d](https://github.com/stofu5678/matsu_editor/commit/be3f87d95759295954094c7515a7dcf8bdaed94f))
+* **platform:** start the Windows font dialog at the setting's size at any display scale ([#468](https://github.com/stofu5678/matsu_editor/issues/468)) ([c02bb7b](https://github.com/stofu5678/matsu_editor/commit/c02bb7b8b862ef5e14f3eb379bd7cc2616041b86))
+* **terminal:** draw the shell tab with a monospaced font when the editor's is not ([#467](https://github.com/stofu5678/matsu_editor/issues/467)) ([7d71c12](https://github.com/stofu5678/matsu_editor/commit/7d71c12b230b1a014e73efbdc4815561dcfc8438))
+* **ui:** keep the function key bar on preview, shell and AI log tabs ([#465](https://github.com/stofu5678/matsu_editor/issues/465)) ([b7b02dd](https://github.com/stofu5678/matsu_editor/commit/b7b02ddd5b024426d58fd1965ee11b6807049f63))
+* **ui:** run items by their access keys in the outline pane's submenus ([#466](https://github.com/stofu5678/matsu_editor/issues/466)) ([d50acdf](https://github.com/stofu5678/matsu_editor/commit/d50acdf0ec0d137d1330e8755e5ad39c13fa5ee8))
+
 ## [0.14.0](https://github.com/stofu5678/matsu_editor/compare/v0.13.0...v0.14.0) (2026-11-15)
 
 
