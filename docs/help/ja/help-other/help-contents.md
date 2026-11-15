@@ -19,13 +19,13 @@
    | 実行ファイルの 1 つ上の `Resources/help` | macOS の `.app` |
    | 実行ファイルの 1 つ上の `share/matsu-editor/help` | Linux の `.deb` と `.rpm` |
 
-2. 見つからなければ、ウェブ上のヘルプの目次を開きます。
+2. 見つからなければ、GitHub Pages に公開しているヘルプの最初のページを開きます。
 
    ```
-   https://github.com/stofu5678/matsu_editor/blob/main/docs/help/ja/SUMMARY.md
+   https://stofu5678.github.io/matsu_editor/
    ```
 
-   GitHub にあるソースの目次で、ネットにつながっていないと開けません。リポジトリの main の内容なので、手元の版と合わないことがあります。
+   ネットにつながっていないと開けません。リポジトリの main の最新の内容なので、手元の版と合わないことがあります。
 
 - ウィンドウの中に、確認や設定の箱は出ません。ブラウザが開くだけです。
 - `F1` と `Ctrl+F1` は、これではなく、設定した外部のヘルプを開きます（[外部HTMLヘルプ](ext-html-help.md)、[外部ヘルプ１](ext-help1.md)）。
