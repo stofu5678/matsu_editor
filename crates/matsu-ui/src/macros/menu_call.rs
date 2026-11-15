@@ -24,6 +24,37 @@ fn plain_label(label: &str) -> String {
     parse_label(label).0
 }
 
+/// The text of an item of the menu: the label without its access key, cut if it is wider than
+/// the window (`menu_width`).
+fn shown(label: &str, window: &Window) -> String {
+    crate::menu_width::Fit::new(window).label(&plain_label(label))
+}
+
+/// The `max_w` of the menu of `nodes`: as wide as its longest label, and wide enough for its
+/// widest submenu to open on the right where that fits.
+fn max_width_of(nodes: &[MenuNode], window: &Window) -> Pixels {
+    let fit = crate::menu_width::Fit::new(window);
+    let width_of = |label: &str| fit.width_of(&shown(label, window));
+    let (mut own, mut submenu) = (Pixels::ZERO, Pixels::ZERO);
+    for node in nodes {
+        match node {
+            MenuNode::Item { label, .. } => own = own.max(width_of(label)),
+            MenuNode::Submenu {
+                label, children, ..
+            } => {
+                own = own.max(width_of(label));
+                for child in children {
+                    if let MenuNode::Item { label, .. } = child {
+                        submenu = submenu.max(width_of(label));
+                    }
+                }
+            }
+            MenuNode::Separator => {}
+        }
+    }
+    fit.max_width(own, submenu)
+}
+
 /// The rows of `nodes` as the letters see them: the key is the one after `&` in the label.
 fn key_list(nodes: &[MenuNode]) -> KeyList {
     let mut keys = KeyList::new();
@@ -55,6 +86,7 @@ fn fill_nodes(
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
+    let max_width = max_width_of(nodes, window);
     for node in nodes {
         menu = match node {
             MenuNode::Item {
@@ -68,7 +100,7 @@ fn fill_nodes(
                 let number = *number;
                 // `CheckMenuRadioItem(i, i, i)`: an item with the flag R is the checked one of its
                 // own one-item group.
-                let item = PopupMenuItem::new(plain_label(label))
+                let item = PopupMenuItem::new(shown(label, window))
                     .checked(*checked || *radio)
                     .disabled(*disabled);
                 // The menu of GPUI can confirm a disabled item with the keys; it gives no number.
@@ -88,7 +120,7 @@ fn fill_nodes(
                 children,
                 ..
             } if *disabled || item_count(children) == 0 => {
-                menu.item(PopupMenuItem::new(plain_label(label)).disabled(true))
+                menu.item(PopupMenuItem::new(shown(label, window)).disabled(true))
             }
             MenuNode::Submenu {
                 label, children, ..
@@ -100,14 +132,14 @@ fn fill_nodes(
                     let sub = sub.action_context(focus.clone());
                     fill_nodes(sub, &children, &answer, &focus, window, cx)
                 });
-                menu.submenu(plain_label(label), window, cx, move |sub, window, cx| {
+                menu.submenu(shown(label, window), window, cx, move |sub, window, cx| {
                     popup_keys::register(&cx.entity(), keys.clone(), fill_again.clone(), cx);
                     fill_again(sub, window, cx)
                 })
             }
         };
     }
-    menu
+    menu.max_w(max_width)
 }
 
 impl EditorView {
@@ -174,7 +206,7 @@ impl EditorView {
             );
             popup.read(cx).focus_handle(cx).focus(window, cx);
             self.custom_menu
-                .show(popup, at, window.viewport_size().height, dismiss);
+                .show(popup, at, window.viewport_size(), dismiss);
             cx.notify();
         }
         // With no item there is no sender left: the wait ends at once with 0.

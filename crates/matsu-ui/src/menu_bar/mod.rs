@@ -48,7 +48,7 @@ use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
     Focusable, InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, MouseMoveEvent,
-    OwnedMenu, OwnedMenuItem, ParentElement, Pixels, Render, Role, SharedString,
+    OwnedMenu, OwnedMenuItem, ParentElement, Pixels, Render, Role, SharedString, Size,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, anchored, deferred, div,
     prelude::FluentBuilder, px,
 };
@@ -284,6 +284,7 @@ pub(crate) fn fill(
     // `menu_icons::item_element` (a column for the pictures, then the label), and a submenu gets
     // an invisible icon as wide as that column so that the labels line up.
     let scale = window.scale_factor();
+    let (items, max_width) = fit_width(items, window);
     let with_icons = crate::menu_icons::enabled(cx)
         && items.iter().any(|item| match item {
             OwnedMenuItem::Action { action, .. } => {
@@ -346,7 +347,52 @@ pub(crate) fn fill(
             OwnedMenuItem::SystemMenu(_) => menu,
         };
     }
-    menu
+    menu.max_w(max_width)
+}
+
+/// `items` with the labels that are wider than the window cut (`menu_width`), and the `max_w` of
+/// the menu: as wide as its longest item, and wide enough for its widest submenu to open on the
+/// right where that fits.
+fn fit_width(items: Vec<OwnedMenuItem>, window: &Window) -> (Vec<OwnedMenuItem>, Pixels) {
+    let fit = crate::menu_width::Fit::new(window);
+    let mut own = Pixels::ZERO;
+    let mut submenu = Pixels::ZERO;
+    let items = items
+        .into_iter()
+        .map(|item| match item {
+            OwnedMenuItem::Action {
+                name,
+                action,
+                os_action,
+                checked,
+                disabled,
+            } => {
+                let name = fit.label(&name);
+                own = own.max(fit.width_of(&name));
+                OwnedMenuItem::Action {
+                    name,
+                    action,
+                    os_action,
+                    checked,
+                    disabled,
+                }
+            }
+            OwnedMenuItem::Submenu(mut menu) => {
+                let name = fit.label(&menu.name);
+                own = own.max(fit.width_of(&name));
+                menu.name = name.into();
+                // The labels of the submenu are cut when it is filled; its width is the same.
+                for item in &menu.items {
+                    if let OwnedMenuItem::Action { name, .. } = item {
+                        submenu = submenu.max(fit.width_of(&fit.label(name)));
+                    }
+                }
+                OwnedMenuItem::Submenu(menu)
+            }
+            item => item,
+        })
+        .collect();
+    (items, fit.max_width(own, submenu))
 }
 
 /// The picture of the icon of the function an item runs, if it runs one that has an icon.
@@ -362,8 +408,8 @@ pub(crate) struct BarMenu {
     name: SharedString,
     menu: OwnedMenu,
     popup_menu: Option<Entity<PopupMenu>>,
-    /// The height of the window that `popup_menu` was sized for.
-    popup_window_height: Pixels,
+    /// The size of the window that `popup_menu` was sized for (its height and its width).
+    popup_window_size: Size<Pixels>,
     /// Where the button was at the last paint, to size the popup below it.
     bounds: Bounds<Pixels>,
     /// The item selected in the open popup. The popup does not tell, so this follows the Up and
@@ -405,7 +451,7 @@ impl BarMenu {
             name,
             menu,
             popup_menu: None,
-            popup_window_height: Pixels::ZERO,
+            popup_window_size: Size::default(),
             bounds: Bounds::default(),
             key_pos: None,
             pos_stale: false,
@@ -456,7 +502,7 @@ impl BarMenu {
                 self.popup_menu = Some(popup_menu.clone());
                 self.key_pos = None;
                 self.pos_stale = false;
-                self.popup_window_height = window.viewport_size().height;
+                self.popup_window_size = window.viewport_size();
                 popup_menu
             }
         };
@@ -713,7 +759,7 @@ impl Render for BarMenu {
             self.popup_menu = None;
             self._subscription = None;
         }
-        if is_open && self.popup_window_height != window.viewport_size().height {
+        if is_open && self.popup_window_size != window.viewport_size() {
             // The window was resized while the menu is open: size the popup again.
             self.popup_menu = None;
             self._subscription = None;
@@ -895,6 +941,122 @@ mod tests {
             .debug_bounds(POPUP_SELECTOR)
             .expect("the open menu is painted");
         assert!(popup.bottom() <= px(500.), "{popup:?}");
+    }
+
+    const LONG_PATH: &str = r"1 \\wsl.localhost\Ubuntu\home\naomasa\project\tmp\a-very-long-folder-name\another-long-folder-name\EDGE_SUBMISSION.md  [UTF-8]";
+
+    fn open_menu_of(
+        items: Vec<MenuItem>,
+        cx: &mut TestAppContext,
+    ) -> (Entity<MenuBar>, &mut gpui::VisualTestContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            GlobalState::global_mut(cx).set_app_menus(vec![Menu::new("m").items(items).owned()]);
+        });
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let first_focus = cx.focus_handle();
+            first_focus.focus(window, cx);
+            Root {
+                menu_bar: MenuBar::new(cx),
+                first_focus,
+            }
+        });
+        let menu_bar = root.read_with(cx, |root, _| root.menu_bar.clone());
+        menu_bar.update_in(cx, |bar, window, cx| {
+            bar.set_selected_index(Some(0), window, cx);
+        });
+        cx.run_until_parked();
+        (menu_bar, cx)
+    }
+
+    fn names_of(items: &[OwnedMenuItem]) -> Vec<String> {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                OwnedMenuItem::Action { name, .. } => Some(name.clone()),
+                OwnedMenuItem::Submenu(menu) => Some(menu.name.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[gpui::test]
+    fn a_menu_is_as_wide_as_its_longest_item(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(
+            vec![
+                MenuItem::action("short", Nothing),
+                MenuItem::action(LONG_PATH, Nothing),
+            ],
+            cx,
+        );
+        let window_width = cx.update(|window, _| window.viewport_size().width);
+        let popup = cx
+            .debug_bounds(POPUP_SELECTOR)
+            .expect("the menu is painted");
+        let text = cx.update(|window, _| {
+            let style = window.text_style();
+            let run = style.to_run(LONG_PATH.len());
+            window
+                .text_system()
+                .layout_line(LONG_PATH, window.rem_size() * 0.875, &[run], None)
+                .width
+        });
+        // gpui-component alone stops at 500 px and the text runs out of the box.
+        assert!(text > px(500.), "the path is long: {text:?}");
+        assert!(popup.size.width >= text, "{popup:?} for a text of {text:?}");
+        assert!(
+            popup.size.width <= window_width,
+            "{popup:?} in {window_width:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn an_item_wider_than_the_window_is_cut_in_the_middle(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action(LONG_PATH, Nothing)], cx);
+        // A narrow window: the path cannot fit.
+        cx.simulate_resize(gpui::size(px(500.), px(400.)));
+        cx.run_until_parked();
+        let popup = cx
+            .debug_bounds(POPUP_SELECTOR)
+            .expect("the menu is painted");
+        assert!(popup.size.width <= px(500.), "{popup:?}");
+        let (names, _) = cx.update(|window, _| {
+            fit_width(vec![MenuItem::action(LONG_PATH, Nothing).owned()], window)
+        });
+        let shown = &names_of(&names)[0];
+        assert!(shown.contains('…'), "{shown}");
+        assert!(shown.starts_with(r"1 \\wsl."), "{shown}");
+        assert!(shown.ends_with(r"\EDGE_SUBMISSION.md  [UTF-8]"), "{shown}");
+    }
+
+    #[gpui::test]
+    fn a_short_menu_keeps_its_width_and_its_submenu_opens_on_the_right(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        let sub = MenuItem::submenu(Menu::new("sub").items([MenuItem::action("an item", Nothing)]));
+        let (items, max) = cx.update(|window, _| {
+            fit_width(
+                vec![sub.owned(), MenuItem::action("another", Nothing).owned()],
+                window,
+            )
+        });
+        // gpui-component's own limit stays: a submenu opens on the right whenever the menu's
+        // left edge plus 500 px is inside the window, as before.
+        assert_eq!(max, px(500.));
+        assert_eq!(names_of(&items), ["sub", "another"]);
+        let popup = cx
+            .debug_bounds(POPUP_SELECTOR)
+            .expect("the menu is painted");
+        assert!(popup.size.width < px(200.), "{popup:?}");
+    }
+
+    #[gpui::test]
+    fn a_long_item_in_a_submenu_gives_the_menu_room_for_it(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        let sub = MenuItem::submenu(Menu::new("sub").items([MenuItem::action(LONG_PATH, Nothing)]));
+        let (_, max) = cx.update(|window, _| fit_width(vec![sub.owned()], window));
+        // The submenu is wider than 500 px: its parent counts it, so that the side is chosen for
+        // the width of the submenu.
+        assert!(max > px(500.), "{max:?}");
     }
 
     #[gpui::test]

@@ -67,6 +67,7 @@ pub mod menu;
 pub mod menu_bar;
 pub(crate) mod menu_icons;
 mod menu_state;
+pub(crate) mod menu_width;
 mod minimap;
 pub(crate) mod native_menu_icons;
 mod oneliner;
