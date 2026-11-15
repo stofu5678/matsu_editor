@@ -1232,6 +1232,35 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_menu_opened_near_the_right_edge_gives_its_submenu_the_room_beside_where_it_is_drawn(
+        cx: &mut TestAppContext,
+    ) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        cx.simulate_resize(gpui::size(px(584.), px(400.)));
+        cx.run_until_parked();
+        let sub = MenuItem::submenu(Menu::new("recent").items([MenuItem::action(
+            r"1 C:\work\files\a-very-long-folder-name-inside\second-long-file-name.md  [UTF-8]",
+            Nothing,
+        )]));
+        let (opening, drawn) = cx.update(|window, _| {
+            // A right-click 20 px from the right edge: the popup is moved in by `anchored`.
+            let asked = window.viewport_size().width - px(20.);
+            let (_, opening) = fit_width(vec![sub.owned()], window, Place::at(window, asked), None);
+            (opening, asked)
+        });
+        // The menu is drawn at least 8 px inside the window, and the submenu on its left ends 16 px
+        // before it: the room is smaller than the room beside where the click was.
+        assert!(
+            opening.child.left + opening.child.room <= drawn - px(16.),
+            "{opening:?}"
+        );
+        assert!(
+            opening.child.left + opening.child.room < drawn - px(16.) - px(1.),
+            "{opening:?}"
+        );
+    }
+
+    #[gpui::test]
     fn a_path_that_fits_the_room_is_not_shortened(cx: &mut TestAppContext) {
         let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
         let path = r"3 C:\work\files\p473.txt  [UTF-8]";

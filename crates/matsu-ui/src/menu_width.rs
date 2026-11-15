@@ -36,9 +36,12 @@ const GAP: f32 = 4.0;
 const ARROW: f32 = 8.0 + 12.0;
 /// The least width of a list (`min_w(rems(8.))`), in rems.
 const MIN_REMS: f32 = 8.0;
-/// A submenu that opens on the left ends this far right of its parent's left edge
+/// A submenu that opens on the left ends this far left of its parent's left edge
 /// (gpui-component: `left: -px(16.)` with the right corner as the anchor).
-const LEFT_OVERLAP: f32 = 16.0;
+const LEFT_GAP: f32 = 16.0;
+/// The margin of the `anchored()` that moves a popup into the window where it opens (the menu
+/// bar, the right-click menus and the macro menus: `snap_to_window_with_margin(px(8.))`).
+const SNAP_MARGIN: f32 = 8.0;
 /// A path keeps its start only while this much of it fits besides the file name.
 const MIN_HEAD: f32 = 16.0;
 /// Added to the `max_w` of a menu whose submenu opens on the left, to stay clear of the edge.
@@ -101,19 +104,24 @@ impl Layout {
 }
 
 /// Where a menu is and how much room it has: its left edge in the window and the widest it may be.
+/// A popup that would pass the window's edge is moved in by an `anchored()` that keeps `margin`
+/// to the edge, so the left edge here is where it was asked to open, and [`opening`] moves it
+/// the same way.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Place {
     pub left: Pixels,
     pub room: Pixels,
+    pub margin: Pixels,
 }
 
 impl Place {
-    /// A menu that opens with its left edge at `left` (a popup snaps to the window, so it may be
-    /// as wide as the window less the margins).
+    /// A menu that opens with its left edge at `left` (the menus of the bar, the right-click
+    /// menus and the macro menus: moved into the window with a margin of `SNAP_MARGIN`).
     pub(crate) fn at(window: &Window, left: Pixels) -> Self {
         Self {
             left,
-            room: window.viewport_size().width - px(MARGIN * 2.0),
+            room: window.viewport_size().width - px(SNAP_MARGIN * 2.0),
+            margin: px(SNAP_MARGIN),
         }
     }
 }
@@ -128,11 +136,20 @@ pub(crate) struct Opening {
 /// How a menu at `place`, whose widest item needs `own` and whose widest submenu would like
 /// `child` (zero without one), opens its submenus in a window `window_width` wide.
 ///
-/// The submenu starts `OVERLAP` before the right edge of its parent and, on the left side, ends
-/// `LEFT_OVERLAP` after the parent's left edge. It goes right when it fits there or the room on
-/// the right is not smaller than on the left.
+/// The parent is first moved into the window as its `anchored()` does. The submenu starts
+/// `OVERLAP` before the right edge of its parent and, on the left side, ends `LEFT_GAP` before
+/// the parent's left edge. It goes right when it fits there or the room on the right is not
+/// smaller than on the left.
 fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Opening {
     let default = px(DEFAULT_MAX_WIDTH);
+    // Where the menu is drawn: moved left when it would pass the right edge, then kept off the
+    // left edge (`snap_to_window_with_margin`).
+    let width = own.min(place.room);
+    let left = place
+        .left
+        .min(window_width - place.margin - width)
+        .max(place.margin);
+    let place = Place { left, ..place };
     if child <= Pixels::ZERO {
         return Opening {
             max_width: default.max(own),
@@ -140,9 +157,9 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
         };
     }
     let margin = px(MARGIN);
-    let right_left = place.left + own.min(place.room) - px(OVERLAP);
+    let right_left = place.left + width - px(OVERLAP);
     let right_room = window_width - margin - right_left;
-    let left_room = place.left + px(LEFT_OVERLAP) - margin;
+    let left_room = place.left - px(LEFT_GAP) - margin;
     if child <= right_room || right_room >= left_room {
         // gpui-component goes right while `max_w` and the left edge stay inside the window.
         let max_width = own.max(default.min(window_width - place.left));
@@ -151,6 +168,7 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
             child: Place {
                 left: right_left,
                 room: right_room,
+                margin,
             },
         };
     }
@@ -158,8 +176,9 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
     Opening {
         max_width: own.max(window_width - place.left + px(LEFT_SAFETY)),
         child: Place {
-            left: (place.left + px(LEFT_OVERLAP) - width).max(margin),
+            left: (place.left - px(LEFT_GAP) - width).max(margin),
             room: left_room,
+            margin,
         },
     }
 }
@@ -333,6 +352,7 @@ mod tests {
         Place {
             left: px(left),
             room: px(584.0),
+            margin: px(8.0),
         }
     }
 
@@ -346,23 +366,34 @@ mod tests {
 
     #[test]
     fn a_submenu_that_does_not_fit_opens_on_the_right_with_the_room_there() {
-        // A menu at the left edge, 200 wide: the submenu starts at 192 and has the rest of the
-        // window less the margin; the left side has no room.
+        // A menu at the left edge (moved in to 8), 200 wide: the submenu starts at 200 and has
+        // the rest of the window less the margin; the left side has no room.
         let open = opening(px(600.0), place(0.0), px(200.0), px(584.0));
-        assert_eq!(open.child.left, px(192.0));
-        assert_eq!(open.child.room, px(404.0));
+        assert_eq!(open.child.left, px(200.0));
+        assert_eq!(open.child.room, px(396.0));
         // gpui-component takes the right: its left edge and `max_w` stay inside the window.
         assert!(open.max_width <= px(600.0));
     }
 
     #[test]
     fn a_menu_near_the_right_edge_opens_its_submenu_on_the_left_with_the_room_there() {
+        // The menu is moved in from 400 to 392 (600 - 8 - 200).
         let open = opening(px(600.0), place(400.0), px(200.0), px(584.0));
-        // The room on the left: from the margin to 16 px after the parent's left edge.
-        assert_eq!(open.child.room, px(412.0));
+        // The room on the left: from the margin to 16 px before the parent's left edge.
+        assert_eq!(open.child.room, px(372.0));
         assert_eq!(open.child.left, px(4.0));
+        assert_eq!(open.child.left + open.child.room, px(392.0 - 16.0));
         // gpui-component takes the left: `max_w` and the left edge pass the window's edge.
-        assert!(open.max_width + px(400.0) > px(600.0));
+        assert!(open.max_width + px(392.0) > px(600.0));
+    }
+
+    #[test]
+    fn a_menu_opened_past_the_right_edge_is_measured_where_it_is_moved_to() {
+        // Asked to open at 580, drawn at 392: the room on its left is that of 392, not of 580.
+        let moved = opening(px(600.0), place(580.0), px(200.0), px(584.0));
+        let there = opening(px(600.0), place(392.0), px(200.0), px(584.0));
+        assert_eq!(moved, there);
+        assert_eq!(moved.child.room, px(372.0));
     }
 
     #[test]
