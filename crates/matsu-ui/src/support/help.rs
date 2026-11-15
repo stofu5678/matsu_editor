@@ -17,8 +17,8 @@
 //! * Sakura has its own help file (`sakura.chm`). MATSU Editor's help is a built book (ADR-0031):
 //!   `F_HELP_CONTENTS` opens the copy that comes with the program ([`local_dir`]) and, when there
 //!   is none, the same pages on GitHub Pages ([`ONLINE_BASE`]). `F_HELP_SEARCH` opens the one-page
-//!   version of the book, local or on GitHub Pages, to search with the browser (see
-//!   [`plan_search`]).
+//!   version of the local copy, to search with the browser, and without a copy the search page of
+//!   GitHub Pages (Pagefind) at the word (see [`plan_search`]).
 //! * [`PAGES`] is the one table from a function to its page; the help buttons of the dialogs
 //!   (`MyWinHelp( ..., FuncID_To_HelpContextID( F_... ) )` in Sakura) read it.
 
@@ -166,8 +166,12 @@ pub(crate) fn plan_contents(local: Option<&Path>) -> Opening {
 
 /// The one-page version of the book for the search: the same book as mdBook's `print.html`, written
 /// next to it by the help build without the automatic `window.print()` that `print.html` runs on
-/// load. A bundle without it (an older one) gets the same page on GitHub Pages.
+/// load. A bundle without it (an older one) is searched on GitHub Pages like a program without help.
 const LOCAL_ONE_PAGE: &str = "search.html";
+
+/// The search page of the book on GitHub Pages (`docs/help/ja/find.html`): Pagefind's search box,
+/// which takes the word from `?q=`.
+const ONLINE_SEARCH_PAGE: &str = "find.html";
 
 /// The status bar says this when the one-page version is opened for the search.
 pub(crate) fn search_in_page_message() -> String {
@@ -180,33 +184,42 @@ pub(crate) fn search_in_page_message() -> String {
     format!("ヘルプ全体を 1 ページで開きました。ブラウザーの検索（{key}）で探してください")
 }
 
-/// Whether `opening` is the one-page version opened for the search ([`plan_search`]), the local
-/// file or the page on GitHub Pages.
+/// Whether `opening` is the one-page version opened for the search ([`plan_search`]): the local
+/// file, where the reader searches with the browser's find.
 pub(crate) fn is_one_page(opening: &Opening) -> bool {
     match opening {
         Opening::File(file) => file.file_name().is_some_and(|n| n == LOCAL_ONE_PAGE),
-        Opening::Url(url) => url.strip_prefix(ONLINE_BASE) == Some(LOCAL_ONE_PAGE),
-        Opening::Keyword { .. } => false,
+        Opening::Url(_) | Opening::Keyword { .. } => false,
     }
 }
 
-/// What `Command_HELP_SEARCH` opens (ADR-0031 案 5): the one-page version of the book, where the
-/// reader searches with the browser's find (the status bar says so).
+/// What `Command_HELP_SEARCH` opens (ADR-0031 案 5). `keyword` is what Sakura searches for
+/// (`GetCurrentTextForSearch`: the selection or the word at the caret), possibly empty.
 ///
-/// * With the local help: its `search.html`. The search of the book (Pagefind) is not used: it
-///   reads its index with `fetch`, which browsers are not known to allow for `file://` (not
-///   tried here), and the app has no server for it (ADR-0031 決めたこと 8).
-/// * Without it (or without `search.html`): the same page on GitHub Pages. The published book has
-///   no search box either (mdBook's own search is off, ADR-0031; the Pagefind index is built but no
-///   page uses it), so there is no URL that takes a query, and the word is not sent anywhere.
-pub(crate) fn plan_search(local: Option<&Path>) -> Opening {
+/// * With the local help: its `search.html`, the one-page version of the book, where the reader
+///   searches with the browser's find (the status bar says so). The search of the book (Pagefind)
+///   is not used: it reads its index with `fetch`, which browsers are not known to allow for
+///   `file://` (not tried here), and the app has no server for it (ADR-0031 決めたこと 8). The word
+///   is not used.
+/// * Without it (or without `search.html`): the search page of the book on GitHub Pages, with the
+///   word in the query so that it searches at once. The word goes to GitHub Pages only as a part
+///   of that URL, which the browser opens.
+pub(crate) fn plan_search(local: Option<&Path>, keyword: &str) -> Opening {
     if let Some(page) = local
         .map(|dir| dir.join(LOCAL_ONE_PAGE))
         .filter(|page| page.is_file())
     {
         return Opening::File(page);
     }
-    Opening::Url(format!("{ONLINE_BASE}{LOCAL_ONE_PAGE}"))
+    let keyword = keyword.trim();
+    if keyword.is_empty() {
+        Opening::Url(format!("{ONLINE_BASE}{ONLINE_SEARCH_PAGE}"))
+    } else {
+        Opening::Url(format!(
+            "{ONLINE_BASE}{ONLINE_SEARCH_PAGE}?q={}",
+            percent_encode(keyword)
+        ))
+    }
 }
 
 /// Escapes every byte of `text` that is not an unreserved character of RFC 3986.
@@ -637,13 +650,15 @@ mod tests {
     fn the_search_opens_the_one_page_book_when_the_program_has_the_help() {
         let root = root_with_help("help");
         let dir = root.path().join("help");
-        // no `search.html`: the same page on GitHub Pages
-        assert_eq!(plan_search(Some(&dir)), plan_search(None));
+        // no `search.html`: the search page on GitHub Pages
+        assert_eq!(plan_search(Some(&dir), "w"), plan_search(None, "w"));
         // `print.html` alone is not used: it prints on load
         std::fs::write(dir.join("print.html"), b"").unwrap();
-        assert_eq!(plan_search(Some(&dir)), plan_search(None));
+        assert_eq!(plan_search(Some(&dir), "w"), plan_search(None, "w"));
         std::fs::write(dir.join("search.html"), b"").unwrap();
-        let opening = plan_search(Some(&dir));
+        // the word does not matter for the local copy
+        let opening = plan_search(Some(&dir), "word");
+        assert_eq!(opening, plan_search(Some(&dir), ""));
         assert_eq!(opening, Opening::File(dir.join("search.html")));
         assert!(is_one_page(&opening));
         assert!(!is_one_page(&plan_contents(Some(&dir))));
@@ -658,15 +673,25 @@ mod tests {
     }
 
     #[test]
-    fn the_search_without_the_help_is_the_one_page_book_on_github_pages() {
-        // checked live: 200
-        let opening = plan_search(None);
+    fn the_search_without_the_help_is_the_search_page_on_github_pages_at_the_word() {
+        let base = "https://stofu5678.github.io/matsu_editor/find.html";
+        // without a word: the empty search page
+        assert_eq!(plan_search(None, ""), Opening::Url(base.to_owned()));
+        assert_eq!(plan_search(None, "  \t"), Opening::Url(base.to_owned()));
+        // the word is escaped as a query value: ASCII, Japanese (UTF-8 bytes), and the characters
+        // that would end or split the query
         assert_eq!(
-            opening,
-            Opening::Url("https://stofu5678.github.io/matsu_editor/search.html".to_owned())
+            plan_search(None, "grep"),
+            Opening::Url(format!("{base}?q=grep"))
         );
-        // the status bar tells how to search it, as with the local copy
-        assert!(is_one_page(&opening));
+        assert_eq!(
+            plan_search(None, "検索 & a=b#c?d+e%"),
+            Opening::Url(format!(
+                "{base}?q=%E6%A4%9C%E7%B4%A2%20%26%20a%3Db%23c%3Fd%2Be%25"
+            ))
+        );
+        // the status bar does not tell to use Ctrl+F: the page has its own search box
+        assert!(!is_one_page(&plan_search(None, "grep")));
     }
 
     #[test]

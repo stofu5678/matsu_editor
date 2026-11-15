@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>ヘルプを検索 - MATSU Editor ヘルプ</title>
+<!-- The search page of the help on GitHub Pages (ADR-0031): Pagefind's own UI, which takes the word from
+     `?q=word` and searches at once. mdBook copies this file as it is. It is not a page of the book: not in
+     SUMMARY.md, and Pagefind does not index it. Pagefind reads its index with fetch, which does not work over
+     file://, so there the page only leads to the one-page version (search.html). -->
+<style>
+  :root { --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --link: #0b62c4; --border: #d1d9e0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161b22; --fg: #e6edf3; --muted: #9198a1; --link: #6cb6ff; --border: #3d444d; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font-family: "Open Sans", "Hiragino Sans", "Yu Gothic UI", "Noto Sans CJK JP", sans-serif; line-height: 1.6; }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;
+    border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  h1 { font-size: 1.4em; margin: 0.4em 0; }
+  a { color: var(--link); }
+  .note { color: var(--muted); }
+  #unavailable { display: none; }
+  /* Pagefind UI colors, following the page's light and dark */
+  #search { --pagefind-ui-scale: 1; --pagefind-ui-primary: var(--link); --pagefind-ui-text: var(--fg);
+    --pagefind-ui-background: var(--bg); --pagefind-ui-border: var(--border); --pagefind-ui-tag: var(--border);
+    --pagefind-ui-font: inherit; }
+</style>
+</head>
+<body data-pagefind-ignore>
+<div class="wrap">
+  <header>
+    <h1>ヘルプを検索</h1>
+    <a href="index.html">ヘルプの最初のページへ</a>
+  </header>
+  <div id="search"></div>
+  <p id="unavailable">
+    この検索は、ウェブ（https）で開いたときだけ使えます（ブラウザが、ファイルとして開いたページに索引を読ませないため）。
+    <a href="search.html">ヘルプ全体を 1 ページにまとめた版</a>を開いて、ブラウザの検索（Ctrl+F）で探してください。
+  </p>
+  <noscript><p class="note">検索には JavaScript が要ります。</p></noscript>
+</div>
+<script>
+  (function () {
+    var web = location.protocol === "http:" || location.protocol === "https:";
+    if (!web) {
+      document.getElementById("unavailable").style.display = "block";
+      return;
+    }
+    // The folder of this page is the root of the book (Pages serves it under /matsu_editor/).
+    var base = location.pathname.replace(/[^\/]*$/, "");
+    var css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "pagefind/pagefind-ui.css";
+    document.head.appendChild(css);
+    var script = document.createElement("script");
+    script.src = "pagefind/pagefind-ui.js";
+    script.onload = function () {
+      var ui = new PagefindUI({
+        element: "#search",
+        baseUrl: base,
+        showImages: false,
+        autofocus: true,
+        translations: {
+          placeholder: "ヘルプを検索",
+          clear_search: "消す",
+          load_more: "もっと見る",
+          search_label: "ヘルプを検索",
+          filters_label: "絞り込み",
+          zero_results: "[SEARCH_TERM] は見つかりませんでした",
+          many_results: "[COUNT] 件が見つかりました（[SEARCH_TERM]）",
+          one_result: "[COUNT] 件が見つかりました（[SEARCH_TERM]）",
+          alt_search: "[SEARCH_TERM] は見つかりませんでした。[DIFFERENT_TERM] の結果を表示しています",
+          search_suggestion: "[SEARCH_TERM] は見つかりませんでした。[DIFFERENT_TERM] などを試してください",
+          searching: "[SEARCH_TERM] を検索しています..."
+        }
+      });
+      var q = new URLSearchParams(location.search).get("q");
+      if (q) {
+        ui.triggerSearch(q);
+      }
+    };
+    script.onerror = function () {
+      document.getElementById("unavailable").style.display = "block";
+    };
+    document.head.appendChild(script);
+  })();
+</script>
+</body>
+</html>
