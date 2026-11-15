@@ -17,6 +17,7 @@ use matsu_plugin::functions::menu::{MenuNode, item_count};
 use crate::common_settings::model::parse_label;
 use crate::menu_bar::popup_keys::{self, KeyList, Rebuild};
 use crate::menu_bar::popup_max_height;
+use crate::menu_width::{Fit, Opening, Place};
 use crate::view::EditorView;
 
 /// The menu text as it is drawn: `&A` is `A` (GPUI's menus have no access keys) and `&&` is `&`.
@@ -26,15 +27,16 @@ fn plain_label(label: &str) -> String {
 
 /// The text of an item of the menu: the label without its access key, cut if it is wider than
 /// the window (`menu_width`).
-fn shown(label: &str, window: &Window) -> String {
-    crate::menu_width::Fit::new(window).owned(plain_label(label))
+fn shown(label: &str, window: &Window, place: Place) -> String {
+    Fit::new(window, place).owned(plain_label(label))
 }
 
-/// The `max_w` of the menu of `nodes`: as wide as its longest label, and wide enough for its
-/// widest submenu to open on the right where that fits.
-fn max_width_of(nodes: &[MenuNode], window: &Window) -> Pixels {
-    let fit = crate::menu_width::Fit::new(window);
-    let width_of = |label: &str| fit.width_of(&shown(label, window));
+/// How the menu of `nodes` at `place` opens: its `max_w` (as wide as its longest label) and the
+/// place of its submenus.
+fn opening_of(nodes: &[MenuNode], window: &Window, place: Place) -> Opening {
+    let fit = Fit::new(window, place);
+    let width_of = |label: &str| fit.width_of(&shown(label, window, place));
+    let natural = |label: &str| fit.natural(&plain_label(label));
     let (mut own, mut submenu) = (Pixels::ZERO, Pixels::ZERO);
     for node in nodes {
         match node {
@@ -46,14 +48,14 @@ fn max_width_of(nodes: &[MenuNode], window: &Window) -> Pixels {
                 // The items and the headings of the submenus in it.
                 for child in children {
                     if let MenuNode::Item { label, .. } | MenuNode::Submenu { label, .. } = child {
-                        submenu = submenu.max(width_of(label));
+                        submenu = submenu.max(natural(label));
                     }
                 }
             }
             MenuNode::Separator => {}
         }
     }
-    fit.max_width(own, submenu)
+    fit.opening(own, submenu)
 }
 
 /// The rows of `nodes` as the letters see them: the key is the one after `&` in the label.
@@ -84,10 +86,11 @@ fn fill_nodes(
     nodes: &[MenuNode],
     answer: &async_channel::Sender<i64>,
     focus: &FocusHandle,
+    place: Place,
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
-    let max_width = max_width_of(nodes, window);
+    let opening = opening_of(nodes, window, place);
     for node in nodes {
         menu = match node {
             MenuNode::Item {
@@ -101,7 +104,7 @@ fn fill_nodes(
                 let number = *number;
                 // `CheckMenuRadioItem(i, i, i)`: an item with the flag R is the checked one of its
                 // own one-item group.
-                let item = PopupMenuItem::new(shown(label, window))
+                let item = PopupMenuItem::new(shown(label, window, place))
                     .checked(*checked || *radio)
                     .disabled(*disabled);
                 // The menu of GPUI can confirm a disabled item with the keys; it gives no number.
@@ -121,26 +124,32 @@ fn fill_nodes(
                 children,
                 ..
             } if *disabled || item_count(children) == 0 => {
-                menu.item(PopupMenuItem::new(shown(label, window)).disabled(true))
+                menu.item(PopupMenuItem::new(shown(label, window, place)).disabled(true))
             }
             MenuNode::Submenu {
                 label, children, ..
             } => {
                 // The submenu takes the letters too, as the one of `menu_bar::fill` does.
                 let keys = key_list(children);
+                let child = opening.child;
                 let (children, answer, focus) = (children.clone(), answer.clone(), focus.clone());
                 let fill_again: Rebuild = Rc::new(move |sub, window, cx| {
                     let sub = sub.action_context(focus.clone());
-                    fill_nodes(sub, &children, &answer, &focus, window, cx)
+                    fill_nodes(sub, &children, &answer, &focus, child, window, cx)
                 });
-                menu.submenu(shown(label, window), window, cx, move |sub, window, cx| {
-                    popup_keys::register(&cx.entity(), keys.clone(), fill_again.clone(), cx);
-                    fill_again(sub, window, cx)
-                })
+                menu.submenu(
+                    shown(label, window, place),
+                    window,
+                    cx,
+                    move |sub, window, cx| {
+                        popup_keys::register(&cx.entity(), keys.clone(), fill_again.clone(), cx);
+                        fill_again(sub, window, cx)
+                    },
+                )
             }
         };
     }
-    menu.max_w(max_width)
+    menu.max_w(opening.max_width)
 }
 
 impl EditorView {
@@ -182,11 +191,12 @@ impl EditorView {
             let at = self.macro_menu_position(at_caret, window, cx);
             let focus = self.focus_handle.clone();
             let max_height = popup_max_height(window.viewport_size().height, at.y);
+            let place = Place::at(window, at.x);
             let keys = key_list(nodes);
             let (nodes, answer) = (nodes.to_vec(), sender.clone());
             let fill_again: Rebuild = Rc::new(move |menu, window, cx| {
                 let menu = menu.action_context(focus.clone());
-                fill_nodes(menu, &nodes, &answer, &focus, window, cx)
+                fill_nodes(menu, &nodes, &answer, &focus, place, window, cx)
                     .scrollable(true)
                     .max_h(max_height)
             });

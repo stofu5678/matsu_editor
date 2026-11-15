@@ -228,10 +228,11 @@ impl EditorView {
         self.mark_menu_items(&mut items, window, cx);
         let handle = self.focus_handle.clone();
         let max_height = popup_max_height(window.viewport_size().height, at.y);
+        let place = crate::menu_width::Place::at(window, at.x);
         let keys = KeyList::of_owned(items.clone());
         let fill_again: Rebuild = Rc::new(move |menu, window, cx| {
             let menu = menu.action_context(handle.clone());
-            fill(menu, items.clone(), Some(&handle), window, cx)
+            fill(menu, items.clone(), Some(&handle), place, window, cx)
                 .scrollable(true)
                 .max_h(max_height)
         });

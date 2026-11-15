@@ -8,10 +8,12 @@
 //! as Sakura's short form keeps both ends, `GetShortViewPath` in `sakura_core/util/file.cpp`),
 //! any other label at the end. The command of the item still has the whole text.
 //!
-//! gpui-component also uses `max_w` of a menu to choose the side its submenu opens on
-//! (`update_submenu_menu_anchor`: left when `max_w` and the menu's left edge pass the window's
-//! right edge), so [`max_width`] adds the width of the widest submenu to it: the submenu opens
-//! on the right when it fits there, as Win32's do.
+//! gpui-component chooses the side a submenu opens on from `max_w` of its parent
+//! (`update_submenu_menu_anchor`: left when `max_w` and the parent's left edge pass the window's
+//! right edge). [`opening`] chooses the side itself (right when the submenu fits there or the
+//! room on the right is the larger, as Win32's do), sets the parent's `max_w` so that
+//! gpui-component takes that side, and tells the submenu how much room it has from where it opens
+//! to the window's edge: its labels are cut to that room, not to the width of the window.
 
 use std::borrow::Cow;
 
@@ -22,9 +24,16 @@ const DEFAULT_MAX_WIDTH: f32 = 500.0;
 /// What a label needs besides its text: the padding, the column of the check mark or the icon,
 /// the key of the item and the arrow of a submenu. Too much does no harm (`max_w` only limits);
 /// too little would wrap a label.
-const SLACK: f32 = 120.0;
-/// The room kept to the window's edges.
+const SLACK: f32 = 90.0;
+/// The room kept to the window's edges (the popups snap to the window with this margin).
 const MARGIN: f32 = 8.0;
+/// A submenu that opens on the left ends this far right of its parent's left edge
+/// (gpui-component: `left: -px(16.)` with the right corner as the anchor).
+const LEFT_OVERLAP: f32 = 16.0;
+/// A path keeps its start only while this much of it fits besides the file name.
+const MIN_HEAD: f32 = 16.0;
+/// Added to the `max_w` of a menu whose submenu opens on the left, to stay clear of the edge.
+const LEFT_SAFETY: f32 = 40.0;
 /// How far a submenu overlaps its parent (gpui-component: `bounds.size.width - px(8.)`).
 const OVERLAP: f32 = 8.0;
 /// The size of the text of an item (`text_sm`: 0.875 rem).
@@ -32,29 +41,83 @@ const TEXT_REM: f32 = 0.875;
 
 const ELLIPSIS: char = '…';
 
-/// The `max_w` of a menu in a window that leaves `cap`, whose widest item needs `own` and whose
-/// widest submenu needs `submenu` (zero without one).
-fn max_width(cap: Pixels, own: Pixels, submenu: Pixels) -> Pixels {
-    let anchor = if submenu > Pixels::ZERO {
-        own + submenu - px(OVERLAP)
-    } else {
-        Pixels::ZERO
-    };
-    px(DEFAULT_MAX_WIDTH).max(own).max(anchor).min(cap)
+/// Where a menu is and how much room it has: its left edge in the window and the widest it may be.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Place {
+    pub left: Pixels,
+    pub room: Pixels,
 }
 
-/// What fits in the window, and the measure of the text of the menus.
+impl Place {
+    /// A menu that opens with its left edge at `left` (a popup snaps to the window, so it may be
+    /// as wide as the window less the margins).
+    pub(crate) fn at(window: &Window, left: Pixels) -> Self {
+        Self {
+            left,
+            room: window.viewport_size().width - px(MARGIN * 2.0),
+        }
+    }
+}
+
+/// The `max_w` of a menu and the place of its submenus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Opening {
+    pub max_width: Pixels,
+    pub child: Place,
+}
+
+/// How a menu at `place`, whose widest item needs `own` and whose widest submenu would like
+/// `child` (zero without one), opens its submenus in a window `window_width` wide.
+///
+/// The submenu starts `OVERLAP` before the right edge of its parent and, on the left side, ends
+/// `LEFT_OVERLAP` after the parent's left edge. It goes right when it fits there or the room on
+/// the right is not smaller than on the left.
+fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Opening {
+    let default = px(DEFAULT_MAX_WIDTH);
+    if child <= Pixels::ZERO {
+        return Opening {
+            max_width: default.max(own),
+            child: place,
+        };
+    }
+    let margin = px(MARGIN);
+    let right_left = place.left + own.min(place.room) - px(OVERLAP);
+    let right_room = window_width - margin - right_left;
+    let left_room = place.left + px(LEFT_OVERLAP) - margin;
+    if child <= right_room || right_room >= left_room {
+        // gpui-component goes right while `max_w` and the left edge stay inside the window.
+        let max_width = own.max(default.min(window_width - place.left));
+        return Opening {
+            max_width,
+            child: Place {
+                left: right_left,
+                room: right_room,
+            },
+        };
+    }
+    let width = child.min(left_room);
+    Opening {
+        max_width: own.max(window_width - place.left + px(LEFT_SAFETY)),
+        child: Place {
+            left: (place.left + px(LEFT_OVERLAP) - width).max(margin),
+            room: left_room,
+        },
+    }
+}
+
+/// The measure of the text of the menus, and the room a menu has.
 pub(crate) struct Fit<'a> {
     window: &'a Window,
-    cap: Pixels,
+    place: Place,
 }
 
 impl<'a> Fit<'a> {
-    pub(crate) fn new(window: &'a Window) -> Self {
-        let cap = window.viewport_size().width - px(MARGIN * 2.0);
+    pub(crate) fn new(window: &'a Window, place: Place) -> Self {
+        // Room for a label at least, in a window that is smaller than that.
+        let room = place.room.max(px(SLACK * 2.0));
         Self {
             window,
-            cap: cap.max(px(SLACK * 2.0)),
+            place: Place { room, ..place },
         }
     }
 
@@ -67,9 +130,11 @@ impl<'a> Fit<'a> {
             .width
     }
 
-    /// `label`, cut with `…` if it needs more than the window has; borrowed when it fits.
+    /// `label`, cut with `…` if it needs more than the menu's room; borrowed when it fits.
     pub(crate) fn label<'l>(&self, label: &'l str) -> Cow<'l, str> {
-        shorten(label, self.cap - px(SLACK), &|text| self.measure(text))
+        shorten(label, self.place.room - px(SLACK), &|text| {
+            self.measure(text)
+        })
     }
 
     /// [`label`](Self::label) for a text the caller owns: kept as it is when it fits, so that
@@ -86,10 +151,16 @@ impl<'a> Fit<'a> {
         self.measure(label) + px(SLACK)
     }
 
-    /// The `max_w` of a menu whose widest item needs `own` and whose widest submenu needs
-    /// `submenu` (zero without one).
-    pub(crate) fn max_width(&self, own: Pixels, submenu: Pixels) -> Pixels {
-        max_width(self.cap, own, submenu)
+    /// The width a submenu would like for `label` if it had all the room of the window.
+    pub(crate) fn natural(&self, label: &str) -> Pixels {
+        let most = self.window.viewport_size().width - px(MARGIN * 2.0);
+        self.width_of(label).min(most)
+    }
+
+    /// How the menu opens its submenus; `own` is the width its widest item needs and `child` the
+    /// width its widest submenu would like (zero without one).
+    pub(crate) fn opening(&self, own: Pixels, child: Pixels) -> Opening {
+        opening(self.window.viewport_size().width, self.place, own, child)
     }
 }
 
@@ -108,7 +179,7 @@ fn shorten<'a>(label: &'a str, room: Pixels, measure: &dyn Fn(&str) -> Pixels) -
     let ellipsis = measure("…");
     // The start keeps some room: a tail that takes it all is cut at the end instead.
     let head_room = room - measure(&tail) - ellipsis;
-    if separators >= 2 && head_room >= room * 0.2 {
+    if separators >= 2 && head_room >= px(MIN_HEAD) {
         let head = longest(&chars[..tail_at], head_room, measure);
         return Cow::Owned(format!("{head}{ELLIPSIS}{tail}"));
     }
@@ -184,15 +255,46 @@ mod tests {
         assert_eq!(shown, "Cut/Copy …");
     }
 
+    fn place(left: f32) -> Place {
+        Place {
+            left: px(left),
+            room: px(584.0),
+        }
+    }
+
     #[test]
-    fn the_room_of_a_menu_follows_its_longest_item_and_its_submenu() {
-        let cap = px(1000.0);
-        // A short menu keeps gpui-component's width; a long item widens it.
-        assert_eq!(max_width(cap, px(250.0), px(0.0)), px(500.0));
-        assert_eq!(max_width(cap, px(700.0), px(0.0)), px(700.0));
-        // A wide submenu is counted, so that it opens where it fits.
-        assert_eq!(max_width(cap, px(250.0), px(600.0)), px(842.0));
-        // Never more than the window has.
-        assert_eq!(max_width(cap, px(900.0), px(900.0)), cap);
+    fn a_menu_without_a_submenu_keeps_the_default_width() {
+        let w = px(600.0);
+        let max = |own: f32| opening(w, place(0.0), px(own), px(0.0)).max_width;
+        assert_eq!(max(250.0), px(500.0));
+        assert_eq!(max(700.0), px(700.0));
+    }
+
+    #[test]
+    fn a_submenu_that_does_not_fit_opens_on_the_right_with_the_room_there() {
+        // A menu at the left edge, 200 wide: the submenu starts at 192 and has the rest of the
+        // window less the margin; the left side has no room.
+        let open = opening(px(600.0), place(0.0), px(200.0), px(584.0));
+        assert_eq!(open.child.left, px(192.0));
+        assert_eq!(open.child.room, px(400.0));
+        // gpui-component takes the right: its left edge and `max_w` stay inside the window.
+        assert!(open.max_width <= px(600.0));
+    }
+
+    #[test]
+    fn a_menu_near_the_right_edge_opens_its_submenu_on_the_left_with_the_room_there() {
+        let open = opening(px(600.0), place(400.0), px(200.0), px(584.0));
+        // The room on the left: from the margin to 16 px after the parent's left edge.
+        assert_eq!(open.child.room, px(408.0));
+        assert_eq!(open.child.left, px(8.0));
+        // gpui-component takes the left: `max_w` and the left edge pass the window's edge.
+        assert!(open.max_width + px(400.0) > px(600.0));
+    }
+
+    #[test]
+    fn a_submenu_that_fits_on_the_right_goes_there() {
+        let open = opening(px(1000.0), place(300.0), px(200.0), px(300.0));
+        assert_eq!(open.child.left, px(492.0));
+        assert!(open.max_width + px(300.0) <= px(1000.0));
     }
 }
