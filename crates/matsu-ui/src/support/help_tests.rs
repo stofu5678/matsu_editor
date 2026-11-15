@@ -256,16 +256,26 @@ fn the_contents_open_the_help_on_the_web_when_the_program_has_none(cx: &mut Test
 }
 
 #[gpui::test]
-fn the_search_opens_the_one_page_book_on_the_web_and_says_how_to_search(cx: &mut TestAppContext) {
+fn the_search_opens_the_search_page_on_the_web_at_the_word_at_the_caret(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "hello world", "", HelperPrefs::default());
     f.run(cx, "F_HELP_SEARCH", &[]);
     assert_eq!(
         opened(),
-        [Opening::Url(format!("{ONLINE_BASE}search.html"))]
+        [Opening::Url(format!("{ONLINE_BASE}find.html?q=hello"))]
     );
-    // the word at the caret is not sent anywhere
+    // the page has its own search box: no hint about the browser's find
+    assert_eq!(f.notice(cx), None);
+}
+
+#[gpui::test]
+fn the_search_takes_the_selection_as_the_word(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "hello world", "", HelperPrefs::default());
+    cx.simulate_keystrokes(
+        "shift-right shift-right shift-right shift-right shift-right shift-right shift-right",
+    );
+    f.run(cx, "F_HELP_SEARCH", &[]);
     assert_eq!(
-        f.notice(cx).as_deref(),
-        Some(super::help::search_in_page_message().as_str())
+        opened(),
+        [Opening::Url(format!("{ONLINE_BASE}find.html?q=hello%20w"))]
     );
 }

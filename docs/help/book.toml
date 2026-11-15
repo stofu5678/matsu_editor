@@ -10,6 +10,9 @@ src = "ja"
 build-dir = "../../target/help"
 
 [output.html]
+# The "検索" link in the menu bar (ADR-0031): find.html (Pagefind) over http(s), search.html as a file.
+additional-js = ["search-link.js"]
+
 # The one-page version (print.html), which the app can search with Ctrl+F when it has no search.
 [output.html.print]
 enable = true

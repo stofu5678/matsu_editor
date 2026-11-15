@@ -86,9 +86,15 @@ impl EditorView {
         let opening = if contents {
             help::plan_contents(local.as_deref())
         } else {
-            // Sakura searches for `GetCurrentTextForSearch`; the reader searches the one-page
-            // book with the browser, so no word is passed
-            help::plan_search(local.as_deref())
+            // `GetCurrentTextForSearch( cmemCurText )`: the search page of GitHub Pages takes the
+            // word; the one-page local copy does not (the reader searches it with the browser)
+            let keyword: String = self
+                .search_seed(cx)
+                .unwrap_or_default()
+                .chars()
+                .take(MAX_KEYWORD_CHARS)
+                .collect();
+            help::plan_search(local.as_deref(), &keyword)
         };
         let one_page = help::is_one_page(&opening);
         self.open_help(opening, cx);
