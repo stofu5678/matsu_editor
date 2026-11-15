@@ -187,6 +187,45 @@ fn create_menu_opens_a_submenu_and_skips_disabled_items(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn create_menu_runs_the_item_of_a_submenu_by_its_access_key(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    // The window of the workspace lets the letters reach the popups before the key bindings.
+    cx.update(|cx| {
+        cx.intercept_keystrokes(|event, window, cx| {
+            if crate::menu_bar::popup_keys::key(&event.keystroke, window, cx) {
+                cx.stop_propagation();
+            }
+        })
+        .detach();
+    });
+    // S opens the submenu (`CMenuDrawer::OnMenuChar`), and there B runs the second item at once;
+    // the first level has no B. The submenu's items are numbered after あ.
+    let (output, _, _) = pick(
+        cx,
+        "console.log('r=' + Editor.CreateMenu(0, 'あ,[S]&Sub,&Aa,&Bb,&Cc'));",
+        "s right b",
+    );
+    assert_eq!(results(&output), ["3"], "{output}");
+    // Two items with A: the first A selects the first of them, the second A the next, Enter runs it.
+    let (output, _, _) = pick(
+        cx,
+        "console.log('r=' + Editor.CreateMenu(0, 'あ,[S]&Sub,&Aa,&Bb,&Ab'));",
+        "s right a a enter",
+    );
+    assert_eq!(results(&output), ["4"], "{output}");
+    // A key the submenu does not have does nothing; the arrows go on (entering the submenu
+    // selected its first item, so two Down keys reach the third, numbered 4).
+    let (output, _, _) = pick(
+        cx,
+        "console.log('r=' + Editor.CreateMenu(0, 'あ,[S]&Sub,&Aa,&Bb,&Cc'));",
+        "s right z down down enter",
+    );
+    assert_eq!(results(&output), ["4"], "{output}");
+}
+
+#[gpui::test]
 fn create_menu_without_an_item_answers_0_and_shows_nothing(cx: &mut TestAppContext) {
     if !available(Language::JavaScript) {
         return;

@@ -1,6 +1,7 @@
 //! `ChooseFontW` with the flags of Sakura's `MySelectFont` (`sakura_core/util/shell.cpp`):
 //! `CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_EFFECTS`, and `CF_FIXEDPITCHONLY` when only
-//! fixed-pitch fonts are wanted. (Sakura also sets `CF_ENABLEHOOK` for its dark mode; MATSU Editor has
+//! fixed-pitch fonts are wanted. MATSU Editor adds `CF_NOVERTFONTS` and `CF_SCALABLEONLY` (see
+//! [`run`]). (Sakura also sets `CF_ENABLEHOOK` for its dark mode; MATSU Editor has
 //! no such hook.) The `LOGFONT` and `iPointSize` the dialog returns are the result, as they are.
 //!
 //! Not run by CI, which has no desktop; the user checks it. Like the file dialogs, it runs on a
@@ -13,9 +14,9 @@ use futures_channel::oneshot;
 use matsu_config::settings::{FontSetting, LogFont};
 use windows_sys::Win32::Graphics::Gdi::LOGFONTW;
 use windows_sys::Win32::UI::Controls::Dialogs::{
-    CF_EFFECTS, CF_FIXEDPITCHONLY, CF_INITTOLOGFONTSTRUCT, CF_SCREENFONTS, CHOOSEFONTW, ChooseFontW,
+    CF_EFFECTS, CF_FIXEDPITCHONLY, CF_INITTOLOGFONTSTRUCT, CF_NOVERTFONTS, CF_SCALABLEONLY,
+    CF_SCREENFONTS, CHOOSEFONTW, ChooseFontW,
 };
-
 use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetDpiForWindow};
 
 use super::{Error, Owner, Request, face_name_from_units, face_name_units};
@@ -97,7 +98,14 @@ fn run(owner: Owner, request: &Request) -> Result<Option<FontSetting>, Error> {
     let mut log_font = to_logfont(&request.initial.log_font);
     // `CF_INITTOLOGFONTSTRUCT` starts at the height, which the dialog reads at the DPI of its monitor.
     log_font.lfHeight = super::starting_height(&request.initial, dialog_dpi(owner));
-    let mut flags = CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_EFFECTS;
+    // Sakura's flags (`MySelectFont`, `sakura_core/util/shell.cpp`) plus two that MATSU Editor needs
+    // because it draws with GPUI (DirectWrite) and not with GDI:
+    // - `CF_NOVERTFONTS`: no `@Name` faces. In GDI they draw the full-width glyphs on their side,
+    //   but DirectWrite has no such families and MATSU Editor draws text horizontally only.
+    // - `CF_SCALABLEONLY`: no raster fonts (Terminal, Fixedsys, System, ...), which DirectWrite
+    //   cannot draw. Vector fonts (Modern, Roman, Script) stay listed, as do TrueType and OpenType.
+    let mut flags =
+        CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_EFFECTS | CF_NOVERTFONTS | CF_SCALABLEONLY;
     if request.fixed_pitch_only {
         flags |= CF_FIXEDPITCHONLY;
     }
