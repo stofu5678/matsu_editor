@@ -598,7 +598,8 @@ mod powershell {
                 "b",
             ),
             (
-                "Group-Object | ForEach-Object { $_.Name }".into(),
+                // (5.1 keeps the order of first appearance, 7 sorts by name: sort here)
+                "Group-Object | Sort-Object Name | ForEach-Object { $_.Name }".into(),
                 "b\na",
                 "a\nb",
             ),
@@ -614,7 +615,12 @@ mod powershell {
             ("ConvertTo-Json -Compress".into(), "b\na", "[\"b\",\"a\"]"),
             ("ConvertFrom-Json | % { $_.x }".into(), "{\"x\":5}", "5"),
             ("ConvertFrom-Csv | % { $_.x }".into(), "x\n1\n2", "1\n2"),
-            ("ConvertTo-Csv | Select-Object -Skip 1".into(), "b", "\"1\""),
+            // (5.1 writes a `#TYPE` line first unless told not to; 7 ignores the switch)
+            (
+                "ConvertTo-Csv -NoTypeInformation | Select-Object -Skip 1".into(),
+                "b",
+                "\"1\"",
+            ),
             (
                 "ft | Out-String | % { $_.Length -gt 0 }".into(),
                 "b",
