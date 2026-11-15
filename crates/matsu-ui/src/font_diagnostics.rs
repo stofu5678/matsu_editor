@@ -41,6 +41,42 @@ const DETAILED_TARGETS: [&str; 7] = [
     "swash",
 ];
 
+/// The groups of characters of the advance table (ADR-0034 stage 0): ASCII letters and digits,
+/// symbols, kana, kanji, the half-width katakana and the full-width space.
+const ADVANCE_GROUPS: [(&str, &str); 9] = [
+    ("lowercase", "abcdefghijklmnopqrstuvwxyz"),
+    ("uppercase", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+    ("digits", "0123456789"),
+    ("symbols", " .,:;!'|-_/()"),
+    ("hiragana", "あいうえおかきくけこ"),
+    ("katakana", "アイウエオカキクケコ"),
+    ("half-width katakana", "ｱｲｳｴｵ"),
+    ("kanji", "漢字日本語表示幅"),
+    ("full-width", "\u{3000}Ａ！"),
+];
+
+/// Families of proportional fonts and of a monospaced one that the advance table shows beside the
+/// font the text is drawn with: up to three proportional ones and the first monospaced one that
+/// is installed (the Latin letters of
+/// "Noto Sans CJK JP" and "Yu Gothic UI" are proportional; "BIZ UDGothic" and "MS Gothic" have
+/// half-width Latin letters of one width).
+const PROPORTIONAL_FAMILIES: [&str; 6] = [
+    "Noto Sans JP",
+    "Noto Sans CJK JP",
+    "Yu Gothic UI",
+    "Hiragino Sans",
+    "DejaVu Sans",
+    "Segoe UI",
+];
+const MONOSPACED_FAMILIES: [&str; 6] = [
+    "BIZ UDGothic",
+    "MS Gothic",
+    "Noto Sans Mono",
+    "DejaVu Sans Mono",
+    "Menlo",
+    "Consolas",
+];
+
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Whether the variable's value turns the diagnostics on: set, not empty and not `0`.
@@ -123,6 +159,20 @@ pub(crate) struct Resolution {
 /// One measured advance width (in pixels at the font size), or why it could not be measured.
 pub(crate) type Advance = (char, Result<f32, String>);
 
+/// The advances of one font, group by group (ADR-0034 stage 0).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AdvanceTable {
+    /// Why this font is in the table: "drawn with", "proportional" or "monospaced".
+    pub kind: &'static str,
+    /// What was measured, as written in the report: a quoted family, or for the font the text is
+    /// drawn with the description of the font chosen (family, fallbacks and why).
+    pub family: String,
+    /// The advance of the half-width digit `0` in pixels: the unit of the ratios.
+    pub half: f32,
+    /// The groups of [`ADVANCE_GROUPS`] with the advance of each character in pixels.
+    pub groups: Vec<(&'static str, Vec<(char, f32)>)>,
+}
+
 /// The facts the report is made of.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Facts {
@@ -151,6 +201,8 @@ pub(crate) struct Facts {
     pub all_names: Vec<String>,
     pub resolution: Resolution,
     pub advances: Vec<Advance>,
+    /// The advances of the font the text is drawn with and of a proportional and a monospaced one.
+    pub advance_tables: Vec<AdvanceTable>,
     /// Lines of the facts that only one OS can collect.
     pub extra: Vec<String>,
 }
@@ -188,6 +240,34 @@ pub(crate) fn filter_names(names: &[String], needles: &[&str]) -> Vec<String> {
 /// the half-width one has no width.
 pub(crate) fn width_ratio(full: f32, half: f32) -> Option<f32> {
     (half > 0.0).then(|| full / half)
+}
+
+/// The advance `px` as ADR-0034's unit: the ratio to the half-width advance, times 64, rounded.
+/// `None` if the half-width advance has no width.
+pub(crate) fn unit_of(px: f32, half: f32) -> Option<u32> {
+    (half > 0.0).then(|| (px / half * 64.0).round() as u32)
+}
+
+/// The first `max` of `candidates` that `names` has as they are.
+pub(crate) fn installed_among(names: &[String], candidates: &[&str], max: usize) -> Vec<String> {
+    candidates
+        .iter()
+        .filter(|c| matches_exact(names, c))
+        .take(max)
+        .map(|c| (*c).to_owned())
+        .collect()
+}
+
+/// One line of an advance table: `  lowercase: a 7.1px=58 b ...`.
+pub(crate) fn render_group(label: &str, half: f32, advances: &[(char, f32)]) -> String {
+    let mut line = format!("  {label}:");
+    for (ch, px) in advances {
+        match unit_of(*px, half) {
+            Some(unit) => line.push_str(&format!(" {ch} {px:.1}={unit}")),
+            None => line.push_str(&format!(" {ch} {px:.1}=?")),
+        }
+    }
+    line
 }
 
 fn advance_of(advances: &[Advance], ch: char) -> Option<f32> {
@@ -313,6 +393,15 @@ pub(crate) fn render(facts: &Facts) -> String {
         )),
         None => line("  full-width / half-width: unknown".to_owned()),
     }
+    for table in &facts.advance_tables {
+        line(format!(
+            "advance table ({}) {}: pixels at {} px = units of 1/64 of the half-width advance '0' ({:.3} px):",
+            table.kind, table.family, facts.font_size, table.half
+        ));
+        for (label, advances) in &table.groups {
+            line(render_group(label, table.half, advances));
+        }
+    }
     for extra in &facts.extra {
         line(extra.clone());
     }
@@ -416,6 +505,33 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
         })
         .collect();
 
+    // The advance tables: the font the text is drawn with, then a proportional and a monospaced one
+    // that are installed (unless one is the asked family).
+    let mut tables = vec![advance_table(
+        system,
+        "drawn with",
+        // What is measured is the font the text is drawn with (`used_id`), which is not the
+        // asked family when that is missing (macOS): label it as `TextFont::describe` does.
+        &used_font,
+        used_id,
+        size,
+    )];
+    for (kind, candidates, max) in [
+        ("proportional", &PROPORTIONAL_FAMILIES[..], 3),
+        ("monospaced", &MONOSPACED_FAMILIES[..], 1),
+    ] {
+        for family in installed_among(&all_names, candidates, max) {
+            let id = system.resolve_font(&gpui::font(family.clone()));
+            tables.push(advance_table(
+                system,
+                kind,
+                &format!("{family:?}"),
+                id,
+                size,
+            ));
+        }
+    }
+
     Facts {
         os: os_description(),
         matsu_version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -435,7 +551,30 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
             reported_family,
         },
         advances,
+        advance_tables: tables,
         extra: platform_lines(),
+    }
+}
+
+/// Measures the groups of [`ADVANCE_GROUPS`] in one font with `TextSystem::layout_width`: a shaped
+/// line of one character, so a character that the font lacks has the advance of the font that
+/// stands in for it. No window is used (ADR-0034 stage 0).
+fn advance_table(
+    system: &gpui::TextSystem,
+    kind: &'static str,
+    family: &str,
+    id: gpui::FontId,
+    size: gpui::Pixels,
+) -> AdvanceTable {
+    let measure = |ch: char| f32::from(system.layout_width(id, size, ch));
+    AdvanceTable {
+        kind,
+        family: family.to_owned(),
+        half: measure('0'),
+        groups: ADVANCE_GROUPS
+            .iter()
+            .map(|(label, chars)| (*label, chars.chars().map(|ch| (ch, measure(ch))).collect()))
+            .collect(),
     }
 }
 
@@ -604,6 +743,75 @@ mod tests {
         assert!((helvetica - 1.7986).abs() < 0.001);
     }
 
+    #[test]
+    fn an_advance_is_a_unit_of_one_sixty_fourth_of_the_half_width() {
+        assert_eq!(unit_of(8.0, 8.0), Some(64));
+        assert_eq!(unit_of(16.0, 8.0), Some(128));
+        assert_eq!(unit_of(3.5, 8.0), Some(28));
+        assert_eq!(unit_of(5.0, 0.0), None);
+    }
+
+    #[test]
+    fn the_installed_candidates_are_taken_in_the_order_of_the_list() {
+        let installed = names(&["Arial", "Yu Gothic UI", "DejaVu Sans", "Noto Sans JP"]);
+        assert_eq!(
+            installed_among(&installed, &PROPORTIONAL_FAMILIES, 2),
+            names(&["Noto Sans JP", "Yu Gothic UI"])
+        );
+        assert!(installed_among(&installed, &MONOSPACED_FAMILIES, 1).is_empty());
+    }
+
+    #[test]
+    fn a_group_line_lists_the_pixels_and_the_units() {
+        assert_eq!(
+            render_group("digits", 8.0, &[('0', 8.0), ('1', 5.0)]),
+            "  digits: 0 8.0=64 1 5.0=40"
+        );
+        assert_eq!(render_group("x", 0.0, &[('a', 3.0)]), "  x: a 3.0=?");
+    }
+
+    #[test]
+    fn every_group_has_characters_and_the_report_has_the_tables() {
+        assert!(ADVANCE_GROUPS.iter().all(|(_, chars)| !chars.is_empty()));
+        let mut f = facts(1, 3);
+        f.advance_tables = vec![AdvanceTable {
+            kind: "proportional",
+            family: "\"Noto Sans JP\"".into(),
+            half: 8.0,
+            groups: vec![("lowercase", vec![('i', 3.0), ('m', 12.0)])],
+        }];
+        let text = render(&f);
+        assert!(
+            text.contains("advance table (proportional) \"Noto Sans JP\""),
+            "{text}"
+        );
+        assert!(text.contains("  lowercase: i 3.0=24 m 12.0=96"), "{text}");
+    }
+
+    #[test]
+    fn the_drawn_font_table_is_labeled_with_the_font_that_was_measured() {
+        // On a Mac without the asked family the text is drawn with Menlo and Hiragino Sans: the
+        // table must say so, not name the missing family.
+        let mut f = facts(1, 3);
+        f.advance_tables = vec![AdvanceTable {
+            kind: "drawn with",
+            family: f.used_font.clone(),
+            half: 8.0,
+            groups: Vec::new(),
+        }];
+        let text = render(&f);
+        assert!(
+            text.contains(
+                "advance table (drawn with) \"Menlo\" with fallbacks [\"Hiragino Sans\"]"
+            ),
+            "{text}"
+        );
+        assert!(
+            !text.contains("advance table (drawn with) \"BIZ UDGothic\""),
+            "{text}"
+        );
+    }
+
     fn facts(asked_id: usize, missing_id: usize) -> Facts {
         Facts {
             os: "macos aarch64, version 27.0.1".into(),
@@ -633,6 +841,7 @@ mod tests {
                 ('あ', Ok(16.0)),
                 ('漢', Err("glyph not found".into())),
             ],
+            advance_tables: Vec::new(),
             extra: vec!["extra line".into()],
         }
     }

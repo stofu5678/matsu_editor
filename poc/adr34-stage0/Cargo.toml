@@ -1,0 +1,19 @@
+[package]
+name = "adr34-stage0-poc"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Throwaway PoC for ADR-0034 stage 0; kept out of the main workspace and CI.
+[workspace]
+
+[dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.8" }
+# `bench-support` gives `bench_text_system()`: the platform's text system with no window and no
+# display. Without the wayland and x11 features GPUI runs headless on Linux.
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["bench-support", "wayland", "x11"] }
+
+# macOS: without font-kit, GPUI draws no text at all.
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["bench-support", "font-kit", "runtime_shaders"] }
