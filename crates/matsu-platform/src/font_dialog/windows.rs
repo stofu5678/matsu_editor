@@ -11,10 +11,12 @@
 
 use futures_channel::oneshot;
 use matsu_config::settings::{FontSetting, LogFont};
-use windows_sys::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, LOGFONTW, LOGPIXELSY, ReleaseDC};
+use windows_sys::Win32::Graphics::Gdi::LOGFONTW;
 use windows_sys::Win32::UI::Controls::Dialogs::{
     CF_EFFECTS, CF_FIXEDPITCHONLY, CF_INITTOLOGFONTSTRUCT, CF_SCREENFONTS, CHOOSEFONTW, ChooseFontW,
 };
+
+use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetDpiForWindow};
 
 use super::{Error, Owner, Request, face_name_from_units, face_name_units};
 
@@ -69,14 +71,30 @@ fn from_logfont(font: &LOGFONTW) -> LogFont {
     }
 }
 
-/// The vertical resolution of the screen, which `ChooseFontW` turns the height into points with.
-fn screen_dpi() -> i32 {
-    // SAFETY: the device context of the whole screen is released at once.
-    unsafe {
-        let dc = GetDC(std::ptr::null_mut());
-        let dpi = GetDeviceCaps(dc, LOGPIXELSY as i32);
-        ReleaseDC(std::ptr::null_mut(), dc);
-        if dpi > 0 { dpi } else { 96 }
+/// The resolution that `ChooseFontW` turns the height into points with: the DPI of the monitor the
+/// dialog opens on, which is the one of its owner window (the window the dialog is centered on).
+///
+/// Not `GetDeviceCaps(GetDC(NULL), LOGPIXELSY)`: for a per-monitor DPI aware process (the manifest of
+/// GPUI's windows says PerMonitorV2, for the whole process) that is the *system* DPI, fixed when the
+/// user signed in, so it stays 96 when the display was set to 150 % afterwards, while the dialog
+/// itself works at the DPI of its monitor (144). The height then came out too small and the dialog
+/// started at 7 pt instead of 10 pt.
+fn dialog_dpi(owner: Owner) -> i32 {
+    // SAFETY: both calls only read; a window handle that is not valid gives 0.
+    let dpi = unsafe {
+        match owner.hwnd() {
+            0 => 0,
+            hwnd => GetDpiForWindow(hwnd as _),
+        }
+    };
+    if dpi > 0 {
+        dpi as i32
+    } else {
+        // No owner (or a dead one): the dialog opens on the monitor of the cursor or the primary one;
+        // the system DPI is the best guess left.
+        // SAFETY: only reads.
+        let system = unsafe { GetDpiForSystem() };
+        if system > 0 { system as i32 } else { 96 }
     }
 }
 
@@ -85,7 +103,7 @@ fn run(owner: Owner, request: &Request) -> Result<Option<FontSetting>, Error> {
     // `CF_INITTOLOGFONTSTRUCT` starts at the height; the point size is what the file means, and the
     // height of a file may come from another resolution.
     if request.initial.point_size != 0 {
-        log_font.lfHeight = request.initial.height_for_dpi(screen_dpi());
+        log_font.lfHeight = request.initial.height_for_dpi(dialog_dpi(owner));
     }
     let mut flags = CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_EFFECTS;
     if request.fixed_pitch_only {
