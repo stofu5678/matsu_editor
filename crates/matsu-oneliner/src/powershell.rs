@@ -152,25 +152,99 @@ pub fn pipes_input(line: &str) -> bool {
     if word == "foreach" && rest.trim_start().starts_with('(') {
         return false;
     }
-    // `Select-String pattern -Path file` reads the file; the text on top of it would be an error
-    if matches!(word.as_str(), "select-string" | "sls") {
-        let rest = rest.to_ascii_lowercase();
-        if rest.contains("-path") || rest.contains("-literalpath") {
+    // The line gives its input itself (`Sort-Object -InputObject 3,2,1`; `Select-String a -Path
+    // file` reads the file): the text on top of it would be a parameter-binding error. What is
+    // checked is the parameters that supply the input of the commands of [`FILTERS`]:
+    // `-InputObject` (every command of the list has it; PowerShell binds any unambiguous
+    // prefix, so `-InputO`, `-inp`, ... count) and, for `Select-String`, `-Path` (`-Pat` is
+    // ambiguous with `-Pattern`, so only the full name) and `-LiteralPath` (the ways it is given
+    // files; `-Include`/`-Exclude` only narrow them). `-i` and `-in` bind `-InputObject` in some
+    // commands, are ambiguous in others and are the operator `-in` of `Where-Object`: they are
+    // not counted, so such a line is piped the text and fails; write `-InputObject` in full.
+    // Only the words outside `{ }`, `( )` and `[ ]` and quotes are looked at, so that a
+    // script block does not count.
+    for name in top_level_parameters(rest) {
+        if name.len() >= 3 && "inputobject".starts_with(name.as_str()) {
+            return false;
+        }
+        if matches!(word.as_str(), "select-string" | "sls")
+            && (name == "path" || (name.len() >= 2 && "literalpath".starts_with(name.as_str())))
+        {
             return false;
         }
     }
     true
 }
 
+/// The names (lower case, without the dash, up to a `:`) of the parameters written as words of
+/// `text` outside any `{ }`, `( )` and `[ ]` and outside quotes.
+fn top_level_parameters(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut word = String::new();
+    let flush = |word: &mut String, names: &mut Vec<String>| {
+        if let Some(name) = word.strip_prefix('-') {
+            let name = name.split(':').next().unwrap_or("");
+            if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphabetic()) {
+                names.push(name.to_ascii_lowercase());
+            }
+        }
+        word.clear();
+    };
+    for c in text.chars() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '\'' | '"' => {
+                quote = Some(c);
+                word.clear();
+            }
+            '{' | '(' | '[' => {
+                if depth == 0 {
+                    flush(&mut word, &mut names);
+                }
+                depth += 1;
+            }
+            '}' | ')' | ']' => depth = depth.saturating_sub(1),
+            c if c.is_whitespace() || c == '|' || c == ';' => {
+                if depth == 0 {
+                    flush(&mut word, &mut names);
+                }
+            }
+            c if depth == 0 => word.push(c),
+            _ => {}
+        }
+    }
+    flush(&mut word, &mut names);
+    names
+}
+
+/// Whether the hint is armed for `line`: it does not mention `$input` and was not piped.
+fn hint_applies(line: &str) -> bool {
+    !mentions_input(line) && !pipes_input(line)
+}
+
 /// The whole script for `line`. A line break before the epilogue keeps a `#` comment at the end of
 /// the line from taking the closing brace with it.
 pub fn script(line: &str) -> String {
     let mut text = String::with_capacity(PRELUDE.len() + line.len() + EPILOGUE.len());
-    text.push_str(PRELUDE);
+    // The flag is set in the prelude, outside the script block of the line, so that the block
+    // starts with the text of the user (`param()`, `process { }` must be the first thing in it).
+    text.push_str(&PRELUDE.replace(
+        "$global:__matsu_hint = $false",
+        if hint_applies(line) {
+            "$global:__matsu_hint = $true"
+        } else {
+            "$global:__matsu_hint = $false"
+        },
+    ));
     if pipes_input(line) {
         text.push_str("$input | ");
-    } else if !mentions_input(line) {
-        text.push_str("$global:__matsu_hint = $true\n");
     }
     text.push_str(line);
     text.push_str(&EPILOGUE.replace("@@HINT@@", HINT));

@@ -201,3 +201,49 @@ fn the_hint_is_armed_only_for_a_line_without_input() {
     assert!(!text.contains("@@HINT@@"));
     assert!(!HINT.contains('\''));
 }
+
+#[test]
+fn a_line_that_gives_its_input_itself_is_not_piped() {
+    for line in [
+        "Sort-Object -InputObject @(3,2,1)",
+        "sort -inputobject 3,2,1",
+        "Sort-Object -InputO @(3,2,1)",
+        "Sort-Object -inp @(3,2,1)",
+        "ForEach-Object -InputObject 1 { $_ }",
+        "Select-Object -InputObject:$x -First 1",
+        "Select-String a -Path b.txt",
+        "Select-String a -LiteralPath b.txt",
+        "sls a -Lit b.txt",
+    ] {
+        assert!(!pipes_input(line), "{line:?}");
+    }
+    // not the input: a script block, a string, the operator -in, a parameter that only starts alike
+    for line in [
+        "Where-Object { $_ -in 'a','b' }",
+        "Where-Object Name -in a,b",
+        "ForEach-Object { Sort-Object -InputObject $_ }",
+        "Select-String '-InputObject' -CaseSensitive",
+        "Select-String a -Pattern b",
+        "Sort-Object -Property Length",
+    ] {
+        assert!(pipes_input(line), "{line:?}");
+    }
+}
+
+#[test]
+fn the_line_starts_its_script_block_with_its_own_text() {
+    for line in [
+        "process { $_.ToUpper() }",
+        "param(); 'ok'",
+        "[CmdletBinding()] param(); 'ok'",
+        "Get-Date",
+        "ForEach-Object { $_ }",
+    ] {
+        let text = script(line).replace("\r\n", "\n");
+        let (head, _) = text.split_once(line).unwrap();
+        let head = head.strip_suffix("$input | ").unwrap_or(head);
+        assert!(head.ends_with("$__matsu_lines | & {\n"), "{line:?}");
+    }
+    let armed = script("Get-Date").replace("\r\n", "\n");
+    assert!(armed.contains("\n$global:__matsu_hint = $true\n"));
+}

@@ -547,6 +547,25 @@ mod powershell {
     }
 
     #[test]
+    fn a_line_with_its_own_input_or_a_block_declaration_still_runs() {
+        for (line, want) in [
+            ("Sort-Object -InputObject @(3,2,1)", "3\n2\n1"),
+            ("Sort-Object -inputo @(3,2,1)", "3\n2\n1"),
+            ("process { $_.ToUpper() }", "X"),
+            ("param(); 'ok'", "ok"),
+            (
+                "[CmdletBinding()] param([Parameter(ValueFromPipeline)]$x) process { \"$x!\" }",
+                "x!",
+            ),
+        ] {
+            for (shell, done, output) in ps(line, "x", OutputKind::Replace) {
+                assert_eq!(done.exit.code, Some(0), "{shell}: {line}: {}", done.error);
+                assert_eq!(output, want, "{shell}: {line}");
+            }
+        }
+    }
+
+    #[test]
     fn a_failing_line_without_input_gets_the_hint() {
         let hint = matsu_oneliner::powershell::HINT;
         // (an `exit` in the line ends the script before the hint: the user chose that code)
