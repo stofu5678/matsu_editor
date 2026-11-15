@@ -17,7 +17,7 @@ use matsu_plugin::functions::menu::{MenuNode, item_count};
 use crate::common_settings::model::parse_label;
 use crate::menu_bar::popup_keys::{self, KeyList, Rebuild};
 use crate::menu_bar::popup_max_height;
-use crate::menu_width::{Fit, Opening, Place};
+use crate::menu_width::{Fit, Layout, Opening, Place, Row};
 use crate::view::EditorView;
 
 /// The menu text as it is drawn: `&A` is `A` (GPUI's menus have no access keys) and `&&` is `&`.
@@ -25,31 +25,54 @@ fn plain_label(label: &str) -> String {
     parse_label(label).0
 }
 
+/// How the rows of the menu of `nodes` are laid out: the macro menu has no pictures, and a
+/// checked or radio item gives every row the column of the check mark.
+fn layout_of(nodes: &[MenuNode]) -> Layout {
+    Layout {
+        icons: None,
+        checks: nodes.iter().any(
+            |node| matches!(node, MenuNode::Item { checked, radio, .. } if *checked || *radio),
+        ),
+        submenus: nodes
+            .iter()
+            .any(|node| matches!(node, MenuNode::Submenu { .. })),
+    }
+}
+
 /// The text of an item of the menu: the label without its access key, cut if it is wider than
-/// the window (`menu_width`).
-fn shown(label: &str, window: &Window, place: Place) -> String {
-    Fit::new(window, place).owned(plain_label(label))
+/// the room of the menu (`menu_width`).
+fn shown(label: &str, row: Row, fit: &Fit) -> String {
+    fit.owned(plain_label(label), row)
+}
+
+/// [`shown`] for a menu at `place` with the rows laid out as `layout`.
+fn shown_in(label: &str, row: Row, window: &Window, place: Place, layout: Layout) -> String {
+    shown(label, row, &Fit::new(window, place, layout))
 }
 
 /// How the menu of `nodes` at `place` opens: its `max_w` (as wide as its longest label) and the
 /// place of its submenus.
 fn opening_of(nodes: &[MenuNode], window: &Window, place: Place) -> Opening {
-    let fit = Fit::new(window, place);
-    let width_of = |label: &str| fit.width_of(&shown(label, window, place));
-    let natural = |label: &str| fit.natural(&plain_label(label));
+    let fit = Fit::new(window, place, layout_of(nodes));
     let (mut own, mut submenu) = (Pixels::ZERO, Pixels::ZERO);
     for node in nodes {
         match node {
-            MenuNode::Item { label, .. } => own = own.max(width_of(label)),
+            MenuNode::Item { label, .. } => {
+                own = own.max(fit.width_of(&shown(label, Row::Action, &fit), Row::Action));
+            }
             MenuNode::Submenu {
                 label, children, ..
             } => {
-                own = own.max(width_of(label));
-                // The items and the headings of the submenus in it.
+                own = own.max(fit.width_of(&shown(label, Row::Submenu, &fit), Row::Submenu));
+                // The items and the headings of the submenus in it, as rows of a menu of their own.
+                let inner = fit.with(layout_of(children));
                 for child in children {
-                    if let MenuNode::Item { label, .. } | MenuNode::Submenu { label, .. } = child {
-                        submenu = submenu.max(natural(label));
-                    }
+                    let (label, row) = match child {
+                        MenuNode::Item { label, .. } => (label, Row::Action),
+                        MenuNode::Submenu { label, .. } => (label, Row::Submenu),
+                        MenuNode::Separator => continue,
+                    };
+                    submenu = submenu.max(inner.natural(&plain_label(label), row));
                 }
             }
             MenuNode::Separator => {}
@@ -91,6 +114,7 @@ fn fill_nodes(
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
     let opening = opening_of(nodes, window, place);
+    let layout = layout_of(nodes);
     for node in nodes {
         menu = match node {
             MenuNode::Item {
@@ -104,7 +128,7 @@ fn fill_nodes(
                 let number = *number;
                 // `CheckMenuRadioItem(i, i, i)`: an item with the flag R is the checked one of its
                 // own one-item group.
-                let item = PopupMenuItem::new(shown(label, window, place))
+                let item = PopupMenuItem::new(shown_in(label, Row::Action, window, place, layout))
                     .checked(*checked || *radio)
                     .disabled(*disabled);
                 // The menu of GPUI can confirm a disabled item with the keys; it gives no number.
@@ -123,9 +147,10 @@ fn fill_nodes(
                 disabled,
                 children,
                 ..
-            } if *disabled || item_count(children) == 0 => {
-                menu.item(PopupMenuItem::new(shown(label, window, place)).disabled(true))
-            }
+            } if *disabled || item_count(children) == 0 => menu.item(
+                PopupMenuItem::new(shown_in(label, Row::Submenu, window, place, layout))
+                    .disabled(true),
+            ),
             MenuNode::Submenu {
                 label, children, ..
             } => {
@@ -138,7 +163,7 @@ fn fill_nodes(
                     fill_nodes(sub, &children, &answer, &focus, child, window, cx)
                 });
                 menu.submenu(
-                    shown(label, window, place),
+                    shown_in(label, Row::Submenu, window, place, layout),
                     window,
                     cx,
                     move |sub, window, cx| {

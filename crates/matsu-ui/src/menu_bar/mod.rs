@@ -44,7 +44,7 @@ use crate::menu_bar::access::{
     next_match, presses_to_reach,
 };
 use crate::menu_bar::popup_keys::{KeyList, Rebuild};
-use crate::menu_width::{Opening, Place};
+use crate::menu_width::{Layout, Opening, Place, Row};
 use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
@@ -287,7 +287,6 @@ pub(crate) fn fill(
     // `menu_icons::item_element` (a column for the pictures, then the label), and a submenu gets
     // an invisible icon as wide as that column so that the labels line up.
     let scale = window.scale_factor();
-    let (items, opening) = fit_width(items, window, place);
     let with_icons = crate::menu_icons::enabled(cx)
         && items.iter().any(|item| match item {
             OwnedMenuItem::Action { action, .. } => {
@@ -295,6 +294,8 @@ pub(crate) fn fill(
             }
             _ => false,
         });
+    let icons = with_icons.then(|| px(crate::menu_icons::column_width(scale)));
+    let (items, opening) = fit_width(items, window, place, icons);
     for item in items {
         menu = match item {
             OwnedMenuItem::Action {
@@ -361,8 +362,18 @@ fn fit_width(
     items: Vec<OwnedMenuItem>,
     window: &Window,
     place: Place,
+    icons: Option<Pixels>,
 ) -> (Vec<OwnedMenuItem>, Opening) {
-    let fit = crate::menu_width::Fit::new(window, place);
+    let layout = Layout {
+        icons,
+        checks: items
+            .iter()
+            .any(|item| matches!(item, OwnedMenuItem::Action { checked: true, .. })),
+        submenus: items
+            .iter()
+            .any(|item| matches!(item, OwnedMenuItem::Submenu(_))),
+    };
+    let fit = crate::menu_width::Fit::new(window, place, layout);
     let mut own = Pixels::ZERO;
     let mut submenu = Pixels::ZERO;
     let items = items
@@ -375,8 +386,8 @@ fn fit_width(
                 checked,
                 disabled,
             } => {
-                let name = fit.owned(name);
-                own = own.max(fit.width_of(&name));
+                let name = fit.owned(name, Row::Action);
+                own = own.max(fit.width_of(&name, Row::Action));
                 OwnedMenuItem::Action {
                     name,
                     action,
@@ -386,14 +397,14 @@ fn fit_width(
                 }
             }
             OwnedMenuItem::Submenu(mut menu) => {
-                let cut = match fit.label(&menu.name) {
+                let cut = match fit.label(&menu.name, Row::Submenu) {
                     Cow::Owned(cut) => Some(cut),
                     Cow::Borrowed(_) => None,
                 };
                 if let Some(cut) = cut {
                     menu.name = cut.into();
                 }
-                own = own.max(fit.width_of(&menu.name));
+                own = own.max(fit.width_of(&menu.name, Row::Submenu));
                 // The labels of the submenu are cut when it is filled, to its own room.
                 submenu = submenu.max(widest_label(&menu.items, &fit));
                 OwnedMenuItem::Submenu(menu)
@@ -404,17 +415,27 @@ fn fit_width(
     (items, fit.opening(own, submenu))
 }
 
-/// The width the widest label of `items` would like: the items and the headings of the
-/// submenus in them (a heading takes room in the menu too).
+/// The width the widest label of `items` would like, as the rows of a menu of their own: the
+/// items and the headings of the submenus in them (a heading takes room in the menu too). The
+/// pictures are those of the parent's menu.
 fn widest_label(items: &[OwnedMenuItem], fit: &crate::menu_width::Fit) -> Pixels {
+    let fit = fit.with(Layout {
+        icons: fit.layout().icons,
+        checks: items
+            .iter()
+            .any(|item| matches!(item, OwnedMenuItem::Action { checked: true, .. })),
+        submenus: items
+            .iter()
+            .any(|item| matches!(item, OwnedMenuItem::Submenu(_))),
+    });
     items
         .iter()
         .filter_map(|item| match item {
-            OwnedMenuItem::Action { name, .. } => Some(name.as_str()),
-            OwnedMenuItem::Submenu(menu) => Some(menu.name.as_ref()),
+            OwnedMenuItem::Action { name, .. } => Some((name.as_str(), Row::Action)),
+            OwnedMenuItem::Submenu(menu) => Some((menu.name.as_ref(), Row::Submenu)),
             _ => None,
         })
-        .map(|name| fit.natural(name))
+        .map(|(name, row)| fit.natural(name, row))
         .fold(Pixels::ZERO, Pixels::max)
 }
 
@@ -1049,6 +1070,7 @@ mod tests {
                 vec![MenuItem::action(LONG_PATH, Nothing).owned()],
                 window,
                 Place::at(window, px(0.)),
+                None,
             )
         });
         let shown = &names_of(&names)[0];
@@ -1070,6 +1092,7 @@ mod tests {
                 vec![sub.owned(), MenuItem::action("another", Nothing).owned()],
                 window,
                 at(window, 0.),
+                None,
             )
         });
         // gpui-component's own limit stays: a submenu opens on the right whenever the menu's
@@ -1088,14 +1111,14 @@ mod tests {
         let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
         let sub = MenuItem::submenu(Menu::new("sub").items([MenuItem::action(LONG_PATH, Nothing)]));
         let (width, opening) = cx.update(|window, _| {
-            let (_, opening) = fit_width(vec![sub.owned()], window, at(window, 0.));
+            let (_, opening) = fit_width(vec![sub.owned()], window, at(window, 0.), None);
             (window.viewport_size().width, opening)
         });
         // Opens on the right, and the room is what is left of the window.
         assert!(opening.child.left > px(0.), "{opening:?}");
         let end = opening.child.left + opening.child.room;
         assert!(
-            (end - (width - px(8.))).abs() < px(1.),
+            (end - (width - px(4.))).abs() < px(1.),
             "{opening:?} in {width:?}"
         );
     }
@@ -1113,8 +1136,8 @@ mod tests {
             // A menu 400 px from the right edge: little room on the right.
             let place = Place::at(window, window.viewport_size().width - px(400.));
             (
-                fit_width(vec![heading("x")], window, place).1,
-                fit_width(vec![heading(LONG_PATH)], window, place).1,
+                fit_width(vec![heading("x")], window, place, None).1,
+                fit_width(vec![heading(LONG_PATH)], window, place, None).1,
             )
         });
         // A short heading fits on the right; a long one is measured too, and has more room on
@@ -1138,14 +1161,16 @@ mod tests {
             let sub =
                 MenuItem::submenu(Menu::new("recent").items([MenuItem::action(path, Nothing)]));
             let (shown, room, width_of_shown) = cx.update(|window, _| {
-                let (_, opening) = fit_width(vec![sub.owned()], window, at(window, left));
+                let (_, opening) = fit_width(vec![sub.owned()], window, at(window, left), None);
                 let (items, _) = fit_width(
                     vec![MenuItem::action(path, Nothing).owned()],
                     window,
                     opening.child,
+                    None,
                 );
                 let shown = names_of(&items).remove(0);
-                let width = crate::menu_width::Fit::new(window, opening.child).width_of(&shown);
+                let width = crate::menu_width::Fit::new(window, opening.child, Layout::default())
+                    .width_of(&shown, Row::Action);
                 (shown, opening.child.room, width)
             });
             assert!(shown.contains('…'), "{left}: {shown}");
@@ -1158,6 +1183,60 @@ mod tests {
                 "{left}: {shown} needs {width_of_shown:?} of {room:?}"
             );
         }
+    }
+
+    /// The labels of the submenu of a File-like menu at the left edge of a window 584 px wide
+    /// (the width the Sandbox check used), as `fill` shortens them.
+    fn recent_files_shown(cx: &mut gpui::VisualTestContext, paths: &[&str]) -> Vec<String> {
+        cx.simulate_resize(gpui::size(px(584.), px(400.)));
+        cx.run_until_parked();
+        let items: Vec<_> = paths
+            .iter()
+            .map(|path| MenuItem::action(*path, Nothing).owned())
+            .collect();
+        let parent = vec![
+            MenuItem::action("新規作成(N)", Nothing).owned(),
+            MenuItem::submenu(
+                Menu::new("最近使ったファイル(F)")
+                    .items(paths.iter().map(|path| MenuItem::action(*path, Nothing))),
+            )
+            .owned(),
+        ];
+        cx.update(|window, _| {
+            let (_, opening) = fit_width(parent, window, at(window, 0.), None);
+            // The room is what is left of the window, from where the submenu opens.
+            assert!(opening.child.left > px(0.), "{opening:?}");
+            let end = opening.child.left + opening.child.room;
+            assert!((end - (window.viewport_size().width - px(4.))).abs() < px(1.));
+            names_of(&fit_width(items, window, opening.child, None).0)
+        })
+    }
+
+    #[gpui::test]
+    fn a_long_path_keeps_its_file_name_in_the_room_of_a_narrow_window(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        let shown = recent_files_shown(
+            cx,
+            &[
+                r"1 C:\work\files\a-very-long-folder-name-inside\another-long-folder-name-inside\second-long-file-name.md  [UTF-8]",
+            ],
+        );
+        // The start and `…` and the file name with the encoding stay; the end is not cut.
+        assert!(shown[0].starts_with(r"1 C:"), "{}", shown[0]);
+        assert!(shown[0].contains('…'), "{}", shown[0]);
+        assert!(
+            shown[0].ends_with(r"\second-long-file-name.md  [UTF-8]"),
+            "{}",
+            shown[0]
+        );
+    }
+
+    #[gpui::test]
+    fn a_path_that_fits_the_room_is_not_shortened(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        let path = r"3 C:\work\files\p473.txt  [UTF-8]";
+        let shown = recent_files_shown(cx, &[path]);
+        assert_eq!(shown, [path]);
     }
 
     #[gpui::test]

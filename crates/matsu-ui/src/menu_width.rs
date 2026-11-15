@@ -21,12 +21,21 @@ use gpui::{Pixels, Window, px};
 
 /// What gpui-component allows a menu when nothing is set; a menu never gets less.
 const DEFAULT_MAX_WIDTH: f32 = 500.0;
-/// What a label needs besides its text: the padding, the column of the check mark or the icon,
-/// the key of the item and the arrow of a submenu. Too much does no harm (`max_w` only limits);
-/// too little would wrap a label.
-const SLACK: f32 = 90.0;
-/// The room kept to the window's edges (the popups snap to the window with this margin).
-const MARGIN: f32 = 8.0;
+/// The room kept to the window's edges: the popups snap to the window with this margin
+/// (`snap_to_window_with_margin(Edges::all(EDGE_PADDING))` in gpui-component).
+const MARGIN: f32 = 4.0;
+/// What gpui-component puts around the rows of a menu (`popup_menu.rs`, `render`/`render_item`):
+/// `p_1` on the list (4 px on both sides), `INNER_PADDING` 8 px on both sides of an item, and the
+/// 1 px border of the popup.
+const CHROME: f32 = 8.0 + 16.0 + 2.0;
+/// The icon of a row (`Icon::xsmall`, `size_3`) and the gap after it (`gap_x_1`).
+const ICON: f32 = 12.0;
+const GAP: f32 = 4.0;
+/// The gap before the arrow of a submenu (`gap_2`) and the arrow (`IconName::ChevronRight`,
+/// `xsmall`).
+const ARROW: f32 = 8.0 + 12.0;
+/// The least width of a list (`min_w(rems(8.))`), in rems.
+const MIN_REMS: f32 = 8.0;
 /// A submenu that opens on the left ends this far right of its parent's left edge
 /// (gpui-component: `left: -px(16.)` with the right corner as the anchor).
 const LEFT_OVERLAP: f32 = 16.0;
@@ -40,6 +49,56 @@ const OVERLAP: f32 = 8.0;
 const TEXT_REM: f32 = 0.875;
 
 const ELLIPSIS: char = '…';
+
+/// The kind of a row: what stands after the label differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Row {
+    Action,
+    Submenu,
+}
+
+/// How the rows of a menu are laid out, as far as the width goes (`popup_menu.rs`
+/// `render_item`).
+///
+/// A row has a column before the label when any item has an icon or a check mark
+/// (`has_left_icon`): [`ICON`] and [`GAP`]. With the menu icons on (`menu_icons`) an action is an
+/// element with its own column of `icons` pixels and a gap, and a submenu has an invisible icon
+/// as wide as that column.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Layout {
+    /// The width of the column of the pictures of `menu_icons`, when they are on.
+    pub icons: Option<Pixels>,
+    /// Whether an item has a check mark (the column before the label).
+    pub checks: bool,
+    /// Whether the menu has a submenu (with the icons on, it gives every row the column).
+    pub submenus: bool,
+}
+
+impl Layout {
+    /// What a row of kind `row` takes besides its label, the padding of the list included.
+    fn extra(self, row: Row) -> Pixels {
+        let column = px(ICON + GAP);
+        let left = self.icons.is_some() && self.submenus || self.checks;
+        let lead = match (row, self.icons) {
+            (Row::Action, Some(icons)) => {
+                (if left { column } else { Pixels::ZERO }) + icons + px(GAP)
+            }
+            (Row::Submenu, Some(icons)) => column + icons + px(GAP),
+            (_, None) => {
+                if left {
+                    column
+                } else {
+                    Pixels::ZERO
+                }
+            }
+        };
+        let trail = match row {
+            Row::Action => Pixels::ZERO,
+            Row::Submenu => px(ARROW),
+        };
+        lead + trail + px(CHROME)
+    }
+}
 
 /// Where a menu is and how much room it has: its left edge in the window and the widest it may be.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -106,19 +165,32 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
 }
 
 /// The measure of the text of the menus, and the room a menu has.
+#[derive(Clone, Copy)]
 pub(crate) struct Fit<'a> {
     window: &'a Window,
     place: Place,
+    layout: Layout,
 }
 
 impl<'a> Fit<'a> {
-    pub(crate) fn new(window: &'a Window, place: Place) -> Self {
+    pub(crate) fn new(window: &'a Window, place: Place, layout: Layout) -> Self {
         // Room for a label at least, in a window that is smaller than that.
-        let room = place.room.max(px(SLACK * 2.0));
+        let room = place.room.max(px(200.0));
         Self {
             window,
             place: Place { room, ..place },
+            layout,
         }
+    }
+
+    /// The same, for the rows of another menu (a submenu measured by its parent).
+    pub(crate) fn with(&self, layout: Layout) -> Fit<'a> {
+        Fit { layout, ..*self }
+    }
+
+    /// How the rows of this menu are laid out.
+    pub(crate) fn layout(&self) -> Layout {
+        self.layout
     }
 
     fn measure(&self, text: &str) -> Pixels {
@@ -131,35 +203,37 @@ impl<'a> Fit<'a> {
     }
 
     /// `label`, cut with `…` if it needs more than the menu's room; borrowed when it fits.
-    pub(crate) fn label<'l>(&self, label: &'l str) -> Cow<'l, str> {
-        shorten(label, self.place.room - px(SLACK), &|text| {
+    pub(crate) fn label<'l>(&self, label: &'l str, row: Row) -> Cow<'l, str> {
+        shorten(label, self.place.room - self.layout.extra(row), &|text| {
             self.measure(text)
         })
     }
 
     /// [`label`](Self::label) for a text the caller owns: kept as it is when it fits, so that
     /// nothing is copied.
-    pub(crate) fn owned(&self, label: String) -> String {
-        match self.label(&label) {
+    pub(crate) fn owned(&self, label: String, row: Row) -> String {
+        match self.label(&label, row) {
             Cow::Owned(cut) => cut,
             Cow::Borrowed(_) => label,
         }
     }
 
     /// The width a menu needs for the (already shortened) label `label`.
-    pub(crate) fn width_of(&self, label: &str) -> Pixels {
-        self.measure(label) + px(SLACK)
+    pub(crate) fn width_of(&self, label: &str, row: Row) -> Pixels {
+        self.measure(label) + self.layout.extra(row)
     }
 
     /// The width a submenu would like for `label` if it had all the room of the window.
-    pub(crate) fn natural(&self, label: &str) -> Pixels {
+    pub(crate) fn natural(&self, label: &str, row: Row) -> Pixels {
         let most = self.window.viewport_size().width - px(MARGIN * 2.0);
-        self.width_of(label).min(most)
+        self.width_of(label, row).min(most)
     }
 
     /// How the menu opens its submenus; `own` is the width its widest item needs and `child` the
     /// width its widest submenu would like (zero without one).
     pub(crate) fn opening(&self, own: Pixels, child: Pixels) -> Opening {
+        // A list is never narrower than `min_w`.
+        let own = own.max(self.window.rem_size() * MIN_REMS);
         opening(self.window.viewport_size().width, self.place, own, child)
     }
 }
@@ -276,7 +350,7 @@ mod tests {
         // window less the margin; the left side has no room.
         let open = opening(px(600.0), place(0.0), px(200.0), px(584.0));
         assert_eq!(open.child.left, px(192.0));
-        assert_eq!(open.child.room, px(400.0));
+        assert_eq!(open.child.room, px(404.0));
         // gpui-component takes the right: its left edge and `max_w` stay inside the window.
         assert!(open.max_width <= px(600.0));
     }
@@ -285,8 +359,8 @@ mod tests {
     fn a_menu_near_the_right_edge_opens_its_submenu_on_the_left_with_the_room_there() {
         let open = opening(px(600.0), place(400.0), px(200.0), px(584.0));
         // The room on the left: from the margin to 16 px after the parent's left edge.
-        assert_eq!(open.child.room, px(408.0));
-        assert_eq!(open.child.left, px(8.0));
+        assert_eq!(open.child.room, px(412.0));
+        assert_eq!(open.child.left, px(4.0));
         // gpui-component takes the left: `max_w` and the left edge pass the window's edge.
         assert!(open.max_width + px(400.0) > px(600.0));
     }
