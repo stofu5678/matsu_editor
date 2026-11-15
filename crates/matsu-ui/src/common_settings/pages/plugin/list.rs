@@ -26,6 +26,8 @@ pub(super) const URL: &str = "plugin_url";
 pub(super) const OPTION: &str = "plugin_option";
 pub(super) const LIST: &str = "plugin_list";
 pub(super) const SELECTED: &str = "plugin_selected";
+/// What the user agreed to on this page and `plugins.ini` does not have yet ([`rows::Agreed`]).
+pub(super) const AGREED: &str = "plugin_agreed";
 
 const SELECTED_BG: u32 = 0x2f6fd0;
 const BORDER: u32 = 0xaaaaaa;
@@ -37,6 +39,11 @@ const LABEL_WIDTH: f32 = 80.0;
 fn selected_row(values: &Values) -> Option<&rows::Row> {
     let index = usize::try_from(values.int(SELECTED)).ok()?;
     values.rows(LIST).get(index)
+}
+
+/// The agreements made on this page.
+fn agreed_of(values: &Values) -> rows::Agreed {
+    rows::Agreed::from_rows(values.rows(AGREED))
 }
 
 /// 新規プラグインを追加 can be used while the plugins are switched on (`EnablePluginPropInput`).
@@ -52,18 +59,15 @@ pub(super) fn can_remove(values: &Values) -> bool {
 /// 有効にする can be used on a plugin that MATSU can run and that is not enabled (or was enabled and
 /// has changed).
 pub(super) fn can_enable(values: &Values) -> bool {
-    // A plugin that was stopped by failures can be enabled again also while the page shows it as on
-    // (the page was opened before the failures).
-    selected_row(values).is_some_and(|row| {
-        rows::can_enable(row)
-            && (row[rows::CONSENT] != "on"
-                || crate::macros::plugin_call::is_stopped(&row[rows::ID]))
-    })
+    // A plugin that three failures stopped can be enabled again: it is not "on" then.
+    selected_row(values)
+        .is_some_and(|row| rows::can_enable(row) && rows::standing(row) != rows::Standing::On)
 }
 
 /// 無効にする can be used on a plugin that is enabled, or stopped for a change.
 pub(super) fn can_disable(values: &Values) -> bool {
-    selected_row(values).is_some_and(|row| rows::has_plugin(row) && row[rows::CONSENT] != "off")
+    selected_row(values)
+        .is_some_and(|row| rows::has_plugin(row) && rows::agreement(row) != rows::Agreement::Off)
 }
 
 /// 試しに実行 can be used on a plugin that can run and that has a command.
@@ -78,7 +82,7 @@ pub(super) fn can_run_test(values: &Values) -> bool {
 pub(super) fn can_open_options(values: &Values) -> bool {
     selected_row(values).is_some_and(|row| {
         rows::can_enable(row)
-            && row[rows::CONSENT] == "on"
+            && rows::standing(row) == rows::Standing::On
             && row
                 .get(rows::OPTIONS)
                 .and_then(|n| n.parse::<usize>().ok())
@@ -159,14 +163,21 @@ pub(super) fn draw(
                     spec.columns
                         .iter()
                         .zip(row)
-                        .filter(|(c, _)| c.width > 0)
-                        .map(|(c, text)| {
+                        .enumerate()
+                        .filter(|(_, (c, _))| c.width > 0)
+                        .map(|(column, (c, text))| {
+                            // The words of the state are made now, from what the row is.
+                            let text = if column == rows::STATE {
+                                rows::shown_state(row)
+                            } else {
+                                text.clone()
+                            };
                             div()
                                 .w(width(c.width))
                                 .px_1()
                                 .overflow_hidden()
                                 .whitespace_nowrap()
-                                .child(text.clone())
+                                .child(text)
                         }),
                 )
                 .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
@@ -277,8 +288,10 @@ pub(super) fn add_folder(
     list[index] = rows::row_of(index, &settings.table[index], Some(dirs), &consent);
     // A plugin that is added is off until the user enables it, also when the folder was enabled
     // before (and removed in this dialog): adding must not bring an agreement back.
-    rows::set_consent(&mut list[index], false, "");
+    let mut agreed = agreed_of(dialog.values());
+    rows::set_consent(&mut list[index], &mut agreed, false, "");
     dialog.set_rows(LIST, list, cx);
+    dialog.set_rows(AGREED, agreed.to_rows(), cx);
     select(dialog, index, cx);
     Ok(index)
 }
@@ -480,12 +493,15 @@ pub(super) fn enable_row_checked(
         );
     }
     crate::macros::plugin_call::reset(cx, &row[rows::ID].clone());
+    let mut agreed = agreed_of(dialog.values());
     rows::set_consent(
         row,
+        &mut agreed,
         true,
         &matsu_config::plugins::consent::manifest_text(&files),
     );
     dialog.set_rows(LIST, list, cx);
+    dialog.set_rows(AGREED, agreed.to_rows(), cx);
     Ok(())
 }
 
@@ -500,8 +516,10 @@ pub(super) fn disable_selected(
     };
     let mut list = dialog.values().rows(LIST).to_vec();
     if let Some(row) = list.get_mut(index).filter(|row| rows::has_plugin(row)) {
-        rows::set_consent(row, false, "");
+        let mut agreed = agreed_of(dialog.values());
+        rows::set_consent(row, &mut agreed, false, "");
         dialog.set_rows(LIST, list, cx);
+        dialog.set_rows(AGREED, agreed.to_rows(), cx);
     }
 }
 
@@ -518,8 +536,10 @@ pub(super) fn remove_selected(
     if !list.get(index).is_some_and(rows::has_plugin) {
         return;
     }
-    rows::uninstall(&mut list, index, dirs);
+    let mut agreed = agreed_of(dialog.values());
+    rows::uninstall(&mut list, &mut agreed, index, dirs);
     dialog.set_rows(LIST, list, cx);
+    dialog.set_rows(AGREED, agreed.to_rows(), cx);
 }
 
 /// 削除 asks first (`STR_PROPCOMPLG_DELETE`, with the name of the folder).
@@ -624,7 +644,8 @@ pub(super) fn refresh_states(
     let dirs = super::search_dirs(cx);
     let saved = rows::consent_of(dirs.as_ref());
     let mut list = dialog.values().rows(LIST).to_vec();
-    if rows::refresh_consent(&mut list, dirs.as_ref(), &saved) {
+    let agreed = agreed_of(dialog.values());
+    if rows::refresh_consent(&mut list, &agreed, dirs.as_ref(), &saved) {
         dialog.set_rows(LIST, list, cx);
     }
 }

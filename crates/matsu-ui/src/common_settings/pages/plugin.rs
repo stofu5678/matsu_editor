@@ -112,6 +112,8 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
         Item::Hidden(vec![
             Control::choice(list::SELECTED, "", "", -1, &[]),
             Control::table(list::LIST, "", rows::spec()).named("プラグイン一覧"),
+            // What the user agreed to on this page; OK writes it to `plugins.ini` (not to `matsu.ini`).
+            Control::table(list::AGREED, "", rows::agreed_spec()).named("同意したファイル"),
         ]),
     ])
 }
@@ -132,14 +134,17 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     for row in after.rows(list::LIST) {
         let id = row[rows::ID].as_str();
         if !id.is_empty()
-            && (all_off || row[rows::CONSENT] == "off" || row[rows::CODE] == "deleted")
+            && (all_off
+                || rows::agreement(row) == rows::Agreement::Off
+                || row[rows::CODE] == "deleted")
         {
             crate::macros::plugin_call::shutdown(env.cx, id);
         }
     }
     let path = dirs.consent_file();
     let mut file = matsu_config::plugins::consent::ConsentFile::load(&path);
-    if rows::write_consent(after.rows(list::LIST), &mut file) {
+    let agreed = rows::Agreed::from_rows(after.rows(list::AGREED));
+    if rows::write_consent(after.rows(list::LIST), &agreed, &mut file) {
         // A file that cannot be written leaves the choice for this session only, as the settings do.
         let _ = file.save(&path);
     }

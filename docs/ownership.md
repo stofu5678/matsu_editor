@@ -11,7 +11,7 @@ Rust の「だれが値を持つか」「状態をどう持つか」「長く生
 状態を文字列で持つと、取りうる値がコンパイラに分からず、`match` の取りこぼしも、別の意味の混ざりも見つからない。文字列にしてよいのは、`matsu.ini`・`plugins.ini` に書くときと、画面に出すときだけ。読み込んだらすぐ enum にし、書くときに文字列にする。
 
 - よい例: `crates/matsu-config/src/plugins/consent.rs` の `Consent`（`Off`・`On`・`Changed(Changes)`）。変更の中身が `Changed` の中にあり、`On` と取り違えられない
-- 悪い例（#449）: `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs` の行は、同意の状態を `"on"`・`"changed"`・`"stopped"` の文字列で持つ（`row[CONSENT]`）。保存前の同意の中身（`row[MANIFEST]`）も同じ行に入っている。表示を直す処理を足すたびに、同意や「失敗で停止」が消える不具合が 3 回続いた
+- 直した例（#449、#457 で直した）: `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs` の行は、同意の状態を `Agreement`（`Off`・`On`・`Changed`）で扱い、「失敗で停止」は持たない。停止は `plugin_call::is_stopped` が持ち、`standing(row)` が読むたびに `Standing::Stopped` を作る。保存前の同意（manifest）は行の列でなく、ページの別の値 `Agreed` が持つ。画面の文言は、描画するとき（`shown_state`）にだけ作る。表を保存する `Vec<String>` の行は、`Agreement` を文字にして置く入れ物にとどまる。表示を直す処理を足すたびに、同意や「失敗で停止」が消える不具合が 3 回続いた、元の形はこの修正で消えた
 - 状態は、互いに関係のないものを 1 つにまとめない。「画面に出す状態」「保存前の同意」「実行時の停止」は、持ち主が別
 
 ## 2. 1 つの値の持ち主は 1 つ
@@ -95,7 +95,6 @@ ownership のレビューは、変更された部分だけを、次の順で見�
 
 | もの | 場所 | 直し方 |
 |---|---|---|
-| プラグイン設定の行の状態（#449）。同意・停止・保存前の同意を文字列と行の文字列の列で持つ | `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs`（`row[CONSENT]`、`row[MANIFEST]`、`STOPPED`） | 行の状態を enum にする。表示の文字列は、描画するときだけ作る。保存前の同意（manifest）と、実行時の停止（`plugin_call::is_stopped`）は、行の外の持ち主に分ける |
 | アウトラインの窓の位置を `Cell` で持つ | `crates/matsu-ui/src/outline/pane.rs`（`shown_place`・`float_rect`・`float_shown`・`drawn_side`） | 描画中に書く値と、設定の値を分け、`&mut self` で更新できる所（描画の前後）に移す。どうしても描画中に書くものだけ、理由つきで `Cell` に残す |
 | アウトラインの `LineSource::line` が `Vec<char>` を返す | `crates/matsu-outline/src/source.rs`、`crates/matsu-ui/src/outline/pane.rs`（実装） | 印刷の `LineSource::read_line`（呼ぶ側のバッファを使い回す）に合わせる。解析が文字の位置で見る部分は、バッファの `Vec<char>` を呼ぶ側が持つ |
 | 印刷の設定ダイアログの下書きの二重の状態 | `crates/matsu-ui/src/print_setting/dialog.rs`（`settings`・`original`・`draft`・入力欄の `Entity<InputState>`） | 入力欄が持つ値と `draft` の値のどちらが正しいかを決める。今は `keep_current` で集めて `draft` と `settings` の両方に書く。正しいほうを 1 つにして、もう一方はそのつど読む |
