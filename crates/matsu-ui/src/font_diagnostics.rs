@@ -403,7 +403,7 @@ fn collect(cx: &App, settings: &ViewSettings, type_fonts: Vec<(usize, String)>) 
         ..used.font()
     });
     let used_font = used.describe();
-    let shell_font = crate::view::text_font::for_shell(used, font_size, cx).describe();
+    let shell_font = crate::view::text_font::for_shell(used, cx).describe();
     let size = gpui::px(font_size);
     let advances = PROBE_CHARS
         .iter()

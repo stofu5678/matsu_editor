@@ -120,6 +120,10 @@ pub(crate) fn choose(
 #[cfg(not(test))]
 const MONOSPACE_PROBES: [char; 5] = ['i', 'm', 'W', '0', '.'];
 
+/// The size the probes are measured at, in pixels.
+#[cfg(not(test))]
+const MEASURE_SIZE: f32 = 100.0;
+
 /// How much the advances of the probes may differ, relative to the widest, in a monospaced font
 /// (measuring noise from hinting and rounding).
 const MONOSPACE_TOLERANCE: f32 = 0.02;
@@ -191,11 +195,11 @@ pub(crate) fn for_shell_with(
 
 /// The font for the shell tab, on this OS. Whether the editor's font is monospaced is measured
 /// once per family.
-pub(crate) fn for_shell(editor: TextFont, size: f32, cx: &App) -> TextFont {
+pub(crate) fn for_shell(editor: TextFont, cx: &App) -> TextFont {
     for_shell_with(
         Os::current(),
         editor,
-        |font| is_monospaced(font, size, cx),
+        |font| is_monospaced(font, cx),
         |family| installed(family, cx),
     )
 }
@@ -203,12 +207,18 @@ pub(crate) fn for_shell(editor: TextFont, size: f32, cx: &App) -> TextFont {
 /// In tests the text system has no real fonts: every font counts as monospaced, so the shell tab
 /// has the font it was given. The decision is tested through [`for_shell_with`].
 #[cfg(test)]
-fn is_monospaced(_font: &TextFont, _size: f32, _cx: &App) -> bool {
+fn is_monospaced(_font: &TextFont, _cx: &App) -> bool {
     true
 }
 
 #[cfg(not(test))]
-fn is_monospaced(font: &TextFont, size: f32, cx: &App) -> bool {
+/// The advances are measured at one fixed size ([`MEASURE_SIZE`], large so that hinting and rounding
+/// are small against the advances), whatever size the shell is drawn at, so the family alone decides
+/// the answer and is the cache key. A cached answer never goes stale within a process: the answer for
+/// a family at that size does not change while the program runs (a font installed meanwhile is not
+/// noticed until the next start, as with `installed`).
+#[cfg(not(test))]
+fn is_monospaced(font: &TextFont, cx: &App) -> bool {
     static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let key = font.family.to_string();
@@ -219,7 +229,7 @@ fn is_monospaced(font: &TextFont, size: f32, cx: &App) -> bool {
     let id = system.resolve_font(&font.font());
     let advances: Vec<f32> = MONOSPACE_PROBES
         .iter()
-        .filter_map(|&ch| system.advance(id, gpui::px(size), ch).ok())
+        .filter_map(|&ch| system.advance(id, gpui::px(MEASURE_SIZE), ch).ok())
         .map(|s| f32::from(s.width))
         .collect();
     let result = advances_are_monospaced(&advances);
