@@ -93,10 +93,16 @@ fn fill_nodes(
             MenuNode::Submenu {
                 label, children, ..
             } => {
+                // The submenu takes the letters too, as the one of `menu_bar::fill` does.
+                let keys = key_list(children);
                 let (children, answer, focus) = (children.clone(), answer.clone(), focus.clone());
-                menu.submenu(plain_label(label), window, cx, move |sub, window, cx| {
+                let fill_again: Rebuild = Rc::new(move |sub, window, cx| {
                     let sub = sub.action_context(focus.clone());
                     fill_nodes(sub, &children, &answer, &focus, window, cx)
+                });
+                menu.submenu(plain_label(label), window, cx, move |sub, window, cx| {
+                    popup_keys::register(&cx.entity(), keys.clone(), fill_again.clone(), cx);
+                    fill_again(sub, window, cx)
                 })
             }
         };
