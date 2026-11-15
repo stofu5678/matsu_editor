@@ -191,7 +191,7 @@ pub(crate) fn plugin_icon() -> Option<usize> {
 const F_PLUGCOMMAND: u16 = 3;
 
 /// `F_WINCLOSE`: 閉じる.
-const WINCLOSE: u16 = 31320;
+pub(super) const WINCLOSE: u16 = 31320;
 
 /// The close button of the toolbar row of a tab that is not an editor: Sakura's button of
 /// `F_WINCLOSE`, with its picture.

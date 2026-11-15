@@ -72,9 +72,17 @@ pub(super) fn gap_before(index: usize, group_num: usize) -> bool {
 
 impl Workspace {
     /// The function key bar, if it is shown at `place`.
+    ///
+    /// `own` is set on a tab that is not an editor (a preview, a shell, the AI log). The bar belongs to
+    /// the window, so it stays, with the same height and place (nothing below it moves when the tab
+    /// changes). As with the toolbar row of such a tab (`render_own_toolbar_at_scale`), the functions
+    /// of the editor do not apply there: only `F_WINCLOSE`, which closes the tab, can be clicked, and the
+    /// other buttons keep their labels but are grayed out. Keys typed on the keyboard are not the
+    /// business of the bar (a shell keeps them).
     pub(crate) fn render_funckeys(
         &self,
         place: super::FuncKeyPlace,
+        own: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
@@ -103,7 +111,11 @@ impl Workspace {
         .border_color(rgb(0xd0d0d0));
         for (i, key) in keys.into_iter().enumerate() {
             let code = key.code;
-            let enabled = is_available(code);
+            let enabled = if own {
+                code == super::toolbar::WINCLOSE
+            } else {
+                is_available(code)
+            };
             let button =
                 super::semantics::funckey(div().id(("function-key", i)), i + 1, &key.label)
                     .debug_selector(|| format!("function-key-{i}"))

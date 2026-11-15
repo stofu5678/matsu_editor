@@ -775,7 +775,19 @@ impl Render for Workspace {
             title
         });
         crate::doc_window::sync(window, editor, cx);
-        let status = self.content.panel().status(cx);
+        let mut status = self.content.panel().status(cx);
+        // A tab without a status bar (a preview, the AI log) keeps an empty row of it while the function
+        // key bar is at the bottom, so that bar does not move when the tab changes.
+        let funckeys = crate::bars::current(cx);
+        if status.is_none()
+            && funckeys.funckeys
+            && funckeys.funckey_place == crate::bars::FuncKeyPlace::Bottom
+        {
+            status = Some(crate::status::StatusInfo {
+                message_only: true,
+                ..Default::default()
+            });
+        }
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = if own {
             None
@@ -809,17 +821,17 @@ impl Render for Workspace {
         let minimap = minimap_shown.then(|| self.minimap.clone());
         let topmost = crate::window_ops::is_topmost(window, cx);
         let (toolbar, funckeys_top, funckeys_bottom) = if own {
-            // The toolbar row keeps the top of the window where it is on every kind of tab.
+            // The toolbar row and the function key bar keep their places on every kind of tab.
             (
                 self.render_own_toolbar_at_scale(topmost, window.scale_factor(), cx),
-                None,
-                None,
+                self.render_funckeys(crate::bars::FuncKeyPlace::Top, true, window, cx),
+                self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, true, window, cx),
             )
         } else {
             (
                 self.render_toolbar_at_scale(topmost, window.scale_factor(), cx),
-                self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx),
-                self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx),
+                self.render_funckeys(crate::bars::FuncKeyPlace::Top, false, window, cx),
+                self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, false, window, cx),
             )
         };
         let body = match (preview, terminal, ai_log) {

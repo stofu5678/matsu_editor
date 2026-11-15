@@ -213,7 +213,7 @@ fn the_function_key_bar_is_where_the_setting_says(cx: &mut TestAppContext) {
         handle
             .update(cx, |_, window, app| {
                 ws.update(app, |ws, cx| {
-                    ws.render_funckeys(place, window, cx).is_some()
+                    ws.render_funckeys(place, false, window, cx).is_some()
                 })
             })
             .unwrap()

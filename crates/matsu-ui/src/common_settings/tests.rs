@@ -636,7 +636,7 @@ fn ok_shows_and_hides_the_toolbar_and_the_function_keys_in_every_window(cx: &mut
         let bottom = handle
             .update(cx, |_, window, app| {
                 ws.update(app, |ws, cx| {
-                    ws.render_funckeys(FuncKeyPlace::Bottom, window, cx)
+                    ws.render_funckeys(FuncKeyPlace::Bottom, false, window, cx)
                         .is_some()
                 })
             })
