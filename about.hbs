@@ -76,6 +76,11 @@ The source of the packages is on https://crates.io/crates/NAME/VERSION and in th
 named for each. For the packages under the Mozilla Public License 2.0 the source code is
 there, too; MATSU Editor does not modify them.
 
+One package is modified: gpui-pre-windows 0.3.8 (part of GPUI, Apache License 2.0) is included in the
+source tree as third_party/gpui-pre-windows, with src/directx_atlas.rs changed to upload glyphs
+through a staging texture; the file carries a notice, and the change is described in
+third_party/gpui-pre-windows/MATSU-CHANGES.md.
+
 Licenses in this list:
 {{! No counts: cargo-about counts our own crates too, so a new crate of ours would change them. }}
 {{#each overview}}
