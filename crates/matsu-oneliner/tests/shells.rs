@@ -522,6 +522,61 @@ mod powershell {
     }
 
     #[test]
+    fn a_line_that_starts_with_a_filter_gets_the_text() {
+        for (line, text, want) in [
+            ("ForEach-Object { $_.ToUpper() }", "b\nc\na", "B\nC\nA"),
+            ("% { $_ * 2 }", "ab\ncd", "abab\ncdcd"),
+            ("? { $_ -like 'a*' }", "ab\ncd\nax", "ab\nax"),
+            ("Sort-Object", "b\nc\na", "a\nb\nc"),
+        ] {
+            for (shell, done, output) in ps(line, text, OutputKind::Replace) {
+                assert_eq!(output, want, "{shell}: {line}");
+                assert_eq!(done.exit.code, Some(0), "{shell}: {line}");
+                assert!(done.error.is_empty(), "{shell}: {line}: {}", done.error);
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_that_is_not_a_filter_does_not_get_the_text() {
+        for (shell, done, output) in ps("Get-Date -Format yyyy", "abc", OutputKind::Replace) {
+            assert_eq!(done.exit.code, Some(0), "{shell}");
+            assert_eq!(output.trim().len(), 4, "{shell}: {output:?}");
+            assert!(done.error.is_empty(), "{shell}: {}", done.error);
+        }
+    }
+
+    #[test]
+    fn a_failing_line_without_input_gets_the_hint() {
+        let hint = matsu_oneliner::powershell::HINT;
+        // (an `exit` in the line ends the script before the hint: the user chose that code)
+        for line in [
+            "throw 'boom'",
+            "Write-Error 'x'",
+            "Get-Item /no/such/path-qzx",
+        ] {
+            for (shell, done, output) in ps(line, "abc", OutputKind::Window) {
+                assert!(done.exit.code.is_some_and(|c| c != 0), "{shell}: {line}");
+                assert!(done.error.contains(hint), "{shell}: {line}: {}", done.error);
+                assert!(!output.contains(hint), "{shell}: {line}");
+            }
+        }
+        // a line that uses `$input`, a piped line and a line that succeeds get none
+        for line in [
+            "$input | % { throw 'boom' }",
+            "% { throw 'boom' }",
+            "'fine'",
+        ] {
+            for (shell, done, _) in ps(line, "abc", OutputKind::Window) {
+                assert!(
+                    !done.error.contains(hint),
+                    "{shell}: {line}: {}",
+                    done.error
+                );
+            }
+        }
+    }
+    #[test]
     fn powershell_exit_codes() {
         for (line, code) in [
             ("exit 3", 3),

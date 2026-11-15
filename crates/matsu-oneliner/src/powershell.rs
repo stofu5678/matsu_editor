@@ -32,6 +32,15 @@
 //!   (as the script does), and a `return` in the line skips whatever the script puts after the
 //!   line. A mid-line failure is therefore a failure even when a later command succeeds: the
 //!   caller changes nothing and shows the error, which is the safe side for a filter.
+//! * A line that starts with a command that only filters or reshapes its input (`ForEach-Object`,
+//!   `Where-Object`, `Sort-Object`, ...: [`FILTERS`]) is run as if it began with `$input | `
+//!   (decision of 2026-11-16: `ForEach-Object { $_.ToUpper() }` got no input and `$_` was null).
+//!   The line of the user is not changed in what is shown; only the script has the prefix.
+//!   Every other line gets no pipeline input, so that `Remove-Item` or `Get-ChildItem` never
+//!   take the text as paths.
+//! * A line that does not mention `$input`, was not piped like that and fails gets one more line
+//!   on the standard error ([`HINT`]) that says the selection is read with `$input`. The standard
+//!   error is shown in the output window and never goes into the document.
 
 /// What comes before the line of the user.
 pub const PRELUDE: &str = r#"$ProgressPreference = 'SilentlyContinue'
@@ -41,6 +50,7 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $global:LASTEXITCODE = $null
 $global:__matsu_other = $false
+$global:__matsu_hint = $false
 $__matsu_raw = [Console]::In.ReadToEnd().Replace("`r`n", "`n").Replace("`r", "`n")
 if ($__matsu_raw.Length -eq 0) {
 $__matsu_lines = [string[]]@()
@@ -52,23 +62,118 @@ try {
 $__matsu_lines | & {
 "#;
 
-/// What comes after the line of the user.
+/// What comes after the line of the user. `@@HINT@@` is replaced by [`HINT`].
 pub const EPILOGUE: &str = r#"
 } *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { if ($_.FullyQualifiedErrorId -notlike 'NativeCommandError*') { $global:__matsu_other = $true }; [Console]::Error.WriteLine($_.ToString()) } elseif ($_ -is [System.Management.Automation.WarningRecord]) { [Console]::Error.WriteLine('WARNING: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.VerboseRecord]) { [Console]::Error.WriteLine('VERBOSE: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.DebugRecord]) { [Console]::Error.WriteLine('DEBUG: ' + $_.Message) } elseif ($_ -is [System.Management.Automation.InformationRecord]) { [Console]::Error.WriteLine([string]$_.MessageData) } else { $_ } } | Out-Default
-} catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }
+} catch { [Console]::Error.WriteLine($_.ToString()); if ($global:__matsu_hint) { [Console]::Error.WriteLine('@@HINT@@') }; exit 1 }
 $__matsu_code = $global:LASTEXITCODE
-if (($__matsu_code -is [int]) -and ($__matsu_code -ne 0)) { exit $__matsu_code }
-if ($global:__matsu_other) { exit 1 }
+if (($__matsu_code -is [int]) -and ($__matsu_code -ne 0)) { if ($global:__matsu_hint) { [Console]::Error.WriteLine('@@HINT@@') }; exit $__matsu_code }
+if ($global:__matsu_other) { if ($global:__matsu_hint) { [Console]::Error.WriteLine('@@HINT@@') }; exit 1 }
 exit 0
 "#;
+
+/// The hint written to the standard error when a line that does not use `$input` fails. The
+/// epilogue has it where `@@HINT@@` is. It has no single quote (the script writes it in one).
+pub const HINT: &str =
+    "選択範囲は $input で読めます（例: $input | ForEach-Object { $_.ToUpper() }）";
+
+/// The commands, and their aliases in Windows PowerShell 5.1 and PowerShell 7, that only filter or
+/// reshape what they are piped, in lower case. A line that starts with one is given the text as
+/// its pipeline input.
+///
+/// Left out on purpose:
+///
+/// * `Tee-Object` (`tee`), `Out-File`, `Export-*`, `Set-Content`, `Add-Content`: they write files.
+/// * `Get-Content`, `Get-ChildItem`, `Remove-Item`, `Invoke-*`, and the like: they would take the
+///   text as paths, URLs or commands.
+/// * `Write-Output` (`echo`, `write`) and `Write-Host`: a line that starts with them has its own
+///   argument, and the piped text would be a second input.
+/// * `Compare-Object` (`compare`, `diff`): it needs `-ReferenceObject`, which is not the text.
+/// * `Out-Null`, `Out-Host`, `Out-Default`: they drop or only show the input.
+///
+/// `sort` is an alias of `Sort-Object` in Windows PowerShell 5.1 and in PowerShell 7 on Windows.
+/// In PowerShell 7 on Linux and macOS it is the program `sort`, which reads its standard input; it
+/// is a filter either way, so the text is piped to it there too.
+pub const FILTERS: &[&str] = &[
+    "foreach-object",
+    "%",
+    "foreach",
+    "where-object",
+    "?",
+    "where",
+    "sort-object",
+    "sort",
+    "select-object",
+    "select",
+    "select-string",
+    "sls",
+    "group-object",
+    "group",
+    "measure-object",
+    "measure",
+    "get-unique",
+    "gu",
+    "format-table",
+    "ft",
+    "format-list",
+    "fl",
+    "format-wide",
+    "fw",
+    "format-custom",
+    "fc",
+    "out-string",
+    "convertto-json",
+    "convertto-csv",
+    "convertfrom-json",
+    "convertfrom-csv",
+];
+
+/// Whether `line` mentions `$input` (any case) anywhere.
+pub fn mentions_input(line: &str) -> bool {
+    line.to_ascii_lowercase().contains("$input")
+}
+
+/// Whether the text is piped into `line` as if it began with `$input | `: it does not mention
+/// `$input` and its first command is one of [`FILTERS`].
+pub fn pipes_input(line: &str) -> bool {
+    if mentions_input(line) {
+        return false;
+    }
+    let line = line.trim_start();
+    let end = line
+        .find(|c: char| c.is_whitespace() || matches!(c, '{' | '(' | '|' | ';' | '&'))
+        .unwrap_or(line.len());
+    let (word, rest) = line.split_at(end);
+    let word = word.to_ascii_lowercase();
+    if !FILTERS.contains(&word.as_str()) {
+        return false;
+    }
+    // `foreach ($x in $list) { }` is the statement, not the alias of ForEach-Object
+    if word == "foreach" && rest.trim_start().starts_with('(') {
+        return false;
+    }
+    // `Select-String pattern -Path file` reads the file; the text on top of it would be an error
+    if matches!(word.as_str(), "select-string" | "sls") {
+        let rest = rest.to_ascii_lowercase();
+        if rest.contains("-path") || rest.contains("-literalpath") {
+            return false;
+        }
+    }
+    true
+}
 
 /// The whole script for `line`. A line break before the epilogue keeps a `#` comment at the end of
 /// the line from taking the closing brace with it.
 pub fn script(line: &str) -> String {
     let mut text = String::with_capacity(PRELUDE.len() + line.len() + EPILOGUE.len());
     text.push_str(PRELUDE);
+    if pipes_input(line) {
+        text.push_str("$input | ");
+    } else if !mentions_input(line) {
+        text.push_str("$global:__matsu_hint = $true\n");
+    }
     text.push_str(line);
-    text.push_str(EPILOGUE);
+    text.push_str(&EPILOGUE.replace("@@HINT@@", HINT));
     // PowerShell takes either; the line breaks of Windows are what its own files have
     text.replace("\r\n", "\n").replace('\n', "\r\n")
 }
