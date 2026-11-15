@@ -2,10 +2,18 @@
 
 調査日: 2026-11-16。GPUI（`gpui-pre-windows` 0.3.8）のソースと MATSU のコードを読んだ。Windows では動かしていない（測定は調整役の PC で行う）。ここに書く数のうち、「測った」と書いたものは調整役の測定で、「計算」は GPUI のソースの定義から出した値、「読んだ」はコードを読んだだけで動かしていないもの。推測は「推測」と書く。
 
-結論を先に書く。
+結論を先に書く（2026-11-16 に、調整役の測定で確かめた）。
 
-- いちばん疑わしいのは、**2026-10-09 に調べて分かっていた Adreno の問題を、MATSU の本体に当てていないこと**。文字や画像を GPU のテクスチャ（アトラス）に書き込むたびに、Adreno X1-85 のドライバーがテクスチャを丸ごと複製して解放しない（1 回で 4 MiB）。回避策（`poc/gpui-textview/patches/gpui-pre-windows-atlas-upload.diff`）は試作にしかなく、`Cargo.toml` に `[patch]` はない（[ADR-0004](../adr/0004-ui-framework.md) は「本番では回避策を当てた GPUI を使う」と書いたが、実装していない）。
-- 最小の GPUI のウィンドウの 170 MB、MATSU が起動時に足す約 190 MB、使うほど増える分は、どれも「アトラスへの書き込みの回数」で説明がつく。ただし、**回数は数えていない**（GPUI は数を教えない）ので、確かめは回避策を当てたビルドの測定でする（4 章）。
+- 原因は、**2026-10-09 に調べて分かっていた Adreno の問題を、MATSU の本体に当てていなかったこと**。文字や画像を GPU のテクスチャ（アトラス）に書き込む（`UpdateSubresource`）たびに、Adreno X1-85 のドライバーがテクスチャを丸ごと複製して解放しない（1 回で 4 MiB）。回避策（`poc/gpui-textview/patches/gpui-pre-windows-atlas-upload.diff`）は試作にしかなく、`Cargo.toml` に `[patch]` はなかった（[ADR-0004](../adr/0004-ui-framework.md) は「本番では回避策を当てた GPUI を使う」と書いたが、実装していなかった）。
+- 測定（調整役、ユーザーの PC: Windows 11 Arm64、Adreno X1-85、150 %、起動の 25 秒後）。回避策を当てると、回避策なしの 0.15.0 の 5 分の 1 ほどになった。
+
+| ビルド | ワーキングセット | 専用 | GPU の使用中 | コミット済み |
+|---|---|---|---|---|
+| MATSU 0.15.0（回避策なし） | 397 MB | 411 MB | 359 MB | 407 MB |
+| main c6637f58 に `gpui-pre-windows-atlas-upload.diff` を当てたもの | 73 MB | 80 MB | 27 MB | 75 MB |
+
+- 書き込みの回数は数えていない（GPUI は数を教えない）。1 章の「説明されない約 100 MB」も、この測定で、アトラスへの書き込みによると確かめられた。
+- ユーザーの判断（2026-11-16）: ADR-0004 のとおり、本番に回避策を当てる（別の PR が `third_party/` と `[patch.crates-io]` で行う）。ClearType は続ける。上流の報告はユーザーが出し済み（4 章・5 章）。
 
 ## 1. GPUI の DirectX 描画が確保するもの（読んだ・計算）
 
@@ -81,50 +89,27 @@
 - **変数は新しく作った**。`MATSU_FONT_DIAGNOSTICS` は、起動時に書体の長い報告を出す。こちらは短い行を繰り返し出すので、混ぜると見づらい。ロガーは `MATSU_FONT_DIAGNOSTICS` のものを共有する（`font_diagnostics::install_logger`）ので、GPUI の debug の記録（`Updating ... buffer size from A to B`）が標準エラーに出る。
 - 起動時に 1 回: 資源ごとの 1 つの大きさと作るときの個数、バッファの伸び方の例、ウィンドウの大きさごとの固定の分（1 章の表）。
 - 5 秒ごとに、変わったときだけ 1 行: 開いているウィンドウの数、文書の数、各ウィンドウの論理サイズ・拡大率・実画素数・固定のテクスチャの計算値。
-- **GPUI が教えないもの**: 1 フレームの図形の数（`Scene` は `Window` の非公開の欄）と、アトラスの使用量（`PlatformAtlas` に問い合わせる手段がない）。バッファが伸びたときの記録だけが、1 フレームの大きさの目安になる。アトラスへの書き込みの回数は、診断では見えない（確かめは 4 章）。
+- **GPUI が教えないもの**: 1 フレームの図形の数（`Scene` は `Window` の非公開の欄）と、アトラスの使用量（`PlatformAtlas` に問い合わせる手段がない）。バッファが伸びたときの記録だけが、1 フレームの大きさの目安になる。アトラスへの書き込みの回数は、診断では見えない（回避策あり・なしの測定で確かめた。冒頭）。
 - 何もファイルに書かない。変数がなければ何も出さず、何も起きない。
 - Windows で動かす PowerShell のジョブ: `C:\Users\yamab\ume-sandbox\jobs\gpu-diag-BUILD.ps1`（リポジトリには入れていない。調整役が測定に使う）。長い日本語の文書を開き、`PageDown`/`PageUp` でスクロールし、`ShellTab()` でシェルのタブを開く。別のプロセスで、4000x3000 の画像を含む Markdown を `PreviewTab()` で開く。各段階のワーキングセット、専用バイト、GPU のカウンター（`\GPU Process Memory(pid_N*)` の Local Usage、Shared Usage、Total Committed。GPU がなければ空）を `gpu-diag-<rev>-mem.txt` に、標準エラーを `gpu-diag-<rev>-err.txt` に保存する。マクロの書き方（`.mac`、`PageDown()`、`ShellTab()`、`PreviewTab()`、`Sleep()`）は、サクラのマクロの表と MATSU の機能の説明から書いただけで、**動かしていない**。
 
-## 4. 直し方の案（このPRでは直さない。測定のあとで別のPR）
+## 4. 直し方の案と、ユーザーの判断（2026-11-16）
 
-測定の順序: 先に、**試作の回避策を当てた GPUI で MATSU をビルドして、同じ測定をする**。1 章の説明どおりなら、最小のウィンドウとの差と、使うほどの増え方が大きく減る。減らなければ、原因はここではない。
-
-1. **回避策を本体に当てる**（効果は最大と見ている。ただし、ライセンスと依存、ADR に当たるので、ユーザーの判断）。`[patch.crates-io]` で、手を入れた `gpui-pre-windows` の写しを使う。GPUI の Windows 部分は Apache-2.0。写しには改変の表示がいる。GPUI の版を上げるたびに当て直す（ADR-0004 に書いた手間）。
-2. **アトラスへの書き込みの回数を減らす**（回避策なしでも効く）:
-   - ClearType をやめてグレースケールで描く（アトラスが 1 MiB になり、書き込み 1 回あたりが 4 分の 1。見た目が変わるのでユーザーの判断。`Window` に描画の方式を決める設定がある。使い方は未調査）。
-   - アイコンを最初の描画より前に 1 まとまりにして入れる（個別の書き込みは減らない。効果は小さいと見ている）。
-   - 日本語の文書の字を、最初の描画で一度に入れることはできない（GPUI の API にない）。
-3. **プレビューの画像を小さくする**: 表示する大きさ（画面の幅）に縮めてデコードし、タブを閉じたら `drop_image` で外す。大きな画像を開いたときの増え方を抑える（回避策と無関係に効く）。
+1. **回避策を本体に当てる**: **決まった。別の PR で行う**（`third_party/` に手を入れた `gpui-pre-windows` の写しを置き、`[patch.crates-io]` で使う。GPUI の Windows 部分は Apache-2.0 なので、写しには改変の表示がいる。GPUI の版を上げるたびに当て直す）。上の測定で、効果は確かめた。
+2. **ClearType をやめてグレースケールで描く**: **しない**（ユーザーの選択。ClearType は続ける）。
+3. **プレビューの画像を小さくする**（表示する大きさに縮めてデコードし、タブを閉じたら `drop_image` で外す）: 回避策と無関係に効くが、回避策のあとの数字（73 MB）では急ぎではない。必要になったら別の PR で。
 4. **ウィンドウの固定の分**（64 MiB）は GPUI の作りで、MATSU からは変えられない（上流の話）。
 
-## 5. 上流（GPUI / Zed）への報告の下書き（ユーザーが確かめて出す。AI は出さない）
+## 5. 上流への報告
 
-**これは下書き。ユーザーが自分の PC で再現してから、ユーザーの名前で出す**（CLAUDE.md「ほかの OSS への報告」）。既に同じ現象の issue（zed-industries/zed#56349）がある。新しく出すより、再現の結果と回避策の差分を、その issue へのコメントにするほうがよいかもしれない（コメントに出すのもユーザー）。出す前に、Codex にも確かめさせる。AI を使ったことを書く。
-
-> Title: [Windows / Adreno] Atlas uploads with `UpdateSubresource` grow process memory by a whole texture each time
->
-> Environment: Windows 11 Arm64, Qualcomm Adreno X1-85 (driver 31.0.160.0), GPUI 0.3.8 (`gpui-pre-windows`).
->
-> Steps: run a window that draws text with ClearType on (subpixel atlas, 1024x1024 RGBA = 4 MiB); watch the process's memory while glyphs are first drawn.
->
-> Expected: memory does not grow by more than the new tile.
->
-> Actual (measured in a PoC on 2026-10-09): each `UpdateSubresource` into the in-use atlas texture raises the process's memory by exactly 4.0 MiB, never released; about 60 such regions (about 244 MB) right after start. Not seen on NVIDIA GeForce GTX 1650 or on macOS.
->
-> Workaround that stopped the growth: write each tile into a small `D3D11_USAGE_STAGING` texture and `CopySubresourceRegion` it into the atlas (a change to `directx_atlas.rs` only).
->
-> Not verified: other Adreno drivers, other ARM GPUs, whether `UpdateSubresource1` or a deferred batch of uploads would also avoid it (`D3D11_COPY_NO_OVERWRITE` and `Flush` after each write did not help in the PoC).
->
-> This report was written with the help of an AI tool; I reproduced it myself.
-
-「測った」の値は、2026-10-09 の試作の記録（`ui-framework-result.md`）からで、今回の MATSU では確かめていない。
+ユーザーが出し済み: https://github.com/zed-industries/zed/issues/56349 。AI は投稿しない決まり（CLAUDE.md「ほかの OSS への報告」）なので、下書きは載せない。
 
 ## 6. 確かめたことと、読んだだけのこと
 
 | | |
 |---|---|
-| 測った（調整役、2026-11-16） | 冒頭の表（最小の GPUI、MATSU の起動直後、使ったあと、Sandbox）。`GPUI_DISABLE_DIRECT_COMPOSITION=1` は効かない |
+| 測った（調整役、2026-11-16） | 冒頭の表（最小の GPUI、MATSU の起動直後、使ったあと、Sandbox）と、回避策あり・なしの比較。`GPUI_DISABLE_DIRECT_COMPOSITION=1` は効かない |
 | 測った（2026-10-09、試作） | Adreno での 1 回の書き込みあたり 4.0 MiB の増加と、回避策の効果（`ui-framework-result.md`） |
 | 計算 | 固定のテクスチャ 64.2 MiB（単体テストで式を確かめた）、バッファの伸び方 |
 | 読んだだけ | GPUI の確保と解放の方針、MATSU の描画コード、アイコンとプレビューの画像の扱い |
-| 確かめていない | 本体に回避策が当たっていないこと以外の原因、書き込みの回数、測定した PC の ClearType の有無、ジョブの動作 |
+| 確かめていない | 書き込みの回数、測定した PC の ClearType の有無、`gpu-diag-BUILD.ps1` の動作 |
