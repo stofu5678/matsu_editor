@@ -2,10 +2,12 @@ name: PR title
 
 # PRs are squash-merged, so the PR title becomes the commit on main.
 # Release automation reads it as a Conventional Commit.
-# pull_request_target so the check also works for PRs from forks. It only
-# reads the PR title; never check out or run PR code in this workflow.
+# pull_request, not pull_request_target: the check only reads the PR title, and
+# the read-only token that a PR from a fork gets is enough for a public
+# repository. GitHub blocks pull_request_target by default in public
+# repositories from 2026-12-02. Never check out or run PR code in this workflow.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, synchronize, reopened]
 
 permissions:
