@@ -96,7 +96,7 @@ impl SlotState {
     pub(super) const fn label(self) -> &'static str {
         match self {
             SlotState::Plain => "",
-            SlotState::AiMarked => "生成 AI の枠(実行されません)",
+            SlotState::AiMarked => "生成 AI の枠",
         }
     }
 }

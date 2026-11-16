@@ -54,34 +54,60 @@ const COMMAND: usize = 2;
 const OUTPUT: usize = 3;
 const ASK: usize = 4;
 
-const ASK_YES: &str = "する";
-const ASK_NO: &str = "しない";
-
-/// What the list shows for a place of the result.
-fn output_label(output: AiOutput) -> &'static str {
-    OUTPUT_OPTIONS
-        .iter()
-        .find(|(_, n)| *n == output.number())
-        .map_or(OUTPUT_OPTIONS[1].0, |(label, _)| label)
+/// The cells hold stable values, never the words of the list: the number that `Output` has in the file for the
+/// place of the result, and `1` or `0` for the question (`AskBeforeSend`). The words are made only when the list
+/// is drawn ([`shown`]), so a change of wording cannot change what is saved.
+fn output_token(output: AiOutput) -> String {
+    output.number().to_string()
 }
 
-/// The place that a text of the list stands for; one that is none of them is 次の行に入れる, as the file reads.
-fn output_of_label(label: &str) -> AiOutput {
-    let number = OUTPUT_OPTIONS
-        .iter()
-        .find(|(text, _)| *text == label)
-        .map_or(1, |(_, n)| *n);
-    AiOutput::from_number(number)
+/// The place that a cell stands for; what is no number reads as the file reads it (the next line).
+fn output_of_token(token: &str) -> AiOutput {
+    token
+        .trim()
+        .parse()
+        .map_or_else(|_| AiOutput::default(), AiOutput::from_number)
 }
 
-/// The texts of slot `index` as the list shows them.
+fn ask_token(ask: bool) -> &'static str {
+    if ask { "1" } else { "0" }
+}
+
+/// The question that a cell stands for: only `0` is off, as the file reads `AskBeforeSend`.
+fn ask_of_token(token: &str) -> bool {
+    token != "0"
+}
+
+/// What the list shows in a cell: the words for the place of the result and for the question instead of their
+/// values; the other cells as they are.
+pub(super) fn shown(column: usize, text: &str) -> String {
+    match column {
+        OUTPUT => {
+            let number = output_of_token(text).number();
+            OUTPUT_OPTIONS
+                .iter()
+                .find(|(_, n)| *n == number)
+                .map_or("", |(label, _)| label)
+                .to_owned()
+        }
+        ASK => if ask_of_token(text) {
+            "する"
+        } else {
+            "しない"
+        }
+        .to_owned(),
+        _ => text.to_owned(),
+    }
+}
+
+/// The texts of slot `index` as the row holds them.
 fn row_of(index: usize, one: &AiDestination) -> Row {
     vec![
         index.to_string(),
         one.name.clone(),
         one.command.clone(),
-        output_label(one.output).to_owned(),
-        if one.ask_before_send { ASK_YES } else { ASK_NO }.to_owned(),
+        output_token(one.output),
+        ask_token(one.ask_before_send).to_owned(),
     ]
 }
 
@@ -101,8 +127,8 @@ pub(super) fn table_of(rows: &[Row]) -> AiDestinations {
         *slot = AiDestination {
             name: text(NAME),
             command: text(COMMAND),
-            output: output_of_label(&text(OUTPUT)),
-            ask_before_send: text(ASK) != ASK_NO,
+            output: output_of_token(&text(OUTPUT)),
+            ask_before_send: ask_of_token(&text(ASK)),
         };
     }
     table
@@ -147,8 +173,8 @@ pub(super) fn fields_of(row: &Row) -> Fields {
     Fields {
         name: text(NAME).to_owned(),
         command: text(COMMAND).to_owned(),
-        output: output_of_label(text(OUTPUT)),
-        ask: text(ASK) != ASK_NO,
+        output: output_of_token(text(OUTPUT)),
+        ask: ask_of_token(text(ASK)),
     }
 }
 

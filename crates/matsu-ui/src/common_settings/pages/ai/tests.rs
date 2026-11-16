@@ -3,7 +3,7 @@ use matsu_config::Profile;
 use matsu_config::settings::ai::{AiDestinations, AiOutput};
 
 use super::rows::{
-    Fields, TEMPLATE_OPTIONS, TEMPLATES, apply_template, fields_of, register, rows_of, spec,
+    Fields, TEMPLATE_OPTIONS, TEMPLATES, apply_template, fields_of, register, rows_of, shown, spec,
     table_of, template_of,
 };
 use super::{ASK, COMMAND, ID, LIST, NAME, OUTPUT, SELECTED, TEMPLATE, select};
@@ -42,31 +42,64 @@ fn the_rows_show_the_destinations_and_read_back_as_they_were() {
     let table = AiDestinations::from_profile(&profile(INI));
     let rows = rows_of(&table);
     assert_eq!(rows.len(), 50);
-    assert_eq!(
-        rows[0],
-        ["0", "英訳", "claude -p", "次の行に入れる", "する"]
-    );
-    // An empty slot shows the defaults of the file: the next line, and asking.
-    assert_eq!(rows[1], ["1", "", "", "次の行に入れる", "する"]);
-    assert_eq!(rows[2], ["2", "", "cat", "ログのタブだけ", "しない"]);
+    assert_eq!(rows[0], ["0", "英訳", "claude -p", "1", "1"]);
+    // An empty slot holds the defaults of the file: the next line, and asking.
+    assert_eq!(rows[1], ["1", "", "", "1", "1"]);
+    assert_eq!(rows[2], ["2", "", "cat", "2", "0"]);
     assert_eq!(table_of(&rows), table);
 }
 
 #[test]
-fn the_three_places_of_the_result_have_their_words() {
+fn the_rows_hold_values_and_the_list_makes_the_words_when_it_draws() {
     let mut rows = rows_of(&AiDestinations::default());
-    for (output, word) in [
-        (AiOutput::Replace, "置き換える"),
-        (AiOutput::NextLine, "次の行に入れる"),
-        (AiOutput::LogOnly, "ログのタブだけ"),
+    for (output, token, word) in [
+        (AiOutput::Replace, "0", "置き換える"),
+        (AiOutput::NextLine, "1", "次の行に入れる"),
+        (AiOutput::LogOnly, "2", "ログのタブだけ"),
     ] {
         register(&mut rows, 5, &fields("a", "x", output, true)).unwrap();
-        assert_eq!(rows[5][3], word);
+        assert_eq!(rows[5][3], token);
+        assert_eq!(shown(3, &rows[5][3]), word);
         assert_eq!(fields_of(&rows[5]).output, output);
     }
-    // A text that is none of them reads as the next line, as the file does.
+    assert_eq!(shown(4, "1"), "する");
+    assert_eq!(shown(4, "0"), "しない");
+    assert_eq!(shown(1, "名前"), "名前");
+    // A value that is no number reads as the next line, as the file does.
     rows[5][3] = "?".into();
     assert_eq!(fields_of(&rows[5]).output, AiOutput::NextLine);
+}
+
+#[test]
+fn what_is_saved_does_not_depend_on_the_words_shown() {
+    let table = AiDestinations::from_profile(&profile(INI));
+    let rows = rows_of(&table);
+    // No cell holds a word of the list, so no change of wording can reach the file.
+    let words = [
+        "置き換える",
+        "次の行に入れる",
+        "ログのタブだけ",
+        "する",
+        "しない",
+    ];
+    assert!(
+        rows.iter()
+            .flatten()
+            .all(|cell| !words.contains(&cell.as_str()))
+    );
+    // A cell that holds a word (not the value) is not read as that word: the output is the default
+    // and the question is on, whatever the word says.
+    let mut copy = rows.clone();
+    copy[2][3] = "置き換える".into();
+    copy[2][4] = "しない".into();
+    let got = table_of(&copy);
+    assert_eq!(got.slots[2].output, AiOutput::NextLine);
+    assert!(got.slots[2].ask_before_send);
+    // The values written are the file's.
+    let mut file = profile(INI);
+    assert!(!spec().store(&rows, &mut file).unwrap());
+    assert_eq!(file.get("AI", "Output[002]"), Some("2"));
+    assert_eq!(file.get("AI", "AskBeforeSend[002]"), Some("0"));
 }
 
 #[test]
@@ -78,16 +111,10 @@ fn set_puts_the_fields_in_and_an_empty_command_empties_the_slot() {
         &fields("  要約 ", "codex exec -", AiOutput::Replace, false),
     )
     .unwrap();
-    assert_eq!(
-        rows[4],
-        ["4", "要約", "codex exec -", "置き換える", "しない"]
-    );
-    assert_eq!(
-        rows[0],
-        ["0", "英訳", "claude -p", "次の行に入れる", "する"]
-    );
+    assert_eq!(rows[4], ["4", "要約", "codex exec -", "0", "0"]);
+    assert_eq!(rows[0], ["0", "英訳", "claude -p", "1", "1"]);
     register(&mut rows, 0, &Fields::default()).unwrap();
-    assert_eq!(rows[0], ["0", "", "", "次の行に入れる", "する"]);
+    assert_eq!(rows[0], ["0", "", "", "1", "1"]);
     // A row past the list changes nothing.
     let before = rows.clone();
     register(&mut rows, 50, &fields("x", "y", AiOutput::Replace, true)).unwrap();
@@ -314,10 +341,7 @@ fn ok_writes_ai_and_keeps_the_rest(cx: &mut TestAppContext) {
     choose(cx, OUTPUT, 0);
     check(cx, ASK, false);
     press_set(cx);
-    assert_eq!(
-        list(cx)[9],
-        ["9", "要約", "codex exec -", "置き換える", "しない"]
-    );
+    assert_eq!(list(cx)[9], ["9", "要約", "codex exec -", "0", "0"]);
     assert!(!cx.has_pending_prompt());
     ok(cx);
     let file = ini.profile();
@@ -416,7 +440,7 @@ fn the_template_button_fills_the_fields_and_cancel_writes_nothing(cx: &mut TestA
     }
     press_set(cx);
     assert!(!cx.has_pending_prompt());
-    assert_eq!(list(cx)[0][3], "次の行に入れる");
+    assert_eq!(list(cx)[0][3], "1");
     cancel(cx);
     assert_eq!(ini.bytes(), before);
 }

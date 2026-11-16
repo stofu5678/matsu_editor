@@ -95,7 +95,7 @@ fn draw(dialog: &CommonSettingsDialog, cx: &mut Context<CommonSettingsDialog>) -
             selected: SELECTED,
             prefix: "ai",
             dimmed: |_| false,
-            shown: |_, text| text.to_owned(),
+            shown: rows::shown,
             select,
         },
         dialog,
@@ -111,14 +111,14 @@ fn select(
     window: &mut Window,
     cx: &mut Context<CommonSettingsDialog>,
 ) {
-    let Some(row) = dialog.values().rows(LIST).get(index).cloned() else {
-        return;
-    };
     let number = i32::try_from(index).unwrap_or(-1);
     if dialog.values().int(SELECTED) == number {
         return;
     }
-    let fields = rows::fields_of(&row);
+    // The row is only borrowed to build the owned fields; the borrow ends before the dialog is changed.
+    let Some(fields) = dialog.values().rows(LIST).get(index).map(rows::fields_of) else {
+        return;
+    };
     dialog.set_int(SELECTED, number, cx);
     dialog.set_input(ID, &index.to_string(), window, cx);
     dialog.set_input(NAME, &fields.name, window, cx);
