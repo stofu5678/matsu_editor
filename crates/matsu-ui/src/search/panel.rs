@@ -490,12 +490,16 @@ impl SearchPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let (options, replace) = self
+        // Only what the keys need is copied: the editor stays the owner of the replacement text.
+        let (options, consecutive_all) = self
             .editor
             .read_with(cx, |editor, _| {
-                (editor.search.options(), editor.search.replace.clone())
+                (
+                    editor.search.options(),
+                    editor.search.replace.consecutive_all,
+                )
             })
-            .unwrap_or_else(|_| (SearchOptions::default(), ReplaceSettings::default()));
+            .unwrap_or_else(|_| (SearchOptions::default(), false));
         let mode = self.mode;
         let (find, replacing) = (mode == PanelMode::Find, mode == PanelMode::Replace);
         let searching = mode != PanelMode::Jump;
@@ -543,7 +547,7 @@ impl SearchPanel {
         };
         match used {
             Use::Option(opt) => self.set_option(|o| opt.switch(o), cx),
-            Use::Consecutive => self.set_consecutive(!replace.consecutive_all, cx),
+            Use::Consecutive => self.set_consecutive(!consecutive_all, cx),
             Use::Target(target) => self.set_target(target, cx),
             Use::Area(in_selection) => self.set_area(in_selection, cx),
             Use::Find(direction) => self.find(direction, window, cx),
