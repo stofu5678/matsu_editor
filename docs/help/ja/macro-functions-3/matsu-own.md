@@ -18,5 +18,5 @@
 
 - 表の元: `crates/matsu-commands/src/sakura/macro_functions.rs`（`PreviewTab`、`ShellTab`、`OneLiner0` から `OneLiner49`、`OneLinerDialog`、`AiPrompt0` から `AiPrompt49`、`AiAsk`）。この 6 種は、MATSU Editor が `xtask/src/matsu_extras.rs` で足したものです
 - MATSU のコード: `crates/matsu-ui/src/ui_commands/window/preview_tab.rs`、`shell_tab.rs`、`crates/matsu-ui/src/ui_commands/oneliner/`、`crates/matsu-ui/src/oneliner/flow.rs`（`run_slot`）、`crates/matsu-ui/src/ui_commands/ai/`、`crates/matsu-ui/src/ai_send/`（`run_prompt`）
-- 登録した送り先の一覧（`F_AI_PROMPT_LIST`）と設定（`F_AI_SETTINGS`）は、メニューの項目で、マクロはありません。「そのまま送る」の項目は、関数 `F_AI_PROMPT_n` を呼ぶので、`AiPrompt0` から `AiPrompt49` と同じです
+- 登録した送り先の一覧（`F_AI_PROMPT_LIST`）と設定（`F_AI_SETTINGS`）は、メニューの項目で、マクロはありません。`F_AI_PROMPT_n`、`F_AI_ASK`、`F_AI_SETTINGS` は、共通設定の「キー割り当て」「カスタムメニュー」「メインメニュー」の種別「生成 AI」から選べます（ツールバーには、ボタンの絵がないので置けません）。「そのまま送る」の項目は、関数 `F_AI_PROMPT_n` を呼ぶので、`AiPrompt0` から `AiPrompt49` と同じです
 - 決定: ADR-0024（プレビュー）、ADR-0028（シェル）、ADR-0029（ワンライナー）、ADR-0035（生成 AI に送る）

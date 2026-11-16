@@ -91,6 +91,7 @@ fn right_click(table: AiDestinations) -> Vec<Entry> {
             menus: &menus,
             macros: &Default::default(),
             oneliners: &Default::default(),
+            destinations: &Default::default(),
             keymap: &keymap,
             available: &available,
             lists: &list,

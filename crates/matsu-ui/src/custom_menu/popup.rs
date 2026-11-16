@@ -118,7 +118,8 @@ impl EditorView {
         let oneliner_list = crate::oneliner::OneLinerList(oneliners.clone());
         let rest = ChainedLists(&custom, &macro_list);
         let rest = ChainedLists(&rest, &oneliner_list);
-        let ai_list = crate::ai_send::AiPromptList(crate::ai_send::table(cx));
+        let destinations = crate::ai_send::table(cx);
+        let ai_list = crate::ai_send::AiPromptList(destinations.clone());
         let rest = ChainedLists(&rest, &ai_list);
         let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
         let lists = ChainedLists(&recent, &rest);
@@ -131,6 +132,7 @@ impl EditorView {
                     menus: &menus,
                     macros: &macros,
                     oneliners: &oneliners,
+                    destinations: &destinations,
                     keymap: &self.keymap,
                     available: &Registered,
                     lists: &lists,

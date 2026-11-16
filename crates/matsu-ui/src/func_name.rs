@@ -6,6 +6,8 @@
 //!   `マクロ n (未登録)` when it has no file (`STR_ERR_DLGFUNCLKUP03`);
 //! * a registered one-liner (`F_ONELINER_0` ..., ADR-0029) is named by its entry of `[OneLiner]`, and
 //!   `ワンライナー n (未登録)` when it has no command (MATSU's own wording, as the macros');
+//! * a destination of sending to a generative AI (`F_AI_PROMPT_0` ..., ADR-0035) is named by its entry of `[AI]`, and
+//!   `生成 AI に送る n (未登録)` when it has no command;
 //! * the right-click menu and the custom menus are named by their menus (`Custmenu2Name`);
 //! * any other function is the label of the string table (`LS( funccode )`), and a code with none is
 //!   `-- 不明 --` (`F_DISABLE`'s string).
@@ -18,6 +20,7 @@ use std::cell::OnceCell;
 use gpui::App;
 use matsu_commands::sakura::FUNCTIONS;
 use matsu_config::settings::CustomMenus;
+use matsu_config::settings::ai::{self, AiDestinations};
 use matsu_config::settings::macros::{RegisteredMacros, index_of_function};
 use matsu_config::settings::oneliner::{self, OneLiners};
 
@@ -27,25 +30,43 @@ use crate::settings::UserSettings;
 /// `F_DISABLE` in the string table: what a code with no name is.
 pub(crate) const UNKNOWN_NAME: &str = "-- 不明 --";
 
-/// `Funccode2Name` for the given custom menus and registered macros. A one-liner is named as not registered
-/// here: the pages that call this have no one-liners yet (the settings page of PR 3 will pass them, with
+/// `Funccode2Name` for the given custom menus and registered macros. A one-liner and a destination of sending to a
+/// generative AI are named as not registered here: the callers have no tables of them (see
 /// [`funccode_to_name_with`]).
 pub(crate) fn funccode_to_name(
     code: u16,
     menus: &CustomMenus,
     macros: &RegisteredMacros,
 ) -> String {
-    funccode_to_name_with(code, menus, macros, &OneLiners::default())
+    funccode_to_name_with(
+        code,
+        menus,
+        macros,
+        &OneLiners::default(),
+        &AiDestinations::default(),
+    )
 }
 
-/// `Funccode2Name` for the given custom menus, registered macros and registered one-liners.
+/// `Funccode2Name` for the given custom menus, registered macros, registered one-liners and destinations of
+/// sending to a generative AI.
 pub(crate) fn funccode_to_name_with(
     code: u16,
     menus: &CustomMenus,
     macros: &RegisteredMacros,
     oneliners: &OneLiners,
+    destinations: &AiDestinations,
 ) -> String {
-    resolve(code, &|| menus, &|| macros, &|| oneliners)
+    resolve(code, &|| menus, &|| macros, &|| oneliners, &|| destinations)
+}
+
+/// The name of the function `code` if it is `F_AI_PROMPT_n`: the name of the destination, or its command when
+/// there is no name; `生成 AI に送る n (未登録)` when there is no command.
+pub(crate) fn ai_prompt_title(table: &AiDestinations, code: u16) -> Option<String> {
+    let index = ai::index_of_prompt_function(code)?;
+    Some(match table.get(index).filter(|d| d.is_registered()) {
+        Some(destination) => destination.title().to_owned(),
+        None => format!("生成 AI に送る {index} (未登録)"),
+    })
 }
 
 /// The name of the function `code` if it is a registered one-liner: the name, or the command when there is
@@ -65,7 +86,13 @@ fn resolve<'a>(
     menus: &dyn Fn() -> &'a CustomMenus,
     macros: &dyn Fn() -> &'a RegisteredMacros,
     oneliners: &dyn Fn() -> &'a OneLiners,
+    destinations: &dyn Fn() -> &'a AiDestinations,
 ) -> String {
+    if ai::index_of_prompt_function(code).is_some()
+        && let Some(title) = ai_prompt_title(destinations(), code)
+    {
+        return title;
+    }
     if oneliner::index_of_function(code).is_some()
         && let Some(title) = oneliner_title(oneliners(), code)
     {
@@ -101,6 +128,7 @@ pub(crate) struct FuncNames {
     menus: OnceCell<CustomMenus>,
     macros: OnceCell<RegisteredMacros>,
     oneliners: OnceCell<OneLiners>,
+    destinations: OnceCell<AiDestinations>,
 }
 
 impl FuncNames {
@@ -109,6 +137,7 @@ impl FuncNames {
             menus: OnceCell::new(),
             macros: OnceCell::new(),
             oneliners: OnceCell::new(),
+            destinations: OnceCell::new(),
         }
     }
 
@@ -131,6 +160,13 @@ impl FuncNames {
                 self.oneliners.get_or_init(|| {
                     cx.try_global::<UserSettings>()
                         .map(UserSettings::oneliners)
+                        .unwrap_or_default()
+                })
+            },
+            &|| {
+                self.destinations.get_or_init(|| {
+                    cx.try_global::<UserSettings>()
+                        .map(|settings| (*settings.shared_ai_destinations()).clone())
                         .unwrap_or_default()
                 })
             },
@@ -189,7 +225,9 @@ mod tests {
         use matsu_config::settings::oneliner::{OneLiner, OutputTo};
         let (menus, macros) = (CustomMenus::default(), RegisteredMacros::default());
         let mut ones = OneLiners::default();
-        let name = |ones: &OneLiners, code| funccode_to_name_with(code, &menus, &macros, ones);
+        let name = |ones: &OneLiners, code| {
+            funccode_to_name_with(code, &menus, &macros, ones, &Default::default())
+        };
         assert_eq!(name(&ones, 32711), "ワンライナー 0 (未登録)");
         assert_eq!(name(&ones, 32760), "ワンライナー 49 (未登録)");
         assert_eq!(

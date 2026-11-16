@@ -26,10 +26,21 @@ const ONELINER_CODES: [std::ops::Range<u16>; 2] = {
     ]
 };
 
+/// `F_AI_PROMPT_0` + n, then `F_AI_ASK` and `F_AI_SETTINGS`, of the kind 生成 AI (MATSU's own kind, ADR-0035).
+/// `F_AI_PROMPT_LIST` is a special item of the menus, like `F_ONELINER_LIST`, and is not listed here. A destination
+/// that is not registered is listed too (named 「(未登録)」).
+const AI_CODES: [std::ops::Range<u16>; 2] = {
+    use matsu_config::settings::ai::{F_AI_ASK, F_AI_PROMPT_0, F_AI_SETTINGS, MAX_AI};
+    [
+        F_AI_PROMPT_0..F_AI_PROMPT_0 + MAX_AI as u16,
+        F_AI_ASK..F_AI_SETTINGS + 1,
+    ]
+};
+
 /// The kinds (`CFuncLookup::SetCategory2Combo`): the 15 groups of the command list, then the
-/// ones Sakura adds (外部マクロ, カスタムメニュー, プラグイン) and MATSU's own (ワンライナー, last so that
-/// the numbers of the others stay).
-pub(in crate::common_settings) static KINDS: [(&str, i32); 19] = [
+/// ones Sakura adds (外部マクロ, カスタムメニュー, プラグイン) and MATSU's own (ワンライナー and 生成 AI, last so
+/// that the numbers of the others stay).
+pub(in crate::common_settings) static KINDS: [(&str, i32); 20] = [
     ("ファイル操作系", 0),
     ("編集系", 1),
     ("カーソル移動系", 2),
@@ -50,6 +61,7 @@ pub(in crate::common_settings) static KINDS: [(&str, i32); 19] = [
     ("プラグイン", 17),
     // 18 is 特別機能 on the pages of the menus (`STR_SPECIAL_FUNC`), so the kind of the one-liners is 19.
     ("ワンライナー", 19),
+    ("生成 AI", 20),
 ];
 
 /// The function codes of kind `kind` in the order of the list (`CFuncLookup::Pos2FuncCode`).
@@ -72,6 +84,7 @@ pub(in crate::common_settings) fn codes_of_kind(kind: i32) -> Vec<u16> {
             .collect(),
         // 3 is the kind 特別機能 of the menu pages, which they list themselves.
         4 => ONELINER_CODES.into_iter().flatten().collect(),
+        5 => AI_CODES.into_iter().flatten().collect(),
         _ => Vec::new(),
     }
 }
@@ -91,14 +104,15 @@ mod tests {
                 "外部マクロ",
                 "カスタムメニュー",
                 "プラグイン",
-                "ワンライナー"
+                "ワンライナー",
+                "生成 AI"
             ]
         );
-        // The values are the positions, but the one-liners' (19): 18 is 特別機能 on the menu pages.
+        // The values are the positions, but the one-liners' (19) and the AI's (20): 18 is 特別機能 on the menu pages.
         for (i, (_, v)) in KINDS[..18].iter().enumerate() {
             assert_eq!(*v, i as i32);
         }
-        assert_eq!(KINDS[18].1, 19);
+        assert_eq!((KINDS[18].1, KINDS[19].1), (19, 20));
     }
 
     #[test]
@@ -108,7 +122,7 @@ mod tests {
         assert_eq!(codes[0], RIGHT_CLICK_MENU);
         assert_eq!(codes[1..], CUSTOM_MENU_CODES.collect::<Vec<_>>()[..]);
         assert!(codes_of_kind(17).is_empty() || codes_of_kind(17).iter().all(|&c| c >= 20000));
-        assert!(codes_of_kind(-1).is_empty() && codes_of_kind(20).is_empty());
+        assert!(codes_of_kind(-1).is_empty() && codes_of_kind(21).is_empty());
     }
 
     #[test]
@@ -125,6 +139,17 @@ mod tests {
             codes[50..],
             [F_ONELINER_DIALOG, F_ONELINER_SETTINGS, F_AI_LOG_SHOW]
         );
+    }
+
+    #[test]
+    fn the_kind_ai_lists_the_50_destinations_the_ask_and_the_settings() {
+        use matsu_config::settings::ai::{F_AI_ASK, F_AI_PROMPT_0, F_AI_SETTINGS};
+        let codes = codes_of_kind(20);
+        assert_eq!(codes.len(), 52);
+        assert_eq!((codes[0], codes[49]), (F_AI_PROMPT_0, 32649));
+        assert!(codes[..50].windows(2).all(|w| w[1] == w[0] + 1));
+        assert_eq!(codes[50..], [F_AI_ASK, F_AI_SETTINGS]);
+        assert!(codes_of_kind(21).is_empty());
     }
 
     #[test]

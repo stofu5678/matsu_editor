@@ -152,10 +152,11 @@ fn the_access_key_is_set_on_a_function_row_not_on_a_separator() {
 
 #[test]
 fn the_kinds_are_the_function_lookups_and_the_special_functions() {
-    assert_eq!(PAGE_KINDS.len(), 20);
+    assert_eq!(PAGE_KINDS.len(), 21);
     assert_eq!(PAGE_KINDS[16].0, "カスタムメニュー");
     assert_eq!(PAGE_KINDS[18], ("特別機能", 18));
     assert_eq!(PAGE_KINDS[19], ("ワンライナー", 19));
+    assert_eq!(PAGE_KINDS[20], ("生成 AI", 20));
     assert_eq!(functions_of_kind(18), SPECIAL_CODES);
     assert_eq!(functions_of_kind(16).len(), 25);
     assert!(functions_of_kind(99).is_empty());
@@ -166,6 +167,7 @@ fn the_kinds_are_the_function_lookups_and_the_special_functions() {
             29001,
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "ウィンドウリスト"
@@ -175,6 +177,7 @@ fn the_kinds_are_the_function_lookups_and_the_special_functions() {
             29004,
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "カスタムメニューリスト"
@@ -191,6 +194,7 @@ fn a_custom_menu_function_has_the_name_of_its_menu() {
             31503,
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "My menu"
@@ -200,6 +204,7 @@ fn a_custom_menu_function_has_the_name_of_its_menu() {
             31580,
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "右クリックメニュー"
@@ -209,6 +214,7 @@ fn a_custom_menu_function_has_the_name_of_its_menu() {
             31524,
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "タブメニュー"
@@ -218,6 +224,7 @@ fn a_custom_menu_function_has_the_name_of_its_menu() {
             31504,
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "メニュー4"
@@ -227,6 +234,7 @@ fn a_custom_menu_function_has_the_name_of_its_menu() {
             9999,
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "-- 不明 --"
@@ -241,20 +249,44 @@ fn a_registered_macro_has_its_name_not_unknown() {
     macros.macros[2].file = "c.mac".into();
     macros.macros[3].file = "d.mac".into();
     assert_eq!(
-        function_name(31602, &menus, &macros, &Default::default()),
+        function_name(
+            31602,
+            &menus,
+            &macros,
+            &Default::default(),
+            &Default::default()
+        ),
         "名前"
     );
     assert_eq!(
-        function_name(31603, &menus, &macros, &Default::default()),
+        function_name(
+            31603,
+            &menus,
+            &macros,
+            &Default::default(),
+            &Default::default()
+        ),
         "d.mac"
     );
     assert_eq!(
-        function_name(31600, &menus, &macros, &Default::default()),
+        function_name(
+            31600,
+            &menus,
+            &macros,
+            &Default::default(),
+            &Default::default()
+        ),
         "マクロ 0 (未登録)"
     );
     let item = CustomMenuItem::command(31602, Some('M'));
     assert_eq!(
-        row_text(&item, &menus, &macros, &Default::default()),
+        row_text(
+            &item,
+            &menus,
+            &macros,
+            &Default::default(),
+            &Default::default()
+        ),
         "名前(M)"
     );
 }
@@ -267,6 +299,7 @@ fn a_row_shows_the_name_the_key_in_parentheses_or_a_line() {
             &item(30102, Some('O')),
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "開く...(O)"
@@ -276,6 +309,7 @@ fn a_row_shows_the_name_the_key_in_parentheses_or_a_line() {
             &item(30102, None),
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "開く..."
@@ -285,6 +319,7 @@ fn a_row_shows_the_name_the_key_in_parentheses_or_a_line() {
             &item(0, None),
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         SEPARATOR_TEXT
@@ -561,6 +596,7 @@ fn the_name_the_submenu_flag_and_the_access_key_are_set_per_item_and_menu(cx: &m
             31503,
             &with_dialog(cx, |d, _, _| menus_of(d.values())),
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default()
         ),
         "Work"
@@ -619,6 +655,7 @@ fn the_name_the_submenu_flag_and_the_access_key_are_set_per_item_and_menu(cx: &m
             &edit_of(d.values()).items[1],
             &menus,
             &RegisteredMacros::default(),
+            &Default::default(),
             &Default::default(),
         )
     });
@@ -1026,6 +1063,7 @@ fn an_unknown_command_shows_what_it_is_and_the_mnu_file_keeps_its_text() {
         &menus,
         &macros,
         &Default::default(),
+        &Default::default(),
     );
     assert_eq!(shown, "（不明）Plugin/Cmd(P)");
     let exported = menus.export_profile(&data::name_of_code).unwrap();
@@ -1050,12 +1088,73 @@ fn a_registered_one_liner_has_its_name_not_unknown() {
         ..OneLiner::default()
     };
     ones.slots[1].command = "jq .".into();
-    assert_eq!(function_name(32711, &menus, &macros, &ones), "整列");
-    assert_eq!(function_name(32712, &menus, &macros, &ones), "jq .");
     assert_eq!(
-        function_name(32713, &menus, &macros, &ones),
+        function_name(32711, &menus, &macros, &ones, &Default::default()),
+        "整列"
+    );
+    assert_eq!(
+        function_name(32712, &menus, &macros, &ones, &Default::default()),
+        "jq ."
+    );
+    assert_eq!(
+        function_name(32713, &menus, &macros, &ones, &Default::default()),
         "ワンライナー 2 (未登録)"
     );
     let item = CustomMenuItem::command(32711, Some('S'));
-    assert_eq!(row_text(&item, &menus, &macros, &ones), "整列(S)");
+    assert_eq!(
+        row_text(&item, &menus, &macros, &ones, &Default::default()),
+        "整列(S)"
+    );
+}
+
+#[test]
+fn a_registered_ai_destination_has_its_name_not_unknown() {
+    use matsu_config::settings::ai::{AiDestination, AiDestinations, F_AI_ASK, F_AI_PROMPT_0};
+    let (menus, macros) = (CustomMenus::default(), RegisteredMacros::default());
+    let mut table = AiDestinations::default();
+    table.slots[0] = AiDestination {
+        name: "英訳".into(),
+        command: "claude -p".into(),
+        ..AiDestination::default()
+    };
+    table.slots[1].command = "codex exec".into();
+    let name = |code| function_name(code, &menus, &macros, &Default::default(), &table);
+    assert_eq!(name(F_AI_PROMPT_0), "英訳");
+    assert_eq!(name(F_AI_PROMPT_0 + 1), "codex exec");
+    assert_eq!(name(F_AI_PROMPT_0 + 2), "生成 AI に送る 2 (未登録)");
+    assert_eq!(name(F_AI_ASK), "指示をつけて送る...");
+    let item = CustomMenuItem::command(F_AI_PROMPT_0, Some('E'));
+    assert_eq!(
+        row_text(&item, &menus, &macros, &Default::default(), &table),
+        "英訳(E)"
+    );
+}
+
+#[gpui::test]
+fn a_function_of_the_kind_ai_is_added_to_a_menu_and_written_with_its_code(cx: &mut TestAppContext) {
+    use matsu_config::settings::ai::{F_AI_ASK, F_AI_PROMPT_0, F_AI_SETTINGS};
+    let _restore = crate::common_settings::tests::RestoreEditOptions::new();
+    let (ini, first) = setup(cx, "[AI]\r\nCommand[002]=claude -p\r\n");
+    cx.update(|app| common_settings::open(app, Some(Page::CustomMenu), Some(first)));
+    cx.run_until_parked();
+    assert_eq!(functions_of_kind(20).len(), 52);
+    choose_menu(cx, 5);
+    choose_function(cx, 20, 2);
+    press(cx, "custmenu_add");
+    choose_function(cx, 20, 50);
+    press(cx, "custmenu_add");
+    choose_function(cx, 20, 51);
+    press(cx, "custmenu_add");
+    ok(cx);
+    let p = ini.profile();
+    assert_eq!(p.get("CustMenu", "nCMIN[05]"), Some("3"));
+    for (i, code) in [F_AI_PROMPT_0 + 2, F_AI_ASK, F_AI_SETTINGS]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            p.get("CustMenu", &format!("nCMIF[05][{i:02}]")),
+            Some(code.to_string().as_str())
+        );
+    }
 }

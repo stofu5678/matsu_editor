@@ -56,7 +56,7 @@
 use matsu_commands::keymap::KeyMap;
 use matsu_commands::sakura::{FUNCTIONS, FunctionKind};
 use matsu_config::settings::CustomMenus;
-use matsu_config::settings::ai::{F_AI_ASK, F_AI_PROMPT_LIST, F_AI_SETTINGS};
+use matsu_config::settings::ai::{AiDestinations, F_AI_ASK, F_AI_PROMPT_LIST, F_AI_SETTINGS};
 use matsu_config::settings::custom_menu::INDEX_FOR_RBUTTONUP;
 use matsu_config::settings::macros::RegisteredMacros;
 use matsu_config::settings::oneliner::{
@@ -105,6 +105,8 @@ pub(crate) struct Context<'a> {
     pub macros: &'a RegisteredMacros,
     /// The registered one-liners, which name `F_ONELINER_0` and on.
     pub oneliners: &'a OneLiners,
+    /// The registered destinations of sending to a generative AI, which name `F_AI_PROMPT_0` and on.
+    pub destinations: &'a AiDestinations,
     pub keymap: &'a KeyMap,
     pub available: &'a dyn Available,
     pub lists: &'a dyn Lists,
@@ -116,7 +118,13 @@ pub(crate) struct Context<'a> {
 impl Context<'_> {
     /// `CFuncLookup::Funccode2Name`, for the codes a custom menu can hold.
     fn function_name(&self, code: u16) -> String {
-        crate::func_name::funccode_to_name_with(code, self.menus, self.macros, self.oneliners)
+        crate::func_name::funccode_to_name_with(
+            code,
+            self.menus,
+            self.macros,
+            self.oneliners,
+            self.destinations,
+        )
     }
 
     /// Whether the function can run: a function without a command is grayed out, and so is a row that
