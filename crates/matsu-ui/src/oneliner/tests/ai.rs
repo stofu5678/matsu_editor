@@ -618,8 +618,8 @@ fn a_box_selection_is_the_prompt_and_the_answer_replaces_the_box_once(cx: &mut T
     );
     w.view.update(cx, |view, _| {
         view.cursor.move_to(Pos::new(0, 1), false);
-        view.cursor.begin_box(1, false);
-        view.cursor.move_box_to(Pos::new(1, 3), 3);
+        view.cursor.begin_box(64, false);
+        view.cursor.move_box_to(Pos::new(1, 3), 3 * 64);
     });
     run_ai(cx, &w, 0);
     assert_eq!(records(&w, cx)[0].input, "bc\nfg\n");
