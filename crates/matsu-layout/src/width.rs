@@ -26,6 +26,10 @@
 
 //! The width of a character in columns, without a font.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+
 use unicode_width::UnicodeWidthChar;
 
 use crate::x::X;
@@ -136,13 +140,17 @@ impl WidthRule {
 /// How wide a character is in [`X`], and the one place where columns and `X` are converted
 /// (ADR-0034, "Widths").
 ///
-/// There is one form so far, [`Widths::Grid`]: the [`WidthRule`] gives 1 or 2 columns and a
-/// column is [`per_column`](Self::per_column) `X`. `per_column` includes the character spacing
-/// (ADR-0034, case C: 64 plus the spacing), and is 1 until the UI counts in `X` (stages 2 and 3).
-/// A form that reads the width of each character from a table (stage 4) is another variant, and
-/// the code that matches on `Widths` is where it has to be dealt with: [`Widths::widest_char`]
-/// says "no limit known" for it, and a caller of that must not take a shortcut.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// There are two forms:
+///
+/// - [`Widths::Grid`]: the [`WidthRule`] gives 1 or 2 columns and a column is
+///   [`per_column`](Self::per_column) `X`. It does not look at the font. This is the form for
+///   monospaced fonts (ADR-0034, decided 3), and it gives what the layout gave before `X`.
+/// - [`Widths::Table`]: the width of each character comes from a [`WidthTable`] that the UI fills
+///   by measuring the font (stage 4). There is no limit known for the widest character, so
+///   [`Widths::widest_char`] is `None` for it and a caller of that must not take a shortcut.
+///
+/// `per_column` includes the character spacing (ADR-0034, case C: 64 plus the spacing).
+#[derive(Clone, Debug)]
 pub enum Widths {
     /// Every character is 1 or 2 columns by Unicode ([`WidthRule`]); a column is `per_column` `X`.
     Grid {
@@ -150,7 +158,30 @@ pub enum Widths {
         /// `X` in one column. 0 counts as 1.
         per_column: u32,
     },
+    /// Every character has the width the font gives it.
+    Table(WidthTable),
 }
+
+/// Two `Widths` are equal when the layout they give is the same: grids when their rule and
+/// column are, tables when they are the same generation ([`WidthTable::generation`]). A table
+/// is never compared by what it has measured so far, which changes as characters are used.
+impl PartialEq for Widths {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Grid { rule, per_column },
+                Self::Grid {
+                    rule: other_rule,
+                    per_column: other_per,
+                },
+            ) => rule == other_rule && (*per_column).max(1) == (*other_per).max(1),
+            (Self::Table(a), Self::Table(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Widths {}
 
 impl Default for Widths {
     fn default() -> Self {
@@ -172,17 +203,44 @@ impl Widths {
         }
     }
 
-    /// The same form with `per_column` `X` for a column.
+    /// The table form: `half` `X` for the width of a half-width letter without spacing (64 in
+    /// the UI), `space_units` `X` of character spacing for each column of a character, and
+    /// `measure` giving the advance of a character in `X` (without spacing). See [`WidthTable`].
+    pub fn table(
+        half: u32,
+        space_units: u32,
+        measure: impl Fn(char) -> u32 + Send + Sync + 'static,
+    ) -> Self {
+        Self::Table(WidthTable::new(half, space_units, measure))
+    }
+
+    /// The same form with `per_column` `X` for a column. A table has its column from its own
+    /// half-width and spacing, so it is returned as it is.
     pub fn with_per_column(self, per_column: u32) -> Self {
         match self {
             Self::Grid { rule, .. } => Self::grid_scaled(rule, per_column),
+            table @ Self::Table(_) => table,
         }
+    }
+
+    /// The rule of a grid; the default one for a table, which does not use a rule.
+    pub fn rule(&self) -> WidthRule {
+        match self {
+            Self::Grid { rule, .. } => *rule,
+            Self::Table(_) => WidthRule::default(),
+        }
+    }
+
+    /// Whether the widths come from a table (a font that is not monospaced).
+    pub fn is_table(&self) -> bool {
+        matches!(self, Self::Table(_))
     }
 
     /// `X` in one column.
     pub fn per_column(&self) -> u32 {
         match self {
             Self::Grid { per_column, .. } => (*per_column).max(1),
+            Self::Table(table) => table.per_column(),
         }
     }
 
@@ -207,22 +265,193 @@ impl Widths {
     pub fn width_of(&self, c: char) -> X {
         match self {
             Self::Grid { rule, .. } => self.to_x(rule.columns(c)),
+            Self::Table(table) => table.width_of(c),
         }
     }
 
-    /// The whole columns of `c`: [`width_of`](Self::width_of) as columns. For the code that still
-    /// counts columns (stages 2 and 3 take it away).
+    /// The columns of `c` that the character spacing is counted for: 1 or 2
+    /// (`CNativeW::GetKetaOfChar`). On a grid that is the width in whole columns; in a table it
+    /// is 1 for a character no wider than a half-width letter and 2 for a wider one.
     pub fn columns(&self, c: char) -> u32 {
-        self.to_columns(self.width_of(c))
+        match self {
+            Self::Grid { .. } => self.to_columns(self.width_of(c)),
+            Self::Table(table) => table.columns_of(c),
+        }
     }
 
     /// The most `X` one character other than a tab can take, when there is a limit that holds
     /// for every character of every text; `None` when it cannot be known without measuring
-    /// (the table form of stage 4). The layout of a document takes a shortcut only with `Some`.
+    /// (the table form). The layout of a document takes a shortcut only with `Some`.
     pub fn widest_char(&self) -> Option<X> {
         match self {
             Self::Grid { rule, .. } => Some(self.to_x(rule.invalid_byte.max(2))),
+            Self::Table(_) => None,
         }
+    }
+
+    /// The width of the ASCII `bytes`, one after the other: a word of the word wrap
+    /// (`_GetKeywordLength` adds up the layout widths of its characters).
+    pub fn ascii_width(&self, bytes: &[u8]) -> X {
+        match self {
+            Self::Grid { .. } => self.to_x(u32::try_from(bytes.len()).unwrap_or(u32::MAX)),
+            Self::Table(table) => bytes.iter().map(|&b| table.width_of(char::from(b))).sum(),
+        }
+    }
+}
+
+/// The widths of a font's characters in `X`, filled in as characters are used (ADR-0034,
+/// "Widths", the table form). Like Sakura's cache of pixel widths (`m_nCharPxWidthCache` of
+/// `CCharWidthCache`, `sakura_core/charset/charcode.cpp`, 0 = not measured yet), a character is
+/// measured the first time the layout asks for it.
+///
+/// The measuring function is the UI's: it gives the advance of one character in `X` without the
+/// spacing. The table adds what Sakura adds per character
+/// (`CLayoutMgr::GetLayoutXOfChar`, `sakura_core/doc/layout/CLayoutMgr.h`): the spacing times the
+/// columns of the character, 1 when it is no wider than a half-width letter and 2 when it is
+/// wider (`CNativeW::GetKetaOfChar`; outside the BMP always 2). A width is at least 1
+/// (`CCharWidthCache::QueryPixelWidth`: `std::max(1, size.cx)`).
+///
+/// The BMP is held in pages of 256 characters that exist once a character of them is used (a
+/// page is 512 bytes, all of them 128 KiB at most); the characters outside it are in a small
+/// map. The table is shared by `Arc`: a clone is the same table, and two tables are equal when
+/// they are the same generation. A new table (a new font, size or spacing) is a new generation.
+#[derive(Clone)]
+pub struct WidthTable(Arc<TableData>);
+
+type Page = [AtomicU16; PAGE];
+
+struct TableData {
+    generation: u64,
+    /// The `X` of a half-width letter without spacing.
+    half: u32,
+    space_units: u32,
+    measure: Box<dyn Fn(char) -> u32 + Send + Sync>,
+    /// The width with the spacing of each BMP character, 0 when it is not measured yet.
+    pages: Box<[OnceLock<Box<Page>>]>,
+    astral: Mutex<HashMap<char, u32>>,
+}
+
+/// Characters in a page of the table.
+const PAGE: usize = 256;
+/// The pages of the BMP.
+const PAGES: usize = 0x10000 / PAGE;
+
+/// The numbers of the generations: each new table takes the next one.
+static GENERATIONS: AtomicU64 = AtomicU64::new(1);
+
+impl WidthTable {
+    /// An empty table. `half` is the `X` of a half-width letter without spacing (at least 1),
+    /// `space_units` the spacing of a column, and `measure` the advance of a character in `X`
+    /// without spacing (called once for each character used, from any thread).
+    pub fn new(
+        half: u32,
+        space_units: u32,
+        measure: impl Fn(char) -> u32 + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(TableData {
+            generation: GENERATIONS.fetch_add(1, Ordering::Relaxed),
+            half: half.max(1),
+            space_units,
+            measure: Box::new(measure),
+            pages: (0..PAGES).map(|_| OnceLock::new()).collect(),
+            astral: Mutex::new(HashMap::new()),
+        }))
+    }
+
+    /// The number that tells this table from another: the tables of two fonts (or of one font at
+    /// two sizes, or with two spacings) have different generations.
+    pub fn generation(&self) -> u64 {
+        self.0.generation
+    }
+
+    /// `X` in one column: a half-width letter and the spacing.
+    pub fn per_column(&self) -> u32 {
+        self.0.half.saturating_add(self.0.space_units)
+    }
+
+    /// The width of `c` with its spacing, measuring it if that was not done yet.
+    pub fn width_of(&self, c: char) -> X {
+        let data = &*self.0;
+        let code = c as usize;
+        if code < PAGES * PAGE {
+            let page = data.pages[code / PAGE]
+                .get_or_init(|| Box::new(std::array::from_fn(|_| AtomicU16::new(0))));
+            let slot = &page[code % PAGE];
+            let known = slot.load(Ordering::Relaxed);
+            if known != 0 {
+                return X::from_raw(u32::from(known));
+            }
+            // 65535 `X` is a thousand columns: a character wider than that is cut to it.
+            let width = data.with_spacing(c).min(u32::from(u16::MAX));
+            slot.store(width as u16, Ordering::Relaxed);
+            return X::from_raw(width);
+        }
+        let mut astral = data.astral.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(&known) = astral.get(&c) {
+            return X::from_raw(known);
+        }
+        let width = data.with_spacing(c);
+        astral.insert(c, width);
+        X::from_raw(width)
+    }
+
+    /// The columns the spacing is counted for: 1 or 2.
+    pub fn columns_of(&self, c: char) -> u32 {
+        if (c as u32) > 0xFFFF || self.width_of(c).raw() > self.per_column() {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// How many characters of the BMP have been measured.
+    pub fn measured_in_bmp(&self) -> usize {
+        self.0
+            .pages
+            .iter()
+            .filter_map(OnceLock::get)
+            .map(|page| {
+                page.iter()
+                    .filter(|w| w.load(Ordering::Relaxed) != 0)
+                    .count()
+            })
+            .sum()
+    }
+
+    /// How many pages of the BMP exist.
+    pub fn pages(&self) -> usize {
+        self.0.pages.iter().filter(|p| p.get().is_some()).count()
+    }
+}
+
+impl TableData {
+    /// The width of `c` with the spacing of its columns.
+    fn with_spacing(&self, c: char) -> u32 {
+        let width = (self.measure)(c).max(1);
+        let columns = if (c as u32) > 0xFFFF || width > self.half {
+            2
+        } else {
+            1
+        };
+        width.saturating_add(self.space_units.saturating_mul(columns))
+    }
+}
+
+impl PartialEq for WidthTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.generation == other.0.generation
+    }
+}
+
+impl Eq for WidthTable {}
+
+impl std::fmt::Debug for WidthTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WidthTable")
+            .field("generation", &self.0.generation)
+            .field("half", &self.0.half)
+            .field("space_units", &self.0.space_units)
+            .finish_non_exhaustive()
     }
 }
 

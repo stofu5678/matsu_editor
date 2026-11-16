@@ -88,8 +88,11 @@ impl EditorView {
         let rules = &self.prefs.settings.coloring;
         let rows = layout.rows(doc, first_row, count).unwrap_or_default();
         // A character is a column wide at least (but for the rare ones of no width, so a few more).
-        let max_chars = max_cols as usize + 16;
-        let widths = layout.config().width;
+        // In a proportional font the narrow letters are about half a column, so it takes more of
+        // them to fill the width.
+        let widths = &layout.config().width;
+        let per_column_chars = if widths.is_table() { 3 } else { 1 };
+        let max_chars = max_cols as usize * per_column_chars + 16;
         let max_x = widths.to_x(max_cols);
 
         let search = &self.search;
@@ -185,7 +188,8 @@ impl EditorView {
                     && item.x < max_x
                 {
                     // a character is at least one column wide
-                    let room = (widths.to_columns(max_x - item.x) as usize).max(1);
+                    let room =
+                        (widths.to_columns(max_x - item.x) as usize).max(1) * per_column_chars;
                     mini.pieces.push(MiniPiece {
                         x: item.x,
                         text: text.chars().take(room).collect(),

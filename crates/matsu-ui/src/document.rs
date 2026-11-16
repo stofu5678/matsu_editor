@@ -143,7 +143,7 @@ pub struct SharedDocument {
     ranged: bool,
     /// The stops of the TSV or CSV mode, counted once for all the panes of the document (see
     /// [`tsv_stops`](Self::tsv_stops)).
-    tsv: std::cell::RefCell<TsvState>,
+    tsv: std::cell::RefCell<TsvStates>,
     /// The tab width and the use of spaces the views of this document have now: the type's, or what
     /// the detection on load and `F_CHGTABWIDTH` / `F_CHGINSSPACE` made of them. Sakura keeps them
     /// in the document and the layout, so a view made later (the source tab that comes back from
@@ -151,22 +151,38 @@ pub struct SharedDocument {
     indent: Option<(u32, bool)>,
 }
 
-/// The count of the stops of the TSV or CSV mode and its last result.
+/// The counts of the stops of the TSV or CSV mode, one for each font that has a table of widths and
+/// one for all the grids. The stops depend on the widths of the characters, which the pane's font
+/// decides, and the panes of a document can have fonts of their own (a zoom in one pane): each
+/// keeps its count when another pane counts for its font.
+#[derive(Default)]
+struct TsvStates(Vec<TsvState>);
+
+/// How many counts a document keeps (a font of a table each; the oldest goes first).
+const TSV_COUNTS: usize = 6;
+
+/// Whether a count made in `a` is the count of `b`: the same table, or both grids (a grid's stops
+/// are scaled to the `X` in a column of the layout that asks).
+fn same_count(a: &matsu_layout::Widths, b: &matsu_layout::Widths) -> bool {
+    a == b || (!a.is_table() && !b.is_table())
+}
+
+/// The count of the stops of the TSV or CSV mode for one set of widths, and its last result.
 #[derive(Default)]
 struct TsvState {
     /// The count that is going or was done last.
     job: Option<TsvJob>,
     /// The result of a complete count, and the `X` in a column it was counted with (the panes
     /// have their own, see [`SharedDocument::tsv_stops`]).
-    published: Option<(matsu_layout::TsvStops, u32)>,
+    published: Option<(matsu_layout::TsvStops, matsu_layout::Widths)>,
     /// The text is complete now: count again.
     stale: bool,
 }
 
 struct TsvJob {
     scan: matsu_layout::TsvScan,
-    /// The `X` in a column the count is made in.
-    per_column: u32,
+    /// The widths the count is made in.
+    widths: matsu_layout::Widths,
     /// The version of the document the count started on.
     version: u64,
     done: bool,
@@ -229,38 +245,67 @@ impl SharedDocument {
     /// complete count, or none (the tab stops of the tab width) until the first one is complete.
     /// This does no work; [`step_tsv_stops`](Self::step_tsv_stops) counts a piece at a time.
     ///
-    /// `per_column` is the `X` in a column of the layout that asks: the count is kept for the
-    /// `X` it was made in and scaled to this one, so that panes (and a pane whose font size
-    /// changed the width of its columns) all get stops that fit.
+    /// `widths` are the widths of the layout that asks. A count is kept for the widths it was
+    /// made in. On a grid it is scaled to the `X` in a column of the asking layout, so that
+    /// panes (and a pane whose font size changed the width of its columns) all get stops that
+    /// fit. A table of widths cannot be scaled (the widths of the letters are those of one
+    /// font): each table has a count of its own, which [`step_tsv_stops`](Self::step_tsv_stops)
+    /// makes for the pane that asks, so a pane keeps its stops while another one counts for its
+    /// own font. A layout that has no count yet has none until its count is complete.
     pub fn tsv_stops(
         &self,
         mode: matsu_layout::TsvMode,
-        per_column: u32,
+        widths: &matsu_layout::Widths,
     ) -> matsu_layout::TsvStops {
-        match self.tsv.borrow().published.as_ref() {
-            Some((stops, counted)) if stops.mode() == mode => stops.rescaled(*counted, per_column),
-            _ => matsu_layout::TsvStops::none(),
+        let states = self.tsv.borrow();
+        let found = states.0.iter().find_map(|state| {
+            let (stops, counted) = state.published.as_ref()?;
+            (stops.mode() == mode && same_count(counted, widths)).then_some((stops, counted))
+        });
+        match found {
+            Some((stops, counted)) if counted == widths => stops.clone(),
+            Some((stops, counted)) => stops.rescaled(counted.per_column(), widths.per_column()),
+            None => matsu_layout::TsvStops::none(),
         }
     }
 
-    /// Goes on with the count of the stops of `mode` for about `budget`, and starts it again when
-    /// the text changed while it was going (a count that is complete is not made again after an
-    /// edit: Sakura works the stops out when the file is loaded or the mode changes,
-    /// `CLoadAgent::OnLoad` and `CLayoutMgr::SetLayoutInfo`, and ADR-0020 wants the window to
-    /// answer while a large document is gone through). Returns whether the count is complete.
+    /// Goes on with the count of the stops of `mode` for the widths `width` for about `budget`,
+    /// and starts it again when the text changed while it was going (a count that is complete is
+    /// not made again after an edit: Sakura works the stops out when the file is loaded or the
+    /// mode changes, `CLoadAgent::OnLoad` and `CLayoutMgr::SetLayoutInfo`, and ADR-0020 wants the
+    /// window to answer while a large document is gone through). Returns whether the count is
+    /// complete.
     pub fn step_tsv_stops(
         &self,
         mode: matsu_layout::TsvMode,
         width: &matsu_layout::Widths,
         budget: std::time::Duration,
     ) -> bool {
-        let mut state = self.tsv.borrow_mut();
+        let mut states = self.tsv.borrow_mut();
         // Leaving the mode ends the stops: the next time the mode is set they are counted from
         // the text as it is then.
         if mode == matsu_layout::TsvMode::None {
-            *state = TsvState::default();
+            states.0.clear();
             return true;
         }
+        let at = match states.0.iter().position(|state| {
+            let counted = state
+                .job
+                .as_ref()
+                .map(|job| &job.widths)
+                .or(state.published.as_ref().map(|p| &p.1));
+            counted.is_some_and(|counted| same_count(counted, width))
+        }) {
+            Some(at) => at,
+            None => {
+                if states.0.len() >= TSV_COUNTS {
+                    states.0.remove(0);
+                }
+                states.0.push(TsvState::default());
+                states.0.len() - 1
+            }
+        };
+        let state = &mut states.0[at];
         let restart = state.stale
             || match &state.job {
                 Some(job) => job.scan.mode() != mode || (!job.done && job.version != self.version),
@@ -269,8 +314,8 @@ impl SharedDocument {
         if restart {
             state.stale = false;
             state.job = Some(TsvJob {
-                scan: matsu_layout::TsvScan::new(mode, *width),
-                per_column: width.per_column(),
+                scan: matsu_layout::TsvScan::new(mode, width.clone()),
+                widths: width.clone(),
                 version: self.version,
                 done: false,
             });
@@ -284,15 +329,17 @@ impl SharedDocument {
         let done = job.scan.advance(self.model.doc(), budget).unwrap_or(true);
         if done {
             job.done = true;
-            state.published = Some((job.scan.finish(), job.per_column));
+            state.published = Some((job.scan.finish(), job.widths.clone()));
         }
         done
     }
 
     /// The text is not what the stops were counted from (the scan of a file read by ranges
-    /// ended): they are counted again, and until that is done the last count stays.
+    /// ended): they are counted again, and until that is done the last counts stay.
     pub(crate) fn forget_tsv_stops(&self) {
-        self.tsv.borrow_mut().stale = true;
+        for state in &mut self.tsv.borrow_mut().0 {
+            state.stale = true;
+        }
     }
 
     /// A document from an opened file ([`crate::open::open_text_file`]): the text goes into the

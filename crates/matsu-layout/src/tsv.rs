@@ -126,7 +126,7 @@ impl TsvStops {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let mut scan = TsvScan::new(mode, *width);
+        let mut scan = TsvScan::new(mode, width.clone());
         for line in lines {
             scan.add_line(line.as_ref());
         }
@@ -136,7 +136,7 @@ impl TsvStops {
     /// Reads `doc` a line at a time and works out the stops, all at once. A very long line is
     /// left out. A large document is better scanned with a [`TsvScan`] a piece at a time.
     pub fn scan(doc: &Document, mode: TsvMode, width: &Widths) -> Result<Self> {
-        let mut scan = TsvScan::new(mode, *width);
+        let mut scan = TsvScan::new(mode, width.clone());
         scan.advance(doc, Duration::MAX)?;
         Ok(scan.finish())
     }
@@ -416,7 +416,7 @@ mod tests {
             .collect();
         let doc = Document::from_utf8(text.into_bytes()).unwrap();
         let width = Widths::default();
-        let mut scan = TsvScan::new(TsvMode::Tsv, width);
+        let mut scan = TsvScan::new(TsvMode::Tsv, width.clone());
         // an empty budget still reads a line, and only a few
         let done = scan.advance(&doc, Duration::ZERO).unwrap();
         assert!(!done);

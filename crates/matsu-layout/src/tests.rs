@@ -914,7 +914,7 @@ fn a_delimiter_wider_than_the_wrap_column_does_not_hide_text_in_the_row_count() 
 fn scaled(cfg: &LayoutConfig, per_column: u32, lines: &[&str]) -> LayoutConfig {
     let width = Widths::grid_scaled(WidthRule::default(), per_column);
     LayoutConfig {
-        width,
+        width: width.clone(),
         tsv: TsvStops::from_lines(cfg.tsv.mode(), &width, lines.iter().copied()),
         ..cfg.clone()
     }
