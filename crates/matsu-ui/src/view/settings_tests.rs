@@ -594,7 +594,7 @@ fn proportional() -> matsu_layout::Widths {
 fn use_table(view: &Entity<EditorView>, cx: &mut VisualTestContext, table: matsu_layout::Widths) {
     view.update(cx, |v, cx| {
         let key = v.font_key();
-        v.set_font_widths(super::font_widths::FontWidths::table_for(key, table), cx);
+        v.set_font_widths(super::font_widths::FontWidths::table_for(key, table));
         v.relayout_in(cx);
     });
 }
@@ -728,7 +728,6 @@ fn the_tsv_stops_are_counted_in_the_widths_of_the_font(cx: &mut TestAppContext) 
     assert_eq!(doc_stops(&table, cx), 2);
     // the widths of another font have no stops until they are counted again
     assert_eq!(doc_stops(&proportional(), cx), 0);
-    assert_eq!(doc_stops(&matsu_layout::Widths::default(), cx), 0);
     // a change of the font counts them again for the new one
     view.update(cx, |v, cx| {
         v.font_size += 2.0;
@@ -737,4 +736,48 @@ fn the_tsv_stops_are_counted_in_the_widths_of_the_font(cx: &mut TestAppContext) 
     count_stops(&view, cx);
     let counted = view.read_with(cx, |v, _| v.layout.config().width.clone());
     assert_eq!(doc_stops(&counted, cx), 2);
+}
+
+#[gpui::test]
+fn two_panes_with_fonts_of_their_own_each_keep_their_tsv_stops(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "mm\tii\nm\ti\n");
+    let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    use_table(&view, cx, proportional());
+    count_stops(&view, cx);
+    let document = view.read_with(cx, |v, _| v.document.clone());
+    let seed = view.read_with(cx, |v, _| v.pane_seed());
+    let pane =
+        cx.new(|cx| EditorView::new_pane(document, seed, gpui::WeakEntity::new_invalid(), cx));
+    // the other pane is zoomed: its font has widths of its own (an `m` of 150)
+    let wider = matsu_layout::Widths::table(64, 0, |c| match c {
+        'i' | 'l' => 32,
+        'm' => 150,
+        _ => 64,
+    });
+    use_table(&pane, cx, wider);
+    count_stops(&pane, cx);
+    let ends = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.update(cx, |v, cx| {
+            if v.tsv_stops_changed(cx) {
+                v.relayout_in(cx);
+            }
+            v.layout
+                .config()
+                .tsv
+                .ends()
+                .iter()
+                .map(|e| e.raw())
+                .collect::<Vec<_>>()
+        })
+    };
+    // each pane has the stops of its own widths, and neither is lost to the other
+    assert_eq!(ends(&pane, cx), [300 + 128, 300 + 128 + 64 + 128]);
+    assert_eq!(ends(&view, cx), [214 + 128, 214 + 128 + 64 + 128]);
+    // asking for them again changes nothing: no pane is waiting for a count
+    assert!(!view.update(cx, |v, cx| v.tsv_stops_changed(cx)));
+    assert!(!pane.update(cx, |v, cx| v.tsv_stops_changed(cx)));
+    count_stops(&view, cx);
+    count_stops(&pane, cx);
+    assert_eq!(ends(&view, cx), [214 + 128, 214 + 128 + 64 + 128]);
 }

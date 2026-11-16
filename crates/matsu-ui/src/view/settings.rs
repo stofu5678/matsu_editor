@@ -295,18 +295,15 @@ impl EditorView {
             gpui::px(self.font_size),
             cx.text_system(),
         );
-        self.set_font_widths(new, cx);
+        self.set_font_widths(new);
         true
     }
 
-    /// Takes `new` as the widths of the font.
-    pub(crate) fn set_font_widths(&mut self, new: font_widths::FontWidths, cx: &App) {
-        let old = std::mem::replace(&mut self.font_widths, new);
-        // The stops of the TSV and CSV modes are counted in the widths of one font: the document
-        // counts them again for the new one (a grid only needs them scaled).
-        if old.involves_table(&self.font_widths) {
-            self.document.read(cx).forget_tsv_stops();
-        }
+    /// Takes `new` as the widths of the font. The stops of the TSV and CSV modes need no care
+    /// here: the document keeps a count for each table of widths and counts for this one when the
+    /// pane asks.
+    pub(crate) fn set_font_widths(&mut self, new: font_widths::FontWidths) {
+        self.font_widths = new;
     }
 
     /// The widths the layout should have now: the table of the font when it is not monospaced,

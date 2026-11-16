@@ -19,7 +19,7 @@
 
 use matsu_coloring::{ColorKind, ColorRules, ColorRun};
 use matsu_config::settings::color::ColorEntry;
-use matsu_layout::{LayoutConfig, X};
+use matsu_layout::{LayoutConfig, Widths, X};
 
 use crate::segments::{SegmentKind, row_segments_cut};
 #[cfg(test)]
@@ -223,6 +223,7 @@ pub(super) fn pieces(
                 seg.byte,
                 seg.x,
                 seg.width,
+                &cfg.width,
                 found,
                 |byte, x, width, text| {
                     out.push(Piece {
@@ -253,53 +254,59 @@ pub(super) fn pieces(
 }
 
 /// Calls `emit(byte, x, width, text)` for the parts of a text segment that the edges of the
-/// found ranges cut. All characters of a segment have the same width, so an edge is a character
-/// boundary when it is a multiple of that width from the start.
+/// found ranges cut. An edge cuts only where a character starts. The characters of a segment are
+/// as wide as the layout says (`widths`); a segment of one character, which can be a CSV
+/// delimiter that goes to the end of its field, is `width` wide.
 fn split_text(
     text: &str,
     byte: usize,
     x: X,
     width: X,
+    widths: &Widths,
     found: &[FoundRange],
     mut emit: impl FnMut(usize, X, X, &str),
 ) {
-    let chars = text.chars().count() as u32;
-    if chars == 0 {
+    if text.is_empty() {
         return;
     }
-    let each = (width.raw() / chars).max(1);
+    let single = text.chars().nth(1).is_none();
+    let width_of = |c: char| if single { width } else { widths.width_of(c) };
     // Only the ranges that touch the segment can cut it.
     let first = found.partition_point(|&(_, to, _)| to <= x);
     let end = x + width;
     let touching = found[first..]
         .iter()
         .take_while(|&&(from, _, _)| from < end);
-    let mut edges: Vec<u32> = touching
+    let mut edges: Vec<X> = touching
         .flat_map(|&(from, to, _)| [from, to])
-        .filter(|&e| e > x && e < end && (e - x).raw().is_multiple_of(each))
-        .map(|e| (e - x).raw() / each)
+        .filter(|&e| e > x && e < end)
         .collect();
     edges.sort_unstable();
     edges.dedup();
-    let mut start_char = 0u32;
-    let mut start_byte = 0usize;
-    let mut offsets = text.char_indices().map(|(i, _)| i).chain([text.len()]);
-    let mut at_char = 0u32;
-    let mut at_byte = offsets.next().unwrap_or(0);
-    for edge in edges.into_iter().chain([chars]) {
-        while at_char < edge {
-            at_char += 1;
-            at_byte = offsets.next().unwrap_or(text.len());
+    let mut next = 0;
+    let (mut start_byte, mut start_x, mut at) = (0usize, x, x);
+    for (i, c) in text.char_indices() {
+        while next < edges.len() && edges[next] < at {
+            next += 1;
         }
-        emit(
-            byte + start_byte,
-            x + X::from_raw(start_char * each),
-            X::from_raw((edge - start_char) * each),
-            &text[start_byte..at_byte],
-        );
-        start_char = edge;
-        start_byte = at_byte;
+        if next < edges.len() && edges[next] == at && at > start_x {
+            emit(
+                byte + start_byte,
+                start_x,
+                at - start_x,
+                &text[start_byte..i],
+            );
+            start_byte = i;
+            start_x = at;
+        }
+        at += width_of(c);
     }
+    emit(
+        byte + start_byte,
+        start_x,
+        end - start_x,
+        &text[start_byte..],
+    );
 }
 
 /// What a mark or a piece of text is called: the painter turns it into the glyphs to draw.
@@ -540,6 +547,63 @@ mod tests {
                 ("です", col(6), col(4), None)
             ]
         );
+    }
+
+    fn table_cfg() -> LayoutConfig {
+        LayoutConfig {
+            width: Widths::table(64, 0, |c| match c {
+                'i' => 32,
+                'm' => 107,
+                '\u{0301}' => 1,
+                _ => 64,
+            }),
+            ..LayoutConfig::default()
+        }
+    }
+
+    #[test]
+    fn a_proportional_cluster_stays_in_one_piece() {
+        // e and its accent are one piece (the accent alone would not attach), whatever their
+        // widths are; the letters of different widths around them are in the piece too
+        let cfg = table_cfg();
+        let got = pieces("mie\u{301}m", X::ZERO, &cfg, &[], &[]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text, "mie\u{301}m");
+        assert_eq!(got[0].width.raw(), 107 + 32 + 64 + 1 + 107);
+    }
+
+    #[test]
+    fn matches_cut_a_proportional_piece_at_the_start_of_a_character() {
+        let cfg = table_cfg();
+        // m 0..107, i 107..139, i 139..171, m 171..278: a match of the two `i`
+        let got = pieces(
+            "miim",
+            X::ZERO,
+            &cfg,
+            &[],
+            &[(X::from_raw(107), X::from_raw(171), 0)],
+        );
+        let got: Vec<(&str, u32, u32, Option<u8>)> = got
+            .iter()
+            .map(|p| (p.text.as_str(), p.x.raw(), p.width.raw(), p.found))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("m", 0, 107, None),
+                ("ii", 107, 64, Some(0)),
+                ("m", 171, 107, None)
+            ]
+        );
+        // an edge inside a character (here 120, in the first `i`) cuts nothing
+        let inside = pieces(
+            "miim",
+            X::ZERO,
+            &cfg,
+            &[],
+            &[(X::from_raw(120), X::from_raw(171), 0)],
+        );
+        assert_eq!(inside.len(), 2);
     }
 
     #[test]

@@ -107,12 +107,6 @@ impl FontWidths {
         self.table.as_ref()
     }
 
-    /// Whether a proportional table was in use or is now (a change that other panes of the
-    /// document must hear of).
-    pub fn involves_table(&self, other: &Self) -> bool {
-        self.table.is_some() || other.table.is_some()
-    }
-
     /// The widths for `key` with `font` at `size`: from the cache of the process when this font
     /// was measured before (a pane that is made from another has the same table, and so the same
     /// generation), else measured now.

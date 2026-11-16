@@ -5,7 +5,9 @@
 //! `matsu_layout::X`); the window draws a column as one cell of the font's half-width. A run of
 //! text is shaped as one line and placed at its position, and the run ends where the width
 //! changes, so that a font whose full-width characters are not exactly two cells wide cannot push
-//! the rest of the row out of its columns.
+//! the rest of the row out of its columns. With a table of widths (a proportional font) every
+//! character has its own width and a run is not cut by it: the painter places each cluster of the
+//! run at its position in the layout.
 //! The text is also cut where the syntax coloring changes color ([`row_segments_cut`]).
 
 use matsu_layout::{LayoutConfig, TsvMode, X};
@@ -54,6 +56,11 @@ pub fn row_segments_cut(
     // placed alone (`CFigure_Comma`).
     let mut after_delimiter = false;
     let mut next_cut = 0;
+    // With a table of widths the characters of a run have widths of their own: the run is not cut
+    // where the width changes, so that a mark stays with its letter and the letters of a script
+    // that joins them stay together when the painter shapes the run. The painter puts each
+    // cluster at its own place from the layout.
+    let proportional = cfg.width.is_table();
     for (byte, c) in text.char_indices() {
         let advance = cfg.advance(c, at);
         let (x, width) = (at, advance);
@@ -77,7 +84,7 @@ pub fn row_segments_cut(
                         && !after_delimiter
                         && last.kind == SegmentKind::Text
                         && last.x + last.width == x
-                        && run_width == width =>
+                        && (proportional || run_width == width) =>
                 {
                     last.text.push(c);
                     last.width += width;
@@ -275,5 +282,42 @@ mod tests {
                 ]
             );
         }
+    }
+
+    /// A proportional font: `i` narrow, `m` wide, a combining mark takes 1 X.
+    fn table_config() -> LayoutConfig {
+        LayoutConfig {
+            width: Widths::table(64, 0, |c| match c {
+                'i' => 32,
+                'm' => 107,
+                '\u{0301}' => 1,
+                _ => 64,
+            }),
+            ..LayoutConfig::default()
+        }
+    }
+
+    #[test]
+    fn a_proportional_run_is_not_cut_where_the_width_changes() {
+        let cfg = table_config();
+        let text = "mime\u{301}x";
+        let segs = row_segments(text, X::ZERO, &cfg);
+        assert_eq!(segs.len(), 1, "{segs:?}");
+        assert_eq!(segs[0].text, text);
+        // m 107, i 32, m 107, e 64, the mark 1, x 64
+        assert_eq!(segs[0].width.raw(), 107 + 32 + 107 + 64 + 1 + 64);
+    }
+
+    #[test]
+    fn a_letter_and_its_accent_are_one_segment_with_a_different_width() {
+        let cfg = table_config();
+        let segs = row_segments("e\u{301}", X::from_raw(10), &cfg);
+        assert_eq!(segs.len(), 1);
+        assert_eq!((segs[0].x.raw(), segs[0].width.raw()), (10, 65));
+        // a tab still ends the run, and a cut at a color change still does
+        let tab = row_segments("ab\tcd", X::ZERO, &cfg);
+        assert_eq!(tab.len(), 3);
+        let cut = row_segments_cut("abcd", X::ZERO, &cfg, &[2]);
+        assert_eq!(cut.len(), 2);
     }
 }
