@@ -49,7 +49,7 @@ mod tests {
             .filter(|f| f.key_macro)
             .map(|f| f.function)
             .collect();
-        assert_eq!(recorded.len(), 175 + 11 + 50 + 50);
+        assert_eq!(recorded.len(), 175 + 11 + 50 + 50 + 1);
         assert!(MACRO_FUNCTIONS.iter().all(|f| !f.key_macro));
     }
 
@@ -110,11 +110,14 @@ mod tests {
     }
 
     #[test]
-    fn ai_ask_opens_the_modal_and_is_not_recorded() {
+    fn ai_ask_opens_the_modal_and_a_key_macro_records_it() {
         let row = by_name("AiAsk").unwrap();
         assert_eq!((row.function, row.code), ("F_AI_ASK", 32651));
         assert!(row.args.is_empty());
-        assert!(!row.key_macro, "the instruction is typed by a person");
+        assert!(
+            row.key_macro,
+            "ADR-0035: recorded like AiPrompt n; the instruction is not part of it"
+        );
         // no macro for the list of destinations or the settings
         assert!(
             MACRO_COMMANDS

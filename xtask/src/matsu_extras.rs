@@ -388,14 +388,14 @@ fn ai_prompt_functions() -> Vec<Function> {
 }
 
 /// The macro names of sending to an AI, in the order of the macro table: `AiPrompt0` to `AiPrompt49` call
-/// `F_AI_PROMPT_0` to `F_AI_PROMPT_49` (a key macro records them), and `AiAsk` opens the modal of mode b (not
-/// recorded, like `OneLinerDialog`: the instruction is typed by a person, ADR-0035). There is no macro for the list
-/// or the settings. `(macro name, function name, recorded by key macros)`.
+/// `F_AI_PROMPT_0` to `F_AI_PROMPT_49`, and `AiAsk` opens the modal of mode b; a key macro records all of them
+/// (ADR-0035, 1). The instruction is typed by a person each time, so it is never part of the macro. There is no
+/// macro for the list or the settings. `(macro name, function name, recorded by key macros)`.
 pub fn ai_prompt_macros() -> Vec<(String, String, bool)> {
     let mut rows: Vec<(String, String, bool)> = (0..AI_PROMPT_COUNT)
         .map(|n| (format!("AiPrompt{n}"), format!("F_AI_PROMPT_{n}"), true))
         .collect();
-    rows.push(("AiAsk".to_string(), "F_AI_ASK".to_string(), false));
+    rows.push(("AiAsk".to_string(), "F_AI_ASK".to_string(), true));
     rows
 }
 

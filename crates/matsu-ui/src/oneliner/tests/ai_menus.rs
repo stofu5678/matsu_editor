@@ -262,3 +262,27 @@ fn the_codes_of_the_config_are_the_ones_of_the_function_table() {
     assert_eq!(index_of_prompt_function(F_AI_PROMPT_LIST), None);
     assert_eq!(index_of_prompt_function(F_AI_PROMPT_0 - 1), None);
 }
+
+#[gpui::test]
+fn recording_the_ask_function_writes_ai_ask_and_no_instruction(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, "");
+    let code = |name: &str| {
+        matsu_commands::sakura::FUNCTIONS
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap()
+            .code
+    };
+    w.call_code(cx, code("F_RECKEYMACRO"));
+    w.call_code(cx, F_AI_ASK);
+    w.call_code(cx, F_AI_PROMPT_0);
+    w.call_code(cx, code("F_RECKEYMACRO"));
+    let text = w
+        .view
+        .read_with(cx, |view, _| view.recorded_key_macro_text())
+        .expect("a macro was recorded");
+    assert!(text.contains("AiAsk()"), "{text}");
+    assert!(text.contains("AiPrompt0()"), "{text}");
+    // the call has no argument: the instruction is never part of the macro
+    assert!(!text.contains("AiAsk(\""), "{text}");
+}
