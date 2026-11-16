@@ -1,4 +1,4 @@
-//! Which columns of the visible rows hold a match of the current pattern (Sakura's 検索文字列の
+//! Which parts of the visible rows hold a match of the current pattern (Sakura's 検索文字列の
 //! 強調表示, `sakura_core/view/CEditView_Search.cpp` and the search colour of
 //! `CTypeSupport`/`CColor_Found`). Pure arithmetic over the layout, tested without a window.
 //!
@@ -15,15 +15,15 @@ use matsu_layout::{DocumentLayout, RowInfo, X};
 /// paint, and a line this long is searched whole (matchers see whole lines).
 pub const MAX_HIGHLIGHT_LINE_BYTES: usize = 64 * 1024;
 
-/// A match on a row: the columns it covers, and which of the search colors it is drawn in (0 is
+/// A match on a row: the span it covers, and which of the search colors it is drawn in (0 is
 /// the first, up to 4 for `FN5`, counted over the colors that are shown; see [`slot_of`]).
-pub type RowMatch = (u32, u32, u8);
+pub type RowMatch = (X, X, u8);
 
 /// For each row, the matches on it, in order. Empty matches have no width and are left out. A
 /// match that wraps onto the next row is cut at the row end. A match that covers the line ending
 /// adds one column for it after the text of the last row of the line. `slot_of` says which of
 /// the search colors a matched text is drawn in.
-pub fn highlight_columns(
+pub fn highlight_ranges(
     layout: &DocumentLayout,
     doc: &Document,
     rows: &[RowInfo],
@@ -42,7 +42,7 @@ pub fn highlight_columns(
         }
         let line_matches = cached.as_ref().map(|(_, m)| m);
         let matches = line_matches.map_or(&[][..], |m| m.text.as_slice());
-        let mut walk = ColumnWalk::new(layout, row);
+        let mut walk = XWalk::new(layout, row);
         let mut cols = Vec::new();
         for (m, slot) in matches {
             if m.end <= row.start.col {
@@ -51,9 +51,9 @@ pub fn highlight_columns(
             if m.start >= row.end.col {
                 break;
             }
-            // the part of the match on this row, in columns
-            let from = walk.column_at(m.start.max(row.start.col));
-            let to = walk.column_at(m.end.min(row.end.col));
+            // the part of the match on this row
+            let from = walk.x_at(m.start.max(row.start.col));
+            let to = walk.x_at(m.end.min(row.end.col));
             if to > from {
                 cols.push((from, to, *slot));
             }
@@ -61,8 +61,8 @@ pub fn highlight_columns(
         if row.eol.is_some()
             && let Some(slot) = line_matches.and_then(|m| m.eol)
         {
-            let end = layout.config().width.to_columns(row.end_x);
-            cols.push((end, end + 1, slot));
+            let end = row.end_x;
+            cols.push((end, end + layout.config().width.to_x(1), slot));
         }
         out.push(cols);
     }
@@ -71,40 +71,39 @@ pub fn highlight_columns(
 
 type Range = std::ops::Range<usize>;
 
-/// Turns the byte offsets of a row, asked for in increasing order, into columns in one pass over
+/// Turns the byte offsets of a row, asked for in increasing order, into positions in one pass over
 /// the row's text (the matches of a long line must not each rescan the row).
-struct ColumnWalk<'a> {
+struct XWalk<'a> {
     layout: &'a DocumentLayout,
     chars: std::str::CharIndices<'a>,
-    /// The line offset and the column at the start of the chars not yet read.
+    /// The line offset and the position at the start of the chars not yet read.
     at: usize,
-    col: X,
+    x: X,
     /// The offset of the row in its line.
     base: usize,
 }
 
-impl<'a> ColumnWalk<'a> {
+impl<'a> XWalk<'a> {
     fn new(layout: &'a DocumentLayout, row: &'a RowInfo) -> Self {
         Self {
             layout,
             chars: row.text().char_indices(),
             at: row.start.col,
-            col: row.start_x,
+            x: row.start_x,
             base: row.start.col,
         }
     }
 
-    /// The column of the line offset `target` (at the row's end if it is past it).
-    fn column_at(&mut self, target: usize) -> u32 {
-        // The layout counts in `X`; the matches are in columns until ADR-0034 stage 3.
+    /// The position of the line offset `target` (at the row's end if it is past it).
+    fn x_at(&mut self, target: usize) -> X {
         while self.at < target {
             let Some((i, c)) = self.chars.next() else {
                 break;
             };
-            self.col += self.layout.config().advance(c, self.col);
+            self.x += self.layout.config().advance(c, self.x);
             self.at = self.base + i + c.len_utf8();
         }
-        self.layout.config().width.to_columns(self.col)
+        self.x
     }
 }
 
@@ -165,12 +164,33 @@ fn matches_of_line(
 #[cfg(test)]
 mod tests {
     use matsu_core::search::{PlainMatcher, PlainOptions};
-    use matsu_layout::{LayoutConfig, Wrap};
+    use matsu_layout::{LayoutConfig, WidthRule, Widths, Wrap};
 
     use super::*;
 
+    /// `X` in a column: what the view uses.
+    const PER_COLUMN: u32 = 64;
+
+    /// `cfg` with the grid of the view.
+    fn scaled(cfg: LayoutConfig) -> LayoutConfig {
+        LayoutConfig {
+            width: Widths::grid_scaled(WidthRule::default(), PER_COLUMN),
+            ..cfg
+        }
+    }
+
+    fn in_columns(rows: Vec<Vec<RowMatch>>) -> Vec<Vec<(u32, u32, u8)>> {
+        rows.into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|(a, b, slot)| (a.raw() / PER_COLUMN, b.raw() / PER_COLUMN, slot))
+                    .collect()
+            })
+            .collect()
+    }
+
     fn columns(text: &str, pattern: &str, cfg: LayoutConfig) -> Vec<Vec<(u32, u32)>> {
-        slots(text, pattern, cfg, &|_| 0)
+        in_columns(slots(text, pattern, cfg, &|_| 0))
             .into_iter()
             .map(|row| row.into_iter().map(|(a, b, _)| (a, b)).collect())
             .collect()
@@ -183,10 +203,10 @@ mod tests {
         slot_of: &dyn Fn(&str) -> u8,
     ) -> Vec<Vec<RowMatch>> {
         let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
-        let layout = DocumentLayout::laid_out(&doc, cfg).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, scaled(cfg)).unwrap();
         let rows = layout.rows(&doc, 0, 100).unwrap();
         let matcher = PlainMatcher::new(pattern, PlainOptions::default());
-        highlight_columns(&layout, &doc, &rows, &matcher, slot_of)
+        highlight_ranges(&layout, &doc, &rows, &matcher, slot_of)
     }
 
     #[test]
@@ -236,10 +256,10 @@ mod tests {
     fn a_regex_that_matches_the_line_break_colors_its_mark() {
         use matsu_regex::{RegexMatcher, RegexSearchOptions};
         let doc = Document::from_utf8(b"ab\r\ncd\r\nef".to_vec()).unwrap();
-        let layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, scaled(LayoutConfig::default())).unwrap();
         let rows = layout.rows(&doc, 0, 100).unwrap();
         let matcher = RegexMatcher::new(r"b\r\n|f", RegexSearchOptions::default()).unwrap();
-        let cols = highlight_columns(&layout, &doc, &rows, &matcher, &|_| 0);
+        let cols = in_columns(highlight_ranges(&layout, &doc, &rows, &matcher, &|_| 0));
         // "b" and the mark after it (column 2); the last line has no line ending
         assert_eq!(cols[0], [(1, 2, 0), (2, 3, 0)]);
         assert!(cols[1].is_empty());
@@ -255,9 +275,9 @@ mod tests {
 
     #[test]
     fn each_match_gets_the_slot_the_caller_gives_its_text() {
-        let rows = slots("ab xx ab", "ab", LayoutConfig::default(), &|text| {
+        let rows = in_columns(slots("ab xx ab", "ab", LayoutConfig::default(), &|text| {
             if text == "ab" { 3 } else { 0 }
-        });
+        }));
         assert_eq!(rows[0], [(0, 2, 3), (6, 8, 3)]);
     }
 

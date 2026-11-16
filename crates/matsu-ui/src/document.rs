@@ -156,14 +156,17 @@ pub struct SharedDocument {
 struct TsvState {
     /// The count that is going or was done last.
     job: Option<TsvJob>,
-    /// The result of a complete count.
-    published: Option<matsu_layout::TsvStops>,
+    /// The result of a complete count, and the `X` in a column it was counted with (the panes
+    /// have their own, see [`SharedDocument::tsv_stops`]).
+    published: Option<(matsu_layout::TsvStops, u32)>,
     /// The text is complete now: count again.
     stale: bool,
 }
 
 struct TsvJob {
     scan: matsu_layout::TsvScan,
+    /// The `X` in a column the count is made in.
+    per_column: u32,
     /// The version of the document the count started on.
     version: u64,
     done: bool,
@@ -225,9 +228,17 @@ impl SharedDocument {
     /// The stops of `mode` for the text of this document, for the layout of every pane: the last
     /// complete count, or none (the tab stops of the tab width) until the first one is complete.
     /// This does no work; [`step_tsv_stops`](Self::step_tsv_stops) counts a piece at a time.
-    pub fn tsv_stops(&self, mode: matsu_layout::TsvMode) -> matsu_layout::TsvStops {
+    ///
+    /// `per_column` is the `X` in a column of the layout that asks: the count is kept for the
+    /// `X` it was made in and scaled to this one, so that panes (and a pane whose font size
+    /// changed the width of its columns) all get stops that fit.
+    pub fn tsv_stops(
+        &self,
+        mode: matsu_layout::TsvMode,
+        per_column: u32,
+    ) -> matsu_layout::TsvStops {
         match self.tsv.borrow().published.as_ref() {
-            Some(stops) if stops.mode() == mode => stops.clone(),
+            Some((stops, counted)) if stops.mode() == mode => stops.rescaled(*counted, per_column),
             _ => matsu_layout::TsvStops::none(),
         }
     }
@@ -253,12 +264,13 @@ impl SharedDocument {
         let restart = state.stale
             || match &state.job {
                 Some(job) => job.scan.mode() != mode || (!job.done && job.version != self.version),
-                None => state.published.as_ref().is_none_or(|p| p.mode() != mode),
+                None => state.published.as_ref().is_none_or(|p| p.0.mode() != mode),
             };
         if restart {
             state.stale = false;
             state.job = Some(TsvJob {
                 scan: matsu_layout::TsvScan::new(mode, *width),
+                per_column: width.per_column(),
                 version: self.version,
                 done: false,
             });
@@ -272,7 +284,7 @@ impl SharedDocument {
         let done = job.scan.advance(self.model.doc(), budget).unwrap_or(true);
         if done {
             job.done = true;
-            state.published = Some(job.scan.finish());
+            state.published = Some((job.scan.finish(), job.per_column));
         }
         done
     }

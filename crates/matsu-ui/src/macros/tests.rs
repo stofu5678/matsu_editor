@@ -974,7 +974,7 @@ fn the_tab_width_and_the_wrap_column_change_for_the_window(cx: &mut TestAppConte
         "const t = Editor.ChangeTabWidth(8);\n\
          const w = Editor.ChangeWrapColumn(10);\n\
          console.log('r=' + [t, w, Editor.ChangeTabWidth(0), Editor.GetStrWidth('\\t'), \
-         Editor.LineColumnToIndex(2, 3), Editor.LogicToLayoutLineNum(1, 25), \
+         Editor.LineColumnToIndex(2, 3 * 64), Editor.LogicToLayoutLineNum(1, 25), \
          Editor.LayoutToLogicLineNum(3)].join(','));",
     );
     // 4 and no wrapping (10240) before; 8 and 10 after. The second row starts at index 11 (from 1):

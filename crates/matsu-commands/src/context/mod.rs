@@ -61,7 +61,7 @@ pub use funclist::FuncListJump;
 pub use modes::{eol_of_macro_value, macro_value_of_eol};
 pub use modified_lines::ModifiedLineJump;
 pub use mouse::DragSelection;
-pub use units::MAX_BOX_COLUMNS;
+pub use units::{MAX_BOX_COLUMNS, raw_of as cursor_raw, x_of as cursor_x};
 
 /// One edit of the text, in the coordinates of the document before the edit for `old_end` and
 /// after it for `new_end`: the text from `start` to `old_end` is gone, and the text from `start`

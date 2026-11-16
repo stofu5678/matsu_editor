@@ -127,22 +127,13 @@ impl EditorView {
         .ok()
     }
 
-    /// `columns` columns as the `X` that the commands take. The hit test still counts columns, and
-    /// this is where they become `X` until the UI counts in `X` (ADR-0034 stage 3).
-    fn x_of_columns(&self, columns: usize) -> matsu_layout::X {
-        self.layout
-            .config()
-            .width
-            .to_x(u32::try_from(columns).unwrap_or(u32::MAX))
-    }
-
-    /// The display column under the point when it is to the right of the text of its row, for the
-    /// free cursor mode.
-    fn free_column_for_point(&self, p: Point<Pixels>, cx: &gpui::App) -> Option<usize> {
+    /// The `X` under the point when it is to the right of the text of its row, for the free cursor
+    /// mode.
+    fn free_x_for_point(&self, p: Point<Pixels>, cx: &gpui::App) -> Option<matsu_layout::X> {
         let paint = self.paint?;
         let x = f32::from(p.x) - paint.origin_x + self.scroll_x;
         let y = f32::from(p.y) - paint.origin_y;
-        crate::hit::free_column_at(
+        crate::hit::free_x_at(
             &self.layout,
             self.document.read(cx).doc(),
             &self.metrics,
@@ -155,9 +146,13 @@ impl EditorView {
     }
 
     /// The layout row under the point (the last one below the text, the first one above), as the
-    /// position where it starts, and the display column of the nearest edge between cells: where a
-    /// box selection puts its corner.
-    fn box_corner_for_point(&self, p: Point<Pixels>, cx: &gpui::App) -> Option<(Pos, usize)> {
+    /// position where it starts, and the `X` of the nearest edge between columns: where a box
+    /// selection puts its corner.
+    fn box_corner_for_point(
+        &self,
+        p: Point<Pixels>,
+        cx: &gpui::App,
+    ) -> Option<(Pos, matsu_layout::X)> {
         let paint = self.paint?;
         let x = (f32::from(p.x) - paint.origin_x + self.scroll_x).max(0.0);
         let y = f32::from(p.y) - paint.origin_y;
@@ -167,7 +162,7 @@ impl EditorView {
             .row_to_pos(self.document.read(cx).doc(), row, matsu_layout::X::ZERO)
             .ok()?
             .pos;
-        Some((start, (x / self.metrics.cell_width + 0.5).floor() as usize))
+        Some((start, self.x_scale().nearest_column_edge(x)))
     }
 
     /// The function the key map has for a click of the mouse with the keys held (the rows
@@ -445,7 +440,9 @@ impl EditorView {
     ) -> ((Pos, Pos), bool) {
         let m = event.modifiers;
         // A click to the right of the text puts the caret there in the free cursor mode.
-        let free = self.x_of_columns(self.free_column_for_point(event.position, cx).unwrap_or(0));
+        let free = self
+            .free_x_for_point(event.position, cx)
+            .unwrap_or(matsu_layout::X::ZERO);
         if m.shift {
             // A box is dropped before the selection grows from the caret.
             if self.cursor.is_box() && self.cursor.has_selection() {
@@ -572,8 +569,7 @@ impl EditorView {
                 .ok();
             }
             Drag::Box => {
-                if let Some((row, col)) = self.box_corner_for_point(event.position, cx) {
-                    let x = self.x_of_columns(col);
+                if let Some((row, x)) = self.box_corner_for_point(event.position, cx) {
                     self.run_with(cx, |command_cx| command_cx.mouse_box_to(row, x))
                         .ok();
                 }

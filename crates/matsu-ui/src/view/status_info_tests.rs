@@ -167,8 +167,8 @@ fn growing_the_selection_counts_the_difference(cx: &mut TestAppContext) {
 fn a_box_shows_its_width_and_height(cx: &mut TestAppContext) {
     let (v, cx) = setup(cx, "abcd\nefgh\nijkl");
     v.update(cx, |v, _| {
-        v.cursor.begin_box(1, false);
-        v.cursor.move_box_to(Pos::new(2, 3), 3);
+        v.cursor.begin_box(64, false);
+        v.cursor.move_box_to(Pos::new(2, 3), 3 * 64);
     });
     let m = message(&v, cx, false).expect("a message");
     assert!(m.starts_with("2 col ("), "{m}");

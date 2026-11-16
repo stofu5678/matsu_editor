@@ -103,20 +103,22 @@ pub fn scale(height: u32, cell: f32, scroll_x: f32, view_width: f32, max_columns
 
 /// The mark of the caret on the ruler: from x to x, and from y to y (`_DrawRulerCaret`: one pixel
 /// right of the column, a column wide less that pixel, and the ruler's height less one). `None`
-/// when the caret's column is not on the screen.
+/// when the caret's column is not on the screen. `caret_px` is where the caret is, in pixels from
+/// the text origin.
 pub fn caret_mark(
     height: u32,
-    caret_col: u32,
+    caret_px: f32,
     cell: f32,
     scroll_x: f32,
     view_width: f32,
 ) -> Option<(f32, f32, f32, f32)> {
-    let first = (scroll_x / cell).floor().max(0.0) as u32;
-    let right = ((scroll_x + view_width) / cell).floor() as u32;
-    if caret_col < first || caret_col > right + 2 {
+    let first = (scroll_x / cell).floor().max(0.0);
+    let right = ((scroll_x + view_width) / cell).floor();
+    // The caret is in a column from the first to two past the right one.
+    if caret_px < first * cell || caret_px >= (right + 3.0) * cell {
         return None;
     }
-    let x = caret_col as f32 * cell - scroll_x + 1.0;
+    let x = caret_px - scroll_x + 1.0;
     Some((x, x + cell - 1.0, 0.0, height.saturating_sub(1) as f32))
 }
 
@@ -218,20 +220,20 @@ mod tests {
     }
 
     #[test]
-    fn the_caret_mark_is_a_column_wide_in_the_columns_of_the_caret() {
-        let (x0, x1, y0, y1) = caret_mark(13, 3, 8.0, 0.0, 100.0).unwrap();
+    fn the_caret_mark_is_a_column_wide_at_the_pixel_of_the_caret() {
+        let (x0, x1, y0, y1) = caret_mark(13, 24.0, 8.0, 0.0, 100.0).unwrap();
         assert_eq!((x0, x1, y0, y1), (25.0, 32.0, 0.0, 12.0));
         // scrolled
-        assert_eq!(caret_mark(13, 3, 8.0, 8.0, 100.0).unwrap().0, 17.0);
+        assert_eq!(caret_mark(13, 24.0, 8.0, 8.0, 100.0).unwrap().0, 17.0);
     }
 
     #[test]
     fn the_caret_mark_is_not_drawn_off_the_screen() {
-        assert_eq!(caret_mark(13, 3, 8.0, 80.0, 100.0), None);
-        assert!(caret_mark(13, 12, 8.0, 0.0, 100.0).is_some());
+        assert_eq!(caret_mark(13, 24.0, 8.0, 80.0, 100.0), None);
+        assert!(caret_mark(13, 96.0, 8.0, 0.0, 100.0).is_some());
         // up to two columns past the right edge (the caret at the end of a line)
-        assert!(caret_mark(13, 14, 8.0, 0.0, 100.0).is_some());
-        assert_eq!(caret_mark(13, 15, 8.0, 0.0, 100.0), None);
+        assert!(caret_mark(13, 112.0, 8.0, 0.0, 100.0).is_some());
+        assert_eq!(caret_mark(13, 120.0, 8.0, 0.0, 100.0), None);
     }
 
     #[test]

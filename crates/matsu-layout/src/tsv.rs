@@ -141,6 +141,27 @@ impl TsvStops {
         Ok(scan.finish())
     }
 
+    /// The same stops for a layout whose column is `to` `X` instead of `from` (the grid is the
+    /// same: every width is a whole number of columns, so each stop is a whole number of
+    /// columns too, and the stops are only scaled). This is for the panes of a document that count
+    /// a column in another number of `X` (the character spacing with another font size): the
+    /// document counts the stops once.
+    pub fn rescaled(&self, from: u32, to: u32) -> Self {
+        let (from, to) = (from.max(1), to.max(1));
+        if from == to {
+            return self.clone();
+        }
+        let scale = |x: X| {
+            X::from_raw((u64::from(x.raw() / from) * u64::from(to)).min(u64::from(u32::MAX)) as u32)
+        };
+        Self {
+            mode: self.mode,
+            ends: self.ends.iter().map(|&x| scale(x)).collect(),
+            widest: scale(self.widest),
+            past_last: scale(self.past_last),
+        }
+    }
+
     /// The most `X` a delimiter can take; [`X::ZERO`] when there are no stops (the caller takes
     /// the larger of this and the widest ordinary character).
     pub fn widest_delimiter(&self) -> X {
@@ -295,6 +316,7 @@ fn note(widest: &mut Vec<X>, field: usize, width: X) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::WidthRule;
 
     /// The numbers of the stops: these tests have one `X` per column.
     fn raws(ends: &[X]) -> Vec<u32> {
@@ -418,5 +440,23 @@ mod tests {
         assert_eq!(TsvMode::from_setting(2), TsvMode::Csv);
         assert_eq!(TsvMode::from_setting(7), TsvMode::None);
         assert_eq!(TsvMode::from_setting(-1), TsvMode::None);
+    }
+
+    #[test]
+    fn stops_counted_in_one_column_width_are_the_same_stops_in_another() {
+        let lines = ["abc\td", "a\tbbbbb\tc"];
+        let counted = |per: u32| {
+            TsvStops::from_lines(
+                TsvMode::Tsv,
+                &Widths::grid_scaled(WidthRule::default(), per),
+                lines,
+            )
+        };
+        let base = counted(64);
+        for per in [1, 80, 85] {
+            assert_eq!(base.rescaled(64, per), counted(per), "{per}");
+            assert_eq!(counted(per).rescaled(per, 64), base, "{per}");
+        }
+        assert_eq!(base.rescaled(64, 64), base);
     }
 }

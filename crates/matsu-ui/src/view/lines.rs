@@ -140,11 +140,11 @@ pub fn note_line_y(offset: i32, line_height: f32) -> f32 {
     ((offset - 1) as f32).rem_euclid(height)
 }
 
-/// The x of the vertical line of the caret column, from the left of the text area, if it is
-/// drawn (`CaretUnderLineON`, `IsDrawCursorVLinePos`): one pixel left of the caret so that it
+/// The x of the vertical line of the caret column, from the left of the text area (`caret_px` is
+/// where the caret is, in pixels from the text origin), if it is drawn (`CaretUnderLineON`, `IsDrawCursorVLinePos`): one pixel left of the caret so that it
 /// does not cover it. Not drawn in the line number area or right of the text area.
-pub fn cursor_vline_x(caret_col: u32, cell: f32, scroll_x: f32, view_width: f32) -> Option<f32> {
-    let x = (caret_col as f32 * cell - scroll_x - 1.0).round();
+pub fn cursor_vline_x(caret_px: f32, scroll_x: f32, view_width: f32) -> Option<f32> {
+    let x = (caret_px - scroll_x - 1.0).round();
     in_text_area(x, view_width).then_some(x)
 }
 
@@ -434,18 +434,18 @@ mod tests {
     #[test]
     fn the_caret_column_line_is_left_of_the_caret() {
         // caret at column 3 (cell 8): the caret is at 24, the line at 23
-        assert_eq!(cursor_vline_x(3, 8.0, 0.0, 400.0), Some(23.0));
-        assert_eq!(cursor_vline_x(3, 8.0, 8.0, 400.0), Some(15.0));
+        assert_eq!(cursor_vline_x(24.0, 0.0, 400.0), Some(23.0));
+        assert_eq!(cursor_vline_x(24.0, 8.0, 400.0), Some(15.0));
     }
 
     #[test]
     fn the_caret_column_line_is_not_drawn_at_the_first_column_or_off_the_view() {
         // column 0: x = -1, the gap of the line numbers
-        assert_eq!(cursor_vline_x(0, 8.0, 0.0, 400.0), None);
+        assert_eq!(cursor_vline_x(0.0, 0.0, 400.0), None);
         // scrolled away to the left
-        assert_eq!(cursor_vline_x(3, 8.0, 100.0, 400.0), None);
+        assert_eq!(cursor_vline_x(24.0, 100.0, 400.0), None);
         // right of the text area
-        assert_eq!(cursor_vline_x(100, 8.0, 0.0, 400.0), None);
+        assert_eq!(cursor_vline_x(800.0, 0.0, 400.0), None);
         assert_eq!(cursor_vline_bold_x(1.0, 400.0), None);
         assert_eq!(cursor_vline_bold_x(23.0, 400.0), Some(22.0));
     }

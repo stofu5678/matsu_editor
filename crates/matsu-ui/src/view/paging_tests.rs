@@ -186,7 +186,10 @@ fn the_box_pages_begin_a_box_and_move_the_view_like_the_others(cx: &mut TestAppC
     run(&view, cx, F_1PAGE_DOWN_BOX);
     // The caret and the view move a page less one row, in the same column, and the box grows.
     assert_eq!(at(&view, cx), (100 + n - 1, 98 + n - 1));
-    assert_eq!(box_corners(&view, cx), Some(((100, 3), (100 + n - 1, 3))));
+    assert_eq!(
+        box_corners(&view, cx),
+        Some(((100, 3 * 64), (100 + n - 1, 3 * 64)))
+    );
     assert!(view.read_with(cx, |v, _| v.cursor.is_box()));
     run(&view, cx, F_1PAGE_UP_BOX);
     // back at the corner of the box: the box is still there but covers nothing
@@ -205,14 +208,17 @@ fn the_box_half_pages_move_only_the_caret(cx: &mut TestAppContext) {
             .unwrap();
     });
     run(&view, cx, F_HALF_PAGE_DOWN_BOX);
-    assert_eq!(box_corners(&view, cx), Some(((10, 2), (10 + n / 2, 2))));
+    assert_eq!(
+        box_corners(&view, cx),
+        Some(((10, 2 * 64), (10 + n / 2, 2 * 64)))
+    );
     assert_eq!(top(&view, cx), 0);
     // going back up passes the corner of the box and the box follows
     run(&view, cx, F_HALF_PAGE_UP_BOX);
     run(&view, cx, F_HALF_PAGE_UP_BOX);
     assert_eq!(
         box_corners(&view, cx),
-        Some(((10, 2), (10usize.saturating_sub(n / 2), 2)))
+        Some(((10, 2 * 64), (10usize.saturating_sub(n / 2), 2 * 64)))
     );
 }
 
@@ -909,7 +915,7 @@ fn the_box_pages_take_the_number_of_rows_too(cx: &mut TestAppContext) {
             .unwrap();
     });
     run_with_rows(&view, cx, F_HALF_PAGE_DOWN_BOX, 6);
-    assert_eq!(box_corners(&view, cx), Some(((100, 3), (106, 3))));
+    assert_eq!(box_corners(&view, cx), Some(((100, 3 * 64), (106, 3 * 64))));
     run_with_rows(&view, cx, F_1PAGE_DOWN_BOX, 3);
     assert_eq!(at(&view, cx), (109, 101));
 }

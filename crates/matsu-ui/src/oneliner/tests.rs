@@ -413,8 +413,8 @@ fn a_box_selection_is_the_input_and_the_result_goes_in_once(cx: &mut TestAppCont
     let (_dir, w) = open(cx, &one(UPPER, 0), "abcd\nefgh\nijkl\n");
     w.view.update(cx, |view, _| {
         view.cursor.move_to(Pos::new(0, 1), false);
-        view.cursor.begin_box(1, false);
-        view.cursor.move_box_to(Pos::new(1, 3), 3);
+        view.cursor.begin_box(64, false);
+        view.cursor.move_box_to(Pos::new(1, 3), 3 * 64);
     });
     run(cx, &w, 0);
     // the box ("bc", "fg") is replaced by the result ("BC\nFG") once, at the caret

@@ -11,18 +11,19 @@ use std::ops::Range;
 
 use gpui::{App, Context};
 use matsu_coloring::ColorState;
+use matsu_layout::X;
 
 use super::EditorView;
 use super::colors::LineColorRequest;
 use super::syntax::{self, Label};
-use crate::search::highlight::{highlight_columns, slot_of};
+use crate::search::highlight::{highlight_ranges, slot_of};
 use crate::settings::view_settings::Rgb;
 
 /// A piece of text of one color on a row of the minimap.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MiniPiece {
-    /// The column where the piece starts.
-    pub col: u32,
+    /// Where the piece starts.
+    pub x: X,
     pub text: String,
     pub color: Rgb,
 }
@@ -33,8 +34,8 @@ pub(crate) struct MiniRow {
     /// The row in the document.
     pub row: usize,
     pub pieces: Vec<MiniPiece>,
-    /// Backgrounds of pieces that are not the background of the row: from column, to column, color.
-    pub backs: Vec<(u32, u32, Rgb)>,
+    /// Backgrounds of pieces that are not the background of the row: from, to, color.
+    pub backs: Vec<(X, X, Rgb)>,
 }
 
 /// The colors of the minimap besides the text.
@@ -88,6 +89,8 @@ impl EditorView {
         let rows = layout.rows(doc, first_row, count).unwrap_or_default();
         // A character is a column wide at least (but for the rare ones of no width, so a few more).
         let max_chars = max_cols as usize + 16;
+        let widths = layout.config().width;
+        let max_x = widths.to_x(max_cols);
 
         let search = &self.search;
         let shown_found = colors.found.len();
@@ -96,7 +99,7 @@ impl EditorView {
             .matcher()
             .filter(|_| search.mark() && shown_found > 0)
         {
-            Some(matcher) => highlight_columns(layout, doc, &rows, &**matcher, &|text| {
+            Some(matcher) => highlight_ranges(layout, doc, &rows, &**matcher, &|text| {
                 slot_of(words.and_then(|w| w.word_slot(text)), shown_found)
             }),
             None => Vec::new(),
@@ -168,7 +171,7 @@ impl EditorView {
                 rules,
                 &syntax::RowInput {
                     text: clipped,
-                    start_col: layout.config().width.to_columns(row.start_x),
+                    start_x: row.start_x,
                     cfg: layout.config(),
                     runs: &row_runs,
                     found: &row_found,
@@ -179,12 +182,12 @@ impl EditorView {
             for item in styling.items {
                 // The marks of tabs and spaces are too small to see at this size.
                 if let Label::Text(text) = item.label
-                    && item.col < max_cols
+                    && item.x < max_x
                 {
                     // a character is at least one column wide
-                    let room = (max_cols - item.col) as usize;
+                    let room = (widths.to_columns(max_x - item.x) as usize).max(1);
                     mini.pieces.push(MiniPiece {
-                        col: item.col,
+                        x: item.x,
                         text: text.chars().take(room).collect(),
                         color: item.style.text,
                     });
@@ -193,8 +196,8 @@ impl EditorView {
             mini.backs = styling
                 .backs
                 .into_iter()
-                .filter(|&(from, _, _)| from < max_cols)
-                .map(|(from, to, color)| (from, to.min(max_cols), color))
+                .filter(|&(from, _, _)| from < max_x)
+                .map(|(from, to, color)| (from, to.min(max_x), color))
                 .collect();
             out.push(mini);
         }

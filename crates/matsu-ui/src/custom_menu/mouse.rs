@@ -9,37 +9,31 @@
 use gpui::{Context, MouseButton, MouseDownEvent, MouseUpEvent, Pixels, Point, Window};
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 use matsu_core::cursor::Cursor;
-use matsu_layout::DocumentLayout;
+use matsu_layout::{DocumentLayout, X};
 
-use crate::geometry::column_at;
 use crate::hit::BoxArea;
 use crate::view::EditorView;
 
-/// `IsCurrentPositionSelected` for the cell at `row` and display column `col`: inside a box selection's
-/// columns, or from the start of a range up to, not including, its end.
+/// `IsCurrentPositionSelected` for the place at `row` and `x`: inside a box selection's span, or
+/// from the start of a range up to, not including, its end.
 pub(crate) fn cell_is_selected(
     layout: &DocumentLayout,
     doc: &matsu_core::buffer::Document,
     cursor: &Cursor,
     row: usize,
-    col: u32,
+    x: X,
 ) -> bool {
     if cursor.is_box() {
         return BoxArea::of_cursor(layout, doc, cursor)
-            .and_then(|area| area.columns_on(row))
-            .is_some_and(|(from, to)| (from..to).contains(&col));
+            .and_then(|area| area.range_on(row))
+            .is_some_and(|(from, to)| (from..to).contains(&x));
     }
     let Some((start, end)) = cursor.selection() else {
         return false;
     };
-    let cell = |pos| {
-        layout
-            .pos_to_row(doc, pos)
-            .ok()
-            .map(|at| (at.row, layout.config().width.to_columns(at.x)))
-    };
+    let cell = |pos| layout.pos_to_row(doc, pos).ok().map(|at| (at.row, at.x));
     match (cell(start), cell(end)) {
-        (Some(from), Some(to)) => (from..to).contains(&(row, col)),
+        (Some(from), Some(to)) => (from..to).contains(&(row, x)),
         _ => false,
     }
 }
@@ -56,13 +50,12 @@ impl EditorView {
         if row < 0.0 || row as usize >= self.layout.row_count() {
             return false;
         }
-        let (col, _) = column_at(&self.metrics, x);
         cell_is_selected(
             &self.layout,
             self.document.read(cx).doc(),
             &self.cursor,
             row as usize,
-            col,
+            self.x_scale().x_at(x),
         )
     }
 

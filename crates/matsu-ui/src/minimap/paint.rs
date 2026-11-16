@@ -10,11 +10,12 @@ use gpui::{
     Pixels, ShapedLine, SharedString, Styled, TextAlign, TextRun, Window, canvas, fill, point, px,
     rgb, size,
 };
+use matsu_layout::X;
 
 use super::current;
 use super::geometry::{self, LEFT_MARGIN};
 use super::panel::{Drag, MiniMap};
-use crate::geometry::SCROLLBAR_WIDTH;
+use crate::geometry::{SCROLLBAR_WIDTH, XScale};
 use crate::view::minimap::MiniLook;
 
 /// What the prepaint decided to draw.
@@ -27,13 +28,14 @@ pub(super) struct Painted {
     /// The rows the window shows.
     page: std::ops::Range<usize>,
     rows: Vec<PaintedRow>,
-    cell: f32,
+    /// The pixels of the layout's `X` in the minimap's font.
+    scale: XScale,
 }
 
 struct PaintedRow {
     row: usize,
-    pieces: Vec<(u32, ShapedLine)>,
-    backs: Vec<(u32, u32, u32)>,
+    pieces: Vec<(X, ShapedLine)>,
+    backs: Vec<(X, X, u32)>,
 }
 
 /// The element: it fills its parent, and paints the minimap of `entity`.
@@ -84,7 +86,8 @@ fn prepaint(
     };
     let look = editor.minimap_look();
     // One column is the advance of a half-width character, as the text of the window measures it
-    // (the pieces are placed at whole columns, so they line up with the glyphs of the font).
+    // (the pieces are placed at whole columns, so they line up with the glyphs of the font). The
+    // layout is the view's, in `X`: the minimap's font gives the pixels of an `X`.
     let cell = f32::from(shape(window, "0000000000", look.background).width()) / 10.0;
     let cell = if cell > 0.0 { cell } else { 1.0 };
     // Columns that can be seen; a piece is cut there, so that a very long line costs nothing.
@@ -99,7 +102,7 @@ fn prepaint(
             pieces: row
                 .pieces
                 .iter()
-                .map(|piece| (piece.col, shape(window, &piece.text, piece.color)))
+                .map(|piece| (piece.x, shape(window, &piece.text, piece.color)))
                 .collect(),
             backs: row.backs,
         })
@@ -112,7 +115,7 @@ fn prepaint(
         total_rows,
         page: editor.minimap_page(),
         rows,
-        cell,
+        scale: editor.x_scale_for(cell),
     })
 }
 
@@ -139,7 +142,7 @@ fn paint(
             bounds.size.height,
         ),
     );
-    let x_of = |col: u32| bounds.left() + px(LEFT_MARGIN + col as f32 * p.cell);
+    let x_of = |x: X| bounds.left() + px(LEFT_MARGIN + p.scale.px(x));
     window.with_content_mask(
         Some(ContentMask {
             bounds: text_bounds,
@@ -160,8 +163,8 @@ fn paint(
                         rgb(color),
                     ));
                 }
-                for (col, line) in &row.pieces {
-                    line.paint(point(x_of(*col), y), lh, TextAlign::Left, None, window, cx)
+                for (x, line) in &row.pieces {
+                    line.paint(point(x_of(*x), y), lh, TextAlign::Left, None, window, cx)
                         .ok();
                 }
             }

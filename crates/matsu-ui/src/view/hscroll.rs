@@ -119,8 +119,8 @@ impl TextWidth {
         }
         match layout.widest_x(doc, self.next, budget) {
             Ok((widest, next)) => {
-                // The layout counts in `X`, the scroll range in columns (ADR-0034 stage 3).
-                let widest = layout.config().width.to_columns(widest);
+                // The scroll range is in columns: all of the widest row has to be reachable.
+                let widest = layout.config().width.to_columns_ceil(widest);
                 self.running = self.running.max(widest);
                 self.next = next;
                 if next >= doc.line_count() {

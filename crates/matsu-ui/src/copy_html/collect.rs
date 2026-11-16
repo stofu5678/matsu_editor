@@ -45,11 +45,11 @@ use matsu_coloring::{
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
 use matsu_core::search::{Matcher, PlainMatcher};
-use matsu_layout::{DocumentLayout, RowInfo};
+use matsu_layout::{DocumentLayout, RowInfo, X};
 
 use super::builder::{Attr, Html, Row};
 use crate::hit::BoxArea;
-use crate::search::highlight::{RowMatch, highlight_columns, slot_of};
+use crate::search::highlight::{RowMatch, highlight_ranges, slot_of};
 use crate::settings::view_settings::{FoundColors, rgb_of};
 
 /// The matches of the search that are colored in the copy as they are on the screen
@@ -179,7 +179,7 @@ fn chars_before(text: &str, at: usize) -> usize {
 }
 
 /// The characters of a row with the line ending that ends it, and the style of each. `matches`
-/// are the matches of the search on the row, by column (a line ending is one column, after the
+/// are the matches of the search on the row, by `X` (a line ending is one column, after the
 /// text).
 fn row_chars(
     layout: &DocumentLayout,
@@ -198,17 +198,16 @@ fn row_chars(
     // The cache of the style of the last kind, which is the same for most characters.
     let mut cached: Option<(ColorKind, Option<u8>, Attr)> = None;
     let mut byte = row.start.col;
-    let widths = layout.config().width;
-    let (mut column, mut next_match) = (row.start_x, 0);
+    let (mut x, mut next_match) = (row.start_x, 0);
     let body = row.text().len();
     for c in text.chars() {
         let kind = kind_at(&colors.runs, byte);
-        // The line ending is in the column of its mark.
-        let at = widths.to_columns(if byte - row.start.col < body {
-            column
+        // The line ending is at the place of its mark.
+        let at = if byte - row.start.col < body {
+            x
         } else {
             row.end_x
-        });
+        };
         while matches.get(next_match).is_some_and(|m| m.1 <= at) {
             next_match += 1;
         }
@@ -222,7 +221,7 @@ fn row_chars(
             }
         };
         if byte - row.start.col < body {
-            column += layout.config().advance(c, column);
+            x += layout.config().advance(c, x);
         }
         chars.push(c);
         attrs.push(attr);
@@ -284,7 +283,7 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
     let found = source.found.as_ref();
     // The matches on the rows, by column, found a line at a time like the screen does.
     let matches: Vec<Vec<RowMatch>> = match found {
-        Some(found) => highlight_columns(layout, doc, &rows, found.matcher, &|text| {
+        Some(found) => highlight_ranges(layout, doc, &rows, found.matcher, &|text| {
             slot_of(
                 found.words.and_then(|w| w.word_slot(text)),
                 found.colors.len(),
@@ -307,12 +306,9 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
             Some(area) => {
                 // The characters at the left and the right column of the box; a row that is
                 // shorter has its end for both. The line ending is not in it.
-                let (left, right) = area.columns_on(info.row)?;
-                let index_at = |column: u32| -> Option<usize> {
-                    let at = layout
-                        .row_to_pos(doc, info.row, layout.config().width.to_x(column))
-                        .ok()?
-                        .pos;
+                let (left, right) = area.range_on(info.row)?;
+                let index_at = |x: X| -> Option<usize> {
+                    let at = layout.row_to_pos(doc, info.row, x).ok()?.pos;
                     let col = at.col.clamp(info.start.col, info.end.col);
                     Some(chars_before(info.text(), col - info.start.col))
                 };

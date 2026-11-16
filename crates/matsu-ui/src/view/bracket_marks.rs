@@ -40,36 +40,36 @@
 
 use matsu_commands::text::bracket::{Reach, pair_of_start, start_of};
 use matsu_core::buffer::{Document, Pos};
-use matsu_layout::DocumentLayout;
+use matsu_layout::{DocumentLayout, X};
 
 /// A line longer than this many bytes is not searched: the highlight is made again at every
 /// paint, and the search reads whole lines.
 pub const MAX_LINE_BYTES: usize = 64 * 1024;
 
-/// What is on the screen: the rows and the columns (both ends included).
+/// What is on the screen: the rows (both ends included) and the columns, as the `X` from the start
+/// of the first column to the end of the last (that one is not included).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Screen {
     pub first_row: usize,
     pub last_row: usize,
-    pub first_col: u32,
-    pub last_col: u32,
+    pub first_x: X,
+    pub end_x: X,
 }
 
 impl Screen {
-    fn has(&self, row: usize, col: u32) -> bool {
-        (self.first_row..=self.last_row).contains(&row)
-            && (self.first_col..=self.last_col).contains(&col)
+    fn has(&self, row: usize, x: X) -> bool {
+        (self.first_row..=self.last_row).contains(&row) && (self.first_x..self.end_x).contains(&x)
     }
 }
 
 /// A bracket to draw in the color `BRC`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mark {
-    /// The row of the layout, and the column where the bracket starts.
+    /// The row of the layout, and where the bracket starts.
     pub row: usize,
-    pub col: u32,
-    /// How many columns the bracket takes (a full-width bracket takes 2).
-    pub cols: u32,
+    pub x: X,
+    /// How wide the bracket is (a full-width bracket is two columns).
+    pub width: X,
     pub ch: char,
 }
 
@@ -101,13 +101,12 @@ fn marks_checked(
     let other = pair_of_start(doc, start, Some(reach)).ok()??;
     let other_at = layout.pos_to_row(doc, other).ok()?;
     // The pair has to be on the screen, or nothing is drawn.
-    let widths = layout.config().width;
-    if !screen.has(other_at.row, widths.to_columns(other_at.x)) {
+    if !screen.has(other_at.row, other_at.x) {
         return None;
     }
     let mut marks = Vec::with_capacity(2);
     for (pos, at) in [(other, other_at), (start.pos, start_at)] {
-        if !screen.has(at.row, widths.to_columns(at.x)) {
+        if !screen.has(at.row, at.x) {
             continue;
         }
         let ch = doc
@@ -118,8 +117,8 @@ fn marks_checked(
             .next()?;
         marks.push(Mark {
             row: at.row,
-            col: widths.to_columns(at.x),
-            cols: widths.to_columns(layout.config().advance(ch, at.x)),
+            x: at.x,
+            width: layout.config().advance(ch, at.x),
             ch,
         });
     }
@@ -128,27 +127,43 @@ fn marks_checked(
 
 #[cfg(test)]
 mod tests {
-    use matsu_layout::{LayoutConfig, Wrap};
+    use matsu_layout::{LayoutConfig, WidthRule, Widths, Wrap};
 
     use super::*;
 
+    /// `X` in a column: what the view uses.
+    const PER_COLUMN: u32 = 64;
+
+    /// `n` columns as `X`.
+    fn col(n: u32) -> X {
+        X::from_raw(n * PER_COLUMN)
+    }
+
     fn setup(text: &str, config: LayoutConfig) -> (Document, DocumentLayout) {
         let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+        let config = LayoutConfig {
+            width: Widths::grid_scaled(WidthRule::default(), PER_COLUMN),
+            ..config
+        };
         let layout = DocumentLayout::laid_out(&doc, config).unwrap();
         (doc, layout)
     }
 
+    /// The screen of the columns 0 to 79.
     fn screen(rows: usize) -> Screen {
         Screen {
             first_row: 0,
             last_row: rows - 1,
-            first_col: 0,
-            last_col: 79,
+            first_x: col(0),
+            end_x: col(80),
         }
     }
 
     fn at(marks: &[Mark]) -> Vec<(usize, u32, char)> {
-        marks.iter().map(|m| (m.row, m.col, m.ch)).collect()
+        marks
+            .iter()
+            .map(|m| (m.row, m.x.raw() / PER_COLUMN, m.ch))
+            .collect()
     }
 
     #[test]
@@ -174,10 +189,10 @@ mod tests {
         let (doc, layout) = setup("「a(「b」)」", LayoutConfig::default());
         let m = marks(&doc, &layout, Pos::new(0, 0), screen(5));
         assert_eq!(at(&m), [(0, 10, '」'), (0, 0, '「')]);
-        assert_eq!(m[0].cols, 2);
+        assert_eq!(m[0].width, col(2));
         let m = marks(&doc, &layout, Pos::new(0, 4), screen(5));
         assert_eq!(at(&m), [(0, 9, ')'), (0, 3, '(')]);
-        assert_eq!((m[0].cols, m[1].cols), (1, 1));
+        assert_eq!((m[0].width, m[1].width), (col(1), col(1)));
     }
 
     #[test]
@@ -219,13 +234,13 @@ mod tests {
             LayoutConfig::default(),
         );
         let narrow = Screen {
-            last_col: 20,
+            end_x: col(21),
             ..screen(5)
         };
         assert!(marks(&doc, &layout, Pos::new(0, 0), narrow).is_empty());
         // the far bracket is on the screen but the near one is scrolled away
         let scrolled = Screen {
-            first_col: 5,
+            first_x: col(5),
             ..screen(5)
         };
         assert_eq!(

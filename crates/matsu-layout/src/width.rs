@@ -172,6 +172,13 @@ impl Widths {
         }
     }
 
+    /// The same form with `per_column` `X` for a column.
+    pub fn with_per_column(self, per_column: u32) -> Self {
+        match self {
+            Self::Grid { rule, .. } => Self::grid_scaled(rule, per_column),
+        }
+    }
+
     /// `X` in one column.
     pub fn per_column(&self) -> u32 {
         match self {
@@ -188,6 +195,12 @@ impl Widths {
     /// divided by the width of a column and rounded down: `CCaret.cpp`, ADR-0034).
     pub fn to_columns(&self, x: X) -> u32 {
         x.raw() / self.per_column()
+    }
+
+    /// The columns that hold `x`, a part of a column counted as a whole one: what a scroll range
+    /// needs to reach the end of the text.
+    pub fn to_columns_ceil(&self, x: X) -> u32 {
+        x.raw().div_ceil(self.per_column())
     }
 
     /// The width of `c` in `X`, a tab not included (see `LayoutConfig::advance`).

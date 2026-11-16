@@ -5,9 +5,10 @@
 //! written to the file (see the module documentation of [`crate::settings`]).
 
 use gpui::{App, Context};
-use matsu_layout::Wrap;
+use matsu_layout::{Widths, Wrap};
 
 use super::EditorView;
+use crate::geometry::per_column_for;
 use crate::layout_adapter::LAYOUT_BUDGET;
 use crate::settings::UserSettings;
 use crate::settings::view_settings::{
@@ -255,19 +256,32 @@ impl EditorView {
         )
     }
 
-    /// Whether the layout is out of date for the width of the window.
-    pub(crate) fn wrap_is_stale(&self) -> bool {
-        self.prefs.wrap_method == WrapMethod::WindowWidth
-            && self.layout.config().wrap != self.wanted_wrap()
+    /// The widths the layout should have now: a column is 64 `X` and the character spacing of the
+    /// type in the same unit (`per_column_for`, ADR-0034 case C). With no spacing that is 64
+    /// whatever the font is, so a change of the font size lays nothing out again.
+    pub(crate) fn wanted_width(&self) -> Widths {
+        let space = self.prefs.settings.column_space;
+        let half = self.metrics.cell_width - space as f32;
+        self.layout
+            .config()
+            .width
+            .with_per_column(per_column_for(half, space))
+    }
+
+    /// Whether the layout is out of date for the width of the window or for the width of a column.
+    pub(crate) fn layout_is_stale(&self) -> bool {
+        self.layout.config().width != self.wanted_width()
+            || (self.prefs.wrap_method == WrapMethod::WindowWidth
+                && self.layout.config().wrap != self.wanted_wrap())
     }
 
     /// Whether the stops of the TSV or CSV mode that the document holds are not the layout's
     /// (the mode changed, or another pane loaded a file or completed the document).
     pub(crate) fn tsv_stops_changed(&self, cx: &App) -> bool {
-        self.document
-            .read(cx)
-            .tsv_stops(self.prefs.settings.tsv_mode)
-            != self.layout.config().tsv
+        self.document.read(cx).tsv_stops(
+            self.prefs.settings.tsv_mode,
+            self.layout.config().width.per_column(),
+        ) != self.layout.config().tsv
     }
 
     /// Goes on with the count of the TSV or CSV stops for about `budget`, and lays the document
@@ -289,6 +303,7 @@ impl EditorView {
     /// layout's. Returns whether anything changed. The caller repaints.
     pub(crate) fn relayout_in(&mut self, cx: &App) -> bool {
         let mut config = self.layout.config().clone();
+        config.width = self.wanted_width();
         config.wrap = self.wanted_wrap();
         config.tab_width = self.prefs.settings.tab_width;
         config.word_wrap = self.prefs.settings.word_wrap;
@@ -300,17 +315,24 @@ impl EditorView {
         config.tsv = self
             .document
             .read(cx)
-            .tsv_stops(self.prefs.settings.tsv_mode);
+            .tsv_stops(self.prefs.settings.tsv_mode, config.width.per_column());
         if config == *self.layout.config() {
             return false;
         }
         let doc = self.document.read(cx).doc();
+        let width_changed = config.width != self.layout.config().width;
         let _ = self.layout.set_config(doc, config);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp(doc);
-        // The columns of the corners of a box are in the old layout and mean nothing in the new.
+        // The positions of the corners of a box are in the old layout and mean nothing in the new.
         if self.cursor.is_box() {
             self.cursor.clear_selection();
+        }
+        // The caret of the free cursor and the goal of the vertical moves are `X` of the old
+        // columns when a column changed its width (the character spacing and the font size).
+        if width_changed {
+            self.cursor.set_free_col(None);
+            self.cursor.set_goal_col(None);
         }
         if matches!(self.layout.config().wrap, Wrap::Columns(_)) {
             self.scroll_x = 0.0;
@@ -592,8 +614,13 @@ impl EditorView {
 
     /// For the wrap at the right edge: lays the text out again if the window changed its width.
     /// Called before each frame; the paint asks for another frame when it measured a new width.
+    ///
+    /// A new width of a column (the character spacing with a new font size or zoom) is applied in
+    /// every wrap mode: the paint asks for another frame while the layout has the old one.
     pub(crate) fn follow_window_width(&mut self, cx: &App) {
-        if self.prefs.wrap_method == WrapMethod::WindowWidth {
+        if self.prefs.wrap_method == WrapMethod::WindowWidth
+            || self.layout.config().width != self.wanted_width()
+        {
             self.relayout_in(cx);
         }
     }
