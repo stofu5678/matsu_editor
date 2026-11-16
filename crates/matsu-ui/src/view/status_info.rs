@@ -110,7 +110,7 @@ impl EditorView {
         } + 1;
         // The status bar counts whole columns: the `X` of the caret over the width of a column,
         // rounded down (`CCaret::ShowCaretPosInfo`: `GetCaretLayoutPos().GetX() / dx`).
-        let widths = self.layout.config().width;
+        let widths = &self.layout.config().width;
         let Some(info) = info else {
             return (line, widths.to_columns(self.caret_x(cx)) + 1);
         };

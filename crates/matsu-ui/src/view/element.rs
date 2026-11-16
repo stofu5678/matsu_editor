@@ -60,6 +60,67 @@ fn eol_mark(eol: Eol) -> &'static str {
 
 const EOF_MARK: &str = "[EOF]";
 
+/// The longest text, in bytes, whose shaped line is kept: a character with its marks.
+const SHAPE_CACHE_MAX_BYTES: usize = 16;
+
+/// How many shaped lines are kept before they are dropped to start again.
+const SHAPE_CACHE_LIMIT: usize = 8192;
+
+/// The shaped lines of single characters of the font being drawn, for the text that is placed one
+/// character at a time (a proportional font, or character spacing). A shaped line holds the text,
+/// the font run and the color, so it is kept by the color, bold and underline, and the cache is
+/// emptied when the font or its size changes. The editor holds it from frame to frame; painting
+/// reads it through a shared reference, so it is behind a cell.
+#[derive(Default)]
+pub(crate) struct ShapeCache(std::cell::RefCell<ShapeCacheInner>);
+
+#[derive(Default)]
+struct ShapeCacheInner {
+    font: Option<(gpui::Font, u32)>,
+    by_style: std::collections::HashMap<
+        (u32, bool, bool),
+        std::collections::HashMap<Box<str>, ShapedLine>,
+    >,
+    len: usize,
+}
+
+impl ShapeCache {
+    /// The font and size the shaped lines are for: another one empties the cache.
+    fn use_font(&self, font: &gpui::Font, size: f32) {
+        let mut cache = self.0.borrow_mut();
+        let now = (font.clone(), size.to_bits());
+        if cache.font.as_ref() != Some(&now) {
+            cache.by_style.clear();
+            cache.len = 0;
+            cache.font = Some(now);
+        }
+    }
+
+    fn get(&self, text: &str, style: (u32, bool, bool)) -> Option<ShapedLine> {
+        self.0.borrow().by_style.get(&style)?.get(text).cloned()
+    }
+
+    fn put(&self, text: &str, style: (u32, bool, bool), line: ShapedLine) {
+        let mut cache = self.0.borrow_mut();
+        if cache.len >= SHAPE_CACHE_LIMIT {
+            cache.by_style.clear();
+            cache.len = 0;
+        }
+        cache.len += 1;
+        cache
+            .by_style
+            .entry(style)
+            .or_default()
+            .insert(text.into(), line);
+    }
+
+    /// How many lines are kept (for the tests).
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.borrow().len
+    }
+}
+
 pub(super) struct EditorElement {
     editor: Entity<EditorView>,
 }
@@ -364,8 +425,9 @@ impl IntoElement for EditorElement {
 /// How text is put on the layout: the pixels of `X`, and whether the columns have spacing.
 struct Grid {
     scale: XScale,
-    /// The columns have spacing (a font cannot space its glyphs).
-    spaced: bool,
+    /// Every character is placed on its own: the columns have spacing (a font cannot space its
+    /// glyphs), or the font is proportional and the layout gives each character its own width.
+    per_char: bool,
     /// The part of a row the window shows, with a margin: characters placed one by one outside it
     /// are left out (a row can have thousands of columns).
     visible: std::ops::Range<X>,
@@ -483,7 +545,7 @@ fn fits_width(advance: f32, width: X, scale: XScale) -> bool {
 }
 
 /// Puts the shaped `label` (at `x`, in `style`) in `out`: as one piece when the columns have no
-/// spacing and the font's advances fit them ([`fits_width`]), else as a piece for each
+/// spacing, the font is monospaced and its advances fit them ([`fits_width`]), else as a piece for each
 /// character (with the marks and the emoji joiners that go with it, see [`clusters`]), at its
 /// own place. Sakura draws each character of a row at its own place
 /// (`CTextDrawer::DispText` with the dx array), whatever the advances of the font are.
@@ -496,7 +558,7 @@ fn place(
     shape: &dyn Fn(&mut Window, &str, &TextStyle) -> ShapedLine,
 ) {
     let glyphs = glyph_cells(x, label, width_of);
-    if !grid.spaced {
+    if !grid.per_char {
         let whole = shape(window, label, style);
         let total: X = glyphs.iter().map(|g| g.2).sum();
         if fits_width(f32::from(whole.width()), total, grid.scale) {
@@ -652,12 +714,28 @@ impl Element for EditorElement {
                 .shape_line(text, font_size, &runs, None)
         };
 
+        // Characters are placed one by one with spacing or a proportional font: the same
+        // characters come again and again, so each is shaped once and kept (stage 0 of ADR-0034
+        // measured 1.3-2.3 ms a screen for a call to the text system for every character).
+        let per_char = settings.column_space > 0 || layout.config().width.is_table();
+        if per_char {
+            editor.shapes.use_font(&font, f32::from(font_size));
+        }
         let shape_styled = |window: &mut Window, text: &str, style: &TextStyle| -> ShapedLine {
-            let text: SharedString = text.to_owned().into();
-            let runs = [styled_run(&font, &bold_font, text.len(), style)];
-            window
+            let cache_key = (style.text, style.bold, style.underline);
+            let cacheable = per_char && text.len() <= SHAPE_CACHE_MAX_BYTES;
+            if cacheable && let Some(hit) = editor.shapes.get(text, cache_key) {
+                return hit;
+            }
+            let shared: SharedString = text.to_owned().into();
+            let runs = [styled_run(&font, &bold_font, shared.len(), style)];
+            let shaped = window
                 .text_system()
-                .shape_line(text, font_size, &runs, None)
+                .shape_line(shared, font_size, &runs, None);
+            if cacheable {
+                editor.shapes.put(text, cache_key, shaped.clone());
+            }
+            shaped
         };
 
         // One column is the advance of a half-width character and the character spacing of the
@@ -665,15 +743,14 @@ impl Element for EditorElement {
         let half = f32::from(shape(window, "0000000000", colors.text).width()) / 10.0;
         let half = if half > 0.0 { half } else { 8.0 };
         let cell = column_width(half, settings.column_space);
-        let spaced = settings.column_space > 0;
-        let widths = layout.config().width;
+        let widths = &layout.config().width;
         let scale = XScale::new(cell, widths.per_column());
         let first_visible = scale.column_start(editor.scroll_x);
         let shown_columns = (f32::from(bounds.size.width) / cell).ceil() as u32;
         let margin = widths.to_x(4);
         let grid = &Grid {
             scale,
-            spaced,
+            per_char,
             visible: first_visible.saturating_sub(margin)
                 ..first_visible + widths.to_x(shown_columns) + margin,
         };
@@ -787,7 +864,7 @@ impl Element for EditorElement {
                     digits,
                     line_base.approx,
                 );
-                if spaced {
+                if per_char {
                     text.chars()
                         .enumerate()
                         .filter(|(_, c)| *c != ' ')
@@ -1259,7 +1336,7 @@ impl Element for EditorElement {
             focus,
             columns: LayoutConfig {
                 tab_width: layout.config().effective_tab_width(),
-                width: layout.config().width,
+                width: layout.config().width.clone(),
                 tsv: layout.config().tsv.clone(),
                 ..LayoutConfig::default()
             },
@@ -2090,7 +2167,7 @@ fn overwrite_caret_width(
     layout: &matsu_layout::DocumentLayout,
     caret: matsu_core::buffer::Pos,
 ) -> X {
-    let widths = layout.config().width;
+    let widths = &layout.config().width;
     let Some(c) = doc
         .rest_of_line(caret.line, caret.col, 8)
         .ok()
@@ -2623,5 +2700,92 @@ mod tests {
     fn spaces_and_tabs_are_clusters_of_their_own() {
         let got = cluster_texts("a \tb");
         assert_eq!(got.len(), 4);
+    }
+
+    // ---- a proportional font (ADR-0034, stage 4) ----
+
+    /// A font with a narrow `i`, a wide `m` and kana of 115, in the unit of the table.
+    fn proportional() -> Widths {
+        Widths::table(64, 0, |c| match c {
+            'i' => 32,
+            'm' => 107,
+            'あ'..='ん' => 115,
+            _ => 64,
+        })
+    }
+
+    #[test]
+    fn characters_of_a_proportional_font_start_where_the_widths_before_them_end() {
+        let widths = proportional();
+        let cells = glyph_cells(X::ZERO, "imあi", |c| widths.width_of(c));
+        let want = [
+            (0, 'i', 32),
+            (32, 'm', 107),
+            (139, 'あ', 115),
+            (254, 'i', 32),
+        ];
+        let got: Vec<(u32, char, u32)> = cells
+            .iter()
+            .map(|&(x, c, w)| (x.raw(), c, w.raw()))
+            .collect();
+        assert_eq!(got, want);
+        // and as pixels: the half-width letter of 7.2 pixels is 64 X
+        let scale = XScale::new(7.2, 64);
+        assert_eq!(scale.px(X::from_raw(139)), 139.0 * 7.2 / 64.0);
+    }
+
+    #[test]
+    fn each_character_of_a_proportional_font_is_a_piece_at_its_own_place() {
+        let widths = proportional();
+        let label = "mimi";
+        let cells = glyph_cells(X::from_raw(64), label, |c| widths.width_of(c));
+        let pieces: Vec<(u32, &str, u32)> = clusters(label, &cells)
+            .into_iter()
+            .map(|(x, bytes, w)| (x.raw(), &label[bytes], w.raw()))
+            .collect();
+        assert_eq!(
+            pieces,
+            [
+                (64, "m", 107),
+                (171, "i", 32),
+                (203, "m", 107),
+                (310, "i", 32)
+            ]
+        );
+    }
+
+    #[test]
+    fn the_shaped_characters_are_kept_by_color_bold_and_underline() {
+        let cache = ShapeCache::default();
+        let font = gpui::font("Noto Sans JP");
+        cache.use_font(&font, 13.0);
+        assert!(cache.get("m", (1, false, false)).is_none());
+        cache.put("m", (1, false, false), ShapedLine::default());
+        assert!(cache.get("m", (1, false, false)).is_some());
+        // another color, bold or underline is another line, and so is another text
+        assert!(cache.get("m", (2, false, false)).is_none());
+        assert!(cache.get("m", (1, true, false)).is_none());
+        assert!(cache.get("m", (1, false, true)).is_none());
+        assert!(cache.get("i", (1, false, false)).is_none());
+        assert_eq!(cache.len(), 1);
+        // the same font and size keeps them; another size or font starts again
+        cache.use_font(&font, 13.0);
+        assert!(cache.get("m", (1, false, false)).is_some());
+        cache.use_font(&font, 14.0);
+        assert!(cache.get("m", (1, false, false)).is_none());
+        assert_eq!(cache.len(), 0);
+        cache.put("m", (1, false, false), ShapedLine::default());
+        cache.use_font(&gpui::font("Yu Gothic UI"), 14.0);
+        assert!(cache.get("m", (1, false, false)).is_none());
+    }
+
+    #[test]
+    fn the_cache_of_shaped_characters_does_not_grow_without_end() {
+        let cache = ShapeCache::default();
+        cache.use_font(&gpui::font("Noto Sans JP"), 13.0);
+        for n in 0..(SHAPE_CACHE_LIMIT as u32 * 2 + 5) {
+            cache.put(&format!("{n}"), (0, false, false), ShapedLine::default());
+        }
+        assert!(cache.len() <= SHAPE_CACHE_LIMIT);
     }
 }

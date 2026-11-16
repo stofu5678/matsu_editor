@@ -769,7 +769,7 @@ fn place_runs(
     styling: Styling<'_>,
     out: &mut Vec<PlacedText>,
 ) {
-    let widths = grid.config.width;
+    let widths = &grid.config.width;
     let mut column = start;
     // The start of the run in `text`, its position, font and style.
     type Run = (usize, X, FontKind, Option<TextStyle>);

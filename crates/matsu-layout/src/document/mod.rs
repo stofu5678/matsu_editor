@@ -459,7 +459,9 @@ impl DocumentLayout {
             let raw = doc.line_raw_len(line)?.unwrap_or(0);
             if raw > WIDTH_SKIP_BYTES || self.long_rows(doc, line)?.is_some() {
                 // Not laid out, but not narrow: a character takes at most 4 bytes and at least
-                // one column for each 4, so this many columns is a lower bound.
+                // one column for each 4, so this many columns is a lower bound. (With a table of
+                // widths a letter can be narrower than a column; the width of 4 bytes is still
+                // far under what the narrowest letters of a font take.)
                 widest = widest.max(self.cfg.width.to_x((raw / 4) as u32).min(self.cfg.max_x()));
             } else {
                 let Some(text) = doc.line(line)? else {

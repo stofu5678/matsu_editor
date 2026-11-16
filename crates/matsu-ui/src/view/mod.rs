@@ -22,6 +22,7 @@ mod caret_shape;
 mod colors;
 mod diff_mark;
 mod element;
+pub(crate) mod font_widths;
 mod held_buttons;
 pub(crate) mod hscroll;
 mod input;
@@ -323,6 +324,11 @@ pub struct EditorView {
     scroll_repeat_task: Option<gpui::Task<()>>,
     font_family: SharedString,
     font_size: f32,
+    /// The widths of the characters of the font: a table when it is not monospaced
+    /// (`font_widths`, ADR-0034 stage 4).
+    font_widths: font_widths::FontWidths,
+    /// The shaped characters of a proportional font, kept from frame to frame (`element.rs`).
+    pub(crate) shapes: element::ShapeCache,
     /// This view's own id, to tell it from the other views of its document.
     pub(crate) entity_id: gpui::EntityId,
     _subscription: Subscription,
@@ -411,6 +417,8 @@ impl EditorView {
             scroll_repeat_task: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
+            font_widths: Default::default(),
+            shapes: Default::default(),
             _subscription: subscription,
         }
     }

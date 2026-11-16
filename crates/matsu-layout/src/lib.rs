@@ -5,8 +5,10 @@
 //! It knows nothing of pixels, fonts, a UI, or an OS. Positions and widths are counted in [`X`]
 //! (ADR-0034), a unit of its own that is a column divided into [`Widths::per_column`] parts; the
 //! settings (the wrap column, the tab width) are columns, and [`Widths`] is where the two are
-//! converted. A half-width character takes 1 column and a full-width one 2 (see [`WidthRule`]).
-//! The caller draws a column as a cell of the font's half-width.
+//! converted. With a monospaced font ([`Widths::Grid`]) a half-width character takes 1 column and
+//! a full-width one 2 (see [`WidthRule`]). With any other font ([`Widths::Table`]) each
+//! character takes the width the font gives it, which the UI measures one character at a time
+//! ([`WidthTable`]). The caller draws a column as a cell of the font's half-width.
 //!
 //! ```
 //! use matsu_layout::{layout_line, LayoutConfig, Wrap};
@@ -35,9 +37,11 @@
 //! # The width rule and where it differs from Sakura
 //!
 //! Sakura asks the font whether a character is wider than a half-width letter
-//! (`CCharWidthCache::CalcHankakuByFont`), so its layout changes with the font and the OS. This
-//! crate decides from Unicode alone ([`WidthRule`]), to give the same rows on every OS. It
-//! matches Sakura with a Japanese monospaced font (MS Gothic and the like). Known differences:
+//! (`CCharWidthCache::CalcHankakuByFont`), so its layout changes with the font and the OS. For a
+//! monospaced font this crate decides from Unicode alone ([`WidthRule`]), to give the same rows
+//! on every OS. It matches Sakura with a Japanese monospaced font (MS Gothic and the like). For a
+//! proportional font the widths are Sakura's too, the advance of each character in the font
+//! ([`WidthTable`]). Known differences of the rule:
 //!
 //! - Characters that the font draws at another width: proportional fonts, fonts with half-width
 //!   Greek or Cyrillic, symbols drawn half-width (`½`, `·`), and the like. Sakura follows the
@@ -81,9 +85,11 @@ pub use document::{
 pub use kinsoku::{CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku};
 pub use map::{Located, Position, offset_to_position, position_to_offset};
 pub use tsv::{TsvMode, TsvScan, TsvStops};
-pub use width::{INVALID_BYTE_BASE, WidthRule, Widths};
+pub use width::{INVALID_BYTE_BASE, WidthRule, WidthTable, Widths};
 pub use wrap::{Row, layout_line};
 pub use x::X;
 
+#[cfg(test)]
+mod table_tests;
 #[cfg(test)]
 mod tests;

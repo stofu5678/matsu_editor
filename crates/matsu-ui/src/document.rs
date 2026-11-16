@@ -158,15 +158,15 @@ struct TsvState {
     job: Option<TsvJob>,
     /// The result of a complete count, and the `X` in a column it was counted with (the panes
     /// have their own, see [`SharedDocument::tsv_stops`]).
-    published: Option<(matsu_layout::TsvStops, u32)>,
+    published: Option<(matsu_layout::TsvStops, matsu_layout::Widths)>,
     /// The text is complete now: count again.
     stale: bool,
 }
 
 struct TsvJob {
     scan: matsu_layout::TsvScan,
-    /// The `X` in a column the count is made in.
-    per_column: u32,
+    /// The widths the count is made in.
+    widths: matsu_layout::Widths,
     /// The version of the document the count started on.
     version: u64,
     done: bool,
@@ -229,16 +229,28 @@ impl SharedDocument {
     /// complete count, or none (the tab stops of the tab width) until the first one is complete.
     /// This does no work; [`step_tsv_stops`](Self::step_tsv_stops) counts a piece at a time.
     ///
-    /// `per_column` is the `X` in a column of the layout that asks: the count is kept for the
-    /// `X` it was made in and scaled to this one, so that panes (and a pane whose font size
-    /// changed the width of its columns) all get stops that fit.
+    /// `widths` are the widths of the layout that asks. The count is kept for the widths it was
+    /// made in. On a grid it is scaled to the `X` in a column of the asking layout, so that
+    /// panes (and a pane whose font size changed the width of its columns) all get stops that
+    /// fit. A table of widths has no such scaling (the widths of the letters are those of one
+    /// font): a layout with another table than the count's has none until the count is made
+    /// again (`forget_tsv_stops`, which a pane calls when its font
+    /// changes).
     pub fn tsv_stops(
         &self,
         mode: matsu_layout::TsvMode,
-        per_column: u32,
+        widths: &matsu_layout::Widths,
     ) -> matsu_layout::TsvStops {
         match self.tsv.borrow().published.as_ref() {
-            Some((stops, counted)) if stops.mode() == mode => stops.rescaled(*counted, per_column),
+            Some((stops, counted)) if stops.mode() == mode => {
+                if counted == widths {
+                    stops.clone()
+                } else if !counted.is_table() && !widths.is_table() {
+                    stops.rescaled(counted.per_column(), widths.per_column())
+                } else {
+                    matsu_layout::TsvStops::none()
+                }
+            }
             _ => matsu_layout::TsvStops::none(),
         }
     }
@@ -269,8 +281,8 @@ impl SharedDocument {
         if restart {
             state.stale = false;
             state.job = Some(TsvJob {
-                scan: matsu_layout::TsvScan::new(mode, *width),
-                per_column: width.per_column(),
+                scan: matsu_layout::TsvScan::new(mode, width.clone()),
+                widths: width.clone(),
                 version: self.version,
                 done: false,
             });
@@ -284,7 +296,7 @@ impl SharedDocument {
         let done = job.scan.advance(self.model.doc(), budget).unwrap_or(true);
         if done {
             job.done = true;
-            state.published = Some((job.scan.finish(), job.per_column));
+            state.published = Some((job.scan.finish(), job.widths.clone()));
         }
         done
     }

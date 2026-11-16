@@ -151,9 +151,10 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
                     st.word_bgn = st.pos;
                     st.word_len = n;
                     st.run = Run::WordWrap;
-                    // Every character of a word is ASCII, one column each (the grid: the table
-                    // form of ADR-0034 stage 4 sums the widths of the characters instead).
-                    let word = one.saturating_mul(u32::try_from(n).unwrap_or(u32::MAX));
+                    // Every character of a word is ASCII: one column each on the grid, and the
+                    // widths of the characters added up in a table (`_GetKeywordLength` adds up
+                    // `GetLayoutXOfChar`).
+                    let word = cfg.width.ascii_width(&text.as_bytes()[st.pos..st.pos + n]);
                     if st.x + word >= max && st.pos > st.bgn {
                         break_row(text, cfg, max, &mut st, rows);
                     }

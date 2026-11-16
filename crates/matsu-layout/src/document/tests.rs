@@ -733,7 +733,28 @@ fn perf_report() {
         t.elapsed()
     );
     drop(text);
-    for (name, cfg) in [("wrap 80", wrap(80)), ("no wrap", LayoutConfig::default())] {
+    // The table form (ADR-0034 stage 4): a proportional font has no widest character, so the rows
+    // of every line are found by going through its characters (no shortcut for a short line).
+    // The stand-in font has narrow `i l .`, wide `m w`, and the kana a little under two columns.
+    let proportional = || {
+        Widths::table(64, 0, |c| match c {
+            'i' | 'l' | '.' => 32,
+            'm' | 'w' => 100,
+            ' ' => 26,
+            '\u{3040}'..='\u{30FF}' | '\u{4E00}'..='\u{9FFF}' => 115,
+            _ => 64,
+        })
+    };
+    let table = |cfg: LayoutConfig| LayoutConfig {
+        width: proportional(),
+        ..cfg
+    };
+    for (name, cfg) in [
+        ("wrap 80", wrap(80)),
+        ("no wrap", LayoutConfig::default()),
+        ("wrap 80, table", table(wrap(80))),
+        ("no wrap, table", table(LayoutConfig::default())),
+    ] {
         let t = Instant::now();
         let mut idx = DocumentLayout::new(&d, cfg.clone()).unwrap();
         println!("[{name}] new (nothing laid out): {:?}", t.elapsed());

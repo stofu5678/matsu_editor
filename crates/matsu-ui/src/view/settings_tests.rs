@@ -379,7 +379,7 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, "a\tbb\ncccc\td\n");
     let stops = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
         view.read_with(cx, |v, _| {
-            let widths = v.layout.config().width;
+            let widths = v.layout.config().width.clone();
             (v.layout.config().tsv.ends().iter())
                 .map(|&e| widths.to_columns(e))
                 .collect::<Vec<_>>()
@@ -453,7 +453,7 @@ fn a_new_pane_keeps_the_tsv_stops_of_the_pane_it_comes_from(cx: &mut TestAppCont
         cx.new(|cx| EditorView::new_pane(document, seed, gpui::WeakEntity::new_invalid(), cx));
     let ends = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
         view.read_with(cx, |v, _| {
-            let widths = v.layout.config().width;
+            let widths = v.layout.config().width.clone();
             (v.layout.config().tsv.ends().iter())
                 .map(|&e| widths.to_columns(e))
                 .collect::<Vec<_>>()
@@ -480,7 +480,7 @@ fn the_stops_are_counted_a_piece_a_frame_and_end_as_a_whole_count_does(cx: &mut 
     view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
     let stops = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
         view.read_with(cx, |v, _| {
-            let widths = v.layout.config().width;
+            let widths = v.layout.config().width.clone();
             (v.layout.config().tsv.ends().iter())
                 .map(|&e| widths.to_columns(e))
                 .collect::<Vec<_>>()
@@ -554,7 +554,7 @@ fn the_tsv_stops_follow_the_width_of_a_column(cx: &mut TestAppContext) {
     count_stops(&view, cx);
     let ends = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
         view.read_with(cx, |v, _| {
-            let widths = v.layout.config().width;
+            let widths = v.layout.config().width.clone();
             (
                 widths.per_column(),
                 (v.layout.config().tsv.ends().iter())
@@ -577,4 +577,164 @@ fn the_tsv_stops_follow_the_width_of_a_column(cx: &mut TestAppContext) {
         c.advance('\t', c.width.to_x(1)) + c.width.to_x(1) == c.tsv.ends()[0]
     });
     assert!(aligned);
+}
+
+// ---- a proportional font (ADR-0034, stage 4) ----
+
+/// The widths of a proportional font: narrow `i`, wide `m`, the rest a half-width letter.
+fn proportional() -> matsu_layout::Widths {
+    matsu_layout::Widths::table(64, 0, |c| match c {
+        'i' | 'l' => 32,
+        'm' => 107,
+        _ => 64,
+    })
+}
+
+/// Gives the view the widths that the measuring of a proportional font makes, for the font it has.
+fn use_table(view: &Entity<EditorView>, cx: &mut VisualTestContext, table: matsu_layout::Widths) {
+    view.update(cx, |v, cx| {
+        let key = v.font_key();
+        v.set_font_widths(super::font_widths::FontWidths::table_for(key, table), cx);
+        v.relayout_in(cx);
+    });
+}
+
+#[gpui::test]
+fn a_monospaced_font_keeps_the_grid(cx: &mut TestAppContext) {
+    // The test platform's text system gives every character the same advance.
+    let (view, cx) = setup(cx, "mmmm iiii");
+    view.update(cx, |v, cx| {
+        v.refresh_font_widths(cx);
+        v.relayout_in(cx);
+    });
+    view.read_with(cx, |v, _| {
+        assert!(!v.layout.config().width.is_table());
+        assert_eq!(v.layout.config().width.per_column(), 64);
+        assert!(v.layout.config().widest_character().is_some());
+    });
+}
+
+#[gpui::test]
+fn a_proportional_font_is_laid_out_by_the_widths_of_its_characters(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "mmim");
+    let table = proportional();
+    use_table(&view, cx, table.clone());
+    view.read_with(cx, |v, cx| {
+        let config = v.layout.config();
+        assert_eq!(config.width, table);
+        assert_eq!(config.widest_character(), None);
+        let doc = v.document.read(cx).doc();
+        let rows = v.layout.rows(doc, 0, 1).unwrap();
+        assert_eq!(rows[0].end_x.raw(), 107 + 107 + 32 + 107);
+    });
+    // the layout is settled: the paint asks for no other frame
+    assert!(!view.read_with(cx, |v, _| v.layout_is_stale()));
+}
+
+#[gpui::test]
+fn the_wrap_at_the_window_edge_counts_columns_of_the_half_width_letter(cx: &mut TestAppContext) {
+    // Sakura counts the wrap column as the view's pixels over the pixels of a column and lays
+    // out with that many columns of `GetLayoutXDefault` (`ViewColNumToWrapColNum`). Narrow
+    // letters then fit more of them in a row than the columns say.
+    let (view, cx) = setup(cx, &"i".repeat(60));
+    run(&view, cx, 31143); // F_TMPWRAPWINDOW
+    use_table(&view, cx, proportional());
+    view.update(cx, |v, cx| {
+        v.set_metrics(metrics(200.0)); // 20 columns of 10 pixels
+        v.follow_window_width(cx);
+    });
+    // 20 columns less the one of the wrap mark (`GetWrapOverhang`)
+    assert_eq!(wrap(&view, cx), Wrap::Columns(19));
+    // 19 columns are 1216 X: 38 `i` of 32 fit in a row, so 60 of them are 2 rows. 60 columns of
+    // a grid would be 4 rows.
+    assert_eq!(view.read_with(cx, |v, _| v.layout.row_count()), 2);
+}
+
+#[gpui::test]
+fn another_font_is_measured_again_and_the_old_table_is_not_kept(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "mmmm");
+    use_table(&view, cx, proportional());
+    assert!(view.read_with(cx, |v, _| v.layout.config().width.is_table()));
+    // A font of another size is measured again (here it is monospaced), and the layout goes
+    // back to the grid with its box selection dropped.
+    run(&view, cx, 30510); // F_BEGIN_BOX
+    run(&view, cx, 30514); // F_RIGHT_BOX
+    assert!(view.read_with(cx, |v, _| v.cursor.is_box()));
+    view.update(cx, |v, cx| {
+        v.font_size += 2.0;
+        v.follow_window_width(cx);
+    });
+    view.read_with(cx, |v, _| {
+        assert!(!v.layout.config().width.is_table());
+        assert!(!v.cursor.is_box());
+    });
+}
+
+#[gpui::test]
+fn the_same_table_does_not_lay_out_again_and_a_new_one_does(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "mmmm");
+    let table = proportional();
+    use_table(&view, cx, table.clone());
+    assert!(
+        !view.update(cx, |v, cx| v.relayout_in(cx)),
+        "nothing changed"
+    );
+    // the same table again is the same layout
+    use_table(&view, cx, table);
+    assert!(!view.update(cx, |v, cx| v.relayout_in(cx)));
+    // a table of another generation is another layout
+    let generation = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| match &v.layout.config().width {
+            matsu_layout::Widths::Table(t) => t.generation(),
+            _ => 0,
+        })
+    };
+    let before = generation(&view, cx);
+    use_table(&view, cx, proportional());
+    assert!(generation(&view, cx) > before);
+}
+
+#[gpui::test]
+fn the_tsv_stops_are_counted_in_the_widths_of_the_font(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "mm\tii\nm\ti\n");
+    let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    use_table(&view, cx, proportional());
+    count_stops(&view, cx);
+    view.update(cx, |v, cx| {
+        if v.tsv_stops_changed(cx) {
+            v.relayout_in(cx);
+        }
+    });
+    // field 0: the widest is "mm", 214, and the stop is that and two columns of 64; field 1 is
+    // "ii", 64, and its stop is 64 and two columns after the first
+    let ends = view.read_with(cx, |v, _| {
+        v.layout
+            .config()
+            .tsv
+            .ends()
+            .iter()
+            .map(|e| e.raw())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(ends, [214 + 128, 214 + 128 + 64 + 128]);
+    let document = view.read_with(cx, |v, _| v.document.clone());
+    let doc_stops = |widths: &matsu_layout::Widths, cx: &mut VisualTestContext| {
+        document.read_with(cx, |d, _| {
+            d.tsv_stops(matsu_layout::TsvMode::Tsv, widths).ends().len()
+        })
+    };
+    let table = view.read_with(cx, |v, _| v.layout.config().width.clone());
+    assert_eq!(doc_stops(&table, cx), 2);
+    // the widths of another font have no stops until they are counted again
+    assert_eq!(doc_stops(&proportional(), cx), 0);
+    assert_eq!(doc_stops(&matsu_layout::Widths::default(), cx), 0);
+    // a change of the font counts them again for the new one
+    view.update(cx, |v, cx| {
+        v.font_size += 2.0;
+        v.follow_window_width(cx);
+    });
+    count_stops(&view, cx);
+    let counted = view.read_with(cx, |v, _| v.layout.config().width.clone());
+    assert_eq!(doc_stops(&counted, cx), 2);
 }

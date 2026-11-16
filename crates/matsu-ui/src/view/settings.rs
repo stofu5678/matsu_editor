@@ -7,7 +7,7 @@
 use gpui::{App, Context};
 use matsu_layout::{Widths, Wrap};
 
-use super::EditorView;
+use super::{EditorView, font_widths};
 use crate::geometry::per_column_for;
 use crate::layout_adapter::LAYOUT_BUDGET;
 use crate::settings::UserSettings;
@@ -236,7 +236,14 @@ impl EditorView {
 
     // ---- wrap ----
 
-    /// How many columns the text area has, as of the last paint (`m_nViewColNum`).
+    /// How many columns the text area has, as of the last paint (`m_nViewColNum`): the width of
+    /// the view over the width of a column, rounded down. With a proportional font too, the
+    /// wrap at the right edge counts columns of the half-width letter, not pixels:
+    /// `CEditView::ViewColNumToWrapColNum` (`sakura_core/view/CEditView_Scroll.cpp`) divides the
+    /// pixels of the view by `GetLayoutXDefault()` (the width of one column), and the layout
+    /// wraps at that many columns of `GetLayoutXDefault()` pixels
+    /// (`CLayoutMgr::GetMaxLineLayout`, `CLayoutMgr.h`). The same number of columns therefore
+    /// holds more narrow letters (`i`) than wide ones (`m`) in a row.
     pub(crate) fn window_columns(&self) -> u32 {
         let m = &self.metrics;
         if m.cell_width > 0.0 {
@@ -256,21 +263,73 @@ impl EditorView {
         )
     }
 
-    /// The widths the layout should have now: a column is 64 `X` and the character spacing of the
-    /// type in the same unit (`per_column_for`, ADR-0034 case C). With no spacing that is 64
-    /// whatever the font is, so a change of the font size lays nothing out again.
-    pub(crate) fn wanted_width(&self) -> Widths {
-        let space = self.prefs.settings.column_space;
-        let half = self.metrics.cell_width - space as f32;
-        self.layout
-            .config()
-            .width
-            .with_per_column(per_column_for(half, space))
+    /// What decides the widths of the characters now: the font, its size and the spacing.
+    pub(crate) fn font_key(&self) -> font_widths::FontKey {
+        let settings = &self.prefs.settings;
+        font_widths::FontKey {
+            family: self.font_family.clone(),
+            weight: settings.gpui_font_weight() as u32,
+            italic: settings.font_italic,
+            size_bits: self.font_size.to_bits(),
+            column_space: settings.column_space,
+        }
     }
 
-    /// Whether the layout is out of date for the width of the window or for the width of a column.
+    /// Measures the font again if the font, its size or the spacing changed since the widths were
+    /// made (ADR-0034, stage 4): a monospaced font is laid out on the grid; any other one gets a
+    /// table of widths of its own generation. Returns whether the widths changed.
+    pub(crate) fn refresh_font_widths(&mut self, cx: &App) -> bool {
+        let key = self.font_key();
+        if self.font_widths.is_for(&key) {
+            return false;
+        }
+        let text_font = self.text_font(cx);
+        let mut font = text_font.font();
+        font.weight = gpui::FontWeight(self.prefs.settings.gpui_font_weight());
+        if self.prefs.settings.font_italic {
+            font.style = gpui::FontStyle::Italic;
+        }
+        let new = font_widths::FontWidths::measure(
+            key,
+            &font,
+            gpui::px(self.font_size),
+            cx.text_system(),
+        );
+        self.set_font_widths(new, cx);
+        true
+    }
+
+    /// Takes `new` as the widths of the font.
+    pub(crate) fn set_font_widths(&mut self, new: font_widths::FontWidths, cx: &App) {
+        let old = std::mem::replace(&mut self.font_widths, new);
+        // The stops of the TSV and CSV modes are counted in the widths of one font: the document
+        // counts them again for the new one (a grid only needs them scaled).
+        if old.involves_table(&self.font_widths) {
+            self.document.read(cx).forget_tsv_stops();
+        }
+    }
+
+    /// The widths the layout should have now: the table of the font when it is not monospaced,
+    /// else a grid whose column is 64 `X` and the character spacing of the type in the same unit
+    /// (`per_column_for`, ADR-0034 case C). With no spacing that is 64 whatever the font is, so a
+    /// change of the font size lays nothing out again.
+    pub(crate) fn wanted_width(&self) -> Widths {
+        if let Some(table) = self.font_widths.table() {
+            return table.clone();
+        }
+        let space = self.prefs.settings.column_space;
+        let half = self.metrics.cell_width - space as f32;
+        Widths::grid_scaled(
+            self.layout.config().width.rule(),
+            per_column_for(half, space),
+        )
+    }
+
+    /// Whether the layout is out of date for the width of the window, for the width of a column or
+    /// for the font (its widths are measured at the next frame).
     pub(crate) fn layout_is_stale(&self) -> bool {
-        self.layout.config().width != self.wanted_width()
+        !self.font_widths.is_for(&self.font_key())
+            || self.layout.config().width != self.wanted_width()
             || (self.prefs.wrap_method == WrapMethod::WindowWidth
                 && self.layout.config().wrap != self.wanted_wrap())
     }
@@ -278,17 +337,17 @@ impl EditorView {
     /// Whether the stops of the TSV or CSV mode that the document holds are not the layout's
     /// (the mode changed, or another pane loaded a file or completed the document).
     pub(crate) fn tsv_stops_changed(&self, cx: &App) -> bool {
-        self.document.read(cx).tsv_stops(
-            self.prefs.settings.tsv_mode,
-            self.layout.config().width.per_column(),
-        ) != self.layout.config().tsv
+        self.document
+            .read(cx)
+            .tsv_stops(self.prefs.settings.tsv_mode, &self.layout.config().width)
+            != self.layout.config().tsv
     }
 
     /// Goes on with the count of the TSV or CSV stops for about `budget`, and lays the document
     /// out with them when the count is complete. Returns whether the count is complete. Called
     /// before each frame, so that a large document does not stop the window (ADR-0020).
     pub(crate) fn step_tsv_stops(&mut self, budget: std::time::Duration, cx: &App) -> bool {
-        let width = self.layout.config().width;
+        let width = self.layout.config().width.clone();
         let done =
             self.document
                 .read(cx)
@@ -302,6 +361,7 @@ impl EditorView {
     /// Lays the document out again with the settings of the view, if they differ from the
     /// layout's. Returns whether anything changed. The caller repaints.
     pub(crate) fn relayout_in(&mut self, cx: &App) -> bool {
+        self.refresh_font_widths(cx);
         let mut config = self.layout.config().clone();
         config.width = self.wanted_width();
         config.wrap = self.wanted_wrap();
@@ -315,7 +375,7 @@ impl EditorView {
         config.tsv = self
             .document
             .read(cx)
-            .tsv_stops(self.prefs.settings.tsv_mode, config.width.per_column());
+            .tsv_stops(self.prefs.settings.tsv_mode, &config.width);
         if config == *self.layout.config() {
             return false;
         }
@@ -618,6 +678,7 @@ impl EditorView {
     /// A new width of a column (the character spacing with a new font size or zoom) is applied in
     /// every wrap mode: the paint asks for another frame while the layout has the old one.
     pub(crate) fn follow_window_width(&mut self, cx: &App) {
+        self.refresh_font_widths(cx);
         if self.prefs.wrap_method == WrapMethod::WindowWidth
             || self.layout.config().width != self.wanted_width()
         {
