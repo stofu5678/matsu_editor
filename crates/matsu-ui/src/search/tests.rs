@@ -563,3 +563,5 @@ fn the_selection_lock_extends_the_selection_to_the_match(cx: &mut TestAppContext
     assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 7))));
     assert!(f.view.read_with(cx, |v, _| v.cursor.selecting_lock()));
 }
+
+mod access_keys;

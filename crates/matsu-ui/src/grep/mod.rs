@@ -26,6 +26,8 @@ pub mod settings;
 pub mod window;
 
 #[cfg(test)]
+mod access_key_tests;
+#[cfg(test)]
 mod engine_tests;
 #[cfg(test)]
 mod history_tests;

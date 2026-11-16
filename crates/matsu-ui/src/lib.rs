@@ -22,6 +22,7 @@
 //!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
 mod a11y;
+mod access_keys;
 mod ai_ask;
 mod ai_confirm;
 pub(crate) mod ai_log;

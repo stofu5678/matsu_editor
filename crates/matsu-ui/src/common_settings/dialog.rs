@@ -38,6 +38,7 @@ use super::semantics;
 use super::table::{self, Op, Refused};
 use super::{LastPage, Page, all_controls, apply};
 use crate::a11y::{AriaDisabled as _, plain_name};
+use crate::access_keys::{Entry, Found, letter_of, pick};
 use crate::file_dialog::{self, Ask};
 use crate::file_ops::windows::editors;
 use crate::type_settings::{self, TypeSheet, TypeTarget};
@@ -922,19 +923,23 @@ impl CommonSettingsDialog {
             }
             _ => {}
         }
-        let mut usable = self
+        let entries: Vec<_> = self
             .page_controls()
             .into_iter()
-            .filter(|c| parse_label(c.label).1 == Some(key) && self.is_usable(c));
-        let Some(control) = usable.next() else {
-            return self.use_table_key(key, window, cx);
+            .map(|c| Entry {
+                key: parse_label(c.label).1,
+                usable: self.is_usable(&c),
+                what: c,
+            })
+            .collect();
+        let control = match pick(key, &entries) {
+            Found::One(control) => control,
+            Found::Nothing => return self.use_table_key(key, window, cx),
+            // A mnemonic that several controls share only moves the focus between them in a Windows
+            // dialog (`IsDialogMessage`); it clicks none of them. These controls have no focus to
+            // move, so nothing is done (the custom menu page has two controls with S).
+            Found::Several => return true,
         };
-        // A mnemonic that several controls share only moves the focus between them in a Windows
-        // dialog (`IsDialogMessage`); it clicks none of them. These controls have no focus to
-        // move, so nothing is done (the custom menu page has two controls with S).
-        if usable.next().is_some() {
-            return true;
-        }
         match control.kind {
             Kind::Check => {
                 let on = self.values.bool(control.id);
@@ -1037,11 +1042,7 @@ impl CommonSettingsDialog {
                 true
             }
             "up" | "down" if !modifiers.modified() => self.step_list(key == "down", window, cx),
-            k if modifiers.alt && !modifiers.control && k.chars().count() == 1 => {
-                let letter = k.chars().next().unwrap_or(' ');
-                self.use_access_key(letter, window, cx)
-            }
-            _ => false,
+            _ => letter_of(event).is_some_and(|letter| self.use_access_key(letter, window, cx)),
         };
         if handled {
             cx.stop_propagation();

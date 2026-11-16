@@ -9,6 +9,7 @@
 //! Not done: the help button.
 
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
@@ -28,6 +29,30 @@ use matsu_core::exec::{
 };
 
 use crate::view::EditorView;
+
+/// The labels with their access keys (Alt+letter, [`ExecDialog::use_access_key`]).
+const NAME: &str = "名前(N)";
+const GET_STDOUT: &str = "標準出力を得る(S)";
+const TO_OUTPUT: &str = "アウトプットウィンドウ(O)";
+const TO_WINDOW: &str = "編集中のウィンドウ(C)";
+const SEND_STDIN: &str = "標準入力に送る(I)";
+const CUR_DIR: &str = "カレントディレクトリ(R)";
+const RUN: &str = "実行(E)";
+const CANCEL: &str = "キャンセル(X)";
+
+/// What an access key does.
+#[derive(Clone, Copy)]
+enum Use {
+    /// The label 名前 in front of the box of the command: the focus goes to the box.
+    FocusCommand,
+    GetStdout,
+    ToOutput,
+    ToWindow,
+    SendStdin,
+    CurDir,
+    Run,
+    Cancel,
+}
 
 /// What the dialog gives back.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,6 +208,62 @@ impl ExecDialog {
         .ok();
     }
 
+    /// カレントディレクトリ is switched; off, its history list closes.
+    fn set_use_cur_dir(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.use_cur_dir = on;
+        if !on && self.list == Some(Field::CurDir) {
+            self.list = None;
+        }
+        cx.notify();
+    }
+
+    /// Alt with the letter of a label (`IsDialogMessage`): switches the check box, chooses the radio
+    /// button, presses the button, or moves the focus to the box after the label. Returns whether the
+    /// letter was one of the dialog's (then the key is not typed into the box).
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let stdout = self.get_stdout;
+        let entries = [
+            Entry::labelled(NAME, true, Use::FocusCommand),
+            Entry::labelled(GET_STDOUT, true, Use::GetStdout),
+            Entry::labelled(TO_OUTPUT, stdout, Use::ToOutput),
+            Entry::labelled(TO_WINDOW, stdout && self.editable, Use::ToWindow),
+            Entry::labelled(SEND_STDIN, true, Use::SendStdin),
+            Entry::labelled(CUR_DIR, true, Use::CurDir),
+            Entry::labelled(RUN, true, Use::Run),
+            Entry::labelled(CANCEL, true, Use::Cancel),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::FocusCommand) => focus_selecting(&self.command, window, cx),
+            Found::One(Use::GetStdout) => {
+                self.get_stdout = !self.get_stdout;
+                cx.notify();
+            }
+            Found::One(Use::ToOutput) => {
+                self.to_window = false;
+                cx.notify();
+            }
+            Found::One(Use::ToWindow) => {
+                self.to_window = true;
+                cx.notify();
+            }
+            Found::One(Use::SendStdin) => {
+                self.send_stdin = !self.send_stdin;
+                cx.notify();
+            }
+            Found::One(Use::CurDir) => self.set_use_cur_dir(!self.use_cur_dir, cx),
+            Found::One(Use::Run) => self.ok(window, cx),
+            Found::One(Use::Cancel) => self.cancel(window, cx),
+        }
+        true
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.keystroke.key == "escape" {
             if self.list.take().is_some() {
@@ -321,6 +402,7 @@ impl Focusable for ExecDialog {
 
 impl Render for ExecDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let stdout = self.get_stdout;
         let output_item = self.output_item;
         let input_item = self.input_item;
@@ -360,7 +442,7 @@ impl Render for ExecDialog {
             );
         let body = v_flex()
             .gap_2()
-            .child("名前(N)")
+            .child(NAME)
             .child(command_row)
             .when_some(
                 (self.list == Some(Field::Command)).then(|| self.history_list(Field::Command, cx)),
@@ -377,7 +459,7 @@ impl Render for ExecDialog {
                     .items_center()
                     .child(
                         Checkbox::new("exec-stdout")
-                            .labelled("標準出力を得る(S)")
+                            .labelled(GET_STDOUT)
                             .checked(stdout)
                             .on_click(cx.listener(|this, value: &bool, _, cx| {
                                 this.get_stdout = *value;
@@ -406,7 +488,7 @@ impl Render for ExecDialog {
                             .gap_3()
                             .child(
                                 Radio::new("exec-to-output")
-                                    .labelled("アウトプットウィンドウ(O)")
+                                    .labelled(TO_OUTPUT)
                                     .checked(!self.to_window)
                                     .disabled(!stdout)
                                     .on_click(cx.listener(|this, _: &bool, _, cx| {
@@ -416,7 +498,7 @@ impl Render for ExecDialog {
                             )
                             .child(
                                 Radio::new("exec-to-window")
-                                    .labelled("編集中のウィンドウ(C)")
+                                    .labelled(TO_WINDOW)
                                     .checked(self.to_window)
                                     .disabled(!(stdout && self.editable))
                                     .on_click(cx.listener(|this, _: &bool, _, cx| {
@@ -432,7 +514,7 @@ impl Render for ExecDialog {
                     .items_center()
                     .child(
                         Checkbox::new("exec-stdin")
-                            .labelled("標準入力に送る(I)")
+                            .labelled(SEND_STDIN)
                             .checked(self.send_stdin)
                             .on_click(cx.listener(|this, value: &bool, _, cx| {
                                 this.send_stdin = *value;
@@ -449,14 +531,10 @@ impl Render for ExecDialog {
             )
             .child(
                 Checkbox::new("exec-cur-dir")
-                    .labelled("カレントディレクトリ(R)")
+                    .labelled(CUR_DIR)
                     .checked(self.use_cur_dir)
                     .on_click(cx.listener(|this, value: &bool, _, cx| {
-                        this.use_cur_dir = *value;
-                        if !*value && this.list == Some(Field::CurDir) {
-                            this.list = None;
-                        }
-                        cx.notify();
+                        this.set_use_cur_dir(*value, cx);
                     })),
             )
             .child(dir_row)
@@ -469,12 +547,12 @@ impl Render for ExecDialog {
                     .gap_2()
                     .child(
                         Button::new("exec-ok")
-                            .labelled("実行(E)")
+                            .labelled(RUN)
                             .on_click(cx.listener(|this, _, window, cx| this.ok(window, cx))),
                     )
                     .child(
                         Button::new("exec-cancel")
-                            .labelled("キャンセル(X)")
+                            .labelled(CANCEL)
                             .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
                     ),
             );
@@ -483,6 +561,10 @@ impl Render for ExecDialog {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
+            // Alt+letter works from the boxes too, and does not type the letter
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+            })
             .key_context("ExecDialog")
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)

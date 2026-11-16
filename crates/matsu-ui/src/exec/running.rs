@@ -4,6 +4,7 @@
 //! the view and has the keys (Escape stops), so that nothing is typed into the text meanwhile.
 
 use crate::a11y::Labelled as _;
+use crate::access_keys::{OnAccessKey as _, hint_of};
 use crate::dialog_focus::KeepTabInside as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -15,6 +16,9 @@ use gpui_component::{Disableable as _, h_flex, v_flex};
 use matsu_platform::exec::Stopper;
 
 use crate::view::EditorView;
+
+/// キャンセル(X), the only control; Alt+X presses it.
+const CANCEL: &str = "キャンセル(X)";
 
 pub(crate) struct ExecRunning {
     command: String,
@@ -51,6 +55,16 @@ impl ExecRunning {
         cx.notify();
     }
 
+    /// Alt with the letter of キャンセル (`IsDialogMessage`). Returns whether it was the letter (also while the
+    /// process is being stopped and the button is grey: [`Self::stop`] does nothing then).
+    pub(crate) fn use_access_key(&mut self, letter: char, cx: &mut Context<Self>) -> bool {
+        if hint_of(CANCEL) != Some(letter) {
+            return false;
+        }
+        self.stop(cx);
+        true
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         if event.keystroke.key == "escape" {
             self.stop(cx);
@@ -70,12 +84,16 @@ impl Focusable for ExecRunning {
 
 impl Render for ExecRunning {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let panel = v_flex()
             .id("exec-running")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             // only the modal one holds the keys; the other leaves the window usable
             .when(self.modal, |panel| panel.keep_tab_inside(&self.focus))
+            .on_access_key(move |letter, _, cx| {
+                this.update(cx, |running, cx| running.use_access_key(letter, cx))
+            })
             .key_context("ExecRunning")
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, _, cx| this.on_key_down(event, cx)),
@@ -108,7 +126,7 @@ impl Render for ExecRunning {
                         .labelled(if self.stopping {
                             "中断しています…"
                         } else {
-                            "キャンセル(X)"
+                            CANCEL
                         })
                         .disabled(self.stopping)
                         .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
