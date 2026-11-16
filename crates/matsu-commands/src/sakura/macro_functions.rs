@@ -476,6 +476,7 @@ pub static MACRO_COMMANDS: &[MacroFunction] = &[
     MacroFunction { name: "AiPrompt47", function: "F_AI_PROMPT_47", code: 32647, args: &[], result: None, key_macro: true },
     MacroFunction { name: "AiPrompt48", function: "F_AI_PROMPT_48", code: 32648, args: &[], result: None, key_macro: true },
     MacroFunction { name: "AiPrompt49", function: "F_AI_PROMPT_49", code: 32649, args: &[], result: None, key_macro: true },
+    MacroFunction { name: "AiAsk", function: "F_AI_ASK", code: 32651, args: &[], result: None, key_macro: false },
     MacroFunction { name: "TraceOut", function: "F_TRACEOUT", code: 32802, args: &[Str, Int], result: None, key_macro: false },
     MacroFunction { name: "WindowTopMost", function: "F_TOPMOST", code: 31334, args: &[Int], result: None, key_macro: true },
     MacroFunction { name: "GroupClose", function: "F_GROUPCLOSE", code: 31380, args: &[], result: None, key_macro: false },

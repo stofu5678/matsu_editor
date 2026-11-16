@@ -50,8 +50,9 @@
 //! a negative level is 0; a line that is missing is a blank row, where Sakura reuses the text of the line
 //! before it; `nMainMenuNum` of 0 or less leaves the default.
 
+use super::ai::{F_AI_ASK, F_AI_PROMPT_LIST, F_AI_SETTINGS};
 use super::custom_menu::{parse_function, unreadable_text};
-use super::oneliner::{F_ONELINER_DIALOG, F_ONELINER_LIST, F_ONELINER_SETTINGS};
+use super::oneliner::{F_AI_LOG_SHOW, F_ONELINER_DIALOG, F_ONELINER_LIST, F_ONELINER_SETTINGS};
 use crate::profile::{Profile, ProfileError};
 use crate::value::parse_long;
 
@@ -72,7 +73,7 @@ pub const CURRENT_VERSION: i32 = 2;
 pub const MATSU_VERSION_KEY: &str = "nMatsuMainMenuVer";
 /// The current version of MATSU's own items. A saved menu with a smaller version (or with none) gets the
 /// items of the versions after it once.
-pub const MATSU_CURRENT_VERSION: i32 = 5;
+pub const MATSU_CURRENT_VERSION: i32 = 6;
 
 /// `F_NODE`: a node whose name is the name of the row.
 pub const F_NODE: u16 = 0;
@@ -82,9 +83,12 @@ pub const F_SEPARATOR: u16 = 1;
 pub const F_SPECIAL_FIRST: u16 = 29001;
 pub const F_SPECIAL_LAST: u16 = 29006;
 
-/// A list that is filled in at run time: `F_SPECIAL_FIRST..=F_SPECIAL_LAST`, and MATSU's `F_ONELINER_LIST`.
+/// A list that is filled in at run time: `F_SPECIAL_FIRST..=F_SPECIAL_LAST`, and MATSU's `F_ONELINER_LIST` and
+/// `F_AI_PROMPT_LIST`.
 pub fn is_special_function(function: u16) -> bool {
-    (F_SPECIAL_FIRST..=F_SPECIAL_LAST).contains(&function) || function == F_ONELINER_LIST
+    (F_SPECIAL_FIRST..=F_SPECIAL_LAST).contains(&function)
+        || function == F_ONELINER_LIST
+        || function == F_AI_PROMPT_LIST
 }
 /// `F_OPTION`: 共通設定, which the menu must keep.
 pub const F_OPTION: u16 = 31112;
@@ -289,6 +293,9 @@ struct Addition {
     /// A group of rows put in instead of the one row (a submenu): `function` is then the row that tells whether the
     /// menu has the group already, and `separator_before`, `separator_after` and `key` are not used.
     block: &'static [BlockRow],
+    /// `after` is a row inside a submenu, and the new rows go after that whole submenu (not into it), as its
+    /// siblings. Only for an addition with a block.
+    after_submenu: bool,
 }
 
 /// One row of the group that an [`Addition`] with a block puts in.
@@ -312,11 +319,19 @@ impl Addition {
             separator_after: false,
             key: None,
             block: &[],
+            after_submenu: false,
         }
     }
 
     const fn with_block(self, block: &'static [BlockRow]) -> Self {
         Self { block, ..self }
+    }
+
+    const fn after_its_submenu(self) -> Self {
+        Self {
+            after_submenu: true,
+            ..self
+        }
     }
 
     const fn with_separator_after(self) -> Self {
@@ -362,10 +377,10 @@ const ADDITIONS: [Addition; 21] = [
 /// The items that only MATSU has, which the menus saved before them lack (version 1: the copies with LF and
 /// with CR, and the preview in another tab; version 2: the chooser of the connection to run the database
 /// function on; version 3: the six encodings and decodings of the selection, a group of its own in the 変換 menu
-/// after 「空白→TAB」; version 4: the shell tab after the preview tab; version 5: the submenu 「ワンライナー」 after 「外部コマンド実行」; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
+/// after 「空白→TAB」; version 4: the shell tab after the preview tab; version 5: the submenu 「ワンライナー」 after 「外部コマンド実行」; version 6: the submenu 「生成 AI」 after 「ワンライナー」; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
 /// Sakura's, they are added after the item they follow, with the access key of the default menu unless a
 /// sibling in the same submenu already has it.
-const MATSU_ADDITIONS: [Addition; 12] = [
+const MATSU_ADDITIONS: [Addition; 13] = [
     Addition::new(1, 32700, 30603, false).with_key('N'), // F_COPY_LF after F_COPY_CRLF
     Addition::new(1, 32701, 32700, false).with_key('M'), // F_COPY_CR after F_COPY_LF
     Addition::new(1, 32702, 31370, false).with_key('G'), // the preview in another tab after F_WIN_OUTPUT
@@ -381,6 +396,10 @@ const MATSU_ADDITIONS: [Addition; 12] = [
     Addition::new(4, 32710, 32702, false).with_key('L'), // the shell tab after the preview tab
     // The submenu of the one-liners after 「外部コマンド実行」 (ADR-0029), found by its list.
     Addition::new(5, F_ONELINER_LIST, 31270, false).with_block(ONELINER_SUBMENU),
+    // The submenu of sending to an AI after the submenu of the one-liners (ADR-0035), found by the list in it.
+    Addition::new(6, F_AI_PROMPT_LIST, F_ONELINER_LIST, false)
+        .with_block(AI_SUBMENU)
+        .after_its_submenu(),
 ];
 
 /// The submenu 「ワンライナー」 (version 5): the registered one-liners, a separator, the input dialog and the
@@ -418,6 +437,60 @@ const ONELINER_SUBMENU: &[BlockRow] = &[
         depth: 1,
         kind: RowKind::Leaf,
         function: F_ONELINER_SETTINGS,
+        key: Some('S'),
+        name: "",
+    },
+];
+
+/// The submenu 「生成 AI」 (version 6, ADR-0035): the submenu 「そのまま送る」 with the registered destinations,
+/// 「指示をつけて送る...」, a separator, the log and the settings.
+const AI_SUBMENU: &[BlockRow] = &[
+    BlockRow {
+        depth: 0,
+        kind: RowKind::Node,
+        function: F_NODE,
+        key: Some('G'),
+        name: "生成 AI",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Node,
+        function: F_NODE,
+        key: Some('P'),
+        name: "そのまま送る",
+    },
+    BlockRow {
+        depth: 2,
+        kind: RowKind::Special,
+        function: F_AI_PROMPT_LIST,
+        key: None,
+        name: "",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Leaf,
+        function: F_AI_ASK,
+        key: Some('I'),
+        name: "",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Separator,
+        function: F_SEPARATOR,
+        key: None,
+        name: "",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Leaf,
+        function: F_AI_LOG_SHOW,
+        key: Some('L'),
+        name: "",
+    },
+    BlockRow {
+        depth: 1,
+        kind: RowKind::Leaf,
+        function: F_AI_SETTINGS,
         key: Some('S'),
         name: "",
     },
@@ -508,7 +581,14 @@ impl MainMenu {
             else {
                 continue;
             };
-            let level = self.rows[at].level;
+            // The row the new rows are siblings of, and the row they follow. Usually both are the row found;
+            // with `after_submenu` they are the submenu that holds it and the last row of that submenu.
+            let (anchor, end) = if add.after_submenu {
+                self.submenu_of(at)
+            } else {
+                (at, at)
+            };
+            let (at, level) = (anchor, self.rows[anchor].level);
             if !add.block.is_empty() {
                 let mut rows: Vec<MenuRow> = add
                     .block
@@ -527,7 +607,7 @@ impl MainMenu {
                     rows[0].key = None;
                 }
                 if self.rows.len() + rows.len() <= MAX_MAINMENU {
-                    self.rows.splice(at + 1..at + 1, rows);
+                    self.rows.splice(end + 1..end + 1, rows);
                 }
                 continue;
             }
@@ -541,8 +621,27 @@ impl MainMenu {
             if add.separator_after {
                 added.push(MenuRow::separator(level));
             }
-            self.rows.splice(at + 1..at + 1, added);
+            self.rows.splice(end + 1..end + 1, added);
         }
+    }
+
+    /// The submenu that holds the row at `at`: `(its row, the last row under it)`. A row that is directly in a menu
+    /// of the menu bar has no submenu around it; then it is both.
+    fn submenu_of(&self, at: usize) -> (usize, usize) {
+        let level = self.rows[at].level;
+        let Some(parent) = self.rows[..at]
+            .iter()
+            .rposition(|r| r.level < level)
+            .filter(|&p| self.rows[p].level > 0)
+        else {
+            return (at, at);
+        };
+        let parent_level = self.rows[parent].level;
+        let end = self.rows[parent + 1..]
+            .iter()
+            .position(|r| r.level <= parent_level)
+            .map_or(self.rows.len() - 1, |i| parent + i);
+        (parent, end)
     }
 
     /// Whether a row in the same submenu as the row at `at` (same level, under the same parent) has `key`,

@@ -20,6 +20,7 @@
 | 名前を指定してマクロ実行... | `F_EXECEXTMACRO` | 「マクロの使い方」の章 |
 | [外部コマンド実行...](exec-command.md) | `F_EXECMD_DIALOG` | この章 |
 | ワンライナー（サブメニュー） | 登録済みワンライナーの一覧、入力して実行、設定 | 「MATSU Editor だけの機能」の章のワンライナー |
+| 生成 AI（サブメニュー） | 登録済みの送り先の一覧（そのまま送る）、`F_AI_ASK`、`F_AI_LOG_SHOW`、`F_AI_SETTINGS` | 「MATSU Editor だけの機能」の章の[生成 AI に送る](../matsu-only/ai-send.md#menu) |
 | データベースの出力を表示 | `F_ACTIVATE_SQLPLUS` | 「MATSU Editor だけの機能」の章のデータベース |
 | データベースで実行 | `F_PLSQL_COMPILE_ON_SQLPLUS` | 「MATSU Editor だけの機能」の章のデータベース |
 | 接続を選んでデータベースで実行... | `F_PLSQL_COMPILE_ON_DATABASE_CHOICE` | 「MATSU Editor だけの機能」の章のデータベース |
@@ -27,7 +28,7 @@
 | プラグインコマンドリスト | 有効なプラグインのコマンドの一覧 | 「プラグインとスクリプトの言語」の章 |
 | [カスタムメニュー](custom-menu.md)（サブメニュー） | 作ってあるカスタムメニューの一覧 | この章 |
 
-「ワンライナー」と 3 つの「データベース」の項目は、MATSU Editor の「ツール」メニューにあります。機能の名前（`F_` で始まる名前）はサクラエディタのものを借りていますが、動きは MATSU Editor 独自です。
+「ワンライナー」「生成 AI」と 3 つの「データベース」の項目は、MATSU Editor の「ツール」メニューにあります。機能の名前（`F_` で始まる名前）はサクラエディタのものを借りていますが、動きは MATSU Editor 独自です。
 
 ## この章のページ
 

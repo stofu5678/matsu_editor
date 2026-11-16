@@ -261,7 +261,8 @@ pub fn apply(tables: &mut Tables) -> Result<(), String> {
         tables.menu.splice(menu + 1..menu + 1, items);
     }
     add_oneliner_functions(tables)?;
-    add_oneliner_menu(tables)
+    add_oneliner_menu(tables)?;
+    add_ai_menu(tables)
 }
 
 /// The one-liners (ADR-0029): `F_ONELINER_0` to `F_ONELINER_49` run one-liner n of `[OneLiner]`, in a row
@@ -330,15 +331,17 @@ fn oneliner_functions() -> Vec<Function> {
 
 /// Sending to a generative AI (ADR-0035): `F_AI_PROMPT_0` to `F_AI_PROMPT_49` send the target text, as the prompt, to
 /// destination n of `[AI]` (mode a), in a row from [`AI_PROMPT_FIRST_CODE`]. MATSU-only, in the gap between Sakura's
-/// highest code (32018) and [`FIRST_CODE`]. The codes after the fifty (up to [`FIRST_CODE`]) are kept for the
-/// functions of the later steps of ADR-0035 (`F_AI_PROMPT_LIST`, `F_AI_ASK`, `F_AI_SETTINGS`). Like the one-liners
-/// they are in no group of the command list; the macro table has a row for each ([`ai_prompt_macros`]).
+/// highest code (32018) and [`FIRST_CODE`]. The three codes after the fifty are the special item that stands for the
+/// destinations in a menu (`F_AI_PROMPT_LIST`), the modal of mode b (`F_AI_ASK`) and the settings (`F_AI_SETTINGS`);
+/// the codes after them (up to [`FIRST_CODE`]) stay free. Like the one-liners they are in no group of the command
+/// list; the macro table has a row for each of the fifty ([`ai_prompt_macros`]) and one for `F_AI_ASK`.
 pub const AI_PROMPT_FIRST_CODE: u16 = 32600;
 const AI_PROMPT_COUNT: u16 = 50;
 
-/// The functions of mode a, in the order of the function table.
+/// The functions of sending to an AI, in the order of the function table: the fifty of mode a, then the list, the
+/// modal of mode b and the settings.
 fn ai_prompt_functions() -> Vec<Function> {
-    (0..AI_PROMPT_COUNT)
+    let mut out: Vec<Function> = (0..AI_PROMPT_COUNT)
         .map(|n| Function {
             code: AI_PROMPT_FIRST_CODE + n,
             name: format!("F_AI_PROMPT_{n}"),
@@ -347,15 +350,53 @@ fn ai_prompt_functions() -> Vec<Function> {
             groups: Vec::new(),
             label: Some(format!("生成 AI に送る {n}")),
         })
-        .collect()
+        .collect();
+    let next = AI_PROMPT_FIRST_CODE + AI_PROMPT_COUNT;
+    for (offset, name, id, kind, label) in [
+        (
+            0,
+            "F_AI_PROMPT_LIST",
+            "ai_prompt_list",
+            Kind::MenuSpecial,
+            "登録済み生成 AI 送り先リスト",
+        ),
+        (
+            1,
+            "F_AI_ASK",
+            "ai_ask",
+            Kind::Command,
+            "指示をつけて送る...",
+        ),
+        (
+            2,
+            "F_AI_SETTINGS",
+            "ai_settings",
+            Kind::Command,
+            "生成 AI の設定...",
+        ),
+    ] {
+        out.push(Function {
+            code: next + offset,
+            name: name.to_string(),
+            id: id.to_string(),
+            kind,
+            groups: Vec::new(),
+            label: Some(label.to_string()),
+        });
+    }
+    out
 }
 
-/// The macro names of mode a, in the order of the macro table: `AiPrompt0` to `AiPrompt49` call `F_AI_PROMPT_0` to
-/// `F_AI_PROMPT_49`; a key macro records them. `(macro name, function name, recorded by key macros)`.
+/// The macro names of sending to an AI, in the order of the macro table: `AiPrompt0` to `AiPrompt49` call
+/// `F_AI_PROMPT_0` to `F_AI_PROMPT_49` (a key macro records them), and `AiAsk` opens the modal of mode b (not
+/// recorded, like `OneLinerDialog`: the instruction is typed by a person, ADR-0035). There is no macro for the list
+/// or the settings. `(macro name, function name, recorded by key macros)`.
 pub fn ai_prompt_macros() -> Vec<(String, String, bool)> {
-    (0..AI_PROMPT_COUNT)
+    let mut rows: Vec<(String, String, bool)> = (0..AI_PROMPT_COUNT)
         .map(|n| (format!("AiPrompt{n}"), format!("F_AI_PROMPT_{n}"), true))
-        .collect()
+        .collect();
+    rows.push(("AiAsk".to_string(), "F_AI_ASK".to_string(), false));
+    rows
 }
 
 /// Adds the functions of the one-liners, and then those of sending to an AI, after `F_SHELL_TAB`.
@@ -441,6 +482,77 @@ fn add_oneliner_menu(tables: &mut Tables) -> Result<(), String> {
             list + 2,
             Some('S'),
             Some("ワンライナーの設定..."),
+        ),
+    ];
+    tables.menu.splice(at + 1..at + 1, items);
+    Ok(())
+}
+
+/// The submenu 「生成 AI」 of the main menu (ADR-0035, 1), right after 「ワンライナー」 in the tool menu: the submenu
+/// 「そのまま送る」 (the registered destinations), 「指示をつけて送る...」, a separator, 「AI ログを表示」 and
+/// 「生成 AI の設定...」. The access key is `G`: the tool menu's other keys are `R M A D B E X O P S C U`.
+fn add_ai_menu(tables: &mut Tables) -> Result<(), String> {
+    // The submenu of the one-liners is the node just before: found by its list. Its rows are the node, the list, a
+    // separator, the dialog and the settings, so its last row is 3 after the list.
+    let oneliner_list = ONELINER_FIRST_CODE + ONELINER_COUNT;
+    let list_at = tables
+        .menu
+        .iter()
+        .position(|i| i.kind == MenuKind::Special && i.code == oneliner_list)
+        .ok_or("the submenu of the one-liners is not in the main menu")?;
+    let level = tables.menu[list_at].level - 1;
+    let at = list_at + 3;
+    let first = AI_PROMPT_FIRST_CODE + AI_PROMPT_COUNT;
+    let log = tables
+        .functions
+        .iter()
+        .find(|f| f.name == "F_AI_LOG_SHOW")
+        .map(|f| f.code)
+        .ok_or("F_AI_LOG_SHOW is not a function")?;
+    let item = |level, kind, code, access_key, label: Option<&str>| MenuItem {
+        level,
+        kind,
+        code,
+        access_key,
+        label: label.map(str::to_string),
+    };
+    let items = vec![
+        item(level, MenuKind::Node, 0, Some('G'), Some("生成 AI")),
+        item(
+            level + 1,
+            MenuKind::Node,
+            0,
+            Some('P'),
+            Some("そのまま送る"),
+        ),
+        item(
+            level + 2,
+            MenuKind::Special,
+            first,
+            None,
+            Some("登録済み生成 AI 送り先リスト"),
+        ),
+        item(
+            level + 1,
+            MenuKind::Leaf,
+            first + 1,
+            Some('I'),
+            Some("指示をつけて送る..."),
+        ),
+        item(level + 1, MenuKind::Separator, 1, None, None),
+        item(
+            level + 1,
+            MenuKind::Leaf,
+            log,
+            Some('L'),
+            Some("AI ログを表示"),
+        ),
+        item(
+            level + 1,
+            MenuKind::Leaf,
+            first + 2,
+            Some('S'),
+            Some("生成 AI の設定..."),
         ),
     ];
     tables.menu.splice(at + 1..at + 1, items);

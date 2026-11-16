@@ -5884,6 +5884,19 @@ final class Editor
     }
 
     /**
+     * AiAsk() -> null
+     *
+     * Sakura's F_AI_ASK (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiAsk()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiAsk', func_get_args());
+    }
+
+    /**
      * TraceOut(arg1: string?, arg2: int?) -> null
      *
      * MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a

@@ -110,10 +110,16 @@ pub(crate) fn migrate_old_settings() {
     }
 }
 
-/// Keeps the message of the migration for [`startup_notice`].
+/// Keeps the message of a migration for [`startup_notice`]. A message that is there already (another migration at
+/// the same start) stays, and this one follows it.
 pub(crate) fn set_startup_notice(text: &str) {
     startup_slot::SLOT.with(|slot| {
-        *slot.borrow_mut() = Some((text.to_owned(), std::time::Instant::now()));
+        let mut slot = slot.borrow_mut();
+        let text = match slot.take() {
+            Some((before, _)) => format!("{before} {text}"),
+            None => text.to_owned(),
+        };
+        *slot = Some((text, std::time::Instant::now()));
     });
 }
 

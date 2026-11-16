@@ -1,5 +1,7 @@
-//! 生成 AI に送る (ADR-0035): `F_AI_PROMPT_0` to `F_AI_PROMPT_49`, mode a. The flow is `crate::ai_send`.
+//! 生成 AI に送る (ADR-0035): `F_AI_PROMPT_0` to `F_AI_PROMPT_49` (mode a), `F_AI_ASK` and `F_AI_SETTINGS`. The flow is
+//! `crate::ai_send`.
 
+pub mod ai_ask;
 pub mod ai_prompt_0;
 pub mod ai_prompt_1;
 pub mod ai_prompt_10;
@@ -50,3 +52,4 @@ pub mod ai_prompt_6;
 pub mod ai_prompt_7;
 pub mod ai_prompt_8;
 pub mod ai_prompt_9;
+pub mod ai_settings;

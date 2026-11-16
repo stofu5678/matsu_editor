@@ -138,6 +138,8 @@ pub(crate) struct FuncStates {
     pub key_search: bool,
     /// The registered one-liners (ADR-0029): which of them can run, and where their result goes.
     pub oneliners: std::sync::Arc<matsu_config::settings::oneliner::OneLiners>,
+    /// The destinations of sending to a generative AI (ADR-0035): which of them can run, and where their result goes.
+    pub ai: std::sync::Arc<matsu_config::settings::ai::AiDestinations>,
     /// A command that takes the output runs in the window (the box of 外部コマンド実行 and of the one-liners is
     /// shown): the one-liners and their dialog wait.
     pub command_running: bool,
@@ -254,6 +256,7 @@ impl FuncStates {
                 .try_global::<crate::settings::UserSettings>()
                 .map(crate::settings::UserSettings::shared_oneliners)
                 .unwrap_or_default(),
+            ai: crate::ai_send::table(cx),
             command_running: view.support.exec_running.is_some() || view.support.oneliner_starting,
             text_locked: !crate::oneliner::flow::can_edit(view, cx),
         }
@@ -308,7 +311,10 @@ impl FuncStates {
     /// `IsFuncEnable`: whether the item of the function can be chosen. `true` for the functions
     /// whose rule is not kept here (a function without a command is grayed out elsewhere).
     pub(crate) fn is_enabled(&self, code: u16) -> bool {
-        if let Some(enabled) = self.oneliner_enabled(code) {
+        if let Some(enabled) = self
+            .oneliner_enabled(code)
+            .or_else(|| self.ai_enabled(code))
+        {
             return enabled;
         }
         let Some(name) = name_of(code) else {
@@ -431,8 +437,31 @@ impl FuncStates {
         let one = self.oneliners.get(index_of_function(code)?)?;
         Some(
             one.is_registered()
+                // a slot still marked for an AI waits for its move to `[AI]` (ADR-0035, 6)
+                && !one.is_ai_marked()
                 && !self.command_running
                 && (one.output == OutputTo::OutputWindow || !(self.view_mode || self.text_locked)),
+        )
+    }
+}
+
+impl FuncStates {
+    /// Whether the functions of sending to an AI can be chosen (ADR-0035), `None` for another function. Destination
+    /// `n` needs a command, no other run that takes the window, and, when its result goes into the document, a
+    /// document that can be edited; one that only goes to the log tab (`AiOutput::LogOnly`) does not change the
+    /// document. 「指示をつけて送る...」 (`F_AI_ASK`) is grayed until its modal exists (mode b is a later step); the
+    /// settings and the log are always there.
+    fn ai_enabled(&self, code: u16) -> Option<bool> {
+        use matsu_config::settings::ai::{AiOutput, F_AI_ASK, index_of_prompt_function};
+        if code == F_AI_ASK {
+            return Some(false);
+        }
+        let destination = self.ai.get(index_of_prompt_function(code)?)?;
+        Some(
+            destination.is_registered()
+                && !self.command_running
+                && (destination.output == AiOutput::LogOnly
+                    || !(self.view_mode || self.text_locked)),
         )
     }
 }

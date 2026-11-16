@@ -37,6 +37,22 @@ pub const SECTION: &str = "AI";
 /// How many destinations can be registered (the same as the one-liners).
 pub const MAX_AI: usize = 50;
 
+/// `F_AI_PROMPT_0`: the function that sends to destination 0 in mode a (MATSU-only, `xtask/src/matsu_extras.rs`).
+/// The functions of the 50 are in a row.
+pub const F_AI_PROMPT_0: u16 = 32600;
+/// `F_AI_PROMPT_LIST`: in a menu, the registered destinations.
+pub const F_AI_PROMPT_LIST: u16 = 32650;
+/// `F_AI_ASK`: 「指示をつけて送る...」, the modal of mode b.
+pub const F_AI_ASK: u16 = 32651;
+/// `F_AI_SETTINGS`: 「生成 AI の設定...」.
+pub const F_AI_SETTINGS: u16 = 32652;
+
+/// The destination that the function `code` sends to (`F_AI_PROMPT_0 <= code < F_AI_PROMPT_0 + MAX_AI`).
+pub fn index_of_prompt_function(code: u16) -> Option<usize> {
+    let n = usize::from(code.checked_sub(F_AI_PROMPT_0)?);
+    (n < MAX_AI).then_some(n)
+}
+
 /// Where the result of a destination goes (`Output`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AiOutput {

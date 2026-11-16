@@ -67,8 +67,8 @@ pub const F_ONELINER_LIST: u16 = 32761;
 pub const F_ONELINER_DIALOG: u16 = 32762;
 /// `F_ONELINER_SETTINGS`: 「ワンライナーの設定」.
 pub const F_ONELINER_SETTINGS: u16 = 32763;
-/// `F_AI_LOG_SHOW`: 「AI ログを表示」, the log of what was sent to a generative AI (ADR-0030). It is the last item of
-/// what `F_ONELINER_LIST` expands to.
+/// `F_AI_LOG_SHOW`: 「AI ログを表示」, the log of what was sent to a generative AI (ADR-0030). Since ADR-0035 it is an item
+/// of the submenu 「生成 AI」 (the code and the name are the same, so that the key assignments keep working).
 pub const F_AI_LOG_SHOW: u16 = 32764;
 
 /// The one-liner that the function `code` stands for (`F_ONELINER_0 <= code < F_ONELINER_0 + MAX_ONELINER`).

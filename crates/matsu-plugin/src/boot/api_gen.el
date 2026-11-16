@@ -3807,6 +3807,14 @@ command that this editor does not have yet answers the error -32001 (not
 implemented)."
   (apply #'editor-call "AiPrompt49" args))
 
+(defun editor-ai-ask (&rest args)
+  "AiAsk() -> null
+
+Sakura's F_AI_ASK (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+key, the menu and a key macro run. The last arguments may be left out. A command
+that this editor does not have yet answers the error -32001 (not implemented)."
+  (apply #'editor-call "AiAsk" args))
+
 (defun editor-trace-out (&rest args)
   "TraceOut(arg1: string?, arg2: int?) -> null
 

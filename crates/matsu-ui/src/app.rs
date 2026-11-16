@@ -463,6 +463,8 @@ fn editor_menus(
     );
     let rest = ChainedLists(&custom, &macro_list);
     let rest = ChainedLists(&rest, &oneliner_list);
+    let ai_list = crate::ai_send::AiPromptList(crate::ai_send::table(cx));
+    let rest = ChainedLists(&rest, &ai_list);
     let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
     let rest = ChainedLists(
         &rest,

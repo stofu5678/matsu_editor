@@ -69,6 +69,7 @@ Enter で入れる改行を、NEL、LS、PS のどれかにします。文書ご
 | `F_EXECMD` | 「コマンド: ツール」の外部コマンド実行のページ |
 | `F_ONELINER_0` から `F_ONELINER_49` | 「MATSU Editor だけの機能」のワンライナーのページ |
 | `F_AI_PROMPT_0` から `F_AI_PROMPT_49` | 「MATSU Editor だけの機能」の生成 AI に送るページ |
+| `F_AI_PROMPT_LIST`、`F_AI_ASK`、`F_AI_SETTINGS`、`F_AI_LOG_SHOW` | 「MATSU Editor だけの機能」の生成 AI に送るページの[メニュー](../matsu-only/ai-send.md#menu)（`F_AI_SETTINGS` は共通設定を開く） |
 | `F_CUSTMENU_1` から `F_CUSTMENU_24`、`F_MENU_RBUTTON` | 「コマンド: ツール」のカスタムメニューのページ |
 
 ## 根拠
