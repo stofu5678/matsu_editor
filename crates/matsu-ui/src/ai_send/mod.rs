@@ -14,8 +14,12 @@
 //! Its tests are with the one-liners' (`crate::oneliner::tests::ai`), whose harness they share.
 //!
 //! The functions are `ui_commands/ai/`: `F_AI_PROMPT_0` to `F_AI_PROMPT_49`, `F_AI_ASK` and `F_AI_SETTINGS`; the menus
-//! take the destinations from [`list`], and [`startup`] moves the AI one-liners at start. Mode b and the modal are
-//! other steps of ADR-0035.
+//! take the destinations from [`list`], and [`startup`] moves the AI one-liners at start.
+//!
+//! Mode b (`F_AI_ASK`, ADR-0035, 4) is the other entry: `crate::ai_ask` is its window (the instruction, the
+//! destination, the confirmation and the history of the instructions) and `crate::oneliner::flow::run_ask` runs the
+//! chosen destination on the instruction and the same target text, through the same flow. Its tests are
+//! `crate::oneliner::tests::ai_ask`.
 
 use std::sync::Arc;
 
@@ -68,6 +72,7 @@ pub(crate) fn run_prompt(
                 index,
                 name: destination.title().to_owned(),
                 ask: destination.ask_before_send,
+                instruction: None,
             }),
         },
         window,
@@ -77,7 +82,7 @@ pub(crate) fn run_prompt(
 
 /// The place of the result as the flow of the one-liners has it. The log tab only is the one that is not the
 /// document: for an AI job the flow does not use the output window (see `crate::oneliner::flow`).
-fn output_to(output: AiOutput) -> OutputTo {
+pub(crate) fn output_to(output: AiOutput) -> OutputTo {
     match output {
         AiOutput::Replace => OutputTo::Replace,
         AiOutput::NextLine => OutputTo::NextLine,

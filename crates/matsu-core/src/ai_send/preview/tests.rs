@@ -331,3 +331,114 @@ fn a_cut_line_in_the_warning_masks_the_secret_it_cut_through() {
     );
     assert!(!p.secrets[0].text.contains("OSFODNN7"));
 }
+
+fn with_head(instruction: &str, material: &str) -> (String, TextPreview) {
+    let head = crate::ai_send::instruction_head(instruction).unwrap();
+    let d = doc(material);
+    let limits = PreviewLimits::default();
+    let preview = preview_with_head(&head, &all(&d, &limits), &limits);
+    (head, preview)
+}
+
+#[test]
+fn a_head_is_numbered_first_and_the_material_goes_on_from_it() {
+    let material = "こんにちは\r\nさようなら\r\n";
+    let (head, p) = with_head("Translate.\nKeep the tone.", material);
+    // `Translate.`, `Keep the tone.`, an empty line, `---`, then two lines of the material
+    assert_eq!(p.lines, 6);
+    assert!(p.tail.is_empty());
+    let shown: Vec<_> = p.head.iter().map(|l| (l.number, l.text.as_str())).collect();
+    assert_eq!(
+        shown,
+        [
+            (1, "Translate."),
+            (2, "Keep the tone."),
+            (3, ""),
+            (4, "---"),
+            (5, "こんにちは"),
+            (6, "さようなら"),
+        ]
+    );
+    assert_eq!(p.chars, head.chars().count() + material.chars().count());
+    assert_eq!(p.bytes, head.len() + material.len());
+    assert!(p.chars_exact && !p.large);
+}
+
+#[test]
+fn the_numbers_of_the_material_start_after_the_head_even_from_a_later_line() {
+    let d = doc(&numbered(30));
+    let limits = PreviewLimits::default();
+    let material = preview_range(&d, Pos::new(10, 0), Pos::new(14, 0), &limits).unwrap();
+    let head = crate::ai_send::instruction_head("Fix.").unwrap();
+    let p = preview_with_head(&head, &material, &limits);
+    // `Fix.`, an empty line, `---`, then the lines 11 to 14 of the document
+    let shown: Vec<_> = p.head.iter().map(|l| (l.number, l.text.as_str())).collect();
+    assert_eq!(
+        shown,
+        [
+            (1, "Fix."),
+            (2, ""),
+            (3, "---"),
+            (4, "行11"),
+            (5, "行12"),
+            (6, "行13"),
+            (7, "行14")
+        ]
+    );
+}
+
+#[test]
+fn a_long_input_shows_the_first_10_and_the_last_5_lines_of_the_whole() {
+    let (_, p) = with_head("Summarize.", &numbered(100));
+    assert_eq!(p.lines, 103);
+    assert_eq!(p.head.len(), 10);
+    assert_eq!(p.head[0].text, "Summarize.");
+    assert_eq!(p.head[9].number, 10);
+    assert_eq!(p.head[9].text, "行7");
+    assert_eq!(p.tail.len(), 5);
+    assert_eq!(p.tail[4].number, 103);
+    assert_eq!(p.tail[4].text, "行100");
+    assert_eq!(p.omitted_lines, 103 - 15);
+}
+
+#[test]
+fn a_short_material_with_a_long_instruction_is_cut_in_the_middle() {
+    let instruction: String = (1..=20).map(|i| format!("指示{i}\n")).collect();
+    let (_, p) = with_head(&instruction, "a\nb\n");
+    // 20 lines of instruction, an empty line, `---`, `a`, `b`
+    assert_eq!(p.lines, 24);
+    assert_eq!(p.head.len(), 10);
+    assert_eq!(p.tail.len(), 5);
+    assert_eq!(p.tail[4].text, "b");
+    assert_eq!(p.tail[4].number, 24);
+    assert_eq!(p.omitted_lines, 9);
+}
+
+#[test]
+fn a_secret_in_the_instruction_is_warned_about_and_masked() {
+    let (_, p) = with_head("Use sk-proj-abc123DEF456ghi789JKL012mno345 here.", "ok\n");
+    assert_eq!(p.secret_lines_total, 1);
+    assert_eq!(p.secrets[0].number, 1);
+    assert!(!p.secrets[0].text.contains("abc123"));
+    assert!(p.head.iter().all(|l| !l.text.contains("abc123")));
+}
+
+#[test]
+fn a_secret_of_the_material_is_numbered_after_the_head() {
+    let (_, p) = with_head(
+        "Check.",
+        "fine\nKEY=sk-proj-abc123DEF456ghi789JKL012mno345\n",
+    );
+    assert_eq!(p.secret_lines_total, 1);
+    // `Check.`, an empty line, `---`, `fine`, then the key
+    assert_eq!(p.secrets[0].number, 5);
+}
+
+#[test]
+fn the_size_of_the_head_counts_toward_large() {
+    let line = "x".repeat(1000) + "\n";
+    let (_, small) = with_head("Go.", &line.repeat(LARGE_TEXT_BYTES / 1000 - 5));
+    assert!(!small.large);
+    let (_, big) = with_head("Go.", &line.repeat(LARGE_TEXT_BYTES / 1000 + 2));
+    assert!(big.large);
+}

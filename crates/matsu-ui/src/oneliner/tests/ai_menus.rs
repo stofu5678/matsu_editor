@@ -1,5 +1,6 @@
 //! The submenu 「生成 AI」 and the functions after the fifty `F_AI_PROMPT_n` (ADR-0035, 1): the lists the menus expand,
-//! `F_AI_ASK` before its modal exists (`F_AI_SETTINGS` opens the sheet: `common_settings::tests_polish`). The move at start has its tests in `crate::ai_send::startup`
+//! `F_AI_ASK` (its window has its tests in `ai_ask` here and in `crate::ai_ask`; `F_AI_SETTINGS` opens the sheet:
+//! `common_settings::tests_polish`). The move at start has its tests in `crate::ai_send::startup`
 //! (the pure change is `matsu_config::settings::ai::migrate`), the saved menus of versions 4 and 6 in `matsu-config`.
 
 use gpui::TestAppContext;
@@ -209,19 +210,6 @@ fn the_main_menu_has_the_ai_submenu_in_the_tool_menu_after_the_oneliners() {
         "{:?}",
         labels(oneliner)
     );
-}
-
-#[gpui::test]
-fn the_function_ask_says_on_the_status_bar_that_mode_b_is_not_ready(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, "");
-    w.call_code(cx, F_AI_ASK);
-    assert_eq!(
-        w.notice(cx).as_deref(),
-        Some(crate::ui_commands::ai::ai_ask::NOT_READY)
-    );
-    // nothing was started, and no window of the flow opened
-    assert!(!w.running(cx));
-    assert!(w.view.read_with(cx, |view, _| view.ai_confirm.is_none()));
 }
 
 #[test]

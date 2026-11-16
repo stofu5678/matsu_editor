@@ -32,16 +32,23 @@ impl std::fmt::Display for EmptyInstruction {
 
 impl std::error::Error for EmptyInstruction {}
 
-/// Everything of the input that comes before the material: the trimmed instruction in LF, a blank line, `---` and
-/// the line break after it. The material follows directly.
-pub fn instruction_head(instruction: &str) -> Result<String, EmptyInstruction> {
+/// The instruction as it is sent and recorded: trimmed, with its line breaks in LF. An empty one (only white space)
+/// is refused.
+pub fn normalized_instruction(instruction: &str) -> Result<String, EmptyInstruction> {
     let instruction = instruction.trim();
     if instruction.is_empty() {
         return Err(EmptyInstruction);
     }
     let mut normalizer = LfNormalizer::new();
-    let mut head = normalizer.push(instruction);
-    head.push_str(&normalizer.finish());
+    let mut text = normalizer.push(instruction);
+    text.push_str(&normalizer.finish());
+    Ok(text)
+}
+
+/// Everything of the input that comes before the material: the trimmed instruction in LF, a blank line, `---` and
+/// the line break after it. The material follows directly.
+pub fn instruction_head(instruction: &str) -> Result<String, EmptyInstruction> {
+    let mut head = normalized_instruction(instruction)?;
     head.push_str("\n\n");
     head.push_str(SEPARATOR);
     head.push('\n');
@@ -67,6 +74,15 @@ mod tests {
             compose("Translate to English.", "こんにちは\n").unwrap(),
             "Translate to English.\n\n---\nこんにちは\n"
         );
+    }
+
+    #[test]
+    fn the_normalized_instruction_is_trimmed_and_in_lf() {
+        assert_eq!(
+            normalized_instruction(" \r\nA\r\nB\rC \n").unwrap(),
+            "A\nB\nC"
+        );
+        assert_eq!(normalized_instruction(" \t\n"), Err(EmptyInstruction));
     }
 
     #[test]

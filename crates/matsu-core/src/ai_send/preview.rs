@@ -213,6 +213,114 @@ pub fn preview_range(
     Ok(preview)
 }
 
+/// The preview of an input that is `head` followed by the text that `material` previews (mode b of ADR-0035: the
+/// instruction, a blank line and `---`, then the target text). `head` is the text before the material, as
+/// [`instruction_head`](super::instruction_head) gives it: its lines are numbered from 1 and the lines of the
+/// material go on from there, so that the numbers are those of the input that is sent. The material is not read
+/// again: only the head is scanned, so this is cheap to call at every key of the instruction field.
+///
+/// Lines of the head that look like secrets are counted and masked like those of the material.
+pub fn preview_with_head(
+    head: &str,
+    material: &TextPreview,
+    limits: &PreviewLimits,
+) -> TextPreview {
+    let head_lines: Vec<&str> = head
+        .strip_suffix('\n')
+        .unwrap_or(head)
+        .split('\n')
+        .collect();
+    let k = head_lines.len();
+    // the number of the first line of the material in its own preview (the line of the document)
+    let first = material.head.first().map_or(1, |l| l.number);
+    let renumber = |n: usize| k + 1 + n.saturating_sub(first);
+    let shift = |lines: &[PreviewLine]| -> Vec<PreviewLine> {
+        lines
+            .iter()
+            .map(|l| PreviewLine {
+                number: renumber(l.number),
+                text: l.text.clone(),
+            })
+            .collect()
+    };
+
+    let mut secrets: Vec<SecretLine> = Vec::new();
+    let mut secret_lines_total = 0;
+    let mut shown_head: Vec<PreviewLine> = Vec::new();
+    for (i, text) in head_lines.iter().enumerate() {
+        let matches = find_secrets(text);
+        let masked = mask_line(text, &matches);
+        if !matches.is_empty() {
+            secret_lines_total += 1;
+            if secrets.len() < limits.max_secret_lines {
+                let at = text[..matches[0].range.start].chars().count();
+                let mut kinds: Vec<SecretKind> = Vec::new();
+                for m in &matches {
+                    if !kinds.contains(&m.kind) {
+                        kinds.push(m.kind);
+                    }
+                }
+                secrets.push(SecretLine {
+                    number: i + 1,
+                    kinds,
+                    text: window_around(&masked, at, limits.line_chars),
+                });
+            }
+        }
+        shown_head.push(PreviewLine {
+            number: i + 1,
+            text: window_around(&masked, 0, limits.line_chars),
+        });
+    }
+    for line in &material.secrets {
+        if secrets.len() < limits.max_secret_lines {
+            secrets.push(SecretLine {
+                number: renumber(line.number),
+                kinds: line.kinds.clone(),
+                text: line.text.clone(),
+            });
+        }
+    }
+    secret_lines_total += material.secret_lines_total;
+
+    let total_lines = k + material.lines;
+    // what is known: the head and the first lines of the material, then (when the material was cut) its last lines
+    let mut front = shown_head;
+    front.extend(shift(&material.head));
+    let back = shift(&material.tail);
+    let shown = limits.head_lines + limits.tail_lines;
+    let (head_part, tail_part, omitted_lines) = if back.is_empty() {
+        if front.len() <= shown {
+            (front, Vec::new(), 0)
+        } else {
+            let tail = front.split_off(front.len() - limits.tail_lines);
+            front.truncate(limits.head_lines);
+            let omitted = total_lines - front.len() - tail.len();
+            (front, tail, omitted)
+        }
+    } else {
+        // `front` has the head and at least the 10 first lines of the material: more than `head_lines`
+        front.truncate(limits.head_lines);
+        let omitted = total_lines - front.len() - back.len();
+        (front, back, omitted)
+    };
+
+    let bytes = head.len() + material.bytes;
+    TextPreview {
+        head: head_part,
+        tail: tail_part,
+        omitted_lines,
+        lines: total_lines,
+        chars: head.chars().count() + material.chars,
+        chars_exact: material.chars_exact,
+        bytes,
+        large: bytes > LARGE_TEXT_BYTES,
+        secrets,
+        secret_lines_total,
+        secrets_complete: material.secrets_complete,
+    }
+}
+
 /// The most bytes read of a line to show.
 const SHOWN_READ_BYTES: usize = 64 * 1024;
 

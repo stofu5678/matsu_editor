@@ -608,13 +608,35 @@ fn the_ai_destinations_are_grayed_for_an_unregistered_slot_a_read_only_document_
         ..base.clone()
     };
     assert!(!locked.is_enabled(f(0)) && !locked.is_enabled(f(1)) && locked.is_enabled(f(2)));
+    // mode b has its window: it needs a destination that can be chosen by those rules
+    assert!(base.is_enabled(F_AI_ASK));
+    assert!(
+        view.is_enabled(F_AI_ASK) && locked.is_enabled(F_AI_ASK),
+        "the log tab only goes"
+    );
+    let replace_only = std::sync::Arc::new(AiDestinations::from_profile(&Profile::from_bytes(
+        b"[AI]\r\nName[000]=r\r\nCommand[000]=cat\r\nOutput[000]=0\r\n",
+    )));
+    let replace_only = FuncStates {
+        ai: replace_only,
+        ..super::tests::base()
+    };
+    assert!(replace_only.is_enabled(F_AI_ASK));
+    assert!(
+        !FuncStates {
+            view_mode: true,
+            ..replace_only
+        }
+        .is_enabled(F_AI_ASK),
+        "its only destination changes the document"
+    );
     let running = FuncStates {
         command_running: true,
         ..base
     };
     assert!(!running.is_enabled(f(0)) && !running.is_enabled(f(2)));
     assert!(running.is_enabled(F_AI_SETTINGS));
-    // mode b has no modal yet: its item is grayed, whatever the state
+    // mode b waits for a run too, and has nothing to offer without a destination
     assert!(!running.is_enabled(F_AI_ASK));
     assert!(!super::tests::base().is_enabled(F_AI_ASK));
     // the special item of the list has no rule of its own

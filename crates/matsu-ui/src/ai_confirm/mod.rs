@@ -6,10 +6,10 @@
 //! until 「送る」 is pressed. It is drawn inside the editor window and covers the view, which takes
 //! no keys meanwhile (like [`crate::input_dialog`]).
 //!
-//! The API for the code that runs the one-liner: build a [`Request`] with
-//! [`Request::from_document`] (it reads only the head, the tail and the counts, within a byte
-//! budget: `matsu_core::ai_send`), then `view.ask_ai_confirm(request, window, cx).await` gives an
-//! [`Answer`].
+//! The API for the code that runs the one-liner: build a [`Request`] with the preview of the text
+//! (`matsu_core::ai_send::preview_range` reads only the head, the tail and the counts, within a
+//! byte budget), then `view.ask_ai_confirm(request, window, cx).await` gives an [`Answer`].
+//! [`details`], [`button`] and [`overlay`] are shared with the window of mode b (`crate::ai_ask`).
 //!
 //! Large text (over 100 KB, ADR-0030 案 4): the window says so and 「送らない」 has the focus, so
 //! that a hasty Enter does not send it.
@@ -25,10 +25,7 @@ use gpui::{
     IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, WeakEntity, Window, div, px, rgb, rgba,
 };
-use matsu_core::ai_send::{
-    LARGE_TEXT_BYTES, PreviewLimits, PreviewLine, TextPreview, preview_range,
-};
-use matsu_core::buffer::{Document, Pos, Result as BufferResult};
+use matsu_core::ai_send::{LARGE_TEXT_BYTES, PreviewLine, TextPreview};
 
 use crate::view::EditorView;
 
@@ -43,32 +40,6 @@ pub(crate) struct Request {
     pub preview: TextPreview,
     /// A line at the top of the window that says what is sent (mode a: the selected text goes as the prompt).
     pub lead: Option<&'static str>,
-}
-
-impl Request {
-    /// A request for the text of `doc` between `from` and `to` (the selection, or the whole
-    /// document). Reads the head, the tail and the counts only; see [`preview_range`] for how the
-    /// work is bounded.
-    pub(crate) fn from_document(
-        name: impl Into<String>,
-        command_line: impl Into<String>,
-        doc: &Document,
-        from: Pos,
-        to: Pos,
-    ) -> BufferResult<Self> {
-        Ok(Self {
-            name: name.into(),
-            command_line: command_line.into(),
-            preview: preview_range(doc, from, to, &PreviewLimits::default())?,
-            lead: None,
-        })
-    }
-
-    /// The same request with `lead` at the top of the window.
-    pub(crate) fn with_lead(mut self, lead: &'static str) -> Self {
-        self.lead = Some(lead);
-        self
-    }
 }
 
 /// The user's answer.
@@ -192,10 +163,49 @@ impl Focusable for AiConfirmDialog {
     }
 }
 
-const PANEL_TEXT: u32 = 0x222222;
-const FOCUS_RING: u32 = 0x2f6fd0;
-const WARNING_TEXT: u32 = 0xa02020;
-const MUTED_TEXT: u32 = 0x555555;
+pub(crate) const PANEL_TEXT: u32 = 0x222222;
+pub(crate) const FOCUS_RING: u32 = 0x2f6fd0;
+pub(crate) const WARNING_TEXT: u32 = 0xa02020;
+pub(crate) const MUTED_TEXT: u32 = 0x555555;
+
+/// The color of the ring around a control: blue while it has the focus.
+pub(crate) fn ring_color(focused: bool) -> u32 {
+    if focused { FOCUS_RING } else { 0xaaaaaa }
+}
+
+/// A push button of these windows (「送る」, 「送らない」).
+pub(crate) fn button(
+    id: &'static str,
+    label: &'static str,
+    handle: &FocusHandle,
+    window: &Window,
+) -> gpui::Stateful<gpui::Div> {
+    crate::a11y::button(div().id(id), label)
+        .track_focus(handle)
+        .px_4()
+        .h(px(28.))
+        .flex()
+        .items_center()
+        .border_1()
+        .border_color(rgb(ring_color(handle.is_focused(window))))
+        .bg(rgb(0xf4f4f4))
+        .child(label)
+}
+
+/// The layer that covers the editor view behind a window of this kind and takes the clicks.
+pub(crate) fn overlay(id: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .occlude()
+        .bg(rgba(0x00000055))
+        .flex()
+        .items_center()
+        .justify_center()
+}
 
 /// The size as the window says it, in KB or MB.
 fn size_text(bytes: usize) -> String {
@@ -234,21 +244,113 @@ fn numbered(line: &PreviewLine) -> String {
     format!("{:>5} | {}", line.number, line.text)
 }
 
+/// What the window shows of `request`, between its title and its buttons: the lead, the destination, the command,
+/// the counts, the warnings and the head and tail of the text. The window of mode b (`crate::ai_ask`) shows the same.
+pub(crate) fn details(request: &Request) -> gpui::Stateful<gpui::Div> {
+    let preview = &request.preview;
+    let mut text_block = div()
+        .id("ai-confirm-text")
+        .role(gpui::Role::Group)
+        .aria_label("送る文字")
+        .p_2()
+        .bg(rgb(0xffffff))
+        .border_1()
+        .border_color(rgb(0xaaaaaa))
+        .flex()
+        .flex_col()
+        .overflow_x_hidden();
+    if preview.lines == 0 {
+        text_block = text_block.child("（空）");
+    }
+    for line in &preview.head {
+        text_block = text_block.child(numbered(line));
+    }
+    if preview.omitted_lines > 0 {
+        text_block = text_block.child(div().text_color(rgb(MUTED_TEXT)).child(format!(
+            "      （{} 行を省略）",
+            count_text(preview.omitted_lines)
+        )));
+    }
+    for line in &preview.tail {
+        text_block = text_block.child(numbered(line));
+    }
+
+    let mut body = div()
+        .id("ai-confirm-body")
+        .flex()
+        .flex_col()
+        .gap_2()
+        .max_h(px(430.))
+        .overflow_y_scroll()
+        .children(request.lead.map(|lead| div().child(lead)))
+        .child(format!("送り先: {}", request.name))
+        .child(div().child(format!("コマンド: {}", request.command_line)))
+        .child(counts_text(preview));
+    if preview.large {
+        body = body.child(div().text_color(rgb(WARNING_TEXT)).child(format!(
+            "テキストが大きい（{} を超えています）。本当に全部を送るか確かめてください。\
+                         初めに選ばれているのは「送らない」です。",
+            size_text(LARGE_TEXT_BYTES)
+        )));
+    }
+    if preview.secret_lines_total > 0 {
+        let mut warning = div()
+            .id("ai-confirm-secrets")
+            .role(gpui::Role::Group)
+            .aria_label("秘密に見える行")
+            .p_2()
+            .border_1()
+            .border_color(rgb(WARNING_TEXT))
+            .text_color(rgb(WARNING_TEXT))
+            .flex()
+            .flex_col()
+            .child(format!(
+                "警告: 秘密（API キー、トークン、秘密鍵など）に見える行が {} 行あります。\
+                     一部を伏せて表示しています。",
+                count_text(preview.secret_lines_total)
+            ));
+        for line in &preview.secrets {
+            let kinds: Vec<&str> = line.kinds.iter().map(|k| k.label()).collect();
+            warning = warning.child(format!(
+                "{} 行目 ({}): {}",
+                line.number,
+                kinds.join("、"),
+                line.text
+            ));
+        }
+        if preview.secret_lines_total > preview.secrets.len() {
+            warning = warning.child(format!(
+                "ほか {} 行",
+                count_text(preview.secret_lines_total - preview.secrets.len())
+            ));
+        }
+        body = body.child(warning);
+    }
+    body = body
+        .child("送る文字（最初と最後。秘密に見える部分は伏せています）")
+        .child(text_block);
+    if !preview.secrets_complete {
+        body = body.child(div().text_color(rgb(MUTED_TEXT)).child(
+            "大きいので、秘密に見える行の検査は先頭の一部だけです。文字数は少なく数えています。",
+        ));
+    }
+    body = body
+        .child(div().text_color(rgb(MUTED_TEXT)).child(
+            "MATSU は、このコマンドのフラグが AI のツールを本当に切るかを確かめられません。",
+        ))
+        .child(
+            div()
+                .text_color(rgb(MUTED_TEXT))
+                .child("秘密に見える行の検査は形によるものです。見つけられない秘密もあります。"),
+        );
+    body
+}
+
 impl Render for AiConfirmDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let preview = &self.request.preview;
-        let ring = |focused: bool| if focused { FOCUS_RING } else { 0xaaaaaa };
+        let ring = ring_color;
         let button = |id: &'static str, label: &'static str, handle: &FocusHandle| {
-            crate::a11y::button(div().id(id), label)
-                .track_focus(handle)
-                .px_4()
-                .h(px(28.))
-                .flex()
-                .items_center()
-                .border_1()
-                .border_color(rgb(ring(handle.is_focused(window))))
-                .bg(rgb(0xf4f4f4))
-                .child(label)
+            button(id, label, handle, window)
         };
         let send = button("ai-confirm-send", "送る", &self.send_focus).on_click(
             cx.listener(|this, _: &ClickEvent, window, cx| this.finish(true, window, cx)),
@@ -291,103 +393,7 @@ impl Render for AiConfirmDialog {
                 window.focus(&this.check_focus, cx);
             }));
 
-        let mut text_block = div()
-            .id("ai-confirm-text")
-            .role(gpui::Role::Group)
-            .aria_label("送る文字")
-            .p_2()
-            .bg(rgb(0xffffff))
-            .border_1()
-            .border_color(rgb(0xaaaaaa))
-            .flex()
-            .flex_col()
-            .overflow_x_hidden();
-        if preview.lines == 0 {
-            text_block = text_block.child("（空）");
-        }
-        for line in &preview.head {
-            text_block = text_block.child(numbered(line));
-        }
-        if preview.omitted_lines > 0 {
-            text_block = text_block.child(div().text_color(rgb(MUTED_TEXT)).child(format!(
-                "      （{} 行を省略）",
-                count_text(preview.omitted_lines)
-            )));
-        }
-        for line in &preview.tail {
-            text_block = text_block.child(numbered(line));
-        }
-
-        let mut body = div()
-            .id("ai-confirm-body")
-            .flex()
-            .flex_col()
-            .gap_2()
-            .max_h(px(430.))
-            .overflow_y_scroll()
-            .children(self.request.lead.map(|lead| div().child(lead)))
-            .child(format!("送り先: {}", self.request.name))
-            .child(div().child(format!("コマンド: {}", self.request.command_line)))
-            .child(counts_text(preview));
-        if preview.large {
-            body = body.child(div().text_color(rgb(WARNING_TEXT)).child(format!(
-                "テキストが大きい（{} を超えています）。本当に全部を送るか確かめてください。\
-                         初めに選ばれているのは「送らない」です。",
-                size_text(LARGE_TEXT_BYTES)
-            )));
-        }
-        if preview.secret_lines_total > 0 {
-            let mut warning = div()
-                .id("ai-confirm-secrets")
-                .role(gpui::Role::Group)
-                .aria_label("秘密に見える行")
-                .p_2()
-                .border_1()
-                .border_color(rgb(WARNING_TEXT))
-                .text_color(rgb(WARNING_TEXT))
-                .flex()
-                .flex_col()
-                .child(format!(
-                    "警告: 秘密（API キー、トークン、秘密鍵など）に見える行が {} 行あります。\
-                     一部を伏せて表示しています。",
-                    count_text(preview.secret_lines_total)
-                ));
-            for line in &preview.secrets {
-                let kinds: Vec<&str> = line.kinds.iter().map(|k| k.label()).collect();
-                warning = warning.child(format!(
-                    "{} 行目 ({}): {}",
-                    line.number,
-                    kinds.join("、"),
-                    line.text
-                ));
-            }
-            if preview.secret_lines_total > preview.secrets.len() {
-                warning = warning.child(format!(
-                    "ほか {} 行",
-                    count_text(preview.secret_lines_total - preview.secrets.len())
-                ));
-            }
-            body = body.child(warning);
-        }
-        body = body
-            .child("送る文字（最初と最後。秘密に見える部分は伏せています）")
-            .child(text_block);
-        if !preview.secrets_complete {
-            body = body.child(
-                div().text_color(rgb(MUTED_TEXT)).child(
-                    "大きいので、秘密に見える行の検査は先頭の一部だけです。文字数は少なく数えています。",
-                ),
-            );
-        }
-        body = body
-            .child(div().text_color(rgb(MUTED_TEXT)).child(
-                "MATSU は、このコマンドのフラグが AI のツールを本当に切るかを確かめられません。",
-            ))
-            .child(
-                div().text_color(rgb(MUTED_TEXT)).child(
-                    "秘密に見える行の検査は形によるものです。見つけられない秘密もあります。",
-                ),
-            );
+        let body = details(&self.request);
 
         let title: SharedString = "AI に送る前の確認".into();
         let panel = crate::a11y::dialog(div().id("ai-confirm-dialog"), &title)
@@ -429,18 +435,7 @@ impl Render for AiConfirmDialog {
                     .child(send)
                     .child(dont_send),
             );
-        div()
-            .id("ai-confirm-overlay")
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .occlude()
-            .bg(rgba(0x00000055))
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(panel)
+        overlay("ai-confirm-overlay").child(panel)
     }
 }
 

@@ -449,20 +449,23 @@ impl FuncStates {
     /// Whether the functions of sending to an AI can be chosen (ADR-0035), `None` for another function. Destination
     /// `n` needs a command, no other run that takes the window, and, when its result goes into the document, a
     /// document that can be edited; one that only goes to the log tab (`AiOutput::LogOnly`) does not change the
-    /// document. 「指示をつけて送る...」 (`F_AI_ASK`) is grayed until its modal exists (mode b is a later step); the
-    /// settings and the log are always there.
+    /// document. 「指示をつけて送る...」 (`F_AI_ASK`, mode b) needs no other run and at least one destination that can
+    /// be chosen by that rule: its window offers those; the settings and the log are always there.
     fn ai_enabled(&self, code: u16) -> Option<bool> {
-        use matsu_config::settings::ai::{AiOutput, F_AI_ASK, index_of_prompt_function};
-        if code == F_AI_ASK {
-            return Some(false);
-        }
-        let destination = self.ai.get(index_of_prompt_function(code)?)?;
-        Some(
+        use matsu_config::settings::ai::{
+            AiDestination, AiOutput, F_AI_ASK, index_of_prompt_function,
+        };
+        let usable = |destination: &AiDestination| {
             destination.is_registered()
                 && !self.command_running
                 && (destination.output == AiOutput::LogOnly
-                    || !(self.view_mode || self.text_locked)),
-        )
+                    || !(self.view_mode || self.text_locked))
+        };
+        if code == F_AI_ASK {
+            return Some(self.ai.slots.iter().any(usable));
+        }
+        let destination = self.ai.get(index_of_prompt_function(code)?)?;
+        Some(usable(destination))
     }
 }
 

@@ -22,11 +22,10 @@
 //!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
 mod a11y;
+mod ai_ask;
+mod ai_confirm;
 pub(crate) mod ai_log;
 mod ai_send;
-// Used by the one-liner flow of the next PR (ADR-0030, AI-4).
-#[allow(dead_code)]
-mod ai_confirm;
 pub mod app;
 mod app_icon;
 pub mod back_image;

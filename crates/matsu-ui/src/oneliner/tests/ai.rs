@@ -12,7 +12,11 @@ use crate::app::Workspace;
 
 /// A window as the app has it: with the key bindings of the editor, among them the one that lets Tab reach the
 /// dialogs (`Root` binds it to a focus move otherwise).
-fn open(cx: &mut TestAppContext, settings: &str, text: &str) -> (tempfile::TempDir, Win) {
+pub(super) fn open(
+    cx: &mut TestAppContext,
+    settings: &str,
+    text: &str,
+) -> (tempfile::TempDir, Win) {
     cx.update(gpui_component::init);
     cx.update(crate::view::EditorView::bind_keys);
     super::install_settings(cx, settings, None);
@@ -51,23 +55,23 @@ fn ai_ini(command: &str, output: AiOutput, ask: bool) -> String {
 
 /// What the log of the window has for one record.
 #[derive(Debug)]
-struct Rec {
-    name: String,
-    command_line: String,
+pub(super) struct Rec {
+    pub(super) name: String,
+    pub(super) command_line: String,
     /// `None` is mode a.
-    instruction: Option<String>,
-    input: String,
+    pub(super) instruction: Option<String>,
+    pub(super) input: String,
     /// The answer, the stderr and the exit code, once the record has ended.
-    end: Option<(String, String, Option<i32>)>,
+    pub(super) end: Option<(String, String, Option<i32>)>,
 }
 
-fn workspace(w: &Win, cx: &mut TestAppContext) -> Option<Entity<Workspace>> {
+pub(super) fn workspace(w: &Win, cx: &mut TestAppContext) -> Option<Entity<Workspace>> {
     w.view
         .read_with(cx, |view, _| view.split_host.clone())
         .and_then(|host| host.upgrade())
 }
 
-fn records(w: &Win, cx: &mut TestAppContext) -> Vec<Rec> {
+pub(super) fn records(w: &Win, cx: &mut TestAppContext) -> Vec<Rec> {
     let Some(ws) = workspace(w, cx) else {
         return Vec::new();
     };
@@ -103,16 +107,16 @@ fn wait_confirm(w: &Win, cx: &mut TestAppContext) -> Entity<AiConfirmDialog> {
     confirm(w, cx).unwrap()
 }
 
-fn press(w: &Win, cx: &mut TestAppContext, keys: &str) {
+pub(super) fn press(w: &Win, cx: &mut TestAppContext, keys: &str) {
     w.cx(cx).simulate_keystrokes(keys);
     cx.run_until_parked();
 }
 
-fn ask_before_send(cx: &mut TestAppContext) -> bool {
+pub(super) fn ask_before_send(cx: &mut TestAppContext) -> bool {
     cx.update(|app| crate::ai_send::table(app)).slots[0].ask_before_send
 }
 
-fn wait_idle(w: &Win, cx: &mut TestAppContext) {
+pub(super) fn wait_idle(w: &Win, cx: &mut TestAppContext) {
     wait_until(cx, "the end of the run", |cx| {
         !w.running(cx) && !w.view.read_with(cx, |v, _| v.support.oneliner_starting)
     });
