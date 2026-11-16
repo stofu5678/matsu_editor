@@ -98,6 +98,13 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
     let one = cfg.width.to_x(1);
     let two = cfg.width.to_x(2);
     let four = cfg.width.to_x(4);
+    // Sakura looks for hanging punctuation and kinsoku only when fewer than 2 (4) columns are
+    // left (`_DoKutoBurasage`: `GetMaxLineLayout() - nPosX < 2 * GetWidthPerKeta()`;
+    // `_DoGyotoKinsoku` and `_DoGyomatsuKinsoku`: `< 4 * GetWidthPerKeta()`,
+    // `sakura_core/doc/layout/CLayoutMgr_DoLayout.cpp`). The bounds are made for characters of at
+    // most 2 columns, which the grid has. A character of a table can be wider, so then the rules
+    // are asked at every position and decide by the real widths (`rest < w`, `rest < w1 + w2`).
+    let table = cfg.width.is_table();
     let k = &cfg.kinsoku;
     let kinsoku_enabled = cfg.word_wrap || k.any();
     let mut st = State {
@@ -162,7 +169,7 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
 
                 // _DoKutoBurasage: a punctuation that does not fit hangs over the edge. The
                 // width is the character's own, not the tab's (GetLayoutXOfChar).
-                if k.kuto && st.run == Run::None && rest < i64::from(two.raw()) {
+                if k.kuto && st.run == Run::None && (table || rest < i64::from(two.raw())) {
                     let w = i64::from(cfg.width.width_of(c).raw());
                     if rest < w && k.is_kuto(c) {
                         st.word_bgn = st.pos;
@@ -178,7 +185,7 @@ pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec
                 if (k.head || k.tail)
                     && st.run == Run::None
                     && has_next
-                    && rest < i64::from(four.raw())
+                    && (table || rest < i64::from(four.raw()))
                     && st.x > st.indent
                 {
                     let next = text[after..].chars().next();

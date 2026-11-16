@@ -392,3 +392,42 @@ fn a_table_measures_only_the_characters_the_layout_reads() {
     let seen: String = seen.lock().unwrap().iter().collect();
     assert_eq!(seen, "abcd");
 }
+
+/// A font whose punctuation and brackets are wider than two half-width letters.
+fn wide_marks() -> Widths {
+    Widths::table(64, 0, |c| match c {
+        '。' => 192,
+        '「' | 'x' => 200,
+        _ => 64,
+    })
+}
+
+#[test]
+fn hanging_punctuation_is_asked_at_any_distance_when_a_letter_is_wider_than_two_columns() {
+    // 4 columns are 256 X; "mm" leaves 128, which is not less than two columns, but the
+    // punctuation (192) does not fit: it hangs instead of starting the next row.
+    let cfg = LayoutConfig {
+        kinsoku: Kinsoku {
+            kuto: true,
+            ..Kinsoku::default()
+        },
+        ..config_with(wide_marks(), 4)
+    };
+    let line = "mm。";
+    assert_eq!(texts(line, &rows_of(line, false, &cfg)), ["mm。"]);
+}
+
+#[test]
+fn line_end_kinsoku_is_asked_at_any_distance_for_wide_letters() {
+    // 8 columns are 512 X; "mmm" leaves 320, which is more than four columns, but "「x" (400)
+    // does not fit: the opening bracket cannot end the row (`_DoGyomatsuKinsoku`).
+    let cfg = LayoutConfig {
+        kinsoku: Kinsoku {
+            tail: true,
+            ..Kinsoku::default()
+        },
+        ..config_with(wide_marks(), 8)
+    };
+    let line = "mmm「x";
+    assert_eq!(texts(line, &rows_of(line, false, &cfg)), ["mmm", "「x"]);
+}

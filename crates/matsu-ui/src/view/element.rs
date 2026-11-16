@@ -2160,8 +2160,8 @@ fn paint_hscrollbar(
 }
 
 /// The width of the caret in overwrite mode. Sakura (`CCaret::ShowEditCaret`) makes it as wide as
-/// the char under the caret, and one half-width column at the end of a line or the document and
-/// over a tab.
+/// the char under the caret (`GetLayoutXOfChar`), and one half-width column at the end of a line
+/// or the document and over a tab (`CCaret.cpp`: `GetHankakuDx()` there).
 fn overwrite_caret_width(
     doc: &matsu_core::buffer::Document,
     layout: &matsu_layout::DocumentLayout,
@@ -2181,7 +2181,14 @@ fn overwrite_caret_width(
     }
     // The width of the char itself, not the distance to the next position: at the end of a
     // wrapped row the next position is on the next row.
-    widths.width_of(c).max(widths.to_x(1))
+    // `if( 0 < nKeta ) nCaretWidth = GetCharPxWidth(nKeta)`: a char of no width keeps the
+    // half-width column. A narrow letter of a proportional font is as narrow as it is.
+    let width = widths.width_of(c);
+    if width > X::ZERO {
+        width
+    } else {
+        widths.to_x(1)
+    }
 }
 
 #[cfg(test)]
@@ -2268,6 +2275,21 @@ mod tests {
         assert_eq!(block("a\tb", Pos::new(0, 1)), col(1));
         assert_eq!(block("ab", Pos::new(0, 2)), col(1));
         assert_eq!(block("", Pos::new(0, 0)), col(1));
+    }
+
+    #[test]
+    fn the_block_over_a_narrow_letter_of_a_proportional_font_is_that_narrow() {
+        // `i` is 32 X, `m` 107: the block does not cover the next character
+        let doc = Document::from_utf8(b"imx".to_vec()).unwrap();
+        let config = matsu_layout::LayoutConfig {
+            width: proportional(),
+            ..Default::default()
+        };
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        let at = |col| overwrite_caret_width(&doc, &layout, Pos::new(0, col)).raw();
+        assert_eq!((at(0), at(1), at(2)), (32, 107, 64));
+        // the end of the line is one half-width column
+        assert_eq!(at(3), 64);
     }
 
     #[test]
