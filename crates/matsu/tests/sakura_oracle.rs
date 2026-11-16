@@ -538,6 +538,7 @@ fn run_matsu(scratch: &Scratch, case: &Case) -> Outcome {
         .env("XDG_CACHE_HOME", dir.join("cache"))
         .env("XDG_DATA_HOME", dir.join("data"))
         .env("RUST_BACKTRACE", "1")
+        .env("MATSU_FONT_DIAGNOSTICS", "1") // TEMPORARY (PR #482 diagnostic)
         .stdin(Stdio::null())
         .stdout(log_file.try_clone().unwrap())
         .stderr(log_file)
@@ -583,6 +584,15 @@ fn run_matsu(scratch: &Scratch, case: &Case) -> Outcome {
         let mut bytes = Vec::new();
         let _ = f.read_to_end(&mut bytes);
         log_text = String::from_utf8_lossy(&bytes).into_owned();
+    }
+    {
+        // TEMPORARY (PR #482 diagnostic): print the font report once
+        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !ONCE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            for line in log_text.lines().take(150) {
+                eprintln!("FONTDIAG {line}");
+            }
+        }
     }
     let tail: String = log_text
         .lines()
