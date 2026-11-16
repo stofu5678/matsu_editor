@@ -16,5 +16,5 @@
 ## この章の決まり
 
 - ここにある機能は、サクラエディタに対応するものがありません。各ページの「サクラとの違い」では、その旨を書いています。
-- 設定は、ほとんどが `matsu.ini` の MATSU 独自の節（`[Terminal]`、`[OneLiner]`、`[MATSU]`）か、独自のファイル（`databases.ini`）にあります。例外は、巨大なファイルの `nHugeFileSizeMB` で、`[Common]` に書かれます。
+- 設定は、ほとんどが `matsu.ini` の MATSU 独自の節（`[Terminal]`、`[OneLiner]`、`[AI]`、`[MATSU]`）か、独自のファイル（`databases.ini`）にあります。例外は、巨大なファイルの `nHugeFileSizeMB` で、`[Common]` に書かれます。
 - 共通設定にページがあるものは、各ページに書いています。
