@@ -156,6 +156,7 @@
   - [共通設定: プラグイン](common-settings/page-plugin.md)
   - [共通設定: シェル](common-settings/page-shell.md)
   - [共通設定: ワンライナー](common-settings/page-oneliner.md)
+  - [共通設定: 生成 AI](common-settings/page-ai.md)
 - [コマンド: 設定（タイプ別設定）とウィンドウ](type-settings-window/index.md)
   - [タイプ別設定一覧...](type-settings-window/type-list.md)
   - [タイプ別設定...](type-settings-window/type-settings.md)

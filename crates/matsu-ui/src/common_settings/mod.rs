@@ -91,11 +91,12 @@ pub(crate) enum Page {
     Plugin,
     Terminal,
     OneLiner,
+    Ai,
 }
 
 impl Page {
     /// Every page, in the order of the sheet.
-    pub(crate) const ALL: [Page; 20] = [
+    pub(crate) const ALL: [Page; 21] = [
         Page::General,
         Page::Window,
         Page::MainMenu,
@@ -116,6 +117,7 @@ impl Page {
         Page::Plugin,
         Page::Terminal,
         Page::OneLiner,
+        Page::Ai,
     ];
 
     /// The name on the tab (`STR_PROPCOMMON_*`).
@@ -141,6 +143,7 @@ impl Page {
             Page::Plugin => "プラグイン",
             Page::Terminal => "シェル",
             Page::OneLiner => "ワンライナー",
+            Page::Ai => "生成 AI",
         }
     }
 
@@ -171,6 +174,7 @@ impl Page {
             Page::Plugin => pages::plugin::items(),
             Page::Terminal => Some(pages::terminal::items()),
             Page::OneLiner => Some(pages::oneliner::items()),
+            Page::Ai => Some(pages::ai::items()),
         }
     }
 
@@ -197,6 +201,7 @@ impl Page {
             Page::Plugin => pages::plugin::apply(env, after, before),
             Page::Terminal => pages::terminal::apply(env, after, before),
             Page::OneLiner => pages::oneliner::apply(env, after, before),
+            Page::Ai => pages::ai::apply(env, after, before),
         }
     }
 }
