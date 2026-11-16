@@ -890,6 +890,7 @@ fn a_document_that_cannot_be_edited_offers_only_the_output_window(cx: &mut TestA
     assert_eq!(output, OutputTo::OutputWindow);
 }
 
+mod access_keys;
 mod ai;
 mod ai_ask;
 mod ai_menus;

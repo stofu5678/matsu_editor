@@ -13,6 +13,7 @@
 //! always agree.
 
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
@@ -32,6 +33,75 @@ use super::history;
 use super::ops::SearchOutcome;
 use super::state::{NO_PATTERN_MESSAGE, ReplaceSettings, SearchOptions};
 use crate::view::EditorView;
+
+/// The labels with their access keys (Alt+letter, [`SearchPanel::use_access_key`]). They are Sakura's
+/// (`IDD_FIND`, `IDD_REPLACE`, `IDD_JUMP` in `sakura_core/sakura_rc.rc`).
+const WHOLE_WORD: &str = "単語単位で探す(W)";
+const MATCH_CASE: &str = "英大文字と小文字を区別する(C)";
+const REGEX: &str = "正規表現(E)";
+const NOTIFY_NOT_FOUND: &str = "見つからないときにメッセージを表示(M)";
+const WRAP: &str = "先頭（末尾）から再検索する(Z)";
+const AUTO_CLOSE: &str = "検索ダイアログを自動的に閉じる(L)";
+const CONSECUTIVE: &str = "「すべて置換」は置換の繰返し(I)";
+const TARGET_MATCH: &str = "選択文字(0)";
+const TARGET_BEFORE: &str = "選択始点(1)挿入";
+const TARGET_AFTER: &str = "選択終点(2)追加";
+const TARGET_LINE: &str = "行削除(3)";
+const AREA_SELECTION: &str = "選択範囲(S)";
+const AREA_ALL: &str = "ファイル全体(O)";
+const PREV: &str = "上検索(U)";
+const NEXT: &str = "下検索(D)";
+const MARK: &str = "該当行マーク(B)";
+const REPLACE_ONE: &str = "置換(R)";
+const REPLACE_ALL: &str = "すべて置換(A)";
+const CLOSE: &str = "閉じる(X)";
+const BEFORE_LABEL: &str = "置換前(N)";
+const AFTER_LABEL: &str = "置換後(P)";
+const LINE_LABEL: &str = "行番号(N)";
+
+/// A check box of the options.
+#[derive(Clone, Copy, Debug)]
+enum Opt {
+    WholeWord,
+    MatchCase,
+    Regex,
+    NotifyNotFound,
+    Wrap,
+    AutoClose,
+}
+
+impl Opt {
+    fn switch(self, options: &mut SearchOptions) {
+        let flag = match self {
+            Opt::WholeWord => &mut options.whole_word,
+            Opt::MatchCase => &mut options.match_case,
+            Opt::Regex => &mut options.regex,
+            Opt::NotifyNotFound => &mut options.notify_not_found,
+            Opt::Wrap => &mut options.wrap,
+            Opt::AutoClose => &mut options.auto_close,
+        };
+        *flag = !*flag;
+    }
+}
+
+/// What an access key does.
+#[derive(Clone, Copy, Debug)]
+enum Use {
+    Option(Opt),
+    Consecutive,
+    Target(ReplaceTarget),
+    /// 選択範囲 (true) or ファイル全体.
+    Area(bool),
+    Find(Direction),
+    Mark,
+    ReplaceOne,
+    ReplaceAll,
+    Close,
+    /// The label in front of a box: the focus goes to the box.
+    FocusSearch,
+    FocusReplacement,
+    FocusLine,
+}
 
 /// Which dialog the panel is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -377,6 +447,117 @@ impl SearchPanel {
             .ok();
     }
 
+    /// 「すべて置換」は置換の繰返し.
+    fn set_consecutive(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.editor
+            .update(cx, |editor, cx| {
+                editor.search.replace.consecutive_all = on;
+                cx.notify();
+            })
+            .ok();
+        cx.notify();
+    }
+
+    /// 置換対象.
+    fn set_target(&mut self, target: ReplaceTarget, cx: &mut Context<Self>) {
+        self.editor
+            .update(cx, |editor, cx| {
+                editor.search.replace.target = target;
+                cx.notify();
+            })
+            .ok();
+        cx.notify();
+    }
+
+    /// 範囲: the selection (true) or the whole file.
+    fn set_area(&mut self, in_selection: bool, cx: &mut Context<Self>) {
+        self.editor
+            .update(cx, |editor, cx| {
+                editor.search.replace.in_selection = in_selection;
+                cx.notify();
+            })
+            .ok();
+        cx.notify();
+    }
+
+    /// Alt with the letter of a label (`IsDialogMessage`): switches the check box, chooses the radio
+    /// button, presses the button, or moves the focus to the box after the label. Returns whether the
+    /// letter was one of the dialog's (then the key is not typed into the box). The find and replace
+    /// dialogs share their letters; none is on two controls of one dialog.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let (options, replace) = self
+            .editor
+            .read_with(cx, |editor, _| {
+                (editor.search.options(), editor.search.replace.clone())
+            })
+            .unwrap_or_else(|_| (SearchOptions::default(), ReplaceSettings::default()));
+        let mode = self.mode;
+        let (find, replacing) = (mode == PanelMode::Find, mode == PanelMode::Replace);
+        let searching = mode != PanelMode::Jump;
+        let entries = [
+            Entry::labelled(
+                WHOLE_WORD,
+                searching && !options.regex,
+                Use::Option(Opt::WholeWord),
+            ),
+            Entry::labelled(MATCH_CASE, searching, Use::Option(Opt::MatchCase)),
+            Entry::labelled(REGEX, searching, Use::Option(Opt::Regex)),
+            Entry::labelled(
+                NOTIFY_NOT_FOUND,
+                searching,
+                Use::Option(Opt::NotifyNotFound),
+            ),
+            Entry::labelled(WRAP, searching, Use::Option(Opt::Wrap)),
+            Entry::labelled(AUTO_CLOSE, find, Use::Option(Opt::AutoClose)),
+            Entry::labelled(CONSECUTIVE, replacing && options.regex, Use::Consecutive),
+            Entry::labelled(TARGET_MATCH, replacing, Use::Target(ReplaceTarget::Match)),
+            // the keys of these two labels are in the middle of them
+            Entry::keyed('1', replacing, Use::Target(ReplaceTarget::InsertBefore)),
+            Entry::keyed('2', replacing, Use::Target(ReplaceTarget::InsertAfter)),
+            Entry::labelled(
+                TARGET_LINE,
+                replacing,
+                Use::Target(ReplaceTarget::DeleteLine),
+            ),
+            Entry::labelled(AREA_SELECTION, replacing, Use::Area(true)),
+            Entry::labelled(AREA_ALL, replacing, Use::Area(false)),
+            Entry::labelled(PREV, searching, Use::Find(Direction::Backward)),
+            Entry::labelled(NEXT, searching, Use::Find(Direction::Forward)),
+            Entry::labelled(MARK, searching, Use::Mark),
+            Entry::labelled(REPLACE_ONE, replacing, Use::ReplaceOne),
+            Entry::labelled(REPLACE_ALL, replacing, Use::ReplaceAll),
+            Entry::labelled(CLOSE, true, Use::Close),
+            Entry::labelled(BEFORE_LABEL, replacing, Use::FocusSearch),
+            Entry::labelled(AFTER_LABEL, replacing, Use::FocusReplacement),
+            Entry::labelled(LINE_LABEL, mode == PanelMode::Jump, Use::FocusLine),
+        ];
+        let used = match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => return true,
+            Found::One(used) => used,
+        };
+        match used {
+            Use::Option(opt) => self.set_option(|o| opt.switch(o), cx),
+            Use::Consecutive => self.set_consecutive(!replace.consecutive_all, cx),
+            Use::Target(target) => self.set_target(target, cx),
+            Use::Area(in_selection) => self.set_area(in_selection, cx),
+            Use::Find(direction) => self.find(direction, window, cx),
+            Use::Mark => self.mark_lines(window, cx),
+            Use::ReplaceOne => self.replace_one(window, cx),
+            Use::ReplaceAll => self.replace_all(window, cx),
+            Use::Close => self.close(window, cx),
+            Use::FocusSearch => focus_selecting(&self.text, window, cx),
+            Use::FocusReplacement => focus_selecting(&self.replacement, window, cx),
+            Use::FocusLine => focus_selecting(&self.line, window, cx),
+        }
+        true
+    }
+
     /// Changes an option of the view's search state.
     fn set_option(&mut self, change: impl FnOnce(&mut SearchOptions), cx: &mut Context<Self>) {
         self.editor
@@ -530,7 +711,7 @@ impl SearchPanel {
             .child(
                 self.option_box(
                     "search-whole-word",
-                    "単語単位で探す(W)",
+                    WHOLE_WORD,
                     options.whole_word,
                     |o, v| o.whole_word = v,
                     cx,
@@ -539,32 +720,20 @@ impl SearchPanel {
             )
             .child(self.option_box(
                 "search-match-case",
-                "英大文字と小文字を区別する(C)",
+                MATCH_CASE,
                 options.match_case,
                 |o, v| o.match_case = v,
                 cx,
             ))
-            .child(self.option_box(
-                "search-regex",
-                "正規表現(E)",
-                options.regex,
-                |o, v| o.regex = v,
-                cx,
-            ))
+            .child(self.option_box("search-regex", REGEX, options.regex, |o, v| o.regex = v, cx))
             .child(self.option_box(
                 "search-notify",
-                "見つからないときにメッセージを表示(M)",
+                NOTIFY_NOT_FOUND,
                 options.notify_not_found,
                 |o, v| o.notify_not_found = v,
                 cx,
             ))
-            .child(self.option_box(
-                "search-wrap",
-                "先頭（末尾）から再検索する(Z)",
-                options.wrap,
-                |o, v| o.wrap = v,
-                cx,
-            ))
+            .child(self.option_box("search-wrap", WRAP, options.wrap, |o, v| o.wrap = v, cx))
     }
 
     fn render_replace_targets(
@@ -580,30 +749,14 @@ impl SearchPanel {
             Button::new(id)
                 .labelled(label)
                 .selected(target == this_target)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.editor
-                        .update(cx, |editor, cx| {
-                            editor.search.replace.target = this_target;
-                            cx.notify();
-                        })
-                        .ok();
-                    cx.notify();
-                }))
+                .on_click(cx.listener(move |this, _, _, cx| this.set_target(this_target, cx)))
         };
         let range =
             |id: &'static str, label: &'static str, selection: bool, cx: &mut Context<Self>| {
                 Button::new(id)
                     .labelled(label)
                     .selected(in_selection == selection)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.editor
-                            .update(cx, |editor, cx| {
-                                editor.search.replace.in_selection = selection;
-                                cx.notify();
-                            })
-                            .ok();
-                        cx.notify();
-                    }))
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_area(selection, cx)))
             };
         h_flex()
             .gap_4()
@@ -613,25 +766,25 @@ impl SearchPanel {
                     .child("置換対象")
                     .child(choice(
                         "target-match",
-                        "選択文字(0)",
+                        TARGET_MATCH,
                         ReplaceTarget::Match,
                         cx,
                     ))
                     .child(choice(
                         "target-before",
-                        "選択始点(1)挿入",
+                        TARGET_BEFORE,
                         ReplaceTarget::InsertBefore,
                         cx,
                     ))
                     .child(choice(
                         "target-after",
-                        "選択終点(2)追加",
+                        TARGET_AFTER,
                         ReplaceTarget::InsertAfter,
                         cx,
                     ))
                     .child(choice(
                         "target-line",
-                        "行削除(3)",
+                        TARGET_LINE,
                         ReplaceTarget::DeleteLine,
                         cx,
                     )),
@@ -640,8 +793,8 @@ impl SearchPanel {
                 v_flex()
                     .gap_1()
                     .child("範囲")
-                    .child(range("area-selection", "選択範囲(S)", true, cx))
-                    .child(range("area-all", "ファイル全体(O)", false, cx)),
+                    .child(range("area-selection", AREA_SELECTION, true, cx))
+                    .child(range("area-all", AREA_ALL, false, cx)),
             )
     }
 }
@@ -674,6 +827,7 @@ impl Focusable for SearchPanel {
 
 impl Render for SearchPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let (options, replace) = self
             .editor
             .read_with(cx, |editor, _| {
@@ -687,140 +841,132 @@ impl Render for SearchPanel {
         };
         let close = div().debug_selector(|| "search-close".to_owned()).child(
             Button::new("search-close")
-                .labelled("閉じる(X)")
+                .labelled(CLOSE)
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
         );
-        let body = match self.mode {
-            PanelMode::Find => v_flex()
-                .gap_2()
-                .child(self.combo_box(Combo::Search, cx))
-                .child(self.render_find_options(options, cx))
-                .child(self.option_box(
-                    "search-auto-close",
-                    "検索ダイアログを自動的に閉じる(L)",
-                    options.auto_close,
-                    |o, v| o.auto_close = v,
-                    cx,
-                ))
-                .child(
-                    // The buttons wrap instead of sticking out of the panel when the labels are
-                    // wider than the fixed panel (a large scale factor, a wide font).
-                    h_flex()
+        let body =
+            match self.mode {
+                PanelMode::Find => {
+                    v_flex()
                         .gap_2()
-                        .flex_wrap()
-                        .child(Button::new("search-prev").labelled("上検索(U)").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.find(Direction::Backward, window, cx);
-                            }),
-                        ))
-                        .child(Button::new("search-next").labelled("下検索(D)").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.find(Direction::Forward, window, cx);
-                            }),
+                        .child(self.combo_box(Combo::Search, cx))
+                        .child(self.render_find_options(options, cx))
+                        .child(self.option_box(
+                            "search-auto-close",
+                            AUTO_CLOSE,
+                            options.auto_close,
+                            |o, v| o.auto_close = v,
+                            cx,
                         ))
                         .child(
-                            Button::new("search-mark")
-                                .labelled("該当行マーク(M)")
-                                .on_click(
+                            // The buttons wrap instead of sticking out of the panel when the labels are
+                            // wider than the fixed panel (a large scale factor, a wide font).
+                            h_flex()
+                                .gap_2()
+                                .flex_wrap()
+                                .child(Button::new("search-prev").labelled(PREV).on_click(
+                                    cx.listener(|this, _, window, cx| {
+                                        this.find(Direction::Backward, window, cx);
+                                    }),
+                                ))
+                                .child(Button::new("search-next").labelled(NEXT).on_click(
+                                    cx.listener(|this, _, window, cx| {
+                                        this.find(Direction::Forward, window, cx);
+                                    }),
+                                ))
+                                .child(Button::new("search-mark").labelled(MARK).on_click(
                                     cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
-                                ),
+                                ))
+                                .child(close),
                         )
-                        .child(close),
-                )
-                .into_any_element(),
-            PanelMode::Replace => v_flex()
-                .gap_2()
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child("置換前(N)")
-                        .child(self.combo_box(Combo::Search, cx)),
-                )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child("置換後(P)")
-                        .child(self.combo_box(Combo::Replace, cx)),
-                )
-                .child(self.render_find_options(options, cx))
-                .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
-                // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
-                .child(
-                    Checkbox::new("replace-consecutive")
-                        .labelled("「すべて置換」は置換の繰返し(L)")
-                        .checked(replace.consecutive_all)
-                        .disabled(!options.regex)
-                        .on_click(cx.listener(|this, value: &bool, _, cx| {
-                            let value = *value;
-                            this.editor
-                                .update(cx, |editor, cx| {
-                                    editor.search.replace.consecutive_all = value;
-                                    cx.notify();
-                                })
-                                .ok();
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    // The buttons wrap instead of sticking out of the panel when the labels are
-                    // wider than the fixed panel (a large scale factor, a wide font).
-                    h_flex()
-                        .gap_2()
-                        .flex_wrap()
-                        .child(Button::new("search-prev").labelled("上検索(U)").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.find(Direction::Backward, window, cx);
-                            }),
-                        ))
-                        .child(Button::new("search-next").labelled("下検索(D)").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.find(Direction::Forward, window, cx);
-                            }),
-                        ))
-                        .child(Button::new("replace-one").labelled("置換(R)").on_click(
-                            cx.listener(|this, _, window, cx| this.replace_one(window, cx)),
-                        ))
-                        .child(
-                            Button::new("replace-all")
-                                .labelled("すべて置換(A)")
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.replace_all(window, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("search-mark")
-                                .labelled("該当行マーク(M)")
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
-                                ),
-                        )
-                        .child(close),
-                )
-                .into_any_element(),
-            PanelMode::Jump => v_flex()
-                .gap_2()
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child("行番号(N)")
-                        .child(Input::new(&self.line).aria_label("行番号")),
-                )
-                .child(
-                    h_flex()
+                        .into_any_element()
+                }
+                PanelMode::Replace => v_flex()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(BEFORE_LABEL)
+                            .child(self.combo_box(Combo::Search, cx)),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(AFTER_LABEL)
+                            .child(self.combo_box(Combo::Replace, cx)),
+                    )
+                    .child(self.render_find_options(options, cx))
+                    .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
+                    // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
+                    .child(
+                        Checkbox::new("replace-consecutive")
+                            .labelled(CONSECUTIVE)
+                            .checked(replace.consecutive_all)
+                            .disabled(!options.regex)
+                            .on_click(cx.listener(|this, value: &bool, _, cx| {
+                                this.set_consecutive(*value, cx);
+                            })),
+                    )
+                    .child(
+                        // The buttons wrap instead of sticking out of the panel when the labels are
+                        // wider than the fixed panel (a large scale factor, a wide font).
+                        h_flex()
+                            .gap_2()
+                            .flex_wrap()
+                            .child(
+                                Button::new("search-prev")
+                                    .labelled(PREV)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.find(Direction::Backward, window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("search-next")
+                                    .labelled(NEXT)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.find(Direction::Forward, window, cx);
+                                    })),
+                            )
+                            .child(Button::new("replace-one").labelled(REPLACE_ONE).on_click(
+                                cx.listener(|this, _, window, cx| this.replace_one(window, cx)),
+                            ))
+                            .child(Button::new("replace-all").labelled(REPLACE_ALL).on_click(
+                                cx.listener(|this, _, window, cx| this.replace_all(window, cx)),
+                            ))
+                            .child(Button::new("search-mark").labelled(MARK).on_click(
+                                cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
+                            ))
+                            .child(close),
+                    )
+                    .into_any_element(),
+                PanelMode::Jump => {
+                    v_flex()
                         .gap_2()
                         .child(
-                            Button::new("jump-ok")
-                                .labelled("OK")
-                                .on_click(cx.listener(|this, _, window, cx| this.jump(window, cx))),
+                            h_flex()
+                                .gap_2()
+                                .child(LINE_LABEL)
+                                .child(Input::new(&self.line).aria_label("行番号")),
                         )
-                        .child(close),
-                )
-                .into_any_element(),
-        };
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(Button::new("jump-ok").labelled("OK").on_click(
+                                    cx.listener(|this, _, window, cx| this.jump(window, cx)),
+                                ))
+                                .child(close),
+                        )
+                        .into_any_element()
+                }
+            };
         div()
             .id("search-panel")
             .track_focus(&self.scope)
             .keep_tab_inside(&self.scope)
+            // Alt+letter works from the boxes too, and does not type the letter
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |panel, cx| panel.use_access_key(letter, window, cx))
+            })
             .debug_selector(|| "search-panel".to_owned())
             .absolute()
             // mouse events stop here: a click on the panel must not move the caret or the

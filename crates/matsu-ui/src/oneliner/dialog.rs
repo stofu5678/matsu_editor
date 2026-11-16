@@ -26,9 +26,28 @@ use matsu_config::settings::oneliner::OutputTo;
 
 use super::flow::{Job, can_edit};
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
 use crate::view::EditorView;
+
+/// The labels with their access keys (Alt+letter, [`OneLinerDialog::use_access_key`]).
+const RUN: &str = "実行(E)";
+const REGISTER: &str = "登録...(T)";
+const CANCEL: &str = "キャンセル(X)";
+const REPLACE: &str = "置き換える(R)";
+const NEXT_LINE: &str = "次の行に入れる(N)";
+const OUTPUT: &str = "アウトプットに出す(O)";
+
+/// What an access key does.
+#[derive(Clone, Copy)]
+enum Use {
+    Run,
+    Register,
+    Cancel,
+    /// A radio button of the place for the result.
+    Place(OutputTo),
+}
 
 /// What the dialog gives back.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -185,6 +204,38 @@ impl OneLinerDialog {
         .ok();
     }
 
+    /// Alt with the letter of a label (`IsDialogMessage`): presses the button or chooses the place. Returns
+    /// whether the letter was one of the dialog's (then the key is not typed into the box).
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        // 実行 and 「登録...」 are not there while the box of the name is.
+        let buttons = !self.registering;
+        let entries = [
+            Entry::labelled(RUN, buttons, Use::Run),
+            Entry::labelled(REGISTER, buttons, Use::Register),
+            Entry::labelled(CANCEL, buttons, Use::Cancel),
+            Entry::labelled(REPLACE, self.editable, Use::Place(OutputTo::Replace)),
+            Entry::labelled(NEXT_LINE, self.editable, Use::Place(OutputTo::NextLine)),
+            Entry::labelled(OUTPUT, true, Use::Place(OutputTo::OutputWindow)),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Run) => self.ok(window, cx),
+            Found::One(Use::Register) => self.start_registering(window, cx),
+            Found::One(Use::Cancel) => self.cancel(window, cx),
+            Found::One(Use::Place(output)) => {
+                self.output = output;
+                cx.notify();
+            }
+        }
+        true
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.keystroke.key == "escape" {
             if self.registering {
@@ -278,6 +329,7 @@ impl Focusable for OneLinerDialog {
 impl Render for OneLinerDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let editable = self.editable;
+        let this = cx.entity();
         let line_row = h_flex()
             .gap_2()
             .child(div().flex_1().child(Input::new(&self.line)))
@@ -295,27 +347,15 @@ impl Render for OneLinerDialog {
             .child(
                 h_flex()
                     .gap_3()
-                    .child(self.radio(
-                        "oneliner-replace",
-                        "置き換える(R)",
-                        OutputTo::Replace,
-                        editable,
-                        cx,
-                    ))
+                    .child(self.radio("oneliner-replace", REPLACE, OutputTo::Replace, editable, cx))
                     .child(self.radio(
                         "oneliner-next-line",
-                        "次の行に入れる(N)",
+                        NEXT_LINE,
                         OutputTo::NextLine,
                         editable,
                         cx,
                     ))
-                    .child(self.radio(
-                        "oneliner-output",
-                        "アウトプットに出す(O)",
-                        OutputTo::OutputWindow,
-                        true,
-                        cx,
-                    )),
+                    .child(self.radio("oneliner-output", OUTPUT, OutputTo::OutputWindow, true, cx)),
             );
         let buttons = if self.registering {
             h_flex()
@@ -340,19 +380,19 @@ impl Render for OneLinerDialog {
                 .gap_2()
                 .child(
                     Button::new("oneliner-ok")
-                        .labelled("実行(E)")
+                        .labelled(RUN)
                         .on_click(cx.listener(|this, _, window, cx| this.ok(window, cx))),
                 )
                 .child(
                     Button::new("oneliner-register")
-                        .labelled("登録...(T)")
+                        .labelled(REGISTER)
                         .on_click(
                             cx.listener(|this, _, window, cx| this.start_registering(window, cx)),
                         ),
                 )
                 .child(
                     Button::new("oneliner-cancel")
-                        .labelled("キャンセル(X)")
+                        .labelled(CANCEL)
                         .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
                 )
         };
@@ -361,6 +401,10 @@ impl Render for OneLinerDialog {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
+            // Alt+letter works from the box of the line too, and does not type the letter
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+            })
             .key_context("OneLinerDialog")
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)

@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use gpui::{AnyWindowHandle, Entity, TestAppContext, VisualTestContext};
+use gpui::{AnyWindowHandle, Entity, Focusable as _, TestAppContext, VisualTestContext};
 use matsu_commands::command::Arg;
 use matsu_commands::sakura::FUNCTIONS;
 use matsu_core::buffer::Pos;
@@ -780,4 +780,140 @@ fn tab_stays_among_the_controls_of_the_dialog(cx: &mut TestAppContext) {
         .expect("the dialog is open")
         .read_with(cx, gpui::Focusable::focus_handle);
     crate::dialog_focus::assert_tab_stays_inside(w.cx(cx), &focus);
+}
+
+// ---- Alt+letter (`IsDialogMessage`) ----
+
+/// The state of the choices of the dialog: 標準出力を得る, 編集中のウィンドウ, 標準入力に送る, カレントディレクトリ.
+fn choices(w: &Win, cx: &mut TestAppContext) -> [bool; 4] {
+    w.dialog(cx).unwrap().read_with(cx, |d, _| {
+        [d.get_stdout, d.to_window, d.send_stdin, d.use_cur_dir]
+    })
+}
+
+fn press(w: &Win, cx: &mut TestAppContext, keys: &str) {
+    w.cx(cx).simulate_keystrokes(keys);
+    cx.run_until_parked();
+}
+
+fn command_text(w: &Win, cx: &mut TestAppContext) -> String {
+    w.dialog(cx)
+        .unwrap()
+        .read_with(cx, |d, app| d.command.read(app).value().to_string())
+}
+
+#[gpui::test]
+fn alt_e_in_the_box_of_the_command_runs_it_and_types_no_letter(cx: &mut TestAppContext) {
+    let (dir, w) = open(cx, "");
+    set_history(cx, &file_in(dir.path()));
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    fill(&w, cx, "echo access", None);
+    // the focus is in the box of the command
+    press(&w, cx, "alt-e");
+    wait_for_output(cx, &w, "access");
+    assert!(w.dialog(cx).is_none());
+    // the command went to the history as it was written
+    assert_eq!(
+        cx.update(|app| history(app).commands.items().to_vec()),
+        ["echo access"]
+    );
+}
+
+#[gpui::test]
+fn the_letters_of_the_check_boxes_and_radio_buttons_switch_them_from_a_box(
+    cx: &mut TestAppContext,
+) {
+    let (dir, w) = open(cx, "");
+    set_history(cx, &file_in(dir.path()));
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    fill(&w, cx, "echo x", None);
+    // the start: 標準出力を得る only
+    assert_eq!(choices(&w, cx), [true, false, false, false]);
+    press(&w, cx, "alt-c");
+    assert_eq!(choices(&w, cx), [true, true, false, false]);
+    press(&w, cx, "alt-o");
+    assert_eq!(choices(&w, cx), [true, false, false, false]);
+    press(&w, cx, "alt-i");
+    press(&w, cx, "alt-r");
+    assert_eq!(choices(&w, cx), [true, false, true, true]);
+    // the letters are not typed into the box; Shift and case do not matter
+    press(&w, cx, "alt-shift-i");
+    assert_eq!(choices(&w, cx), [true, false, false, true]);
+    assert_eq!(command_text(&w, cx), "echo x");
+    // without 標準出力を得る the places are greyed out and their letters do nothing
+    press(&w, cx, "alt-s");
+    assert_eq!(choices(&w, cx), [false, false, false, true]);
+    press(&w, cx, "alt-c");
+    assert_eq!(choices(&w, cx), [false, false, false, true]);
+    assert!(w.dialog(cx).is_some());
+}
+
+#[gpui::test]
+fn the_letter_of_the_label_name_moves_the_focus_to_the_box_of_the_command(cx: &mut TestAppContext) {
+    let (dir, w) = open(cx, "");
+    set_history(cx, &file_in(dir.path()));
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    let dialog = w.dialog(cx).unwrap();
+    let has_focus = |w: &Win, cx: &mut TestAppContext| {
+        let command = dialog.read_with(cx, |d, _| d.command.clone());
+        w.handle
+            .update(cx, |_, window, app| {
+                command.read(app).focus_handle(app).is_focused(window)
+            })
+            .unwrap()
+    };
+    // the folder box has it first
+    let cur_dir = dialog.read_with(cx, |d, _| d.cur_dir.clone());
+    w.handle
+        .update(cx, |_, window, app| {
+            cur_dir.update(app, |state, cx| state.focus(window, cx));
+        })
+        .unwrap();
+    assert!(!has_focus(&w, cx));
+    press(&w, cx, "alt-n");
+    assert!(has_focus(&w, cx));
+    assert_eq!(command_text(&w, cx), "");
+}
+
+#[gpui::test]
+fn alt_x_cancels_the_dialog_from_a_box(cx: &mut TestAppContext) {
+    let (dir, w) = open(cx, "");
+    let ini = file_in(dir.path());
+    set_history(cx, &ini);
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    fill(&w, cx, "echo never", None);
+    press(&w, cx, "alt-x");
+    assert!(w.dialog(cx).is_none());
+    assert_eq!(w.output(cx), "");
+    assert!(!w.running(cx));
+    assert!(!ini.exists());
+}
+
+#[gpui::test]
+fn a_letter_that_no_control_has_is_not_the_dialogs(cx: &mut TestAppContext) {
+    let (dir, w) = open(cx, "");
+    set_history(cx, &file_in(dir.path()));
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    let dialog = w.dialog(cx).unwrap();
+    let used = |letter: char, w: &Win, cx: &mut TestAppContext| {
+        w.handle
+            .update(cx, |_, window, app| {
+                dialog.update(app, |d, cx| d.use_access_key(letter, window, cx))
+            })
+            .unwrap()
+    };
+    assert!(!used('q', &w, cx));
+    assert!(!used('h', &w, cx));
+    assert!(used('s', &w, cx));
+}
+
+#[gpui::test]
+fn alt_x_in_the_box_of_a_running_command_stops_it(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, "keep\n");
+    w.exec(cx, LONG, OUT | WINDOW);
+    wait_until(cx, "the box", |cx| w.running(cx));
+    // the box over the text has the keys
+    press(&w, cx, "alt-x");
+    wait_until(cx, "the end", |cx| !w.running(cx));
+    assert!(w.text(cx).contains("keep"), "{}", w.text(cx));
 }

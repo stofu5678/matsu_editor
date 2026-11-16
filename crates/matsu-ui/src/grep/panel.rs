@@ -24,6 +24,7 @@ use std::path::Path;
 use gpui::prelude::FluentBuilder as _;
 
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -47,6 +48,62 @@ use super::window::{THIS_DOCUMENT, clipboard_replacement, remember, remembered};
 use crate::file_dialog::{self, Ask};
 use crate::search::history::{self, GrepBoxes};
 use crate::view::EditorView;
+
+/// The labels with their access keys (Alt+letter, [`GrepPanel::use_access_key`]). The letters are
+/// Sakura's (`IDD_GREP` and `IDD_GREP_REPLACE` in `sakura_core/sakura_rc.rc`), so that no two controls
+/// of one dialog share one.
+const KEY_LABEL: &str = "条件(N)";
+const REPLACE_KEY_LABEL: &str = "置換前(N)";
+const REPLACEMENT_LABEL: &str = "置換後(Z)";
+const FILE_LABEL: &str = "ファイル(I)";
+const FOLDER_LABEL: &str = "フォルダー(L)";
+const EXCLUDE_FILE_LABEL: &str = "除外ファイル(J)";
+const EXCLUDE_FOLDER_LABEL: &str = "除外フォルダー(K)";
+const BROWSE: &str = "参照(O)";
+const UP: &str = "上(U)";
+const CURRENT_FOLDER: &str = "現フォルダー(G)";
+const THIS_TEXT: &str = "編集中のテキストから検索(M)";
+const SUB_FOLDER: &str = "サブフォルダーからも検索する(S)";
+const MATCH_CASE: &str = "英大文字と小文字を区別する(C)";
+const WHOLE_WORD: &str = "単語単位で探す(W)";
+const REGEX: &str = "正規表現(E)";
+const EXCEPT_REGEX: &str = "除外ファイルを正規表現で指定(Q)";
+const DEFAULT_FOLDER: &str = "フォルダーの初期値をカレントフォルダーにする(D)";
+const PASTE: &str = "クリップボードの内容で置換(V)";
+const BACKUP: &str = "バックアップ作成(B)";
+const LINE: &str = "該当行(1)";
+const PART: &str = "該当部分(2)";
+const NO_HIT: &str = "否該当行(3)";
+const NORMAL: &str = "ノーマル(4)";
+const PER_FILE: &str = "ファイル毎(5)";
+const RESULT_ONLY: &str = "結果のみ(6)";
+const FILE_ONLY: &str = "ファイル毎最初のみ検索(7)";
+const SEPARATE_FOLDER: &str = "フォルダー毎に表示(8)";
+const BASE_FOLDER: &str = "ベースフォルダー表示(9)";
+const CHARSET_LABEL: &str = "文字コードセット(A)";
+const FIND: &str = "検索(F)";
+const REPLACE: &str = "置換(R)";
+const CANCEL: &str = "キャンセル(X)";
+
+/// What an access key does.
+#[derive(Clone, Copy)]
+enum Use {
+    /// The label in front of a box: the focus goes to the box.
+    Focus(Field),
+    /// A check box: switches its value.
+    Toggle(fn(&mut GrepSettings)),
+    /// A radio button (a button of a choice): chooses.
+    Choose(fn(&mut GrepSettings)),
+    ThisText,
+    DefaultFolder,
+    Browse,
+    Up,
+    CurrentFolder,
+    /// 文字コードセット: the next code set (the combo box is a button that goes round).
+    Charset,
+    Ok,
+    Cancel,
+}
 
 /// The encodings of the combo box, after 自動選択 (`CCodeTypesForCombobox`).
 fn charset_choices() -> Vec<Option<Encoding>> {
@@ -810,6 +867,144 @@ impl GrepPanel {
         self.set_folder(joined, window, cx);
     }
 
+    /// フォルダーの初期値をカレントフォルダーにする: written to the settings as soon as it is
+    /// clicked (`CDlgGrep::OnBnClicked`).
+    fn set_default_folder(&mut self, value: bool, cx: &mut Context<Self>) {
+        self.change(|s| s.default_folder = value, cx);
+        crate::saved_state::grep::remember_default_folder(cx, value);
+    }
+
+    /// Alt with the letter of a label (`IsDialogMessage`): switches the check box, chooses the radio
+    /// button, presses the button, or moves the focus to the box after the label. Returns whether the
+    /// letter was one of the dialog's (then the key is not typed into the box).
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let s = &self.settings;
+        let this_text = s.from_this_text;
+        let replace = self.replace_mode;
+        let result_only = s.style == OutputStyle::ResultOnly;
+        let files = !this_text;
+        let entries = [
+            Entry::labelled(
+                if replace {
+                    REPLACE_KEY_LABEL
+                } else {
+                    KEY_LABEL
+                },
+                true,
+                Use::Focus(Field::Key),
+            ),
+            Entry::labelled(
+                REPLACEMENT_LABEL,
+                replace && self.field_enabled(Field::Replacement),
+                Use::Focus(Field::Replacement),
+            ),
+            Entry::labelled(FILE_LABEL, files, Use::Focus(Field::File)),
+            Entry::labelled(FOLDER_LABEL, files, Use::Focus(Field::Folder)),
+            Entry::labelled(EXCLUDE_FILE_LABEL, files, Use::Focus(Field::ExcludeFile)),
+            Entry::labelled(
+                EXCLUDE_FOLDER_LABEL,
+                files,
+                Use::Focus(Field::ExcludeFolder),
+            ),
+            Entry::labelled(BROWSE, files, Use::Browse),
+            Entry::labelled(UP, files, Use::Up),
+            Entry::labelled(CURRENT_FOLDER, files, Use::CurrentFolder),
+            Entry::labelled(THIS_TEXT, !replace, Use::ThisText),
+            Entry::labelled(
+                SUB_FOLDER,
+                files,
+                Use::Toggle(|s| s.sub_folder = !s.sub_folder),
+            ),
+            Entry::labelled(
+                MATCH_CASE,
+                true,
+                Use::Toggle(|s| s.options.match_case = !s.options.match_case),
+            ),
+            Entry::labelled(
+                WHOLE_WORD,
+                !s.options.regex,
+                Use::Toggle(|s| s.options.whole_word = !s.options.whole_word),
+            ),
+            Entry::labelled(
+                REGEX,
+                true,
+                Use::Toggle(|s| s.options.regex = !s.options.regex),
+            ),
+            Entry::labelled(
+                EXCEPT_REGEX,
+                files,
+                Use::Toggle(|s| s.except_file_regex = !s.except_file_regex),
+            ),
+            Entry::labelled(DEFAULT_FOLDER, true, Use::DefaultFolder),
+            Entry::labelled(PASTE, replace, Use::Toggle(|s| s.paste = !s.paste)),
+            Entry::labelled(BACKUP, replace, Use::Toggle(|s| s.backup = !s.backup)),
+            Entry::labelled(LINE, true, Use::Choose(|s| s.line_type = LineType::Line)),
+            Entry::labelled(
+                PART,
+                true,
+                Use::Choose(|s| s.line_type = LineType::MatchPart),
+            ),
+            Entry::labelled(
+                NO_HIT,
+                true,
+                Use::Choose(|s| s.line_type = LineType::NoHitLine),
+            ),
+            Entry::labelled(NORMAL, true, Use::Choose(|s| s.style = OutputStyle::Normal)),
+            Entry::labelled(
+                PER_FILE,
+                true,
+                Use::Choose(|s| s.style = OutputStyle::PerFile),
+            ),
+            Entry::labelled(
+                RESULT_ONLY,
+                true,
+                Use::Choose(|s| s.style = OutputStyle::ResultOnly),
+            ),
+            Entry::labelled(FILE_ONLY, true, Use::Toggle(|s| s.file_only = !s.file_only)),
+            Entry::labelled(
+                SEPARATE_FOLDER,
+                !result_only,
+                Use::Toggle(|s| s.separate_folder = !s.separate_folder),
+            ),
+            Entry::labelled(
+                BASE_FOLDER,
+                !result_only,
+                Use::Toggle(|s| s.base_folder = !s.base_folder),
+            ),
+            Entry::labelled(CHARSET_LABEL, true, Use::Charset),
+            Entry::labelled(if replace { REPLACE } else { FIND }, true, Use::Ok),
+            Entry::labelled(CANCEL, true, Use::Cancel),
+        ];
+        let used = match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => return true,
+            Found::One(used) => used,
+        };
+        match used {
+            Use::Focus(field) => {
+                let input = self.field_input(field).clone();
+                focus_selecting(&input, window, cx);
+            }
+            Use::Toggle(toggle) | Use::Choose(toggle) => self.change(toggle, cx),
+            Use::ThisText => {
+                self.set_from_this_text(!self.settings.from_this_text, window, cx);
+            }
+            Use::DefaultFolder => self.set_default_folder(!self.settings.default_folder, cx),
+            Use::Browse => self.browse(window, cx),
+            Use::Up => self.folder_up(window, cx),
+            Use::CurrentFolder => self.current_folder(window, cx),
+            Use::Charset => self.change(|s| s.charset = next_charset(s.charset), cx),
+            Use::Ok => self.ok(window, cx),
+            Use::Cancel => self.cancel(window, cx),
+        }
+        true
+    }
+
     fn change(&mut self, change: impl FnOnce(&mut GrepSettings), cx: &mut Context<Self>) {
         self.read_boxes(cx);
         change(&mut self.settings);
@@ -864,6 +1059,7 @@ impl Focusable for GrepPanel {
 
 impl Render for GrepPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let s = &self.settings;
         let regex = s.options.regex;
         let result_only = s.style == OutputStyle::ResultOnly;
@@ -875,19 +1071,19 @@ impl Render for GrepPanel {
             .child(self.combo_box(Field::Folder, cx))
             .child(
                 Button::new("grep-browse")
-                    .labelled("参照(O)")
+                    .labelled(BROWSE)
                     .disabled(this_text)
                     .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
             )
             .child(
                 Button::new("grep-up")
-                    .labelled("上(U)")
+                    .labelled(UP)
                     .disabled(this_text)
                     .on_click(cx.listener(|this, _, window, cx| this.folder_up(window, cx))),
             )
             .child(
                 Button::new("grep-current-folder")
-                    .labelled("現フォルダー(J)")
+                    .labelled(CURRENT_FOLDER)
                     .disabled(this_text)
                     .on_click(cx.listener(|this, _, window, cx| this.current_folder(window, cx))),
             );
@@ -897,7 +1093,7 @@ impl Render for GrepPanel {
             // Sakura greys it out for a replacement (`CDlgGrepReplace::SetData`).
             .child(
                 Checkbox::new("grep-this-text")
-                    .labelled("編集中のテキストから検索(M)")
+                    .labelled(THIS_TEXT)
                     .checked(this_text)
                     .disabled(self.replace_mode)
                     .on_click(cx.listener(|this, value: &bool, window, cx| {
@@ -907,7 +1103,7 @@ impl Render for GrepPanel {
             .child(
                 self.check_box(
                     "grep-sub",
-                    "サブフォルダーからも検索する(S)",
+                    SUB_FOLDER,
                     s.sub_folder,
                     |s, v| s.sub_folder = v,
                     cx,
@@ -916,7 +1112,7 @@ impl Render for GrepPanel {
             )
             .child(self.check_box(
                 "grep-case",
-                "英大文字と小文字を区別する(C)",
+                MATCH_CASE,
                 s.options.match_case,
                 |s, v| s.options.match_case = v,
                 cx,
@@ -925,7 +1121,7 @@ impl Render for GrepPanel {
             .child(
                 self.check_box(
                     "grep-word",
-                    "単語単位で探す(W)",
+                    WHOLE_WORD,
                     s.options.whole_word,
                     |s, v| s.options.whole_word = v,
                     cx,
@@ -934,7 +1130,7 @@ impl Render for GrepPanel {
             )
             .child(self.check_box(
                 "grep-regex",
-                "正規表現(E)",
+                REGEX,
                 s.options.regex,
                 |s, v| s.options.regex = v,
                 cx,
@@ -942,7 +1138,7 @@ impl Render for GrepPanel {
             .child(
                 self.check_box(
                     "grep-except-regex",
-                    "除外ファイルを正規表現で指定(X)",
+                    EXCEPT_REGEX,
                     s.except_file_regex,
                     |s, v| s.except_file_regex = v,
                     cx,
@@ -952,30 +1148,16 @@ impl Render for GrepPanel {
             .child(
                 // Written to the settings as soon as it is clicked (`CDlgGrep::OnBnClicked`).
                 Checkbox::new("grep-default-folder")
-                    .labelled("フォルダーの初期値をカレントフォルダーにする(F)")
+                    .labelled(DEFAULT_FOLDER)
                     .checked(s.default_folder)
                     .on_click(cx.listener(|this, value: &bool, _, cx| {
-                        let value = *value;
-                        this.change(|s| s.default_folder = value, cx);
-                        crate::saved_state::grep::remember_default_folder(cx, value);
+                        this.set_default_folder(*value, cx);
                     })),
             );
         if self.replace_mode {
             options = options
-                .child(self.check_box(
-                    "grep-paste",
-                    "クリップボードの内容で置換(V)",
-                    paste,
-                    |s, v| s.paste = v,
-                    cx,
-                ))
-                .child(self.check_box(
-                    "grep-backup",
-                    "バックアップ作成(B)",
-                    s.backup,
-                    |s, v| s.backup = v,
-                    cx,
-                ));
+                .child(self.check_box("grep-paste", PASTE, paste, |s, v| s.paste = v, cx))
+                .child(self.check_box("grep-backup", BACKUP, s.backup, |s, v| s.backup = v, cx));
         }
         let output = h_flex()
             .gap_4()
@@ -985,21 +1167,21 @@ impl Render for GrepPanel {
                     .child("結果出力")
                     .child(self.choice(
                         "grep-line",
-                        "該当行(L)",
+                        LINE,
                         s.line_type == LineType::Line,
                         |s| s.line_type = LineType::Line,
                         cx,
                     ))
                     .child(self.choice(
                         "grep-part",
-                        "該当部分(M)",
+                        PART,
                         s.line_type == LineType::MatchPart,
                         |s| s.line_type = LineType::MatchPart,
                         cx,
                     ))
                     .child(self.choice(
                         "grep-nohit",
-                        "否該当行(N)",
+                        NO_HIT,
                         s.line_type == LineType::NoHitLine,
                         |s| s.line_type = LineType::NoHitLine,
                         cx,
@@ -1011,21 +1193,21 @@ impl Render for GrepPanel {
                     .child("出力形式")
                     .child(self.choice(
                         "grep-normal",
-                        "ノーマル(1)",
+                        NORMAL,
                         s.style == OutputStyle::Normal,
                         |s| s.style = OutputStyle::Normal,
                         cx,
                     ))
                     .child(self.choice(
                         "grep-per-file",
-                        "ファイル毎(2)",
+                        PER_FILE,
                         s.style == OutputStyle::PerFile,
                         |s| s.style = OutputStyle::PerFile,
                         cx,
                     ))
                     .child(self.choice(
                         "grep-result-only",
-                        "結果のみ(3)",
+                        RESULT_ONLY,
                         s.style == OutputStyle::ResultOnly,
                         |s| s.style = OutputStyle::ResultOnly,
                         cx,
@@ -1036,7 +1218,7 @@ impl Render for GrepPanel {
                     .gap_1()
                     .child(self.check_box(
                         "grep-file-only",
-                        "ファイル毎最初のみ検索(H)",
+                        FILE_ONLY,
                         s.file_only,
                         |s, v| s.file_only = v,
                         cx,
@@ -1045,7 +1227,7 @@ impl Render for GrepPanel {
                     .child(
                         self.check_box(
                             "grep-base-folder",
-                            "ベースフォルダー表示(B)",
+                            BASE_FOLDER,
                             s.base_folder,
                             |s, v| s.base_folder = v,
                             cx,
@@ -1055,7 +1237,7 @@ impl Render for GrepPanel {
                     .child(
                         self.check_box(
                             "grep-separate-folder",
-                            "フォルダー毎に表示(D)",
+                            SEPARATE_FOLDER,
                             s.separate_folder,
                             |s, v| s.separate_folder = v,
                             cx,
@@ -1063,31 +1245,23 @@ impl Render for GrepPanel {
                         .disabled(result_only),
                     ),
             );
-        let charset = h_flex()
-            .gap_2()
-            .items_center()
-            .child("文字コードセット(S)")
-            .child(
-                Button::new("grep-charset")
-                    .labelled(charset_label(s.charset))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.change(|s| s.charset = next_charset(s.charset), cx);
-                    })),
-            );
+        let charset = h_flex().gap_2().items_center().child(CHARSET_LABEL).child(
+            Button::new("grep-charset")
+                .labelled(charset_label(s.charset))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.change(|s| s.charset = next_charset(s.charset), cx);
+                })),
+        );
         let buttons = h_flex()
             .gap_2()
             .child(
                 Button::new("grep-ok")
-                    .labelled(if self.replace_mode {
-                        "置換"
-                    } else {
-                        "検索"
-                    })
+                    .labelled(if self.replace_mode { REPLACE } else { FIND })
                     .on_click(cx.listener(|this, _, window, cx| this.ok(window, cx))),
             )
             .child(
                 Button::new("grep-cancel")
-                    .labelled("キャンセル")
+                    .labelled(CANCEL)
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
             );
         // The panel is as tall as its rows, up to the height of the area between its margins; a
@@ -1108,6 +1282,10 @@ impl Render for GrepPanel {
                     .id("grep-panel")
                     .track_focus(&self.scope)
                     .keep_tab_inside(&self.scope)
+                    // Alt+letter works from the boxes too, and does not type the letter
+                    .on_access_key(move |letter, window, cx| {
+                        this.update(cx, |panel, cx| panel.use_access_key(letter, window, cx))
+                    })
                     .relative()
                     // mouse events stop here: a click on the panel must not move the caret
                     .occlude()
@@ -1155,25 +1333,25 @@ impl Render for GrepPanel {
                             ))
                             .child(Self::row(
                                 if self.replace_mode {
-                                    "置換前(N)"
+                                    REPLACE_KEY_LABEL
                                 } else {
-                                    "条件(N)"
+                                    KEY_LABEL
                                 },
                                 self.combo_box(Field::Key, cx),
                             ))
                             .children(self.replace_mode.then(|| {
                                 // The box is not used while the text of the clipboard replaces
                                 // (`DlgItem_Enable(IDC_COMBO_TEXT2, ...)`).
-                                Self::row("置換後(Z)", self.combo_box(Field::Replacement, cx))
+                                Self::row(REPLACEMENT_LABEL, self.combo_box(Field::Replacement, cx))
                             }))
-                            .child(Self::row("ファイル(I)", self.combo_box(Field::File, cx)))
-                            .child(Self::row("フォルダー(D)", folder_buttons))
+                            .child(Self::row(FILE_LABEL, self.combo_box(Field::File, cx)))
+                            .child(Self::row(FOLDER_LABEL, folder_buttons))
                             .child(Self::row(
-                                "除外ファイル",
+                                EXCLUDE_FILE_LABEL,
                                 self.combo_box(Field::ExcludeFile, cx),
                             ))
                             .child(Self::row(
-                                "除外フォルダー",
+                                EXCLUDE_FOLDER_LABEL,
                                 self.combo_box(Field::ExcludeFolder, cx),
                             ))
                             .child(options)
