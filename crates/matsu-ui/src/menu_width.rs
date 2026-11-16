@@ -249,11 +249,6 @@ impl<'a> Fit<'a> {
         Fit { layout, ..*self }
     }
 
-    /// How the rows of this menu are laid out.
-    pub(crate) fn layout(&self) -> Layout {
-        self.layout
-    }
-
     fn measure(&self, text: &str) -> Pixels {
         let style = self.window.text_style();
         let run = style.to_run(text.len());

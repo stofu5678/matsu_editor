@@ -287,15 +287,13 @@ pub(crate) fn fill(
     // `menu_icons::item_element` (a column for the pictures, then the label), and a submenu gets
     // an invisible icon as wide as that column so that the labels line up.
     let scale = window.scale_factor();
-    let with_icons = crate::menu_icons::enabled(cx)
-        && items.iter().any(|item| match item {
-            OwnedMenuItem::Action { action, .. } => {
-                function_picture(action.as_ref(), scale).is_some()
-            }
-            _ => false,
-        });
-    let icons = with_icons.then(|| px(crate::menu_icons::column_width(scale)));
-    let (items, opening, widths) = fit_widths(items, window, place, icons);
+    // The same decisions as the estimate of the widths makes for this menu (`layout_for`).
+    let mode = IconMode {
+        enabled: crate::menu_icons::enabled(cx),
+        scale,
+    };
+    let with_icons = layout_for(&items, mode).icons.is_some();
+    let (items, opening, widths) = fit_widths(items, window, place, mode);
     let mut widths = widths.into_iter();
     for item in items {
         menu = match item {
@@ -358,15 +356,48 @@ pub(crate) fn fill(
     menu.max_w(opening.max_width)
 }
 
+/// Whether the menus draw pictures (`bMenuIcon`) and for what screen: what decides, with the
+/// items, how every menu is laid out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct IconMode {
+    enabled: bool,
+    scale: f32,
+}
+
+/// How the menu of `items` is laid out: the one decision that both `fill` (which builds the
+/// menu) and the estimate of its width (`fit_widths`, for the menu itself and for each submenu
+/// of its parent) make, so that they cannot differ. With the icons on and an item that has a
+/// picture, every row is an element with the column of the pictures and a submenu has an invisible
+/// icon as wide as that column; a check mark or a submenu adds the column of the icons
+/// (`menu_width::Layout`).
+fn layout_for(items: &[OwnedMenuItem], mode: IconMode) -> Layout {
+    let with_icons = mode.enabled
+        && items.iter().any(|item| match item {
+            OwnedMenuItem::Action { action, .. } => {
+                function_picture(action.as_ref(), mode.scale).is_some()
+            }
+            _ => false,
+        });
+    Layout {
+        icons: with_icons.then(|| px(crate::menu_icons::column_width(mode.scale))),
+        checks: items
+            .iter()
+            .any(|item| matches!(item, OwnedMenuItem::Action { checked: true, .. })),
+        submenus: items
+            .iter()
+            .any(|item| matches!(item, OwnedMenuItem::Submenu(_))),
+    }
+}
+
 /// [`fit_widths`] without the widths of the submenus.
 #[cfg(test)]
 fn fit_width(
     items: Vec<OwnedMenuItem>,
     window: &Window,
     place: Place,
-    icons: Option<Pixels>,
+    mode: IconMode,
 ) -> (Vec<OwnedMenuItem>, Opening) {
-    let (items, opening, _) = fit_widths(items, window, place, icons);
+    let (items, opening, _) = fit_widths(items, window, place, mode);
     (items, opening)
 }
 
@@ -377,17 +408,9 @@ fn fit_widths(
     items: Vec<OwnedMenuItem>,
     window: &Window,
     place: Place,
-    icons: Option<Pixels>,
+    mode: IconMode,
 ) -> (Vec<OwnedMenuItem>, Opening, Vec<Pixels>) {
-    let layout = Layout {
-        icons,
-        checks: items
-            .iter()
-            .any(|item| matches!(item, OwnedMenuItem::Action { checked: true, .. })),
-        submenus: items
-            .iter()
-            .any(|item| matches!(item, OwnedMenuItem::Submenu(_))),
-    };
+    let layout = layout_for(&items, mode);
     let fit = crate::menu_width::Fit::new(window, place, layout);
     let mut own = Pixels::ZERO;
     let mut submenu = Pixels::ZERO;
@@ -422,7 +445,7 @@ fn fit_widths(
                 }
                 own = own.max(fit.width_of(&menu.name, Row::Submenu));
                 // The labels of the submenu are cut when it is filled, to its own room.
-                let width = widest_label(&menu.items, &fit);
+                let width = widest_label(&menu.items, &fit, mode);
                 widths.push(width);
                 submenu = submenu.max(width);
                 OwnedMenuItem::Submenu(menu)
@@ -434,18 +457,10 @@ fn fit_widths(
 }
 
 /// The width the widest label of `items` would like, as the rows of a menu of their own: the
-/// items and the headings of the submenus in them (a heading takes room in the menu too). The
-/// pictures are those of the parent's menu.
-fn widest_label(items: &[OwnedMenuItem], fit: &crate::menu_width::Fit) -> Pixels {
-    let fit = fit.with(Layout {
-        icons: fit.layout().icons,
-        checks: items
-            .iter()
-            .any(|item| matches!(item, OwnedMenuItem::Action { checked: true, .. })),
-        submenus: items
-            .iter()
-            .any(|item| matches!(item, OwnedMenuItem::Submenu(_))),
-    });
+/// items and the headings of the submenus in them (a heading takes room in the menu too), laid
+/// out by the submenu's own [`layout_for`].
+fn widest_label(items: &[OwnedMenuItem], fit: &crate::menu_width::Fit, mode: IconMode) -> Pixels {
+    let fit = fit.with(layout_for(items, mode));
     items
         .iter()
         .filter_map(|item| match item {
@@ -1088,7 +1103,7 @@ mod tests {
                 vec![MenuItem::action(LONG_PATH, Nothing).owned()],
                 window,
                 Place::at(window, px(0.)),
-                None,
+                OFF,
             )
         });
         let shown = &names_of(&names)[0];
@@ -1096,6 +1111,11 @@ mod tests {
         assert!(shown.starts_with(r"1 \\wsl."), "{shown}");
         assert!(shown.ends_with(r"\EDGE_SUBMISSION.md  [UTF-8]"), "{shown}");
     }
+
+    const OFF: IconMode = IconMode {
+        enabled: false,
+        scale: 1.0,
+    };
 
     fn at(window: &Window, left: f32) -> Place {
         Place::at(window, px(left))
@@ -1110,7 +1130,7 @@ mod tests {
                 vec![sub.owned(), MenuItem::action("another", Nothing).owned()],
                 window,
                 at(window, 0.),
-                None,
+                OFF,
             )
         });
         // gpui-component's own limit stays: a submenu opens on the right whenever the menu's
@@ -1129,7 +1149,7 @@ mod tests {
         let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
         let sub = MenuItem::submenu(Menu::new("sub").items([MenuItem::action(LONG_PATH, Nothing)]));
         let (width, opening) = cx.update(|window, _| {
-            let (_, opening) = fit_width(vec![sub.owned()], window, at(window, 0.), None);
+            let (_, opening) = fit_width(vec![sub.owned()], window, at(window, 0.), OFF);
             (window.viewport_size().width, opening)
         });
         // Opens on the right, and the room is what is left of the window.
@@ -1154,8 +1174,8 @@ mod tests {
             // A menu 400 px from the right edge: little room on the right.
             let place = Place::at(window, window.viewport_size().width - px(400.));
             (
-                fit_width(vec![heading("x")], window, place, None).1,
-                fit_width(vec![heading(LONG_PATH)], window, place, None).1,
+                fit_width(vec![heading("x")], window, place, OFF).1,
+                fit_width(vec![heading(LONG_PATH)], window, place, OFF).1,
             )
         });
         // A short heading fits on the right; a long one is measured too, and has more room on
@@ -1179,12 +1199,12 @@ mod tests {
             let sub =
                 MenuItem::submenu(Menu::new("recent").items([MenuItem::action(path, Nothing)]));
             let (shown, room, width_of_shown) = cx.update(|window, _| {
-                let (_, opening) = fit_width(vec![sub.owned()], window, at(window, left), None);
+                let (_, opening) = fit_width(vec![sub.owned()], window, at(window, left), OFF);
                 let (items, _) = fit_width(
                     vec![MenuItem::action(path, Nothing).owned()],
                     window,
                     opening.child,
-                    None,
+                    OFF,
                 );
                 let shown = names_of(&items).remove(0);
                 let width = crate::menu_width::Fit::new(window, opening.child, Layout::default())
@@ -1221,12 +1241,12 @@ mod tests {
             .owned(),
         ];
         cx.update(|window, _| {
-            let (_, opening) = fit_width(parent, window, at(window, 0.), None);
+            let (_, opening) = fit_width(parent, window, at(window, 0.), OFF);
             // The room is what is left of the window, from where the submenu opens.
             assert!(opening.child.left > px(0.), "{opening:?}");
             let end = opening.child.left + opening.child.room;
             assert!((end - (window.viewport_size().width - px(4.))).abs() < px(1.));
-            names_of(&fit_width(items, window, opening.child, None).0)
+            names_of(&fit_width(items, window, opening.child, OFF).0)
         })
     }
 
@@ -1263,7 +1283,7 @@ mod tests {
         let (opening, drawn) = cx.update(|window, _| {
             // A right-click 20 px from the right edge: the popup is moved in by `anchored`.
             let asked = window.viewport_size().width - px(20.);
-            let (_, opening) = fit_width(vec![sub.owned()], window, Place::at(window, asked), None);
+            let (_, opening) = fit_width(vec![sub.owned()], window, Place::at(window, asked), OFF);
             (opening, asked)
         });
         // The menu is drawn at least 8 px inside the window, and the submenu on its left ends 16 px
@@ -1292,7 +1312,7 @@ mod tests {
             // A menu near the right edge: both submenus open on the left.
             let place = Place::at(window, window.viewport_size().width - px(20.));
             let (_, opening, widths) =
-                fit_widths(vec![wide.owned(), narrow.owned()], window, place, None);
+                fit_widths(vec![wide.owned(), narrow.owned()], window, place, OFF);
             (opening, widths)
         });
         let (wide_at, narrow_at) = (opening.child_for(widths[0]), opening.child_for(widths[1]));
@@ -1330,6 +1350,43 @@ mod tests {
         // ...and a room below 8 rem is raised to 8 rem, which gpui-component draws anyway.
         assert!(least <= rem * 8.0, "{least:?}");
         assert!(least > px(60.), "{least:?}");
+    }
+
+    #[gpui::test]
+    fn a_submenu_is_measured_by_its_own_icons_not_those_of_its_parent(cx: &mut TestAppContext) {
+        use crate::view::RunFunction;
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        // The parent has no icon (its actions run no function with a picture); the submenu has
+        // Save, which does.
+        let sub = MenuItem::submenu(Menu::new("sub").items([MenuItem::action(
+            "上書き保存(S)    Ctrl+S    と、最小の幅より長くするための余分な文字列",
+            RunFunction { code: 30103 },
+        )]))
+        .owned();
+        let parent = || vec![MenuItem::action("plain", Nothing).owned(), sub.clone()];
+        let (on, off, parent_icons, child_icons) = cx.update(|window, _| {
+            let on = IconMode {
+                enabled: true,
+                scale: window.scale_factor(),
+            };
+            let place = at(window, 0.);
+            let items = parent();
+            let child_items = match &items[1] {
+                OwnedMenuItem::Submenu(menu) => menu.items.clone(),
+                _ => unreachable!(),
+            };
+            (
+                fit_widths(parent(), window, place, on).2[0],
+                fit_widths(parent(), window, place, OFF).2[0],
+                layout_for(&items, on).icons,
+                layout_for(&child_items, on).icons,
+            )
+        });
+        // The parent is drawn without the column; the submenu is drawn with it, and is wider by
+        // the column and its gap than with the icons off.
+        assert_eq!(parent_icons, None);
+        let column = child_icons.expect("the submenu has icons");
+        assert!(on >= off + column, "{on:?} {off:?} {column:?}");
     }
 
     #[gpui::test]
