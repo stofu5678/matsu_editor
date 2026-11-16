@@ -52,7 +52,8 @@ pub(crate) fn stop_asking(cx: &mut App, index: usize, command: &str) {
         None if read_file => return,
         // no file to write: the change is for this session
         None => {
-            let mut table = super::table(cx);
+            // an independent copy: `turn_off` changes it and it becomes the new settings
+            let mut table = (*super::table(cx)).clone();
             if !turn_off(&mut table, index, command) {
                 return;
             }

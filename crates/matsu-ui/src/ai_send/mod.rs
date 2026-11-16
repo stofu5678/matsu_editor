@@ -16,6 +16,8 @@
 //! The functions are `ui_commands/ai/`: `F_AI_PROMPT_0` to `F_AI_PROMPT_49`. Mode b, the modal and the menus are
 //! other steps of ADR-0035.
 
+use std::sync::Arc;
+
 use gpui::{Context, Window};
 use matsu_commands::command::Result as CommandResult;
 use matsu_config::settings::ai::{AiDestinations, AiOutput};
@@ -30,10 +32,11 @@ pub(crate) mod store;
 /// The line at the top of the confirmation window in mode a (ADR-0035, 3).
 pub(crate) const PLAIN_NOTICE: &str = "選んだ文字列が、そのままプロンプトとして送られます";
 
-/// The destinations of `[AI]` now.
-pub(crate) fn table(cx: &gpui::App) -> AiDestinations {
+/// The destinations of `[AI]` now, as a shared handle (nothing is copied; a caller that changes them clones the
+/// table it works on).
+pub(crate) fn table(cx: &gpui::App) -> Arc<AiDestinations> {
     cx.try_global::<UserSettings>()
-        .map(UserSettings::ai_destinations)
+        .map(UserSettings::shared_ai_destinations)
         .unwrap_or_default()
 }
 

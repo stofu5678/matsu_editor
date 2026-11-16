@@ -244,8 +244,9 @@ impl UserSettings {
     }
 
     /// The destinations of sending to a generative AI (`[AI]`, ADR-0035).
-    pub fn ai_destinations(&self) -> matsu_config::settings::ai::AiDestinations {
-        (*self.ai).clone()
+    /// A shared handle: no copy of the 50 destinations.
+    pub fn shared_ai_destinations(&self) -> Arc<matsu_config::settings::ai::AiDestinations> {
+        Arc::clone(&self.ai)
     }
 
     /// Makes `table` the destinations of these settings, and of the profile they keep, without reading the rest of
