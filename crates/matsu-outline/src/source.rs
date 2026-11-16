@@ -5,7 +5,7 @@ use matsu_core::buffer::Document;
 /// A document that is read one line at a time.
 ///
 /// Sakura's analyzers walk `CDocLineMgr` and ask for `GetDocLineStrWithEOL`: the text of the line
-/// with its line ending. [`line`](Self::line) gives the same, as characters, so that the analyzers
+/// with its line ending. [`read_line`](Self::read_line) gives the same, as characters, so that the analyzers
 /// index a line as Sakura does without caring for the UTF-8 byte offsets of the buffer.
 pub trait LineSource {
     /// The number of lines (`CDocLineMgr::GetLineCount`). A document that ends with a line
