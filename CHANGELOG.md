@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.0](https://github.com/stofu5678/matsu_editor/compare/v0.16.0...v0.17.0) (2026-11-16)
+
+
+### Features
+
+* **ai:** add the generative AI submenus and move AI one-liners at start (ADR-0035) ([#486](https://github.com/stofu5678/matsu_editor/issues/486)) ([5cd46ea](https://github.com/stofu5678/matsu_editor/commit/5cd46ea70181e8501b9b46eb5843d51970fc37c4))
+* **ai:** add the settings page for the AI destinations (ADR-0035) ([#484](https://github.com/stofu5678/matsu_editor/issues/484)) ([8a514e3](https://github.com/stofu5678/matsu_editor/commit/8a514e3aabd0af733073bc2c5ed16aff4e22bf90))
+* **ai:** choose the AI functions in the key, toolbar and menu pages (ADR-0035) ([#487](https://github.com/stofu5678/matsu_editor/issues/487)) ([913065a](https://github.com/stofu5678/matsu_editor/commit/913065a552c44fd6961e86cf5ccb3d2ef0527f15))
+* **ai:** run an [AI] destination in mode a, with F_AI_PROMPT_n and AiPrompt n ([#480](https://github.com/stofu5678/matsu_editor/issues/480)) ([9f8c07f](https://github.com/stofu5678/matsu_editor/commit/9f8c07fc3cfda5050fa1d966c880244943f3efeb))
+* **ai:** send with an instruction in one window, mode b (ADR-0035) ([#489](https://github.com/stofu5678/matsu_editor/issues/489)) ([c7ac4f1](https://github.com/stofu5678/matsu_editor/commit/c7ac4f1f60a01cc26a86af80d924466b031022c7))
+* **layout:** lay out proportional fonts by their widths (ADR-0034 stage 4) ([#482](https://github.com/stofu5678/matsu_editor/issues/482)) ([2ca6020](https://github.com/stofu5678/matsu_editor/commit/2ca6020b13157d4da45094e7e1819a7ec2a340d2))
+* **ui:** finish proportional fonts in reading, HTML copy and the minimap (ADR-0034 stage 5) ([#488](https://github.com/stofu5678/matsu_editor/issues/488)) ([e7a1120](https://github.com/stofu5678/matsu_editor/commit/e7a112092918cdbe21daa80332146c92acf55e83))
+
 ## [0.16.0](https://github.com/stofu5678/matsu_editor/compare/v0.15.0...v0.16.0) (2026-11-16)
 
 
