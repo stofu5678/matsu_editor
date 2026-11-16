@@ -67,6 +67,13 @@
 $input | Sort-Object -Unique
 ```
 
+- 行の最初のコマンドが、入力を絞り込むか整えるだけのもの（`ForEach-Object`（`%`、`foreach`）、`Where-Object`（`?`、`where`）、`Sort-Object`（`sort`）、`Select-Object`（`select`）、`Select-String`（`sls`）、`Group-Object`（`group`）、`Measure-Object`（`measure`）、`Get-Unique`（`gu`）、`Format-Table`（`ft`）、`Format-List`（`fl`）、`Format-Wide`（`fw`）、`Format-Custom`（`fc`）、`Out-String`、`ConvertTo-Json`、`ConvertTo-Csv`、`ConvertFrom-Json`、`ConvertFrom-Csv`）のときは、行の先頭に `$input | ` があるものとして、選択範囲をそのコマンドへ流します。`ForEach-Object { $_.ToUpper() }` だけで書けます。大文字と小文字は区別せず、行の頭の空白は読み飛ばします。
+- 流すかどうかは、PowerShell 自身の構文解析で決めます。行の最初の文が、パイプラインで、その最初の要素が上の一覧のコマンドのときだけ流します。コメント、文字列、ヒアストリング、2 つ目以降の文は、見ません。
+- 次の場合は、流しません。行のどこかで変数 `$input` を使っている。最初のコマンドが上の一覧にない（`Get-Content`、`Remove-Item` などに、選択範囲が経路や命令として渡るのを避けるためです）。最初の文が `foreach ($x in ...) { }` のようなパイプラインでない文。最初のコマンドが、入力（`InputObject`）やファイル（`Path`、`LiteralPath`）を自分で受け取っている。これは PowerShell 自身の引数の割り当て（別名、省略形、位置による引数を含む）で調べます。たとえば `Sort-Object -InputObject 3,2,1`、`ConvertTo-Json 1,2`、`Select-String パターン ファイル名` は流しません。引数が割り当てられない行（知らない引数、曖昧な省略形）と、`@args` のように引数を展開する行も、流しません。そのときは、`$input` で自分で渡します。`trap { }` などが最初の文の前にあるときは、最初の文の直前に `$input | ` を入れます。
+- 構文として読めない行は、流さず、構文解析のエラーを標準エラー出力に出して、終了コード 1 で終わります。
+- 画面（ログ、マクロの出力）に出る行は、書いたままです。`$input | ` を足すのは、動かすときだけです。
+- `$input` を使わずに失敗した行には、標準エラー出力に「選択範囲は $input で読めます（例: $input | ForEach-Object { $_.ToUpper() }）」の 1 行が付きます。出力の置き場所が「置き換える」でも、文書には入りません（アウトプットに出ます）。
+
 - 入力の最後の改行は、空の行にはなりません。入力の中の空の行は、残ります。
 - 終了コードに数えるのは、最後に動いた外部プログラムの終了コードだけです。外部プログラムを複数つなぐとき、途中のものが失敗しても、最後のものが成功すれば、成功として扱い、結果が文書に入ります。途中の失敗で文書が守られると期待しないでください。
 - コマンドレットのエラー（失敗したコマンドレット、`Write-Error`、`throw`）は、あとのコマンドが成功しても、終了コード 1 の失敗として扱い、文書を変えません。

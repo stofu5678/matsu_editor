@@ -53,16 +53,6 @@ fn the_encoded_command_is_the_script_in_utf16le() {
 }
 
 #[test]
-fn the_script_is_the_prelude_the_line_and_the_epilogue() {
-    let line = "$input | % { $_.ToUpper() }";
-    let text = script(line).replace("\r\n", "\n");
-    let want = format!("{PRELUDE}{line}{EPILOGUE}");
-    assert_eq!(text, want.replace("\r\n", "\n"));
-    // the line is on a line of its own, so that a comment at its end cannot take the brace
-    assert!(text.contains(&format!("\n{line}\n")));
-}
-
-#[test]
 fn the_script_has_windows_line_breaks_only() {
     let text = script("a\nb\r\nc");
     assert!(!text.replace("\r\n", "").contains('\n'));
@@ -93,4 +83,61 @@ fn the_epilogue_keeps_the_code_of_a_native_program() {
     // `$?` is lost by a `return` in the line and wrong after a native program's standard error
     assert!(!EPILOGUE.contains("$?"));
     assert!(EPILOGUE.contains("Out-Default"));
+}
+
+#[test]
+fn the_line_is_carried_as_base64_and_never_as_code() {
+    for line in [
+        "Get-Date",
+        "'quoted' \"double\" `tick $x",
+        "日本語 😀",
+        "a\nb",
+    ] {
+        let text = script(line).replace("\r\n", "\n");
+        assert!(
+            text.contains(&format!("FromBase64String('{}')", base64(line.as_bytes()))),
+            "{line:?}"
+        );
+        if line.len() > 8 {
+            assert!(!text.contains(line), "{line:?}");
+        }
+    }
+}
+
+#[test]
+fn the_script_has_the_parts_in_order_and_no_placeholder() {
+    let text = script("Get-Date").replace("\r\n", "\n");
+    let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle}"));
+    assert!(at(PRELUDE) < at("FromBase64String"));
+    assert!(at("FromBase64String") < at(DECIDE));
+    assert!(at(DECIDE) < at(RUN));
+    assert!(at(RUN) < at("Out-Default"));
+    assert!(text.contains(HINT));
+    assert!(!text.contains("@@HINT@@"));
+    assert!(!HINT.contains('\''));
+}
+
+#[test]
+fn the_filter_names_are_lower_case_and_listed_once() {
+    let mut seen = std::collections::HashSet::new();
+    for name in FILTERS {
+        assert_eq!(*name, name.to_lowercase());
+        assert!(seen.insert(*name), "{name}");
+        assert!(script("x").contains(&format!("'{name}'")), "{name}");
+    }
+}
+
+#[test]
+fn the_decision_is_made_by_the_parser_of_powershell() {
+    for needed in [
+        "[System.Management.Automation.Language.Parser]::ParseInput(",
+        "VariablePath.UserPath -imatch '^((local|script|global|private):)?input$'",
+        "[scriptblock]::Create($__matsu_text)",
+        "$__matsu_line.Insert($__matsu_offset, '$input | ')",
+        "StaticParameterBinder]::BindCommand(",
+    ] {
+        assert!(DECIDE.contains(needed) || RUN.contains(needed), "{needed}");
+    }
+    // the hint flag is set outside the script block of the line
+    assert!(!RUN.contains("__matsu_hint"));
 }
