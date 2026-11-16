@@ -292,4 +292,65 @@ mod tests {
         assert_eq!(slot_of(None, 5), 0);
         assert_eq!(slot_of(Some(2), 0), 0);
     }
+
+    // ---- a proportional font (ADR-0034, stage 5) ----
+
+    /// A narrow `i`, a wide `m`, half-width kana a column and the combining acute no width at
+    /// all; the rest a half-width letter.
+    fn proportional() -> LayoutConfig {
+        LayoutConfig {
+            width: Widths::table(64, 0, |c| match c {
+                'i' | 'l' => 32,
+                'm' => 107,
+                '\u{301}' => 0,
+                _ => 64,
+            }),
+            ..LayoutConfig::default()
+        }
+    }
+
+    fn raw_slots(text: &str, pattern: &str) -> Vec<Vec<(u32, u32)>> {
+        let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, proportional()).unwrap();
+        let rows = layout.rows(&doc, 0, 100).unwrap();
+        let matcher = PlainMatcher::new(pattern, PlainOptions::default());
+        highlight_ranges(&layout, &doc, &rows, &matcher, &|_| 0)
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|(a, b, _)| (a.raw(), b.raw()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_match_spans_the_widths_of_its_characters_in_a_proportional_font() {
+        // mi = 107 + 32; the match "mm" runs 139 to 139 + 214
+        assert_eq!(raw_slots("mimm", "mm"), [[(139, 353)]]);
+    }
+
+    #[test]
+    fn a_match_after_a_tab_narrower_than_a_column_starts_at_the_stop() {
+        // `mm` ends at 214 of the stop at 256: the tab is 42 X (under a column), and the match
+        // after it starts at 256 and `i` is 32 wide
+        assert_eq!(raw_slots("mm\ti", "i"), [[(256, 288)]]);
+        // the match is the tab itself
+        assert_eq!(raw_slots("mm\ti", "\t"), [[(214, 256)]]);
+    }
+
+    #[test]
+    fn a_combining_character_adds_no_width_to_the_match_it_ends() {
+        // "e" + acute (64 + 0), then "i"; the match "e\u{301}" is one column wide, the next
+        // match starts right after it
+        assert_eq!(raw_slots("e\u{301}i", "e\u{301}"), [[(0, 65)]]);
+        assert_eq!(raw_slots("e\u{301}i", "i"), [[(65, 97)]]);
+    }
+
+    #[test]
+    fn half_width_kana_take_the_width_of_the_table() {
+        // The table here gives the kana a half column like any letter (64): the same as the
+        // grid, so the edges are whole columns.
+        assert_eq!(raw_slots("ｱｲi", "ｲ"), [[(64, 128)]]);
+    }
 }

@@ -507,3 +507,49 @@ fn a_match_over_the_line_ending_colors_it_too() {
         )
     );
 }
+
+// ---- a proportional font (ADR-0034, stage 5) ----
+
+/// A narrow `i`, a wide `m`, the rest a half-width letter.
+fn proportional() -> LayoutConfig {
+    LayoutConfig {
+        width: matsu_layout::Widths::table(64, 0, |c| match c {
+            'i' | 'l' => 32,
+            'm' => 107,
+            _ => 64,
+        }),
+        ..LayoutConfig::default()
+    }
+}
+
+#[test]
+fn a_tab_stays_a_tab_in_the_copy_with_a_proportional_font() {
+    // Sakura writes the tab as it is (`Command_COPY_COLOR_HTML` has no tab expansion, and the
+    // `<pre>` has no font): the browser puts it where its own font and tab size say, so the
+    // widths of the layout do not change the text of the copy.
+    let mut f = Fixture::wrapped("mi\tim\r\n", "a.txt", proportional());
+    f.select((0, 0), (1, 0));
+    let text = f.open(ColorKind::Text);
+    assert_eq!(
+        f.html(false, true).unwrap(),
+        format!("{}{text}mi\tim\r\n</span></pre>", f.pre())
+    );
+}
+
+#[test]
+fn a_match_after_a_tab_is_colored_by_its_characters_with_a_proportional_font() {
+    // `mi` ends at 139 of a 256 stop, so the tab takes 117 X and the match starts at 256.
+    let mut f = Fixture::wrapped("mi\tim mim\r\n", "a.txt", proportional());
+    f.select((0, 0), (1, 0));
+    let text = f.open(ColorKind::Text);
+    let found = found_entry(0x0000ff, 0x00ffff, false);
+    let html = f.html_found("mim", false, &[found]).unwrap();
+    assert_eq!(
+        html,
+        format!(
+            "{}{text}mi\tim </span>{}mim</span>{text}\r\n</span></pre>",
+            f.pre(),
+            span(found)
+        )
+    );
+}

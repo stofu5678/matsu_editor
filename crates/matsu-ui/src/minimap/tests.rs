@@ -504,3 +504,33 @@ fn small_trackpad_deltas_add_up_to_rows(cx: &mut TestAppContext) {
     }
     assert_eq!(fixture.top_row(cx), 3);
 }
+
+// ---- a proportional font (ADR-0034, stage 5) ----
+
+#[gpui::test]
+fn the_pieces_of_a_proportional_font_start_at_the_x_of_the_layout(cx: &mut TestAppContext) {
+    let (fixture, cx) = setup(cx, "mmm\tab\tab\n", shown());
+    let view = fixture.view(cx);
+    view.update(cx, |v, cx| {
+        let key = v.font_key();
+        let table = matsu_layout::Widths::table(64, 0, |c| match c {
+            'm' => 107,
+            _ => 64,
+        });
+        v.set_font_widths(crate::view::font_widths::FontWidths::table_for(key, table));
+        v.relayout_in(cx);
+    });
+    let rows = view.read_with(cx, |v, app| v.minimap_rows(0, 1, 100, app));
+    let starts: Vec<(u32, &str)> = rows[0]
+        .pieces
+        .iter()
+        .map(|p| (p.x.raw(), p.text.as_str()))
+        .collect();
+    // `mmm` ends at 321, the tab goes to the stop at 512; `ab` ends at 640, the tab to 768
+    assert_eq!(starts, [(0, "mmm"), (512, "ab"), (768, "ab")], "{starts:?}");
+    // the click goes by the row alone: the widths do not move it
+    let at = fixture.point_of(cx, 0, 30.0);
+    cx.simulate_click(at, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(fixture.caret(cx), Pos::new(0, 0));
+}
