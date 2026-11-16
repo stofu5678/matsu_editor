@@ -278,10 +278,10 @@ impl EditorView {
     /// Whether the stops of the TSV or CSV mode that the document holds are not the layout's
     /// (the mode changed, or another pane loaded a file or completed the document).
     pub(crate) fn tsv_stops_changed(&self, cx: &App) -> bool {
-        self.document
-            .read(cx)
-            .tsv_stops(self.prefs.settings.tsv_mode)
-            != self.layout.config().tsv
+        self.document.read(cx).tsv_stops(
+            self.prefs.settings.tsv_mode,
+            self.layout.config().width.per_column(),
+        ) != self.layout.config().tsv
     }
 
     /// Goes on with the count of the TSV or CSV stops for about `budget`, and lays the document
@@ -315,7 +315,7 @@ impl EditorView {
         config.tsv = self
             .document
             .read(cx)
-            .tsv_stops(self.prefs.settings.tsv_mode);
+            .tsv_stops(self.prefs.settings.tsv_mode, config.width.per_column());
         if config == *self.layout.config() {
             return false;
         }
@@ -614,8 +614,13 @@ impl EditorView {
 
     /// For the wrap at the right edge: lays the text out again if the window changed its width.
     /// Called before each frame; the paint asks for another frame when it measured a new width.
+    ///
+    /// A new width of a column (the character spacing with a new font size or zoom) is applied in
+    /// every wrap mode: the paint asks for another frame while the layout has the old one.
     pub(crate) fn follow_window_width(&mut self, cx: &App) {
-        if self.prefs.wrap_method == WrapMethod::WindowWidth {
+        if self.prefs.wrap_method == WrapMethod::WindowWidth
+            || self.layout.config().width != self.wanted_width()
+        {
             self.relayout_in(cx);
         }
     }

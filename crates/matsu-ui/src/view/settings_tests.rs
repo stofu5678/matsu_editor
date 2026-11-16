@@ -516,3 +516,65 @@ fn the_stops_are_counted_a_piece_a_frame_and_end_as_a_whole_count_does(cx: &mut 
     // the first line is "za\tb"... CSV has no commas: one field, the widest line 'aaaaaaaaa\tbbbb' is 14
     assert_eq!(stops(&view, cx), [16]);
 }
+
+#[gpui::test]
+fn a_new_width_of_a_column_is_applied_in_every_wrap_mode(cx: &mut TestAppContext) {
+    // 2 pixels of character spacing, and the wrap at a fixed column (not at the window)
+    let (view, cx) = setup(cx, "abc\tdef");
+    let spaced = user("[Types(0)]\r\nnInts=0,40,2,4,-1,-1,0,1,1,0,0,0\r\nnTextWrapMethod=2\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&spaced, cx));
+    let per_column = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| v.layout.config().width.per_column())
+    };
+    // a font of another size is measured: the columns have another width in `X`
+    view.update(cx, |v, _| v.set_metrics(metrics(800.0)));
+    assert!(view.read_with(cx, |v, _| v.layout_is_stale()));
+    view.update(cx, |v, cx| v.follow_window_width(cx));
+    // 10 pixels a column with 2 of spacing: 8 for the glyph, 64 + 16
+    assert_eq!(per_column(&view, cx), 80);
+    // one relayout settles it: nothing is stale, so the paint asks for no other frame
+    assert!(!view.read_with(cx, |v, _| v.layout_is_stale()));
+    // and zoom does it again
+    view.update(cx, |v, _| {
+        v.set_metrics(Metrics {
+            cell_width: 14.0,
+            ..metrics(800.0)
+        })
+    });
+    view.update(cx, |v, cx| v.follow_window_width(cx));
+    assert_eq!(per_column(&view, cx), 64 + 11);
+    assert!(!view.read_with(cx, |v, _| v.layout_is_stale()));
+}
+
+#[gpui::test]
+fn the_tsv_stops_follow_the_width_of_a_column(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "a\tbb\ncccc\td\n");
+    let tsv = user("[Types(0)]\r\nnInts=0,80,2,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    count_stops(&view, cx);
+    let ends = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| {
+            let widths = v.layout.config().width;
+            (
+                widths.per_column(),
+                (v.layout.config().tsv.ends().iter())
+                    .map(|&e| widths.to_columns(e))
+                    .collect::<Vec<_>>(),
+            )
+        })
+    };
+    let (before, columns) = ends(&view, cx);
+    assert_eq!(columns, [6, 10]);
+    // another font size changes the `X` of a column, and the stops are the same columns
+    view.update(cx, |v, _| v.set_metrics(metrics(800.0)));
+    view.update(cx, |v, cx| v.follow_window_width(cx));
+    let (after, columns) = ends(&view, cx);
+    assert_ne!(before, after);
+    assert_eq!(columns, [6, 10]);
+    // and the fields are aligned: the tab of the first line ends at the first stop
+    let aligned = view.read_with(cx, |v, _| {
+        let c = v.layout.config();
+        c.advance('\t', c.width.to_x(1)) + c.width.to_x(1) == c.tsv.ends()[0]
+    });
+    assert!(aligned);
+}
