@@ -135,6 +135,8 @@ pub(crate) struct Opening {
     /// Where the submenus are aligned: on the left side a submenu ends 16 px before its parent,
     /// so a narrower one starts farther right than the widest.
     left_edge: Option<Pixels>,
+    /// The least width gpui-component draws a list at (`min_w(rems(8.))`).
+    min_width: Pixels,
 }
 
 impl Opening {
@@ -144,7 +146,8 @@ impl Opening {
         match self.left_edge {
             None => self.child,
             Some(edge) => Place {
-                left: (edge - width.min(self.child.room)).max(self.child.margin),
+                left: (edge - width.max(self.min_width).min(self.child.room))
+                    .max(self.child.margin),
                 ..self.child
             },
         }
@@ -158,8 +161,21 @@ impl Opening {
 /// `OVERLAP` before the right edge of its parent and, on the left side, ends `LEFT_GAP` before
 /// the parent's left edge. It goes right when it fits there or the room on the right is not
 /// smaller than on the left.
-fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Opening {
+fn opening(
+    window_width: Pixels,
+    place: Place,
+    own: Pixels,
+    child: Pixels,
+    min_width: Pixels,
+) -> Opening {
     let default = px(DEFAULT_MAX_WIDTH);
+    // A list is never drawn narrower than `min_width`, whatever its labels need.
+    let own = own.max(min_width);
+    let child = if child > Pixels::ZERO {
+        child.max(min_width)
+    } else {
+        child
+    };
     // Where the menu is drawn: moved left when it would pass the right edge, then kept off the
     // left edge (`snap_to_window_with_margin`).
     let width = own.min(place.room);
@@ -173,6 +189,7 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
             max_width: default.max(own),
             child: place,
             left_edge: None,
+            min_width,
         };
     }
     let margin = px(MARGIN);
@@ -190,6 +207,7 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
                 margin,
             },
             left_edge: None,
+            min_width,
         };
     }
     let width = child.min(left_room);
@@ -201,6 +219,7 @@ fn opening(window_width: Pixels, place: Place, own: Pixels, child: Pixels) -> Op
             margin,
         },
         left_edge: Some(place.left - px(LEFT_GAP)),
+        min_width,
     }
 }
 
@@ -214,8 +233,10 @@ pub(crate) struct Fit<'a> {
 
 impl<'a> Fit<'a> {
     pub(crate) fn new(window: &'a Window, place: Place, layout: Layout) -> Self {
-        // Room for a label at least, in a window that is smaller than that.
-        let room = place.room.max(px(200.0));
+        // A list is drawn at least `min_w(rems(8.))` wide whatever room it has: that is the floor
+        // of the room, so a window too small for it and a submenu with less room than it both
+        // get the width gpui-component will draw; any room above it is used as it is.
+        let room = place.room.max(window.rem_size() * MIN_REMS);
         Self {
             window,
             place: Place { room, ..place },
@@ -266,15 +287,22 @@ impl<'a> Fit<'a> {
     /// The width a submenu would like for `label` if it had all the room of the window.
     pub(crate) fn natural(&self, label: &str, row: Row) -> Pixels {
         let most = self.window.viewport_size().width - px(MARGIN * 2.0);
-        self.width_of(label, row).min(most)
+        self.width_of(label, row)
+            .max(self.window.rem_size() * MIN_REMS)
+            .min(most)
     }
 
     /// How the menu opens its submenus; `own` is the width its widest item needs and `child` the
     /// width its widest submenu would like (zero without one).
     pub(crate) fn opening(&self, own: Pixels, child: Pixels) -> Opening {
-        // A list is never narrower than `min_w`.
-        let own = own.max(self.window.rem_size() * MIN_REMS);
-        opening(self.window.viewport_size().width, self.place, own, child)
+        let min_width = self.window.rem_size() * MIN_REMS;
+        opening(
+            self.window.viewport_size().width,
+            self.place,
+            own,
+            child,
+            min_width,
+        )
     }
 }
 
@@ -380,7 +408,7 @@ mod tests {
     #[test]
     fn a_menu_without_a_submenu_keeps_the_default_width() {
         let w = px(600.0);
-        let max = |own: f32| opening(w, place(0.0), px(own), px(0.0)).max_width;
+        let max = |own: f32| opening(w, place(0.0), px(own), px(0.0), px(128.0)).max_width;
         assert_eq!(max(250.0), px(500.0));
         assert_eq!(max(700.0), px(700.0));
     }
@@ -389,7 +417,7 @@ mod tests {
     fn a_submenu_that_does_not_fit_opens_on_the_right_with_the_room_there() {
         // A menu at the left edge (moved in to 8), 200 wide: the submenu starts at 200 and has
         // the rest of the window less the margin; the left side has no room.
-        let open = opening(px(600.0), place(0.0), px(200.0), px(584.0));
+        let open = opening(px(600.0), place(0.0), px(200.0), px(584.0), px(128.0));
         assert_eq!(open.child.left, px(200.0));
         assert_eq!(open.child.room, px(396.0));
         // gpui-component takes the right: its left edge and `max_w` stay inside the window.
@@ -399,7 +427,7 @@ mod tests {
     #[test]
     fn a_menu_near_the_right_edge_opens_its_submenu_on_the_left_with_the_room_there() {
         // The menu is moved in from 400 to 392 (600 - 8 - 200).
-        let open = opening(px(600.0), place(400.0), px(200.0), px(584.0));
+        let open = opening(px(600.0), place(400.0), px(200.0), px(584.0), px(128.0));
         // The room on the left: from the margin to 16 px before the parent's left edge.
         assert_eq!(open.child.room, px(372.0));
         assert_eq!(open.child.left, px(4.0));
@@ -411,22 +439,22 @@ mod tests {
     #[test]
     fn a_menu_opened_past_the_right_edge_is_measured_where_it_is_moved_to() {
         // Asked to open at 580, drawn at 392: the room on its left is that of 392, not of 580.
-        let moved = opening(px(600.0), place(580.0), px(200.0), px(584.0));
-        let there = opening(px(600.0), place(392.0), px(200.0), px(584.0));
+        let moved = opening(px(600.0), place(580.0), px(200.0), px(584.0), px(128.0));
+        let there = opening(px(600.0), place(392.0), px(200.0), px(584.0), px(128.0));
         assert_eq!(moved, there);
         assert_eq!(moved.child.room, px(372.0));
     }
 
     #[test]
     fn a_submenu_that_fits_on_the_right_goes_there() {
-        let open = opening(px(1000.0), place(300.0), px(200.0), px(300.0));
+        let open = opening(px(1000.0), place(300.0), px(200.0), px(300.0), px(128.0));
         assert_eq!(open.child.left, px(492.0));
         assert!(open.max_width + px(300.0) <= px(1000.0));
     }
 
     #[test]
     fn a_narrower_sibling_on_the_left_starts_farther_right() {
-        let open = opening(px(600.0), place(400.0), px(200.0), px(584.0));
+        let open = opening(px(600.0), place(400.0), px(200.0), px(584.0), px(128.0));
         // Left side: every submenu ends 16 px before the parent (392).
         let wide = open.child_for(px(584.0));
         let narrow = open.child_for(px(200.0));
@@ -434,7 +462,20 @@ mod tests {
         assert_eq!(narrow.left, px(392.0 - 16.0 - 200.0));
         assert_eq!(narrow.left + px(200.0), wide.left + wide.room);
         // On the right side they all start at the same place.
-        let right = opening(px(1000.0), place(300.0), px(200.0), px(300.0));
+        let right = opening(px(1000.0), place(300.0), px(200.0), px(300.0), px(128.0));
         assert_eq!(right.child_for(px(100.0)), right.child);
+    }
+
+    #[test]
+    fn a_submenu_with_short_labels_is_placed_as_wide_as_the_least_gpui_component_draws() {
+        let open = opening(px(600.0), place(400.0), px(200.0), px(584.0), px(128.0));
+        // 40 px of labels are drawn 128 px wide: the same place as a width of 128.
+        assert_eq!(open.child_for(px(40.0)), open.child_for(px(128.0)));
+        assert_eq!(open.child_for(px(40.0)).left, px(392.0 - 16.0 - 128.0));
+        // The parent and the widest submenu are clamped too: a short parent (50 px of labels)
+        // opens its submenu from where a 128 px list would, and goes the same side.
+        let short = opening(px(600.0), place(400.0), px(50.0), px(584.0), px(128.0));
+        let full = opening(px(600.0), place(400.0), px(128.0), px(584.0), px(128.0));
+        assert_eq!(short, full);
     }
 }

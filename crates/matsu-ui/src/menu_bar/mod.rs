@@ -1307,6 +1307,32 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_submenu_with_little_room_is_cut_to_it_down_to_the_least_width(cx: &mut TestAppContext) {
+        let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
+        let (rem, narrow, least) = cx.update(|window, _| {
+            let rem = window.rem_size();
+            let path =
+                r"1 C:\work\files\a-very-long-folder-name-inside\second-long-file-name.md  [UTF-8]";
+            let width_for = |room: Pixels| {
+                let place = Place {
+                    left: px(300.),
+                    room,
+                    margin: px(4.),
+                };
+                let fit = crate::menu_width::Fit::new(window, place, Layout::default());
+                fit.width_of(&fit.owned(path.to_owned(), Row::Action), Row::Action)
+            };
+            // 160 px is less than the 200 px the room used to be raised to, and more than 8 rem.
+            (rem, width_for(px(160.)), width_for(px(60.)))
+        });
+        // The labels are cut to the room that is really there...
+        assert!(narrow <= px(160.), "{narrow:?}");
+        // ...and a room below 8 rem is raised to 8 rem, which gpui-component draws anyway.
+        assert!(least <= rem * 8.0, "{least:?}");
+        assert!(least > px(60.), "{least:?}");
+    }
+
+    #[gpui::test]
     fn a_path_that_fits_the_room_is_not_shortened(cx: &mut TestAppContext) {
         let (_bar, cx) = open_menu_of(vec![MenuItem::action("short", Nothing)], cx);
         let path = r"3 C:\work\files\p473.txt  [UTF-8]";
