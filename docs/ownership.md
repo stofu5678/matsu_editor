@@ -96,7 +96,6 @@ ownership のレビューは、変更された部分だけを、次の順で見�
 | もの | 場所 | 直し方 |
 |---|---|---|
 | アウトラインの `LineSource::line` が `Vec<char>` を返す | `crates/matsu-outline/src/source.rs`、`crates/matsu-ui/src/outline/pane.rs`（実装） | 印刷の `LineSource::read_line`（呼ぶ側のバッファを使い回す）に合わせる。解析が文字の位置で見る部分は、バッファの `Vec<char>` を呼ぶ側が持つ |
-| 印刷の設定ダイアログの下書きの二重の状態 | `crates/matsu-ui/src/print_setting/dialog.rs`（`settings`・`original`・`draft`・入力欄の `Entity<InputState>`） | 入力欄が持つ値と `draft` の値のどちらが正しいかを決める。今は `keep_current` で集めて `draft` と `settings` の両方に書く。正しいほうを 1 つにして、もう一方はそのつど読む |
 | `InputOptions` を、設定から 1 項目ずつ写している | `crates/matsu-ui/src/settings/view_settings.rs`（`input: InputOptions { ... }`）、`crates/matsu-commands/src/input_options.rs` | `InputOptions` を設定の側の型にして、写しをなくす。または、写しを作る時点（設定が変わったとき）を 1 か所にして、コメントで書く |
 
 #444・#448（プラグインの起動のしくみ）は直してある。#447（サブメニューのキー）は、食い違いを直したが、gpui-component が選択を教えない限り、追いかける形が残る（確かめていない推測: 上流に頼めば、なくせる）。上流に頼むかは、CLAUDE.md の「ほかの OSS への報告」に従って、ユーザーが決める。
