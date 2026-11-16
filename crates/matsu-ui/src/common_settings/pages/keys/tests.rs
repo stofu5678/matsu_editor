@@ -398,6 +398,46 @@ fn the_names_of_the_custom_menus_are_the_names_set_for_them(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+fn a_generative_ai_function_is_named_by_its_destination_and_assigned_in_its_kind(
+    cx: &mut TestAppContext,
+) {
+    use matsu_config::settings::ai::{F_AI_ASK, F_AI_PROMPT_0, F_AI_SETTINGS};
+    let _restore = RestoreEditOptions::new();
+    let (ini, _first) = open_page(
+        cx,
+        "[AI]\r\nName[003]=英訳\r\nCommand[003]=claude -p\r\nCommand[004]=codex exec\r\n",
+    );
+    let name = |cx: &mut TestAppContext, code: u16| {
+        cx.update(|app| crate::func_name::FuncNames::new().name(app, code))
+    };
+    // The name of the destination, its command without a name, and (未登録) without a command.
+    assert_eq!(name(cx, F_AI_PROMPT_0 + 3), "英訳");
+    assert_eq!(name(cx, F_AI_PROMPT_0 + 4), "codex exec");
+    assert_eq!(name(cx, F_AI_PROMPT_0), "生成 AI に送る 0 (未登録)");
+    assert_eq!(name(cx, F_AI_ASK), "指示をつけて送る...");
+    assert_eq!(name(cx, F_AI_SETTINGS), "生成 AI の設定...");
+    // The kind 生成 AI (20) holds them; assign 英訳 to Shift+Ctrl+J.
+    let at = codes_of_kind(20)
+        .iter()
+        .position(|&c| c == F_AI_PROMPT_0 + 3)
+        .unwrap();
+    with_dialog(cx, |d, _, dcx| {
+        d.set_int(KIND, 20, dcx);
+        d.select_function(at, dcx);
+    });
+    pick_key(cx, Key::Letter('J'), SHIFT | CTRL);
+    press(cx, "keybind_assign");
+    assert_eq!(shown(cx), ["Shift+Ctrl+J"]);
+    ok(cx);
+    let new = Chord::new(Key::Letter('J'), Modifiers::CTRL.with_shift());
+    let user = UserSettings::load_from(std::slice::from_ref(&ini.path));
+    assert_eq!(
+        user.key_map(Platform::Other).resolve(new),
+        Resolved::Code(F_AI_PROMPT_0 + 3)
+    );
+}
+
+#[gpui::test]
 fn ok_writes_the_rows_and_every_window_uses_the_new_key_at_once(cx: &mut TestAppContext) {
     let _restore = RestoreEditOptions::new();
     let (ini, first) = open_page(cx, "[Other]\r\nx=1\r\n");

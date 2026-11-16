@@ -159,6 +159,10 @@ pub(super) fn lists(
         .try_global::<crate::settings::UserSettings>()
         .map(crate::settings::UserSettings::oneliners)
         .unwrap_or_default();
+    let destinations = cx
+        .try_global::<crate::settings::UserSettings>()
+        .map(crate::settings::UserSettings::shared_ai_destinations)
+        .unwrap_or_default();
     let functions = functions_of_kind(values.int(KIND));
 
     let function_rows = functions
@@ -167,7 +171,7 @@ pub(super) fn lists(
         .map(|(i, &code)| {
             row_element(
                 ("custmenu-func", i),
-                function_name(code, &menus, &macros, &oneliners),
+                function_name(code, &menus, &macros, &oneliners, &destinations),
                 edit.func_sel == Some(i),
                 cx,
                 move |this, _, cx| this.set_int(super::FUNC_SEL, i as i32, cx),
@@ -181,7 +185,7 @@ pub(super) fn lists(
         .map(|(i, item)| {
             row_element(
                 ("custmenu-res", i),
-                row_text(item, &menus, &macros, &oneliners),
+                row_text(item, &menus, &macros, &oneliners, &destinations),
                 edit.sel == Some(i),
                 cx,
                 move |this, window, cx| this.select_item(i, window, cx),

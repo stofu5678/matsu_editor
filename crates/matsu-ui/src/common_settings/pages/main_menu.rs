@@ -53,17 +53,18 @@ const KEY: &str = "mainmenu_key";
 
 /// `STR_SPECIAL_FUNC`: the kind that `CPropMainMenu::SetData` adds after the kinds of `CFuncLookup`.
 const SPECIAL_KIND: i32 = 18;
-/// The kinds the page offers: those of `CFuncLookup`, 特別機能, then MATSU's ワンライナー (the last of
-/// `KINDS`, whose value is 19).
-static PAGE_KINDS: [(&str, i32); 20] = {
-    let mut kinds = [("", 0); 20];
+/// The kinds the page offers: those of `CFuncLookup`, 特別機能, then MATSU's ワンライナー and 生成 AI (the
+/// last two of `KINDS`, whose values are 19 and 20).
+static PAGE_KINDS: [(&str, i32); 21] = {
+    let mut kinds = [("", 0); 21];
     let mut i = 0;
-    while i < KINDS.len() - 1 {
+    while i < SPECIAL_KIND as usize {
         kinds[i] = KINDS[i];
         i += 1;
     }
     kinds[SPECIAL_KIND as usize] = ("特別機能", SPECIAL_KIND);
-    kinds[SPECIAL_KIND as usize + 1] = KINDS[KINDS.len() - 1];
+    kinds[SPECIAL_KIND as usize + 1] = KINDS[SPECIAL_KIND as usize];
+    kinds[SPECIAL_KIND as usize + 2] = KINDS[SPECIAL_KIND as usize + 1];
     kinds
 };
 /// The special function list of `sakura_core/func/Funccode.cpp` (`F_WINDOW_LIST` to `F_PLUGIN_LIST`).
