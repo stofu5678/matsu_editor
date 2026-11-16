@@ -312,3 +312,64 @@ fn with_the_stop_at_both_ends_setting_a_word_end_is_a_start_too() {
     assert_eq!(word_starts("ab cd", None, false, false), [3]);
     assert_eq!(word_starts("ab \n", None, true, true), [2, 3]);
 }
+
+// ---- a proportional font (ADR-0034, stage 5) ----
+
+/// A narrow `i`, a wide `m`, the rest a half-width letter (X is 1/64 of a column).
+fn proportional() -> matsu_layout::Widths {
+    matsu_layout::Widths::table(64, 0, |c| match c {
+        'i' | 'l' => 32,
+        'm' => 107,
+        _ => 64,
+    })
+}
+
+fn use_table(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
+    view.update(cx, |v, cx| {
+        let key = v.font_key();
+        v.set_font_widths(crate::view::font_widths::FontWidths::table_for(
+            key,
+            proportional(),
+        ));
+        v.relayout_in(cx);
+        cx.notify();
+    });
+}
+
+#[gpui::test]
+fn a_proportional_font_gives_the_positions_of_its_widths(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "imi\tm\n");
+    use_table(&f.view, cx);
+    let text = text_of(&f.view, cx);
+    let run = &text.runs[0];
+    assert_eq!(run.value, "imi\tm\n");
+    let unit = run.widths[0] * 2.0; // `i` is half a column
+    assert!(unit > 0.0);
+    // i 32, m 107, i 32, a tab to the stop at 4 columns (256): 85, m 107, the line break a column
+    let widths = [32.0, 107.0, 32.0, 85.0, 107.0, 64.0];
+    let tolerance = unit * 0.001;
+    let mut x = 0.0;
+    for (i, w) in widths.iter().enumerate() {
+        assert!(
+            (run.widths[i] - unit * w / 64.0).abs() < tolerance,
+            "width {i}"
+        );
+        assert!(
+            (run.positions[i] - unit * x / 64.0).abs() < tolerance,
+            "position {i}"
+        );
+        x += w;
+    }
+    // the bounds end after the line break (the width of the run)
+    let right = (run.bounds[2] - run.bounds[0]) as f32;
+    assert!((right - unit * x / 64.0).abs() < tolerance);
+}
+
+#[gpui::test]
+fn the_caret_index_does_not_depend_on_the_widths(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "mim");
+    use_table(&f.view, cx);
+    let text = text_of(&f.view, cx);
+    assert!(text.selection.is_some());
+    assert_eq!(text.runs[0].char_lengths, [1, 1, 1]);
+}

@@ -277,4 +277,63 @@ mod tests {
         let (doc, layout) = setup(&text, LayoutConfig::default());
         assert!(marks(&doc, &layout, Pos::new(0, 0), screen(5)).is_empty());
     }
+
+    // ---- a proportional font (ADR-0034, stage 5) ----
+
+    #[test]
+    fn marks_sit_where_the_widths_before_them_end_in_a_proportional_font() {
+        let config = LayoutConfig {
+            width: Widths::table(64, 0, |c| match c {
+                'i' => 32,
+                'm' => 107,
+                '「' | '」' => 128,
+                _ => 64,
+            }),
+            ..LayoutConfig::default()
+        };
+        let doc = Document::from_utf8("mi(\tm)「」".as_bytes().to_vec()).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, config.clone()).unwrap();
+        let screen = Screen {
+            first_row: 0,
+            last_row: 4,
+            first_x: X::ZERO,
+            end_x: col(80),
+        };
+        let m = marks(&doc, &layout, Pos::new(0, 2), screen);
+        // m 107, i 32, "(" at 139 (64); the tab goes to the stop at 256 (53 X); m 107; ")" at 363
+        let got: Vec<(u32, u32, char)> =
+            m.iter().map(|m| (m.x.raw(), m.width.raw(), m.ch)).collect();
+        assert_eq!(got, [(363, 64, ')'), (139, 64, '(')]);
+        // a full-width bracket has its own width, not two columns
+        let doc = Document::from_utf8("「a」".as_bytes().to_vec()).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        let m = marks(&doc, &layout, Pos::new(0, 0), screen);
+        let got: Vec<(u32, u32, char)> =
+            m.iter().map(|m| (m.x.raw(), m.width.raw(), m.ch)).collect();
+        assert_eq!(got, [(192, 128, '」'), (0, 128, '「')]);
+    }
+
+    #[test]
+    fn a_bracket_narrower_than_the_edge_of_the_screen_is_cut_by_its_start() {
+        // The screen has the brackets whose start is inside it (`Screen::has`), however wide.
+        let config = LayoutConfig {
+            width: Widths::table(64, 0, |c| if c == 'm' { 107 } else { 64 }),
+            ..LayoutConfig::default()
+        };
+        let doc = Document::from_utf8("mm(m)".as_bytes().to_vec()).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        let wide = Screen {
+            first_row: 0,
+            last_row: 0,
+            first_x: X::ZERO,
+            end_x: X::from_raw(214 + 64 + 107 + 64),
+        };
+        assert_eq!(marks(&doc, &layout, Pos::new(0, 2), wide).len(), 2);
+        // `)` starts at 385: a screen that ends at 385 does not have it, and then none is drawn
+        let narrow = Screen {
+            end_x: X::from_raw(385),
+            ..wide
+        };
+        assert!(marks(&doc, &layout, Pos::new(0, 2), narrow).is_empty());
+    }
 }
