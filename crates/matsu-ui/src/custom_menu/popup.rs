@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, Context, DismissEvent, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, MenuItem, ParentElement, Pixels, Point, Subscription, Window, anchored, deferred,
-    div, point, px,
+    IntoElement, MenuItem, ParentElement, Pixels, Point, Size, Subscription, Window, anchored,
+    deferred, div, point, px,
 };
 use gpui_component::menu::PopupMenu;
 use matsu_commands::keymap::DisplayStyle;
@@ -41,25 +41,25 @@ pub(crate) struct CustomMenuState {
 struct OpenPopup {
     popup: Entity<PopupMenu>,
     at: Point<Pixels>,
-    /// The height of the window that the popup was sized for.
-    window_height: Pixels,
+    /// The size of the window that the popup was sized for.
+    window_size: Size<Pixels>,
     _dismiss: Subscription,
 }
 
 impl CustomMenuState {
     /// Shows `popup` at `at` in place of the one that is open (the menu of a macro's `CreateMenu`
-    /// uses the same place). `window_height` is the height the popup was sized for.
+    /// uses the same place). `window_size` is the size the popup was sized for.
     pub(crate) fn show(
         &mut self,
         popup: Entity<PopupMenu>,
         at: Point<Pixels>,
-        window_height: Pixels,
+        window_size: Size<Pixels>,
         dismiss: Subscription,
     ) {
         self.open = Some(OpenPopup {
             popup,
             at,
-            window_height,
+            window_size,
             _dismiss: dismiss,
         });
     }
@@ -228,10 +228,11 @@ impl EditorView {
         self.mark_menu_items(&mut items, window, cx);
         let handle = self.focus_handle.clone();
         let max_height = popup_max_height(window.viewport_size().height, at.y);
+        let place = crate::menu_width::Place::at(window, at.x);
         let keys = KeyList::of_owned(items.clone());
         let fill_again: Rebuild = Rc::new(move |menu, window, cx| {
             let menu = menu.action_context(handle.clone());
-            fill(menu, items.clone(), Some(&handle), window, cx)
+            fill(menu, items.clone(), Some(&handle), place, window, cx)
                 .scrollable(true)
                 .max_h(max_height)
         });
@@ -252,7 +253,7 @@ impl EditorView {
         self.custom_menu.open = Some(OpenPopup {
             popup,
             at,
-            window_height: window.viewport_size().height,
+            window_size: window.viewport_size(),
             _dismiss: dismiss,
         });
         cx.notify();
@@ -302,7 +303,7 @@ impl EditorView {
     }
 
     /// The popup, to be a child of the view while it is open. A menu of Sakura is modal and a resize of the
-    /// window ends it; the popup is sized for the window it opened in, so it closes when the height changes.
+    /// window ends it; the popup is sized for the window it opened in, so it closes when the size changes.
     pub(crate) fn custom_menu_popup(
         &mut self,
         window: &mut Window,
@@ -312,7 +313,7 @@ impl EditorView {
             .custom_menu
             .open
             .as_ref()
-            .is_some_and(|o| o.window_height != window.viewport_size().height)
+            .is_some_and(|o| o.window_size != window.viewport_size())
         {
             self.close_custom_menu(window, cx);
         }
