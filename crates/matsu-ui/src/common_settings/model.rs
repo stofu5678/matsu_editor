@@ -661,6 +661,14 @@ impl Values {
         }
     }
 
+    /// The rows of the list `id`, to edit in place (`None`: the value is no list).
+    pub(crate) fn rows_mut(&mut self, id: &str) -> Option<&mut Vec<Row>> {
+        match self.map.get_mut(id) {
+            Some(Value::Rows(rows)) => Some(rows),
+            _ => None,
+        }
+    }
+
     pub(crate) fn set(&mut self, id: &'static str, value: Value) {
         self.map.insert(id, value);
     }

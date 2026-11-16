@@ -95,7 +95,7 @@ CP932 で表せない文字（絵文字など）が入力にあるときは、�
 - OK を押すと、ファイルに書きます。キャンセルなら、何も変わりません。
 - 名前は 63 まで、コマンドは 1023 までです（どちらも UTF-16 の単位で数えます）。コマンドは 1 行で書きます。コマンドのない番号は、登録されていません。名前だけでは登録できません。
 
-このページには、生成 AI に送るための欄もあります。それは[生成 AI に送る](ai-send.md)で説明します。
+生成 AI に送る分は、別のページ「生成 AI」にあります（[生成 AI に送る](ai-send.md)）。
 
 ### 「ワンライナーを入力して実行」
 
@@ -143,11 +143,9 @@ Recent[00]=tr a-z A-Z
 | `Name[000]` から `Name[049]` | 名前 |
 | `Command[000]` から `Command[049]` | コマンド。空のときは、登録されていません |
 | `Output[000]` から `Output[049]` | 0 が置き換える、1 が次の行に入れる、2 がアウトプットに出す。それ以外の値は 0 として読みます |
-| `AI[000]` から `AI[049]` | 1 のとき、生成 AI に送るワンライナー（[生成 AI に送る](ai-send.md)）。既定は 0。0 と 1 以外は 0 として読みます |
-| `AskBeforeSend[000]` から `AskBeforeSend[049]` | 0 のとき、AI のワンライナーが確認の窓を出しません。既定は 1。0 と 1 以外は 1 として読みます。AI のキーは、既定と違うときだけ書かれます |
 | `Recent[00]` から `Recent[19]` | 「入力して実行」の履歴。新しい順 |
 
-知らないキーは、書き戻すときも残します。
+知らないキーは、書き戻すときも残します。古い版が書いた `AI[nnn]`・`AskBeforeSend[nnn]` は、読むだけです。`AI[nnn]=1` の枠は、`[AI]` に移るまで実行されません（[生成 AI に送る](ai-send.md)）。
 
 ## サクラとの違い
 
@@ -166,7 +164,7 @@ Recent[00]=tr a-z A-Z
 - 実行の流れ: `crates/matsu-ui/src/oneliner/flow.rs`（先頭の表、`run_slot`、`can_edit`）
 - 入出力の整え: `crates/matsu-core/src/oneliner.rs`（`feed_lf`、`for_replace`、`for_next_line`、`OUTPUT_CAP_BYTES`）
 - シェルとプロセス: `crates/matsu-oneliner/src/shell.rs`（`ShellKind`、`invocation`）、`crates/matsu-oneliner/src/powershell.rs`、`crates/matsu-oneliner/src/run.rs`
-- 生成 AI に送る分（印、AI ログのメニュー項目）: `crates/matsu-ui/src/oneliner/list.rs`、`crates/matsu-config/src/settings/oneliner.rs`（`AI`、`AskBeforeSend`）。詳しくは[生成 AI に送る](ai-send.md)
+- 生成 AI に送る分は別: [生成 AI に送る](ai-send.md)
 - ダイアログと一覧: `crates/matsu-ui/src/oneliner/dialog.rs`、`crates/matsu-ui/src/oneliner/list.rs`、`crates/matsu-ui/src/oneliner/store.rs`
 - 設定の画面: `crates/matsu-ui/src/common_settings/pages/oneliner.rs`
 - 右クリックのメニュー: `crates/matsu-config/src/settings/custom_menu.rs` の `MATSU_ONELINER`

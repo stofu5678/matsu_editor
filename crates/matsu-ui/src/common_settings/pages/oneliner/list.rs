@@ -10,6 +10,7 @@ use gpui_component::{h_flex, v_flex};
 use matsu_config::settings::oneliner::OutputTo;
 
 use super::super::super::dialog::CommonSettingsDialog;
+use super::super::super::table::{Row, TableSpec};
 use super::rows::{self, Fields};
 
 pub(super) const LIST: &str = "oneliner_list";
@@ -18,16 +19,34 @@ pub(super) const ID: &str = "oneliner_id";
 pub(super) const NAME: &str = "oneliner_name";
 pub(super) const COMMAND: &str = "oneliner_command";
 pub(super) const OUTPUT: &str = "oneliner_output";
-pub(super) const AI: &str = "oneliner_ai";
-pub(super) const ASK: &str = "oneliner_ask";
-pub(super) const TEMPLATE: &str = "oneliner_template";
 
 const SELECTED_BG: u32 = 0x2f6fd0;
 const BORDER: u32 = 0xaaaaaa;
 const HEADING_BG: u32 = 0xe6e6e6;
+/// The color of a row that cannot be used.
+const DIMMED: u32 = 0x888888;
 const ROW_HEIGHT: f32 = 20.0;
 /// The color of a warning (the page 「シェル」 uses the same).
 const WARNING: u32 = 0xc00000;
+
+/// What a list of slots needs besides its rows: the page names it (the ids, the spec) and says which rows are
+/// shown dimmed.
+pub(in crate::common_settings) struct SlotList {
+    pub spec: &'static TableSpec,
+    /// The control that holds the rows.
+    pub rows: &'static str,
+    /// The control that holds the number of the row that is selected (-1: none).
+    pub selected: &'static str,
+    /// The prefix of the element ids.
+    pub prefix: &'static str,
+    /// A row that cannot be used is shown dimmed.
+    pub dimmed: fn(&Row) -> bool,
+    /// What a cell shows for the text the row holds in `column`.
+    pub shown: fn(usize, &str) -> String,
+    /// A click on row `index`.
+    pub select:
+        fn(&mut CommonSettingsDialog, usize, &mut Window, &mut Context<CommonSettingsDialog>),
+}
 
 /// The list: the heading and a row for each slot. A click selects a row and puts its texts in the fields
 /// below.
@@ -35,8 +54,30 @@ pub(super) fn draw(
     dialog: &CommonSettingsDialog,
     cx: &mut Context<CommonSettingsDialog>,
 ) -> AnyElement {
-    let spec = rows::spec();
-    let selected = usize::try_from(dialog.values().int(SELECTED)).ok();
+    draw_slots(
+        &SlotList {
+            spec: rows::spec(),
+            rows: LIST,
+            selected: SELECTED,
+            prefix: "oneliner",
+            dimmed: rows::is_ai_row,
+            shown: rows::shown,
+            select,
+        },
+        dialog,
+        cx,
+    )
+}
+
+/// Draws a [`SlotList`] (the page 「生成 AI」 draws its list with it too).
+pub(in crate::common_settings) fn draw_slots(
+    list: &SlotList,
+    dialog: &CommonSettingsDialog,
+    cx: &mut Context<CommonSettingsDialog>,
+) -> AnyElement {
+    let spec = list.spec;
+    let selected = usize::try_from(dialog.values().int(list.selected)).ok();
+    let (dimmed, shown, select, prefix) = (list.dimmed, list.shown, list.select, list.prefix);
     let width = |percent: u32| gpui::relative(percent as f32 / 100.);
     let heading = h_flex()
         .bg(rgb(HEADING_BG))
@@ -49,26 +90,33 @@ pub(super) fn draw(
         );
     let body: Vec<AnyElement> = dialog
         .values()
-        .rows(LIST)
+        .rows(list.rows)
         .iter()
         .enumerate()
         .map(|(index, row)| {
             h_flex()
-                .id(SharedString::from(format!("oneliner-row-{index}")))
+                .id(SharedString::from(format!("{prefix}-row-{index}")))
                 .h(px(ROW_HEIGHT))
                 .items_center()
                 .cursor_pointer()
+                .when(dimmed(row), |d| d.text_color(rgb(DIMMED)))
                 .when(selected == Some(index), |d| {
                     d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
                 })
-                .children(spec.columns.iter().zip(row).map(|(c, text)| {
-                    div()
-                        .w(width(c.width))
-                        .px_1()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .child(text.clone())
-                }))
+                .children(
+                    spec.columns
+                        .iter()
+                        .zip(row)
+                        .enumerate()
+                        .map(|(i, (c, text))| {
+                            div()
+                                .w(width(c.width))
+                                .px_1()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .child(shown(i, text))
+                        }),
+                )
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     select(this, index, window, cx);
                 }))
@@ -76,7 +124,7 @@ pub(super) fn draw(
         })
         .collect();
     v_flex()
-        .id("oneliner-list")
+        .id(SharedString::from(format!("{prefix}-list")))
         .h(px(190.))
         .bg(rgb(0xffffff))
         .border_1()
@@ -84,7 +132,7 @@ pub(super) fn draw(
         .child(heading)
         .child(
             v_flex()
-                .id("oneliner-list-rows")
+                .id(SharedString::from(format!("{prefix}-list-rows")))
                 .flex_1()
                 .overflow_y_scroll()
                 .children(body),
@@ -113,25 +161,6 @@ pub(super) fn select(
     dialog.set_input(NAME, &fields.name, window, cx);
     dialog.set_input(COMMAND, &fields.command, window, cx);
     dialog.set_int(OUTPUT, fields.output.number(), cx);
-    dialog.set_bool(AI, fields.ai, cx);
-    dialog.set_bool_greyed(ASK, fields.ask, cx);
-}
-
-/// ひな形を入れる: puts the chosen template in the command, the place of the result 次の行に入れる and the mark
-/// of an AI. Nothing is chosen: nothing changes. It is 設定 that puts the fields in the list.
-pub(super) fn put_template(
-    dialog: &mut CommonSettingsDialog,
-    window: &mut Window,
-    cx: &mut Context<CommonSettingsDialog>,
-) {
-    let Some(template) = rows::template_of(dialog.values().int(TEMPLATE)) else {
-        return;
-    };
-    let fields = rows::apply_template(&current_fields(dialog, cx), template);
-    dialog.set_input(NAME, &fields.name, window, cx);
-    dialog.set_input(COMMAND, &fields.command, window, cx);
-    dialog.set_int(OUTPUT, fields.output.number(), cx);
-    dialog.set_bool(AI, fields.ai, cx);
 }
 
 /// The fields as they are now.
@@ -140,8 +169,6 @@ fn current_fields(dialog: &CommonSettingsDialog, cx: &gpui::App) -> Fields {
         name: typed(dialog, NAME, cx),
         command: typed(dialog, COMMAND, cx),
         output: OutputTo::from_number(dialog.values().int(OUTPUT)),
-        ai: dialog.values().bool(AI),
-        ask: dialog.values().bool(ASK),
     }
 }
 
@@ -159,11 +186,10 @@ pub(super) fn register(
 ) {
     let index = rows::index_of(&typed(dialog, ID, cx));
     let fields = current_fields(dialog, cx);
-    let mut list = dialog.values().rows(LIST).to_vec();
-    match rows::register(&mut list, index, &fields) {
-        Ok(()) => dialog.set_rows(LIST, list, cx),
-        // Nobody waits for this answer.
-        Err(problem) => crate::boxes::tell(window, PromptLevel::Info, &problem.text(), None, cx),
+    // The row is changed in place; a refused value leaves the rows as they were and is told.
+    // Nobody waits for this answer.
+    if let Err(problem) = dialog.edit_rows(LIST, |rows| rows::register(rows, index, &fields), cx) {
+        crate::boxes::tell(window, PromptLevel::Info, &problem.text(), None, cx);
     }
 }
 

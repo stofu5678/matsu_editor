@@ -457,15 +457,6 @@ impl CommonSettingsDialog {
         }
     }
 
-    /// Sets a check box even while it is greyed out, for a page that fills its fields from a row (a box
-    /// that only another box enables still shows the value the row has).
-    pub(crate) fn set_bool_greyed(&mut self, id: &'static str, on: bool, cx: &mut Context<Self>) {
-        if self.control(id).is_some() {
-            self.values.set(id, Value::Bool(on));
-            cx.notify();
-        }
-    }
-
     /// A radio group, a drop-down list or a list box.
     pub(crate) fn set_int(&mut self, id: &'static str, value: i32, cx: &mut Context<Self>) {
         if let Some(control) = self.control(id).filter(|c| self.is_usable(c)) {
@@ -528,6 +519,26 @@ impl CommonSettingsDialog {
             self.values.set(id, Value::Rows(rows));
             cx.notify();
         }
+    }
+
+    /// Edits the rows of an editable list in place, in one short borrow, with no copy of the list. The window is
+    /// told only when `edit` succeeds: a refused edit must leave the rows as they were, and `edit` is to change
+    /// nothing when it refuses. A list that is not there or not usable is not edited, and `edit` is not run.
+    pub(crate) fn edit_rows<E>(
+        &mut self,
+        id: &'static str,
+        edit: impl FnOnce(&mut [table::Row]) -> Result<(), E>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), E> {
+        if !self.control(id).is_some_and(|c| self.is_usable(&c)) {
+            return Ok(());
+        }
+        let Some(rows) = self.values.rows_mut(id) else {
+            return Ok(());
+        };
+        edit(rows)?;
+        cx.notify();
+        Ok(())
     }
 
     /// Puts new rows into an editable list after an import (`SetData`): no row is selected and the

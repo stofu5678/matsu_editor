@@ -82,6 +82,7 @@ pub(crate) fn common_settings_page(page: crate::common_settings::Page) -> Option
         Page::Macro => "common-settings/page-macro.md",
         Page::Plugin => "common-settings/page-plugin.md",
         Page::OneLiner => "common-settings/page-oneliner.md",
+        Page::Ai => "common-settings/page-ai.md",
         // the shell has no page yet
         Page::Terminal => return None,
     })

@@ -1,5 +1,6 @@
 //! The pages of the common settings, one module each.
 
+pub(super) mod ai;
 pub(super) mod backup;
 pub(super) mod custom_menu;
 pub(super) mod edit;
