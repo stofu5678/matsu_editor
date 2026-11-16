@@ -131,7 +131,7 @@ fn the_filter_names_are_lower_case_and_listed_once() {
 fn the_decision_is_made_by_the_parser_of_powershell() {
     for needed in [
         "[System.Management.Automation.Language.Parser]::ParseInput(",
-        "VariablePath.UserPath -ieq 'input'",
+        "VariablePath.UserPath -imatch '^((local|script|global|private):)?input$'",
         "[scriptblock]::Create($__matsu_text)",
         "$__matsu_line.Insert($__matsu_offset, '$input | ')",
         "StaticParameterBinder]::BindCommand(",

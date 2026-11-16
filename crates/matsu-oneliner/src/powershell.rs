@@ -92,7 +92,7 @@ if ($__matsu_errors.Count -gt 0) {
 foreach ($__matsu_e in $__matsu_errors) { [Console]::Error.WriteLine($__matsu_e.Message + ' (' + $__matsu_e.Extent.Text + ')') }
 exit 1
 }
-$__matsu_uses = $__matsu_ast.FindAll({ param($n) ($n -is [System.Management.Automation.Language.VariableExpressionAst]) -and ($n.VariablePath.UserPath -ieq 'input') }, $true).Count -gt 0
+$__matsu_uses = $__matsu_ast.FindAll({ param($n) ($n -is [System.Management.Automation.Language.VariableExpressionAst]) -and ($n.VariablePath.UserPath -imatch '^((local|script|global|private):)?input$') }, $true).Count -gt 0
 $__matsu_pipe = $false
 $__matsu_end = $__matsu_ast.EndBlock
 if ((-not $__matsu_uses) -and $__matsu_end -and $__matsu_end.Unnamed -and ($null -eq $__matsu_ast.ParamBlock) -and ($null -eq $__matsu_ast.BeginBlock) -and ($null -eq $__matsu_ast.ProcessBlock) -and ($null -eq $__matsu_ast.DynamicParamBlock) -and ($__matsu_end.Statements.Count -gt 0)) {

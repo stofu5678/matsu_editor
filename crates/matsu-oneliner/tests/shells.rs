@@ -702,6 +702,29 @@ mod powershell {
             // an input by position (`ConvertTo-Json x`, `ConvertFrom-Json x`)
             ("ConvertTo-Json @(1,2) -Compress".into(), "b", "[1,2]"),
             ("ConvertFrom-Json '{\"x\":5}' | % { $_.x }".into(), "b", "5"),
+            // `$input` under any scope name or in braces is still `$input`: nothing may consume it first
+            (
+                "Sort-Object; $local:input | % { $_.ToUpper() }".into(),
+                "b\na",
+                "B\nA",
+            ),
+            // (`$script:input` and `$global:input` are not the automatic variable and are empty, but
+            // the line still mentions `$input`: it is not piped, so the first command prints nothing)
+            (
+                "Sort-Object; $script:input | % { $_.ToUpper() }".into(),
+                "b\na",
+                "",
+            ),
+            (
+                "Sort-Object; $GLOBAL:INPUT | % { $_.ToUpper() }".into(),
+                "b\na",
+                "",
+            ),
+            (
+                "Sort-Object; ${input} | % { $_.ToUpper() }".into(),
+                "b\na",
+                "B\nA",
+            ),
             // a trap before the first statement stays in front of the prefix
             ("trap { continue }; Sort-Object".into(), "b\na", "a\nb"),
             (
