@@ -490,18 +490,8 @@ impl EditorView {
         if self.cursor.is_box() {
             let (row, from, to) =
                 crate::hit::BoxArea::of_cursor(&self.layout, doc, &self.cursor)?.top_row();
-            let widths = self.layout.config().width;
-            let from = self
-                .layout
-                .row_to_pos(doc, row, widths.to_x(from))
-                .ok()?
-                .pos;
-            let to = self
-                .layout
-                .row_to_pos(doc, row, widths.to_x(to))
-                .ok()?
-                .pos
-                .max(from);
+            let from = self.layout.row_to_pos(doc, row, from).ok()?.pos;
+            let to = self.layout.row_to_pos(doc, row, to).ok()?.pos.max(from);
             let capped = Pos::new(from.line, from.col.saturating_add(MAX_SEED_BYTES));
             return doc.text_between(from, to.min(capped)).ok();
         }

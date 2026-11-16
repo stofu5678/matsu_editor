@@ -189,9 +189,8 @@ impl EditorView {
             .layout
             .pos_to_row(self.document.read(cx).doc(), pos)
             .ok()?;
-        let column = self.layout.config().width.to_columns(at.x);
         Some(point(
-            px(paint.origin_x + column as f32 * self.metrics.cell_width - self.scroll_x),
+            px(paint.origin_x + self.x_scale().px(at.x) - self.scroll_x),
             px(paint.origin_y + at.row as f32 * self.metrics.line_height - self.scroll_y),
         ))
     }

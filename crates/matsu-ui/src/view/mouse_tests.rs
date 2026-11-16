@@ -312,13 +312,13 @@ fn alt_drag_selects_a_box_and_the_release_of_an_empty_one_ends_it(cx: &mut TestA
     drag_at(&f, cx, 1, 3, alt());
     f.view.read_with(cx, |v, _| {
         assert!(v.cursor.is_box());
-        assert_eq!(v.cursor.box_anchor_col(), Some(1));
-        assert_eq!(v.cursor.box_caret_col(), Some(3));
+        assert_eq!(v.cursor.box_anchor_col(), Some(64));
+        assert_eq!(v.cursor.box_caret_col(), Some(3 * 64));
     });
     // the corner can go right of a short row, into the empty space
     drag_at(&f, cx, 2, 5, alt());
     f.view.read_with(cx, |v, _| {
-        assert_eq!(v.cursor.box_caret_col(), Some(5));
+        assert_eq!(v.cursor.box_caret_col(), Some(5 * 64));
         assert_eq!(v.cursor.caret(), Pos::new(2, 2));
     });
     // back on the pressed cell: nothing is covered, and the release ends the box
@@ -348,8 +348,8 @@ fn a_box_over_tabs_and_wide_characters_follows_display_columns(cx: &mut TestAppC
     drag_at(&f, cx, 1, 4, alt());
     up_at(&f, cx, 1, 4, alt());
     f.view.read_with(cx, |v, _| {
-        assert_eq!(v.cursor.box_anchor_col(), Some(2));
-        assert_eq!(v.cursor.box_caret_col(), Some(4));
+        assert_eq!(v.cursor.box_anchor_col(), Some(2 * 64));
+        assert_eq!(v.cursor.box_caret_col(), Some(4 * 64));
         assert_eq!(v.cursor.anchor(), Some(Pos::new(0, 3)));
         // the tab of the second row reaches column 4: the corner is on it or after it
         assert_eq!(v.cursor.caret().line, 1);
@@ -624,8 +624,8 @@ fn in_the_free_cursor_mode_a_click_right_of_the_text_puts_the_caret_there(cx: &m
     up_at(&f, cx, 0, 6, Modifiers::default());
     f.view.read_with(cx, |v, app| {
         assert_eq!(v.cursor.caret(), Pos::new(0, 2));
-        assert_eq!(v.cursor.free_col(), Some(6));
-        assert_eq!(v.caret_column(app), 6);
+        assert_eq!(v.cursor.free_col(), Some(6 * 64));
+        assert_eq!(v.caret_x(app).raw(), 6 * 64);
     });
     // typing there fills the gap with spaces
     cx.simulate_input("x");

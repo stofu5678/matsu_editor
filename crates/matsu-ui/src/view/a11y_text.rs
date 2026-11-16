@@ -23,6 +23,8 @@ use matsu_commands::text::word::search_next_word;
 use matsu_core::buffer::Pos;
 use matsu_layout::{LayoutConfig, RowInfo};
 
+use crate::geometry::XScale;
+
 /// What the last paint left for the screen reader, shared by the view and its node.
 pub(crate) type Shared = Rc<RefCell<Option<Snapshot>>>;
 
@@ -137,17 +139,19 @@ impl Snapshot {
     fn run(&self, index: usize, row: &RowInfo, stops_both_ends: bool) -> Run {
         let mut value = String::from(row.text());
         let mut char_lengths: Vec<u8> = value.chars().map(|c| c.len_utf8() as u8).collect();
-        // The layout counts in `X`; the cells here are columns (ADR-0034 stage 3 changes that).
-        let cols = self.columns.width;
+        let one = self.columns.width.to_x(1);
+        // Pixels of the window before the scale, and the physical pixels of the screen reader.
+        let per_column = self.columns.width.per_column();
+        let window_px = XScale::new(self.cell, per_column);
+        let device_px = XScale::new(self.cell * self.scale, per_column);
         let mut x = row.start_x;
         let mut positions = Vec::with_capacity(char_lengths.len() + 1);
         let mut widths = Vec::with_capacity(char_lengths.len() + 1);
-        let unit = self.cell * self.scale;
         let origin = x;
         for c in value.chars() {
             let w = self.columns.advance(c, x);
-            positions.push(cols.to_columns(x - origin) as f32 * unit);
-            widths.push(cols.to_columns(w) as f32 * unit);
+            positions.push(device_px.px(x - origin));
+            widths.push(device_px.px(w));
             x += w;
         }
         if row.eol.is_some() {
@@ -155,9 +159,9 @@ impl Snapshot {
             // rule), after the last character, one cell wide as its mark.
             value.push('\n');
             char_lengths.push(1);
-            positions.push(cols.to_columns(x - origin) as f32 * unit);
-            widths.push(unit);
-            x += cols.to_x(1);
+            positions.push(device_px.px(x - origin));
+            widths.push(device_px.px(one));
+            x += one;
         }
         // A row that goes on from a soft wrap continues the word before it unless the characters
         // around the wrap say otherwise. Without the row before it (it is above the screen),
@@ -176,9 +180,9 @@ impl Snapshot {
             word_starts(row.text(), before, row.eol.is_some(), stops_both_ends)
         };
         // The width counts the cell of the mark of the end of the text, where the caret can be.
-        let width = (cols.to_columns(x - origin) + u32::from(row.eol.is_none())) as f32 * unit;
-        let x0 =
-            f64::from((self.left + cols.to_columns(row.start_x) as f32 * self.cell) * self.scale);
+        let end = if row.eol.is_none() { x + one } else { x };
+        let width = device_px.px(end - origin);
+        let x0 = f64::from((self.left + window_px.px(row.start_x)) * self.scale);
         let y0 = f64::from((self.top + index as f32 * self.line_height) * self.scale);
         Run {
             row: row.row,

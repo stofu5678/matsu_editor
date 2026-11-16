@@ -108,8 +108,11 @@ impl EditorView {
         } else {
             at.row
         } + 1;
+        // The status bar counts whole columns: the `X` of the caret over the width of a column,
+        // rounded down (`CCaret::ShowCaretPosInfo`: `GetCaretLayoutPos().GetX() / dx`).
+        let widths = self.layout.config().width;
         let Some(info) = info else {
-            return (line, self.caret_column(cx) + 1);
+            return (line, widths.to_columns(self.caret_x(cx)) + 1);
         };
         // In a very long line (ADR-0020, 9.10) the part of the line before the row is not read:
         // its bytes stand for its columns, which is right for narrow characters.
@@ -133,15 +136,13 @@ impl EditorView {
                     .layout
                     .rows(doc, at.row - before, before)
                     .unwrap_or_default();
-                let widths = self.layout.config().width;
                 rows.iter()
                     .map(|r| widths.to_columns(r.end_x.saturating_sub(r.start_x)))
                     .sum()
             };
-            let indent = self.layout.config().width.to_columns(info.start_x);
-            wide + self.caret_column(cx).saturating_sub(indent)
+            wide + widths.to_columns(self.caret_x(cx).saturating_sub(info.start_x))
         } else {
-            self.caret_column(cx)
+            widths.to_columns(self.caret_x(cx))
         };
         (line, column + 1)
     }
@@ -185,9 +186,11 @@ impl EditorView {
             let Some(((a, a_col), (c, c_col))) = cursor.box_corners() else {
                 return Some("box selecting".to_owned());
             };
-            // The width in columns, and in the pixels of the view.
-            let cols = a_col.abs_diff(c_col);
-            let px = (cols as f32 * self.metrics.cell_width).round() as i64;
+            // The width in columns (`select_col / GetLayoutXDefault()`), and in the pixels of the
+            // view (Sakura's `X` is the pixels).
+            let width = matsu_commands::context::cursor_x(a_col.abs_diff(c_col));
+            let cols = self.layout.config().width.to_columns(width);
+            let px = self.x_scale().px(width).round() as i64;
             return Some(format!(
                 "{cols} col ({px}px) * {} lines selected.",
                 rows(a, c)

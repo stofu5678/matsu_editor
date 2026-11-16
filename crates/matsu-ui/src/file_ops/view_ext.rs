@@ -7,11 +7,11 @@ use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
 use matsu_core::encoding::Encoding;
 use matsu_core::file::{FileError, SaveOptions, SaveReport, no_progress};
-use matsu_layout::{DocumentLayout, LayoutConfig};
+use matsu_layout::DocumentLayout;
 
 use crate::document::SharedDocument;
 use crate::layout_adapter::LAYOUT_BUDGET;
-use crate::view::EditorView;
+use crate::view::{EditorView, initial_layout_config};
 
 use super::{load, start};
 
@@ -50,8 +50,8 @@ impl EditorView {
         self.document
             .update(cx, |shared, _| shared.lock_after_load(share_mode));
         let doc = self.document.read(cx).doc();
-        let mut layout = DocumentLayout::new(doc, LayoutConfig::default()).unwrap_or_else(|_| {
-            DocumentLayout::new(&Document::empty(), LayoutConfig::default())
+        let mut layout = DocumentLayout::new(doc, initial_layout_config()).unwrap_or_else(|_| {
+            DocumentLayout::new(&Document::empty(), initial_layout_config())
                 .expect("the layout of an empty document")
         });
         let _ = layout.layout_for(doc, LAYOUT_BUDGET);
@@ -79,7 +79,7 @@ impl EditorView {
         self.grep.forget_result();
         // The new document may be of another type (matsu.ini): then it has that type's font, wrap
         // and colors. Reloading the same type (reopen) keeps the temporary settings (zoom, wrap);
-        // only the layout, which `LayoutConfig::default()` above reset, is brought back.
+        // only the layout, which `initial_layout_config()` above reset, is brought back.
         // The type the user chose (`F_CHANGETYPE`) lasts until a file is loaded (`SetDocumentType`
         // with `force`).
         // (`replace_with` above made a document that is not locked.)

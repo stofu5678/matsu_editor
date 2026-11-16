@@ -5,7 +5,7 @@
 - 「キーマクロに記録」は、どの行も「しない」です。
 - 言葉の決まりは、[文書と選択の状態](document.md)の最初と同じです。行は「文書の行」と「折り返しの行」、桁は「表示桁」と「文字の位置」を使い分けます。数はどれも 1 から数えます。
 - 折り返さない設定のときは、折り返しの行と文書の行が同じです。
-- 表示桁を渡す・返す関数（`LineColumnToIndex`、`LineIndexToColumn`、`GetStrLayoutLength`、`GetSelectColumnFrom`、`GetSelectColumnTo`、`MoveCursorLayout`）は、サクラエディタと同じく、レイアウトの単位で数えます。半角 1 文字の幅が `GetDefaultCharLength` で、これで割ると桁の数になります。いまの MATSU Editor は、半角 1 文字を 1 と数えるので、表示桁と同じ数です。`GetStrWidth`・`GetViewColumns`・タブ幅・折り返し桁は、桁の数のままです（サクラエディタも同じ）。
+- 表示桁を渡す・返す関数（`LineColumnToIndex`、`LineIndexToColumn`、`GetStrLayoutLength`、`GetSelectColumnFrom`、`GetSelectColumnTo`、`MoveCursorLayout`）は、サクラエディタと同じく、レイアウトの単位で数えます。半角 1 文字の幅が `GetDefaultCharLength` で、これで割ると桁の数になります。MATSU Editor は、半角 1 文字を 64 と数えます（文字の間隔を設定した型では、64 に間隔ぶんが足されます）。たとえば半角 3 文字ぶんの表示桁は 192 です。`GetStrWidth`・`GetViewColumns`・タブ幅・折り返し桁は、桁の数のままです（サクラエディタも同じ）。
 
 ## 折り返しの行と文書の行の換算
 
@@ -25,7 +25,7 @@
 |---|---|---|---|---|---|
 | `GetStrWidth` | 1 文字列、2 開始桁?（数。省くと 1） | 数 | 文字列の幅（セルの数）。開始桁は、タブの幅を決めるために使う | しない | 末尾の CR LF は、CR だけとして数える |
 | `GetStrLayoutLength` | 1 文字列、2 開始桁?（数。省くと 1） | 数 | 文書の 1 行として数えたときの幅（レイアウトの単位）。末尾の改行（CR LF、CR、LF、NEL、LS、PS）は、種類にかかわらず 1 桁分 | しない | 違いなし |
-| `GetDefaultCharLength` | なし | 数 | 半角 1 文字の幅（レイアウトの単位） | しない | いまは 1。サクラエディタはフォントの幅 + 字間（ピクセル）で答える。MATSU Editor は、半角 1 文字の幅を、レイアウトの単位の 1 桁として数える |
+| `GetDefaultCharLength` | なし | 数 | 半角 1 文字の幅（レイアウトの単位） | しない | いまは 64（文字の間隔があれば、その分が足される）。サクラエディタはフォントの幅 + 字間（ピクセル）で答える。MATSU Editor は、半角の幅の 1/64 をレイアウトの単位とする（ADR-0034） |
 
 - タブは、開始桁から次のタブ位置までの幅になります。タブ幅は、そのウィンドウのいまの設定です。
 - 全角の文字は 2、半角は 1 です。

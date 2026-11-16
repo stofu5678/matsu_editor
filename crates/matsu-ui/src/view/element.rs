@@ -1,8 +1,9 @@
 //! The element that paints the rows in view: line numbers, selection, text, Sakura's marks, the
 //! caret, the IME underline and the scroll bar. It shapes only the rows on the screen.
 //!
-//! Every position comes from the layout in columns and is turned into pixels with the width of a
-//! half-width character, so the caret and the selection stay on the grid whatever the font does.
+//! Every position comes from the layout in `X` and is turned into pixels with the width of a
+//! half-width character (`XScale`), so the caret and the selection stay on the grid whatever the
+//! font does.
 //! Sakura draws the marks that this paints in `sakura_core/view/figures/` (`CFigure_Tab.cpp`,
 //! `CFigure_ZenSpace.cpp`, `CFigure_Eol.cpp`).
 //!
@@ -20,8 +21,9 @@ use gpui::{
     TextRun, UnderlineStyle, Window, fill, point, px, relative, rgb, size,
 };
 use matsu_coloring::ColorState;
+use matsu_commands::context::cursor_x;
 use matsu_core::buffer::Eol;
-use matsu_layout::{LayoutConfig, RowInfo};
+use matsu_layout::{LayoutConfig, RowInfo, X};
 use matsu_print::LineTerm;
 
 use super::caret_shape::{CaretShape, caret_shape};
@@ -30,10 +32,10 @@ use super::syntax::{self, Label, Style as TextStyle};
 use super::{EditorView, PaintInfo, a11y_text, bracket_marks, diff_mark, lines, ruler};
 use crate::geometry::{
     HSCROLL_ARROW, HSCROLLBAR_HEIGHT, HScrollbar, Metrics, SCROLLBAR_WIDTH, SPLIT_BOX, Scrollbar,
-    VSCROLL_ARROW, column_width, row_height,
+    VSCROLL_ARROW, XScale, column_width, row_height,
 };
-use crate::hit::selected_columns;
-use crate::search::highlight::{highlight_columns, slot_of};
+use crate::hit::selected_x;
+use crate::search::highlight::{highlight_ranges, slot_of};
 use crate::settings::view_settings::{TabMark, rgb_of};
 use crate::settings::{Colors, DiffColor, Marks};
 use matsu_config::settings::color::ColorEntry;
@@ -77,28 +79,28 @@ fn wide_long_arrow(mark: &TabMark, cols: u32) -> bool {
     cols > MAX_TAB_MARK_COLUMNS && matches!(mark, TabMark::LongArrow)
 }
 
-/// A shaped piece and the column where it goes. A character of spaced text has its underline
-/// apart from the glyph, over all its columns, so that the underline has no gaps; a space has
+/// A shaped piece and the place where it goes. A character of spaced text has its underline
+/// apart from the glyph, over all its width, so that the underline has no gaps; a space has
 /// no glyph.
 struct Placed {
-    col: u32,
+    x: X,
     line: Option<ShapedLine>,
-    /// The columns the underline covers and its color.
-    underline: Option<(u32, u32)>,
+    /// The width the underline covers and its color.
+    underline: Option<(X, u32)>,
 }
 
-/// Paints a piece of text: its glyphs at its column, then its underline.
+/// Paints a piece of text: its glyphs at its place, then its underline.
 fn paint_placed(
     window: &mut Window,
     cx: &mut App,
     placed: &Placed,
-    x_of: &dyn Fn(u32) -> Pixels,
+    x_of: &dyn Fn(X) -> Pixels,
     y: Pixels,
     lh: Pixels,
 ) {
     if let Some(line) = &placed.line {
         line.paint(
-            point(x_of(placed.col), y),
+            point(x_of(placed.x), y),
             lh,
             TextAlign::Left,
             None,
@@ -107,11 +109,11 @@ fn paint_placed(
         )
         .ok();
     }
-    if let Some((cols, color)) = placed.underline {
+    if let Some((width, color)) = placed.underline {
         window.paint_quad(fill(
             Bounds::from_corners(
-                point(x_of(placed.col), y + lh - px(3.)),
-                point(x_of(placed.col + cols), y + lh - px(2.)),
+                point(x_of(placed.x), y + lh - px(3.)),
+                point(x_of(placed.x + width), y + lh - px(2.)),
             ),
             rgb(color),
         ));
@@ -241,7 +243,7 @@ enum Term {
 }
 
 struct RowPaint {
-    selection: Option<(u32, u32)>,
+    selection: Option<(X, X)>,
     /// The line number pieces and how far right of the left edge of the numbers each goes.
     numbers: Vec<(f32, ShapedLine)>,
     /// The line number separator of the row, if the type has one and the row has a layout.
@@ -262,26 +264,26 @@ struct RowPaint {
     /// The background of the whole row, when it is not the one of the text: the caret line and
     /// the odd rows (`CBK`, `EBK`).
     row_background: Option<u32>,
-    /// The backgrounds of pieces of text that are not the text's: from and to column, and color.
-    backs: Vec<(u32, u32, u32)>,
+    /// The backgrounds of pieces of text that are not the text's: from and to, and color.
+    backs: Vec<(X, X, u32)>,
     /// The backgrounds of the selected parts of the pieces.
-    selected_backs: Vec<(u32, u32, u32)>,
+    selected_backs: Vec<(X, X, u32)>,
     /// Underlines under the mark of a tab or a space, from the text around it.
-    underlines: Vec<(u32, u32, u32)>,
+    underlines: Vec<(X, X, u32)>,
     text: Vec<Placed>,
     /// The same pieces in the colors of selected text, when the row has a selection.
     selected_text: Vec<Placed>,
     marks: Vec<Placed>,
-    /// The columns of the IME composition on this row.
-    marked: Option<(u32, u32)>,
+    /// The span of the IME composition on this row.
+    marked: Option<(X, X)>,
 }
 
 /// A bracket of the pair drawn in the color `BRC`.
 struct BracketPaint {
     /// The index in `rows`.
     row: usize,
-    col: u32,
-    cols: u32,
+    x: X,
+    width: X,
     /// The fill under the bracket.
     back: u32,
     text: ShapedLine,
@@ -325,8 +327,8 @@ pub(super) struct Prepaint {
     ruler: Option<RulerPaint>,
     lines: LinesPaint,
     brackets: Vec<BracketPaint>,
-    /// The index in `rows`, the column and the shape of the caret (`caret_shape`).
-    caret: Option<(usize, u32, CaretShape)>,
+    /// The index in `rows`, where and the shape of the caret (`caret_shape`).
+    caret: Option<(usize, X, CaretShape)>,
     colors: Colors,
     show_line_numbers: bool,
     /// The width of the line numbers and what is right of them up to the text: the line number
@@ -337,6 +339,8 @@ pub(super) struct Prepaint {
     /// The bookmark color is shown (see `Marks::bookmark`).
     bookmark_colored: bool,
     cell: f32,
+    /// The pixels of the layout's `X`.
+    scale: XScale,
     line_height: f32,
     gutter_width: f32,
     y_offset: f32,
@@ -357,72 +361,71 @@ impl IntoElement for EditorElement {
     }
 }
 
-/// How text is put on the columns: the width of a column in pixels, and whether the columns have
-/// spacing.
+/// How text is put on the layout: the pixels of `X`, and whether the columns have spacing.
 struct Grid {
-    cell: f32,
+    scale: XScale,
     /// The columns have spacing (a font cannot space its glyphs).
     spaced: bool,
-    /// The columns the window shows, with a margin: characters placed one by one outside them
+    /// The part of a row the window shows, with a margin: characters placed one by one outside it
     /// are left out (a row can have thousands of columns).
-    visible: std::ops::Range<u32>,
+    visible: std::ops::Range<X>,
 }
 
-/// The characters of `label` with the column each starts at and the columns it covers: what
+/// The characters of `label` with the position each starts at and the width it covers: what
 /// matsu-layout gives them, one character (a code point) at a time.
-fn glyph_cells(col: u32, label: &str, width_of: impl Fn(char) -> u32) -> Vec<(u32, char, u32)> {
-    let mut col = col;
+fn glyph_cells(x: X, label: &str, width_of: impl Fn(char) -> X) -> Vec<(X, char, X)> {
+    let mut x = x;
     label
         .chars()
         .map(|c| {
-            let cols = width_of(c);
-            let cell = (col, c, cols);
-            col += cols;
+            let width = width_of(c);
+            let cell = (x, c, width);
+            x += width;
             cell
         })
         .collect()
 }
 
-/// The `cols` columns from `col` are in the range of columns shown.
-fn overlaps(col: u32, cols: u32, shown: &std::ops::Range<u32>) -> bool {
-    col + cols > shown.start && col < shown.end
+/// The `width` from `x` overlaps the range shown.
+fn overlaps(x: X, width: X, shown: &std::ops::Range<X>) -> bool {
+    x + width > shown.start && x < shown.end
 }
 
 /// The pieces `place` shapes and puts one by one: the extended grapheme clusters of `label`
 /// (UAX 29, `unicode-segmentation`: marks, variation selectors, ZWJ sequences, flags, skin tones,
 /// Hangul jamo, Prepend, Indic conjuncts), with the neighbors of a script that shapes its letters
-/// together ([`complex_script`]) joined into one piece. Each piece has the column of its first
-/// character, its bytes in the label and the columns of all of them. A font draws such a piece as
+/// together ([`complex_script`]) joined into one piece. Each piece has the position of its first
+/// character, its bytes in the label and the width of all of them. A font draws such a piece as
 /// one glyph, which shaping the characters one by one would break. Ligatures of other scripts
 /// (fi) are not kept. `cells` are the characters of `label` ([`glyph_cells`]).
-fn clusters(label: &str, cells: &[(u32, char, u32)]) -> Vec<(u32, std::ops::Range<usize>, u32)> {
+fn clusters(label: &str, cells: &[(X, char, X)]) -> Vec<(X, std::ops::Range<usize>, X)> {
     use unicode_segmentation::UnicodeSegmentation;
-    let mut out: Vec<(u32, std::ops::Range<usize>, u32)> = Vec::with_capacity(cells.len());
+    let mut out: Vec<(X, std::ops::Range<usize>, X)> = Vec::with_capacity(cells.len());
     let mut cells = cells.iter();
     let mut after_complex = false;
     let mut after_virama = false;
     for (start, grapheme) in label.grapheme_indices(true) {
         let end = start + grapheme.len();
         let first = grapheme.chars().next().unwrap_or(' ');
-        let (mut col, mut cols) = (None, 0);
+        let (mut at, mut width) = (None, X::ZERO);
         // the characters of this grapheme, in the same order as in the cells
         let mut left = grapheme.len();
         while left > 0 {
-            let Some(&(c_col, c, c_cols)) = cells.next() else {
+            let Some(&(c_x, c, c_width)) = cells.next() else {
                 break;
             };
-            col.get_or_insert(c_col);
-            cols += c_cols;
+            at.get_or_insert(c_x);
+            width += c_width;
             left = left.saturating_sub(c.len_utf8());
         }
-        let Some(col) = col else { break };
+        let Some(at) = at else { break };
         let complex = complex_script(first);
         match out.last_mut() {
             Some(last) if after_virama || (after_complex && complex) => {
                 last.1.end = end;
-                last.2 += cols;
+                last.2 += width;
             }
-            _ => out.push((col, start..end, cols)),
+            _ => out.push((at, start..end, width)),
         }
         after_complex = complex;
         after_virama = grapheme.chars().next_back().is_some_and(is_virama);
@@ -471,34 +474,34 @@ fn is_virama(c: char) -> bool {
     )
 }
 
-/// A shaped piece of text goes on the columns as it is when its advance is the width of its
-/// columns (BIZ UDGothic, MS Gothic: the full-width glyphs are twice the half-width ones).
-/// A font with other proportions (a fallback font, Menlo, Meiryo) would drift off the columns
-/// that the caret, the line break mark and the ruler are placed on.
-fn fits_columns(advance: f32, columns: u32, cell: f32) -> bool {
-    (advance - columns as f32 * cell).abs() < 0.5
+/// A shaped piece of text goes on the layout as it is when its advance is the width the layout
+/// gives it (BIZ UDGothic, MS Gothic: the full-width glyphs are twice the half-width ones).
+/// A font with other proportions (a fallback font, Menlo, Meiryo) would drift off the places
+/// that the caret, the line break mark and the ruler are put at.
+fn fits_width(advance: f32, width: X, scale: XScale) -> bool {
+    (advance - scale.px(width)).abs() < 0.5
 }
 
-/// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece when the columns have no
-/// spacing and the font's advances fit them ([`fits_columns`]), else as a piece for each
+/// Puts the shaped `label` (at `x`, in `style`) in `out`: as one piece when the columns have no
+/// spacing and the font's advances fit them ([`fits_width`]), else as a piece for each
 /// character (with the marks and the emoji joiners that go with it, see [`clusters`]), at its
-/// own column. Sakura draws each character of a row at its own place
+/// own place. Sakura draws each character of a row at its own place
 /// (`CTextDrawer::DispText` with the dx array), whatever the advances of the font are.
 fn place(
     window: &mut Window,
     out: &mut Vec<Placed>,
-    (col, label, style): (u32, &str, &TextStyle),
-    width_of: impl Fn(char) -> u32,
+    (x, label, style): (X, &str, &TextStyle),
+    width_of: impl Fn(char) -> X,
     grid: &Grid,
     shape: &dyn Fn(&mut Window, &str, &TextStyle) -> ShapedLine,
 ) {
-    let glyphs = glyph_cells(col, label, width_of);
+    let glyphs = glyph_cells(x, label, width_of);
     if !grid.spaced {
         let whole = shape(window, label, style);
-        let columns = glyphs.iter().map(|g| g.2).sum();
-        if fits_columns(f32::from(whole.width()), columns, grid.cell) {
+        let total: X = glyphs.iter().map(|g| g.2).sum();
+        if fits_width(f32::from(whole.width()), total, grid.scale) {
             out.push(Placed {
-                col,
+                x,
                 line: Some(whole),
                 underline: None,
             });
@@ -511,12 +514,12 @@ fn place(
         underline: false,
         ..*style
     };
-    for (col, bytes, cols) in clusters(label, &glyphs) {
-        if !overlaps(col, cols, &grid.visible) {
+    for (x, bytes, width) in clusters(label, &glyphs) {
+        if !overlaps(x, width, &grid.visible) {
             continue;
         }
         let text = &label[bytes];
-        let underline = style.underline.then_some((cols, style.text));
+        let underline = style.underline.then_some((width, style.text));
         let blank = text.chars().all(char::is_whitespace);
         if blank {
             // A space has nothing to paint but its underline, which joins the one before it:
@@ -525,18 +528,18 @@ fn place(
                 (None, _) => continue,
                 (Some(_), Some(last))
                     if last.line.is_none()
-                        && last.underline.is_some_and(|(n, color)| {
-                            last.col + n == col && color == style.text
-                        }) =>
+                        && last
+                            .underline
+                            .is_some_and(|(n, color)| last.x + n == x && color == style.text) =>
                 {
-                    last.underline = last.underline.map(|(n, color)| (n + cols, color));
+                    last.underline = last.underline.map(|(n, color)| (n + width, color));
                     continue;
                 }
                 _ => {}
             }
         }
         out.push(Placed {
-            col,
+            x,
             line: (!blank).then(|| shape(window, text, &glyph_style)),
             underline,
         });
@@ -663,17 +666,20 @@ impl Element for EditorElement {
         let half = if half > 0.0 { half } else { 8.0 };
         let cell = column_width(half, settings.column_space);
         let spaced = settings.column_space > 0;
-        let first_visible = (editor.scroll_x / cell).floor().max(0.0) as u32;
-        let shown_columns = (f32::from(bounds.size.width) / cell).ceil() as u32;
-        let grid = &Grid {
-            cell,
-            spaced,
-            visible: first_visible.saturating_sub(4)
-                ..first_visible
-                    .saturating_add(shown_columns)
-                    .saturating_add(4),
-        };
         let widths = layout.config().width;
+        let scale = XScale::new(cell, widths.per_column());
+        let first_visible = scale.column_start(editor.scroll_x);
+        let shown_columns = (f32::from(bounds.size.width) / cell).ceil() as u32;
+        let margin = widths.to_x(4);
+        let grid = &Grid {
+            scale,
+            spaced,
+            visible: first_visible.saturating_sub(margin)
+                ..first_visible + widths.to_x(shown_columns) + margin,
+        };
+        // What one column is in `X`, for what is one column wide in any width (the line break
+        // mark, the caret of the end of a line).
+        let one = widths.to_x(1);
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
         let y_offset = -(editor.scroll_y - line_height * first_row as f32);
@@ -732,7 +738,7 @@ impl Element for EditorElement {
             .matcher()
             .filter(|_| search.mark() && shown_found > 0)
         {
-            Some(matcher) => highlight_columns(layout, doc, &rows, &**matcher, &|text| {
+            Some(matcher) => highlight_ranges(layout, doc, &rows, &**matcher, &|text| {
                 slot_of(words.and_then(|w| w.word_slot(text)), shown_found)
             }),
             None => Vec::new(),
@@ -753,10 +759,9 @@ impl Element for EditorElement {
         let version = editor.document.read(cx).version();
         let mut carried: Option<(usize, ColorState)> = None;
         for (row_index, row) in rows.iter().enumerate() {
-            // The layout counts in `X`; the painting is in columns (ADR-0034 stage 3 changes that).
-            let (start_col, end_col) =
-                (widths.to_columns(row.start_x), widths.to_columns(row.end_x));
-            widest = widest.max(end_col);
+            let (start_x, end_x) = (row.start_x, row.end_x);
+            // The scroll range is in columns: all of the row has to be reachable.
+            widest = widest.max(widths.to_columns_ceil(end_x));
             let bookmarked = !row.is_eof_row && bookmarks.contains(row.line);
             // the empty row after the last line break is no line (Sakura has no layout for it)
             let modified = !row.is_eof_row && model.is_line_modified(row.line);
@@ -788,7 +793,7 @@ impl Element for EditorElement {
                         .filter(|(_, c)| *c != ' ')
                         .map(|(i, c)| {
                             (
-                                i as f32 * cell,
+                                scale.columns_px(i as u32),
                                 shape_number(window, &c.to_string(), style.text, style.bold),
                             )
                         })
@@ -800,10 +805,8 @@ impl Element for EditorElement {
                 Vec::new()
             };
             let selected = match &box_area {
-                Some(area) => area.columns_on(row.row),
-                None => {
-                    selection.and_then(|s| selected_columns(layout, doc, row, s).ok().flatten())
-                }
+                Some(area) => area.range_on(row.row),
+                None => selection.and_then(|s| selected_x(layout, doc, row, s).ok().flatten()),
             };
             let row_found = found.next().unwrap_or_default();
             let row_back =
@@ -867,7 +870,7 @@ impl Element for EditorElement {
                 rules,
                 &syntax::RowInput {
                     text: row.text(),
-                    start_col,
+                    start_x,
                     cfg: layout.config(),
                     runs: &row_runs,
                     found: &row_found,
@@ -879,41 +882,45 @@ impl Element for EditorElement {
             let mut selected_text = Vec::new();
             for item in &styling.items {
                 let tab_text;
-                let mut label_col = item.col;
+                let mut label_x = item.x;
                 let label = match &item.label {
                     Label::Text(text) => text.as_str(),
-                    Label::Tab(cols) => {
+                    Label::Tab(width) => {
+                        // The mark of a tab is a glyph for each column of its width.
+                        let cols = widths.to_columns(*width);
                         // A tab in a very wide field of the TSV or CSV mode is drawn only where
                         // the window shows it; the head of a long arrow is placed at the true
                         // end of the tab below.
-                        tab_text = if wide_long_arrow(&settings.tab_mark, *cols) {
-                            let first = (editor.scroll_x / cell).floor().max(0.0) as u32;
+                        tab_text = if wide_long_arrow(&settings.tab_mark, cols) {
+                            let first = scale.column_start(editor.scroll_x);
                             let shown = (f32::from(bounds.size.width) / cell).ceil() as u32 + 2;
-                            let from = item.col.max(first.saturating_sub(1));
-                            let to = (item.col + *cols - 1).min(first.saturating_add(shown));
-                            label_col = from;
-                            "\u{2500}".repeat(to.saturating_sub(from) as usize)
+                            let from = item.x.max(first.saturating_sub(one));
+                            let to = (item.x + *width)
+                                .saturating_sub(one)
+                                .min(first + widths.to_x(shown));
+                            label_x = from;
+                            "\u{2500}".repeat(widths.to_columns(to.saturating_sub(from)) as usize)
                         } else {
-                            settings.tab_mark.text((*cols).min(MAX_TAB_MARK_COLUMNS))
+                            settings.tab_mark.text(cols.min(MAX_TAB_MARK_COLUMNS))
                         };
                         tab_text.as_str()
                     }
                     Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
                 };
-                // The width of each character of the label in columns: the characters of text
-                // have their own, and so do those of a custom tab mark; the arrows and the mark of a
-                // space are a column each.
+                // The width of each character of the label: the characters of text have their
+                // own, and so do those of a custom tab mark; the arrows and the mark of a space
+                // are a column each.
                 let width_of = |c: char| match item.label {
-                    Label::Text(_) => widths.columns(c),
+                    Label::Text(_) => widths.width_of(c),
                     // the arrows are a column each, whatever the width rule says of them
-                    Label::Tab(_) if !matches!(c, '\u{2192}' | '\u{2500}') => widths.columns(c),
-                    _ => 1,
+                    Label::Tab(_) if !matches!(c, '\u{2192}' | '\u{2500}') => widths.width_of(c),
+                    _ => one,
                 };
                 if let Some(selected_style) = &item.selected {
                     place(
                         window,
                         &mut selected_text,
-                        (label_col, label, selected_style),
+                        (label_x, label, selected_style),
                         width_of,
                         grid,
                         &shape_styled,
@@ -922,21 +929,21 @@ impl Element for EditorElement {
                 place(
                     window,
                     &mut text,
-                    (label_col, label, &item.style),
+                    (label_x, label, &item.style),
                     width_of,
                     grid,
                     &shape_styled,
                 );
-                if let Label::Tab(cols) = item.label
-                    && wide_long_arrow(&settings.tab_mark, cols)
+                if let Label::Tab(width) = item.label
+                    && wide_long_arrow(&settings.tab_mark, widths.to_columns(width))
                 {
-                    let head = (item.col + cols - 1, "\u{2192}");
+                    let head = (item.x + width.saturating_sub(one), "\u{2192}");
                     if let Some(selected_style) = &item.selected {
                         place(
                             window,
                             &mut selected_text,
                             (head.0, head.1, selected_style),
-                            |_: char| 1,
+                            |_: char| one,
                             grid,
                             &shape_styled,
                         );
@@ -945,7 +952,7 @@ impl Element for EditorElement {
                         window,
                         &mut text,
                         (head.0, head.1, &item.style),
-                        |_: char| 1,
+                        |_: char| one,
                         grid,
                         &shape_styled,
                     );
@@ -954,15 +961,15 @@ impl Element for EditorElement {
             let mut marks = Vec::new();
             let mut backs = styling.backs;
             let eof_style = eof_style(&colors.eof_entry);
-            let eof_width = EOF_MARK.chars().count() as u32;
+            let eof_width = widths.to_x(EOF_MARK.chars().count() as u32);
             if row.is_eof_row {
                 if marks_shown.eof {
-                    backs.push((0, eof_width, eof_style.back.unwrap_or_default()));
+                    backs.push((X::ZERO, eof_width, eof_style.back.unwrap_or_default()));
                     place(
                         window,
                         &mut marks,
-                        (0, EOF_MARK, &eof_style),
-                        |_: char| 1,
+                        (X::ZERO, EOF_MARK, &eof_style),
+                        |_: char| one,
                         grid,
                         &shape_styled,
                     );
@@ -972,32 +979,28 @@ impl Element for EditorElement {
                     // The mark is in its own color, or in the color of the text it ends.
                     // A search that matches the line break colors its mark (the match covers the
                     // line ending: `highlight_columns` gives the column of the mark).
-                    let eol_found = row_found.iter().find(|r| r.0 == end_col).map(|r| r.2);
+                    let eol_found = row_found.iter().find(|r| r.0 == end_x).map(|r| r.2);
                     let around = syntax::entry_of(&colors, rules, eol_color, eol_found);
                     let mark = syntax::space_style(&colors.eol_entry, &around, &colors);
                     if let (Some(_), Some(back)) = (eol_found, mark.style.back) {
-                        backs.push((end_col, end_col + 1, back));
+                        backs.push((end_x, end_x + one, back));
                     }
                     place(
                         window,
                         &mut marks,
-                        (end_col, eol_mark(eol), &mark.style),
-                        |_: char| 1,
+                        (end_x, eol_mark(eol), &mark.style),
+                        |_: char| one,
                         grid,
                         &shape_styled,
                     );
                 }
             } else if !row.wrapped && row.line == last_line && marks_shown.eof {
-                backs.push((
-                    end_col,
-                    end_col + eof_width,
-                    eof_style.back.unwrap_or_default(),
-                ));
+                backs.push((end_x, end_x + eof_width, eof_style.back.unwrap_or_default()));
                 place(
                     window,
                     &mut marks,
-                    (end_col, EOF_MARK, &eof_style),
-                    |_: char| 1,
+                    (end_x, EOF_MARK, &eof_style),
+                    |_: char| one,
                     grid,
                     &shape_styled,
                 );
@@ -1012,8 +1015,7 @@ impl Element for EditorElement {
                         layout.pos_to_row(doc, a).ok()?,
                         layout.pos_to_row(doc, b).ok()?,
                     );
-                    (a.row == row.row && b.row == row.row)
-                        .then_some((widths.to_columns(a.x), widths.to_columns(b.x)))
+                    (a.row == row.row && b.row == row.row).then_some((a.x, b.x))
                 });
             let has_number_area = show_line_numbers && !row.is_eof_row;
             let term = if has_number_area {
@@ -1057,11 +1059,11 @@ impl Element for EditorElement {
         // In a box selection, and in the free cursor mode, the caret can be right of the end of
         // the text.
         let options = matsu_commands::edit_options::get();
-        let caret_column = editor
+        let caret_x = editor
             .cursor
             .box_caret_col()
             .or(editor.cursor.free_col().filter(|_| options.free_cursor))
-            .map_or(0, |c| u32::try_from(c).unwrap_or(u32::MAX));
+            .map_or(X::ZERO, cursor_x);
         // While the selected text is dragged, the caret shows where it would drop.
         let caret_at = editor.drop_caret.unwrap_or(editor.cursor.caret());
         let caret = layout.pos_to_row(doc, caret_at).ok().and_then(|at| {
@@ -1073,11 +1075,11 @@ impl Element for EditorElement {
                     let shape = caret_shape(
                         options.dos_caret,
                         overwrite,
-                        overwrite_caret_cells(doc, layout, caret_at),
+                        overwrite_caret_width(doc, layout, caret_at),
                         cell,
                         matsu_platform::caret_width::os_caret_width(),
                     );
-                    (i, caret_column.max(widths.to_columns(at.x)), shape)
+                    (i, caret_x.max(at.x), shape)
                 })
         });
 
@@ -1089,10 +1091,10 @@ impl Element for EditorElement {
         // Text that is selected, or being selected, has no lines of the caret and no pair
         // (`IsTextSelecting`).
         let selecting = editor.cursor.has_selection() || editor.cursor.selecting_lock();
-        let caret_total_column = layout
+        let caret_total_x = layout
             .pos_to_row(doc, caret_pos)
             .ok()
-            .map(|at| caret_column.max(widths.to_columns(at.x)));
+            .map(|at| caret_x.max(at.x));
 
         // The right end of the selection, which the range of the horizontal scroll bar covers when
         // the text does not wrap (`GetRightEdgeForScrollBar`), and the caret of the free cursor.
@@ -1101,13 +1103,8 @@ impl Element for EditorElement {
             .selection()
             .into_iter()
             .flat_map(|(from, to)| [from, to])
-            .filter_map(|pos| {
-                layout
-                    .pos_to_row(doc, pos)
-                    .ok()
-                    .map(|at| widths.to_columns(at.x))
-            })
-            .chain(options.free_cursor.then_some(caret_total_column).flatten())
+            .filter_map(|pos| layout.pos_to_row(doc, pos).ok().map(|at| at.x))
+            .chain(options.free_cursor.then_some(caret_total_x).flatten())
             // A box selection can end right of the text: its corners have columns of their own.
             .chain(
                 [
@@ -1116,10 +1113,10 @@ impl Element for EditorElement {
                 ]
                 .into_iter()
                 .flatten()
-                .map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
+                .map(cursor_x),
             )
             .max()
-            .unwrap_or(0);
+            .map_or(0, |edge| widths.to_columns_ceil(edge));
 
         let mut lines_paint = LinesPaint::default();
         let vertical = colors.vert_line_entry;
@@ -1154,8 +1151,8 @@ impl Element for EditorElement {
         let caret_line = colors.cursor_vline_entry;
         if caret_line.disp
             && !selecting
-            && let Some(x) = caret_total_column
-                .and_then(|c| lines::cursor_vline_x(c, cell, scroll_x, view_width))
+            && let Some(x) = caret_total_x
+                .and_then(|at| lines::cursor_vline_x(scale.px(at), scroll_x, view_width))
         {
             lines_paint.caret_column.push(x);
             if caret_line.bold
@@ -1175,12 +1172,12 @@ impl Element for EditorElement {
         let ruler_entry = colors.ruler_entry;
         let ruler_paint = (ruler_entry.disp && settings.ruler_px() > 0).then(|| {
             let height = settings.ruler_px();
-            let scale = ruler::scale(height, cell, scroll_x, view_width, max_columns);
+            let ruler_scale = ruler::scale(height, cell, scroll_x, view_width, max_columns);
             let color = rgb_of(ruler_entry.text);
             let background = rgb_of(ruler_entry.back);
             // The numbers are a little smaller than the ruler is high (`lfHeight = 1 - height`).
             let size = px(height.saturating_sub(1).max(1) as f32);
-            let numbers = scale
+            let numbers = ruler_scale
                 .ticks
                 .iter()
                 .filter_map(|tick| {
@@ -1195,10 +1192,12 @@ impl Element for EditorElement {
                 height: height as f32,
                 background,
                 color,
-                scale,
+                scale: ruler_scale,
                 numbers,
-                caret: caret_total_column
-                    .and_then(|c| ruler::caret_mark(height, c, cell, scroll_x, view_width))
+                caret: caret_total_x
+                    .and_then(|at| {
+                        ruler::caret_mark(height, scale.px(at), cell, scroll_x, view_width)
+                    })
                     .map(|mark| (mark, ruler::caret_color(background, focused))),
             }
         });
@@ -1211,8 +1210,9 @@ impl Element for EditorElement {
             let screen = bracket_marks::Screen {
                 first_row,
                 last_row: first_row + rows_shown - 1,
-                first_col: (scroll_x / cell).floor().max(0.0) as u32,
-                last_col: ((scroll_x + view_width) / cell).floor() as u32,
+                first_x: scale.column_start(scroll_x),
+                // the end of the column that the right edge of the text area is in
+                end_x: scale.column_start(scroll_x + view_width) + one,
             };
             let bracket_style = TextStyle::of(&bracket_entry, &colors);
             for mark in bracket_marks::marks(doc, layout, caret_pos, screen) {
@@ -1227,8 +1227,8 @@ impl Element for EditorElement {
                     syntax::row_background(&colors, mark.row, caret_row_index == Some(mark.row));
                 brackets.push(BracketPaint {
                     row,
-                    col: mark.col,
-                    cols: mark.cols,
+                    x: mark.x,
+                    width: mark.width,
                     back: bracket_style.back.unwrap_or(row_back),
                     text: shape_styled(window, &mark.ch.to_string(), &bracket_style),
                 });
@@ -1237,7 +1237,7 @@ impl Element for EditorElement {
 
         // What the screen readers get (`a11y_text.rs`): the rows move, nothing is copied. The
         // strings are made only when a screen reader asks.
-        let scale = window.scale_factor();
+        let window_scale = window.scale_factor();
         // Not the row of the overscan below the screen: its text is not seen, and a caret there is
         // out of the view. A row cut by the edge stays.
         rows.truncate(((body_height - y_offset) / line_height).ceil().max(0.0) as usize);
@@ -1267,7 +1267,7 @@ impl Element for EditorElement {
             top: f32::from(bounds.origin.y) + top_margin + y_offset,
             cell,
             line_height,
-            scale,
+            scale: window_scale,
         });
 
         Prepaint {
@@ -1284,6 +1284,7 @@ impl Element for EditorElement {
             digits,
             bookmark_colored: marks_shown.bookmark,
             cell,
+            scale,
             line_height,
             gutter_width,
             y_offset,
@@ -1357,7 +1358,7 @@ impl Element for EditorElement {
                 (bounds.size.height - px(p.top_margin) - px(p.hbar_height)).max(px(0.)),
             ),
         );
-        let x_of = |col: u32| origin_x + px(col as f32 * p.cell - scroll_x);
+        let x_of = |x: X| origin_x + px(p.scale.px(x) - scroll_x);
 
         window.paint_quad(fill(bounds, rgb(p.colors.background)));
         // The background image, under everything that follows (`OnPaint`: `DrawBackImage` first).
@@ -1631,8 +1632,8 @@ impl Element for EditorElement {
                     // The brackets of the pair: the character again, in the color of `BRC`.
                     for bracket in p.brackets.iter().filter(|b| b.row == i) {
                         let cell = Bounds::from_corners(
-                            point(x_of(bracket.col), y),
-                            point(x_of(bracket.col + bracket.cols), y + lh),
+                            point(x_of(bracket.x), y),
+                            point(x_of(bracket.x + bracket.width), y + lh),
                         );
                         // The rectangle that clears the cell and the image painted in it are
                         // given the same whole device pixels: GPUI paints the edge of a
@@ -1668,7 +1669,7 @@ impl Element for EditorElement {
                         bracket
                             .text
                             .paint(
-                                point(x_of(bracket.col), y),
+                                point(x_of(bracket.x), y),
                                 lh,
                                 TextAlign::Left,
                                 None,
@@ -1743,7 +1744,7 @@ impl Element for EditorElement {
                         rgb(color),
                     ));
                 }
-                if let Some((i, col, shape)) = p.caret
+                if let Some((i, at, shape)) = p.caret
                     && focus_handle.is_focused(window)
                 {
                     let y = body_top + px(p.y_offset) + lh * i as f32;
@@ -1752,14 +1753,14 @@ impl Element for EditorElement {
                     // block is see-through to show the char; it sits at the bottom of the row.
                     let (width, height, color) = match shape {
                         CaretShape::Bar { width } => (px(width), lh, rgb(p.colors.caret)),
-                        CaretShape::Block { cells, half } => (
-                            px(cells as f32 * p.cell),
+                        CaretShape::Block { width, half } => (
+                            px(p.scale.px(width)),
                             if half { lh / 2. } else { lh },
                             gpui::rgba((p.colors.caret << 8) | CARET_BLOCK_ALPHA),
                         ),
                     };
                     window.paint_quad(fill(
-                        Bounds::new(point(x_of(col), y + lh - height), size(width, height)),
+                        Bounds::new(point(x_of(at), y + lh - height), size(width, height)),
                         color,
                     ));
                 }
@@ -1933,7 +1934,7 @@ impl Element for EditorElement {
                 redraw |= editor.scroll_x != before;
             }
             // Wrapping at the right edge: the width is known only now.
-            if editor.wrap_is_stale() {
+            if editor.layout_is_stale() {
                 redraw = true;
             }
             if redraw {
@@ -2081,28 +2082,29 @@ fn paint_hscrollbar(
     }
 }
 
-/// The width in columns of the caret in overwrite mode. Sakura (`CCaret::ShowEditCaret`) makes it
-/// as wide as the char under the caret, and one half-width column at the end of a line or the
-/// document and over a tab.
-fn overwrite_caret_cells(
+/// The width of the caret in overwrite mode. Sakura (`CCaret::ShowEditCaret`) makes it as wide as
+/// the char under the caret, and one half-width column at the end of a line or the document and
+/// over a tab.
+fn overwrite_caret_width(
     doc: &matsu_core::buffer::Document,
     layout: &matsu_layout::DocumentLayout,
     caret: matsu_core::buffer::Pos,
-) -> u32 {
+) -> X {
+    let widths = layout.config().width;
     let Some(c) = doc
         .rest_of_line(caret.line, caret.col, 8)
         .ok()
         .flatten()
         .and_then(|(rest, _)| rest.chars().next())
     else {
-        return 1;
+        return widths.to_x(1);
     };
     if c == '\t' {
-        return 1;
+        return widths.to_x(1);
     }
     // The width of the char itself, not the distance to the next position: at the end of a
     // wrapped row the next position is on the next row.
-    layout.config().width.columns(c).max(1)
+    widths.width_of(c).max(widths.to_x(1))
 }
 
 #[cfg(test)]
@@ -2132,20 +2134,40 @@ mod tests {
     }
 
     use matsu_core::buffer::{Document, Pos};
-    use matsu_layout::DocumentLayout;
+    use matsu_layout::{DocumentLayout, WidthRule, Widths};
 
-    fn cells(text: &str, at: Pos) -> u32 {
+    /// `X` in a column: what the view's layout has without character spacing.
+    const PER_COLUMN: u32 = 64;
+
+    /// `n` columns as `X`.
+    fn col(n: u32) -> X {
+        X::from_raw(n * PER_COLUMN)
+    }
+
+    fn widths() -> Widths {
+        Widths::grid_scaled(WidthRule::default(), PER_COLUMN)
+    }
+
+    /// The layout settings of the view.
+    fn config() -> matsu_layout::LayoutConfig {
+        matsu_layout::LayoutConfig {
+            width: widths(),
+            ..Default::default()
+        }
+    }
+
+    fn block(text: &str, at: Pos) -> X {
         let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
-        let layout = DocumentLayout::laid_out(&doc, Default::default()).unwrap();
-        overwrite_caret_cells(&doc, &layout, at)
+        let layout = DocumentLayout::laid_out(&doc, config()).unwrap();
+        overwrite_caret_width(&doc, &layout, at)
     }
 
     #[test]
     fn the_block_is_as_wide_as_the_char_under_the_caret() {
         // Sakura: CCaret::ShowEditCaret
-        assert_eq!(cells("abc", Pos::new(0, 1)), 1);
-        assert_eq!(cells("a日c", Pos::new(0, 1)), 2);
-        assert_eq!(cells("a😀c", Pos::new(0, 1)), 2);
+        assert_eq!(block("abc", Pos::new(0, 1)), col(1));
+        assert_eq!(block("a日c", Pos::new(0, 1)), col(2));
+        assert_eq!(block("a😀c", Pos::new(0, 1)), col(2));
     }
 
     #[test]
@@ -2154,21 +2176,21 @@ mod tests {
         let config = matsu_layout::LayoutConfig {
             tsv: matsu_layout::TsvStops::from_lines(
                 matsu_layout::TsvMode::Csv,
-                &matsu_layout::Widths::default(),
+                &widths(),
                 ["abcdefgh,d"],
             ),
-            ..Default::default()
+            ..config()
         };
         let layout = DocumentLayout::laid_out(&doc, config).unwrap();
-        assert_eq!(overwrite_caret_cells(&doc, &layout, Pos::new(0, 3)), 1);
+        assert_eq!(overwrite_caret_width(&doc, &layout, Pos::new(0, 3)), col(1));
     }
 
     #[test]
     fn the_block_is_one_column_at_a_line_end_a_tab_and_the_end_of_the_document() {
-        assert_eq!(cells("ab\ncd", Pos::new(0, 2)), 1);
-        assert_eq!(cells("a\tb", Pos::new(0, 1)), 1);
-        assert_eq!(cells("ab", Pos::new(0, 2)), 1);
-        assert_eq!(cells("", Pos::new(0, 0)), 1);
+        assert_eq!(block("ab\ncd", Pos::new(0, 2)), col(1));
+        assert_eq!(block("a\tb", Pos::new(0, 1)), col(1));
+        assert_eq!(block("ab", Pos::new(0, 2)), col(1));
+        assert_eq!(block("", Pos::new(0, 0)), col(1));
     }
 
     #[test]
@@ -2176,10 +2198,10 @@ mod tests {
         let doc = Document::from_utf8("ab日c".as_bytes().to_vec()).unwrap();
         let config = matsu_layout::LayoutConfig {
             wrap: matsu_layout::Wrap::Columns(4),
-            ..Default::default()
+            ..config()
         };
         let layout = DocumentLayout::laid_out(&doc, config).unwrap();
-        assert_eq!(overwrite_caret_cells(&doc, &layout, Pos::new(0, 2)), 2);
+        assert_eq!(overwrite_caret_width(&doc, &layout, Pos::new(0, 2)), col(2));
     }
 
     #[test]
@@ -2368,11 +2390,11 @@ mod tests {
 
     /// The x of each character as `place` puts it: the cell of its column, whatever the advance
     /// of the font is.
-    fn xs(col: u32, label: &str, cell: f32) -> Vec<(char, f32)> {
-        let widths = matsu_layout::WidthRule::default();
-        glyph_cells(col, label, |c| widths.columns(c))
+    fn xs(first: u32, label: &str, cell: f32) -> Vec<(char, f32)> {
+        let scale = XScale::new(cell, PER_COLUMN);
+        glyph_cells(col(first), label, |c| widths().width_of(c))
             .into_iter()
-            .map(|(col, c, _)| (c, col as f32 * cell))
+            .map(|(x, c, _)| (c, scale.px(x)))
             .collect()
     }
 
@@ -2386,9 +2408,8 @@ mod tests {
             .sum()
     }
 
-    fn columns_of_label(label: &str) -> u32 {
-        let widths = matsu_layout::WidthRule::default();
-        label.chars().map(|c| widths.columns(c)).sum()
+    fn width_of_label(label: &str) -> X {
+        label.chars().map(|c| widths().width_of(c)).sum()
     }
 
     #[test]
@@ -2396,7 +2417,11 @@ mod tests {
         // BIZ UDGothic, MS Gothic: 7.2 and 14.4
         let label = "拡張機能abc";
         let w = advance(label, 7.2, 14.4);
-        assert!(fits_columns(w, columns_of_label(label), 7.2));
+        assert!(fits_width(
+            w,
+            width_of_label(label),
+            XScale::new(7.2, PER_COLUMN)
+        ));
     }
 
     #[test]
@@ -2404,7 +2429,8 @@ mod tests {
         // the user's Mac: a digit of 7.2 (the column) and a full-width glyph of 12.9
         let label = "拡張機能を追加して";
         let w = advance(label, 7.2, 12.9);
-        assert!(!fits_columns(w, columns_of_label(label), 7.2));
+        let scale = XScale::new(7.2, PER_COLUMN);
+        assert!(!fits_width(w, width_of_label(label), scale));
         // each character starts at its column, however wide the glyphs before it are
         for (i, (c, x)) in xs(3, label, 7.2).iter().enumerate() {
             let want = (3 + 2 * i as u32) as f32 * 7.2;
@@ -2412,7 +2438,11 @@ mod tests {
         }
         // a line of 52 characters ends at its column: 104 columns, not 52 glyphs of 12.9
         let long: String = "あ".repeat(52);
-        assert!(!fits_columns(advance(&long, 7.2, 12.9), 104, 7.2));
+        assert!(!fits_width(
+            advance(&long, 7.2, 12.9),
+            col(104),
+            XScale::new(7.2, PER_COLUMN)
+        ));
         assert_eq!(xs(0, &long, 7.2).last().map(|g| g.1), Some(51.0 * 14.4));
     }
 
@@ -2420,19 +2450,20 @@ mod tests {
     fn mixed_width_combining_emoji_and_tab_have_the_columns_of_the_layout() {
         // half, full, a combining mark (a cell of its own), a surrogate pair (full), a space
         let label = "a拡\u{301}😀 b";
-        let widths = matsu_layout::WidthRule::default();
-        let cols: Vec<(u32, u32)> = glyph_cells(0, label, |c| widths.columns(c))
+        let cols: Vec<(X, X)> = glyph_cells(X::ZERO, label, |c| widths().width_of(c))
             .iter()
             .map(|g| (g.0, g.2))
             .collect();
-        assert_eq!(cols, [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1), (7, 1)]);
+        let want: Vec<(X, X)> = [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1), (7, 1)]
+            .iter()
+            .map(|&(at, width)| (col(at), col(width)))
+            .collect();
+        assert_eq!(cols, want);
         // a tab takes the columns to the next stop
-        let cfg = matsu_layout::LayoutConfig::default();
+        let cfg = config();
         assert_eq!(
-            glyph_cells(1, "\t", |c| {
-                cfg.width.to_columns(cfg.advance(c, cfg.width.to_x(1)))
-            }),
-            [(1, '\t', 3)]
+            glyph_cells(col(1), "\t", |c| cfg.advance(c, col(1))),
+            [(col(1), '\t', col(3))]
         );
     }
 
@@ -2441,26 +2472,39 @@ mod tests {
         // what the caret and the line break mark use: the column of the end of the text
         let label = "拡張機能を追加して";
         let end = xs(0, label, 7.2).last().map(|g| g.1 + 2.0 * 7.2);
-        assert_eq!(end, Some(columns_of_label(label) as f32 * 7.2));
+        assert_eq!(
+            end,
+            Some(XScale::new(7.2, PER_COLUMN).px(width_of_label(label)))
+        );
     }
 
     #[test]
     fn characters_far_outside_the_window_are_left_out() {
-        let shown = 100..160;
-        assert!(!overlaps(0, 2, &shown));
-        assert!(!overlaps(98, 2, &shown));
-        assert!(overlaps(99, 2, &shown));
-        assert!(overlaps(120, 2, &shown));
-        assert!(overlaps(159, 2, &shown));
-        assert!(!overlaps(160, 2, &shown));
+        let shown = col(100)..col(160);
+        let two = col(2);
+        assert!(!overlaps(col(0), two, &shown));
+        assert!(!overlaps(col(98), two, &shown));
+        assert!(overlaps(col(99), two, &shown));
+        assert!(overlaps(col(120), two, &shown));
+        assert!(overlaps(col(159), two, &shown));
+        assert!(!overlaps(col(160), two, &shown));
     }
 
+    /// The clusters of `label` as the column each starts at, its text and its columns.
     fn cluster_texts(label: &str) -> Vec<(u32, String, u32)> {
-        let widths = matsu_layout::WidthRule::default();
-        clusters(label, &glyph_cells(0, label, |c| widths.columns(c)))
-            .into_iter()
-            .map(|(col, bytes, cols)| (col, label[bytes].to_string(), cols))
-            .collect()
+        clusters(
+            label,
+            &glyph_cells(X::ZERO, label, |c| widths().width_of(c)),
+        )
+        .into_iter()
+        .map(|(x, bytes, width)| {
+            (
+                x.raw() / PER_COLUMN,
+                label[bytes].to_string(),
+                width.raw() / PER_COLUMN,
+            )
+        })
+        .collect()
     }
 
     #[test]

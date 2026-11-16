@@ -19,7 +19,7 @@
 
 use matsu_coloring::{ColorKind, ColorRules, ColorRun};
 use matsu_config::settings::color::ColorEntry;
-use matsu_layout::LayoutConfig;
+use matsu_layout::{LayoutConfig, X};
 
 use crate::segments::{SegmentKind, row_segments_cut};
 #[cfg(test)]
@@ -75,9 +75,9 @@ pub(super) fn row_background(colors: &Colors, row: usize, caret_row: bool) -> Rg
     }
 }
 
-/// A match of the search on a row: from column, to column, and the number of the search color it
-/// is drawn in (the first is 0; see [`crate::search::highlight::slot_of`]).
-pub(super) type FoundRange = (u32, u32, u8);
+/// A match of the search on a row: from, to, and the number of the search color it is drawn in
+/// (the first is 0; see [`crate::search::highlight::slot_of`]).
+pub(super) type FoundRange = (X, X, u8);
 
 /// The entry a piece of text of the kind `kind` is drawn in, or the search color `found` if it is
 /// in a match of the search and a search color is shown.
@@ -158,12 +158,12 @@ pub(super) enum PieceKind {
     FullWidthSpace,
 }
 
-/// A piece of a row: text of one color, or the mark of a tab or a full-width space, at a column.
+/// A piece of a row: text of one color, or the mark of a tab or a full-width space, at a position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Piece {
     pub kind: PieceKind,
-    pub col: u32,
-    pub cols: u32,
+    pub x: X,
+    pub width: X,
     pub text: String,
     /// The kind of run the piece is in.
     pub color: ColorKind,
@@ -197,41 +197,41 @@ fn kind_at(runs: &[(usize, usize, ColorKind)], at: usize) -> ColorKind {
 }
 
 /// Cuts the text of a row into pieces of one color. `runs` are the row's runs
-/// ([`row_runs`]) and `found` the column ranges of the matches of the search on the row.
+/// ([`row_runs`]) and `found` the ranges of the matches of the search on the row.
 pub(super) fn pieces(
     text: &str,
-    start_col: u32,
+    start_x: X,
     cfg: &LayoutConfig,
     runs: &[(usize, usize, ColorKind)],
     found: &[FoundRange],
 ) -> Vec<Piece> {
     let cuts: Vec<usize> = runs.iter().map(|r| r.0).collect();
     // The ranges are in increasing order and do not overlap, so they are searched by bisection.
-    let in_found = |col: u32| {
-        let i = found.partition_point(|&(_, to, _)| to <= col);
+    let in_found = |x: X| {
+        let i = found.partition_point(|&(_, to, _)| to <= x);
         found
             .get(i)
-            .filter(|&&(from, _, _)| from <= col)
+            .filter(|&&(from, _, _)| from <= x)
             .map(|&(_, _, slot)| slot)
     };
     let mut out = Vec::new();
-    for seg in row_segments_cut(text, start_col, cfg, &cuts) {
+    for seg in row_segments_cut(text, start_x, cfg, &cuts) {
         let color = kind_at(runs, seg.byte);
         match seg.kind {
             SegmentKind::Text => split_text(
                 &seg.text,
                 seg.byte,
-                seg.col,
-                seg.cols,
+                seg.x,
+                seg.width,
                 found,
-                |byte, col, cols, text| {
+                |byte, x, width, text| {
                     out.push(Piece {
                         kind: PieceKind::Text,
-                        col,
-                        cols,
+                        x,
+                        width,
                         text: text.to_owned(),
                         color: kind_at(runs, byte),
-                        found: in_found(col),
+                        found: in_found(x),
                     });
                 },
             ),
@@ -241,42 +241,43 @@ pub(super) fn pieces(
                 } else {
                     PieceKind::FullWidthSpace
                 },
-                col: seg.col,
-                cols: seg.cols,
+                x: seg.x,
+                width: seg.width,
                 text: String::new(),
                 color,
-                found: in_found(seg.col),
+                found: in_found(seg.x),
             }),
         }
     }
     out
 }
 
-/// Calls `emit(byte, col, cols, text)` for the parts of a text segment that the edges of the
+/// Calls `emit(byte, x, width, text)` for the parts of a text segment that the edges of the
 /// found ranges cut. All characters of a segment have the same width, so an edge is a character
 /// boundary when it is a multiple of that width from the start.
 fn split_text(
     text: &str,
     byte: usize,
-    col: u32,
-    cols: u32,
+    x: X,
+    width: X,
     found: &[FoundRange],
-    mut emit: impl FnMut(usize, u32, u32, &str),
+    mut emit: impl FnMut(usize, X, X, &str),
 ) {
     let chars = text.chars().count() as u32;
     if chars == 0 {
         return;
     }
-    let width = (cols / chars).max(1);
+    let each = (width.raw() / chars).max(1);
     // Only the ranges that touch the segment can cut it.
-    let first = found.partition_point(|&(_, to, _)| to <= col);
+    let first = found.partition_point(|&(_, to, _)| to <= x);
+    let end = x + width;
     let touching = found[first..]
         .iter()
-        .take_while(|&&(from, _, _)| from < col + cols);
+        .take_while(|&&(from, _, _)| from < end);
     let mut edges: Vec<u32> = touching
         .flat_map(|&(from, to, _)| [from, to])
-        .filter(|&e| e > col && e < col + cols && (e - col).is_multiple_of(width))
-        .map(|e| (e - col) / width)
+        .filter(|&e| e > x && e < end && (e - x).raw().is_multiple_of(each))
+        .map(|e| (e - x).raw() / each)
         .collect();
     edges.sort_unstable();
     edges.dedup();
@@ -292,8 +293,8 @@ fn split_text(
         }
         emit(
             byte + start_byte,
-            col + start_char * width,
-            (edge - start_char) * width,
+            x + X::from_raw(start_char * each),
+            X::from_raw((edge - start_char) * each),
             &text[start_byte..at_byte],
         );
         start_char = edge;
@@ -305,16 +306,17 @@ fn split_text(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Label {
     Text(String),
-    /// A tab, with the columns it takes (how it is drawn is a setting: `TabMark`).
-    Tab(u32),
+    /// A tab, with the width it takes (how it is drawn is a setting: `TabMark`, a glyph for each
+    /// column of the width).
+    Tab(X),
     FullWidthSpace,
 }
 
-/// A piece to draw: at a column, with a style, and the style it has when it is selected (set only
-/// for the pieces that overlap the selection).
+/// A piece to draw: at a position, with a style, and the style it has when it is selected (set
+/// only for the pieces that overlap the selection).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Item {
-    pub col: u32,
+    pub x: X,
     pub label: Label,
     pub style: Style,
     pub selected: Option<Style>,
@@ -322,31 +324,30 @@ pub(super) struct Item {
 
 /// What `style_row` needs to know about a row.
 pub(super) struct RowInput<'a> {
-    /// The text of the row, without the line ending, and the column where it starts.
+    /// The text of the row, without the line ending, and where it starts.
     pub text: &'a str,
-    pub start_col: u32,
+    pub start_x: X,
     pub cfg: &'a LayoutConfig,
     /// The runs of the row ([`row_runs`]).
     pub runs: &'a [(usize, usize, ColorKind)],
-    /// The column ranges of the matches of the search on the row.
+    /// The ranges of the matches of the search on the row.
     pub found: &'a [FoundRange],
-    /// The selected columns of the row.
-    pub selected: Option<(u32, u32)>,
+    /// The selected part of the row.
+    pub selected: Option<(X, X)>,
     /// The background of the row ([`row_background`]).
     pub row_back: Rgb,
 }
 
-/// How to draw a row: the pieces, and the rectangles to fill under them (from column, to column,
-/// color).
+/// How to draw a row: the pieces, and the rectangles to fill under them (from, to, color).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct RowStyling {
     pub items: Vec<Item>,
     /// Backgrounds of pieces that are not the background of the row.
-    pub backs: Vec<(u32, u32, Rgb)>,
+    pub backs: Vec<(X, X, Rgb)>,
     /// The backgrounds of the selected parts of the pieces.
-    pub selected_backs: Vec<(u32, u32, Rgb)>,
+    pub selected_backs: Vec<(X, X, Rgb)>,
     /// Underlines under the mark of a tab or a space that come from the text around it.
-    pub underlines: Vec<(u32, u32, Rgb)>,
+    pub underlines: Vec<(X, X, Rgb)>,
 }
 
 /// Decides the colors of everything on a row (`DrawLayoutLine` with `SetCurrentColor` and the
@@ -355,7 +356,7 @@ pub(super) struct RowStyling {
 /// selection mixed with the ones under it.
 pub(super) fn style_row(colors: &Colors, rules: &ColorRules, input: &RowInput<'_>) -> RowStyling {
     let mut out = RowStyling::default();
-    let overlap = |from: u32, to: u32| {
+    let overlap = |from: X, to: X| {
         input
             .selected
             .filter(|&(a, b)| a < to && from < b)
@@ -363,18 +364,18 @@ pub(super) fn style_row(colors: &Colors, rules: &ColorRules, input: &RowInput<'_
     };
     for piece in pieces(
         input.text,
-        input.start_col,
+        input.start_x,
         input.cfg,
         input.runs,
         input.found,
     ) {
         let around = entry_of(colors, rules, piece.color, piece.found);
-        let (from, to) = (piece.col, piece.col + piece.cols);
+        let (from, to) = (piece.x, piece.x + piece.width);
         let (label, style) = match piece.kind {
             PieceKind::Text => (Label::Text(piece.text), Style::of(&around, colors)),
             PieceKind::Tab | PieceKind::FullWidthSpace => {
                 let (entry, label) = if piece.kind == PieceKind::Tab {
-                    (colors.tab_entry, Label::Tab(piece.cols))
+                    (colors.tab_entry, Label::Tab(piece.width))
                 } else {
                     (colors.full_width_space_entry, Label::FullWidthSpace)
                 };
@@ -412,7 +413,7 @@ pub(super) fn style_row(colors: &Colors, rules: &ColorRules, input: &RowInput<'_
             selected = Some(sel);
         }
         out.items.push(Item {
-            col: from,
+            x: from,
             label,
             style,
             selected,
@@ -426,8 +427,22 @@ mod tests {
     use super::*;
     use crate::settings::ViewSettings;
 
+    /// `X` in a column: the grid of the view (the layout of a view with no spacing).
+    const PER_COLUMN: u32 = 64;
+
     fn cfg() -> LayoutConfig {
-        LayoutConfig::default()
+        LayoutConfig {
+            width: matsu_layout::Widths::grid_scaled(
+                matsu_layout::WidthRule::default(),
+                PER_COLUMN,
+            ),
+            ..LayoutConfig::default()
+        }
+    }
+
+    /// `n` columns as `X`.
+    fn col(n: u32) -> X {
+        X::from_raw(n * PER_COLUMN)
     }
 
     fn defaults() -> (Colors, std::sync::Arc<ColorRules>) {
@@ -470,20 +485,20 @@ mod tests {
             (3, 4, ColorKind::Text),
             (4, 5, ColorKind::Number),
         ];
-        let pieces = pieces("int1", 0, &cfg(), &runs, &[]);
+        let pieces = pieces("int1", X::ZERO, &cfg(), &runs, &[]);
         let got: Vec<(&str, ColorKind)> =
             pieces.iter().map(|p| (p.text.as_str(), p.color)).collect();
         assert_eq!(
             got,
             [("int", ColorKind::Keyword(0)), ("1", ColorKind::Text)]
         );
-        assert_eq!((pieces[1].col, pieces[1].cols), (3, 1));
+        assert_eq!((pieces[1].x, pieces[1].width), (col(3), col(1)));
     }
 
     #[test]
     fn tabs_and_spaces_take_the_color_of_their_run() {
         let runs = [(0, 1, ColorKind::Text), (1, 3, ColorKind::Comment)];
-        let pieces = pieces("a\t\u{3000}", 0, &cfg(), &runs, &[]);
+        let pieces = pieces("a\t\u{3000}", X::ZERO, &cfg(), &runs, &[]);
         assert_eq!(pieces[1].kind, PieceKind::Tab);
         assert_eq!(pieces[1].color, ColorKind::Comment);
         assert_eq!(pieces[2].kind, PieceKind::FullWidthSpace);
@@ -493,14 +508,18 @@ mod tests {
     #[test]
     fn matches_of_the_search_cut_the_text_and_override_the_color() {
         let runs = [(0, 8, ColorKind::Comment)];
-        let pieces = pieces("abcdefgh", 0, &cfg(), &runs, &[(2, 5, 0)]);
-        let got: Vec<(&str, u32, Option<u8>)> = pieces
+        let pieces = pieces("abcdefgh", X::ZERO, &cfg(), &runs, &[(col(2), col(5), 0)]);
+        let got: Vec<(&str, X, Option<u8>)> = pieces
             .iter()
-            .map(|p| (p.text.as_str(), p.col, p.found))
+            .map(|p| (p.text.as_str(), p.x, p.found))
             .collect();
         assert_eq!(
             got,
-            [("ab", 0, None), ("cde", 2, Some(0)), ("fgh", 5, None)]
+            [
+                ("ab", col(0), None),
+                ("cde", col(2), Some(0)),
+                ("fgh", col(5), None)
+            ]
         );
         assert!(pieces.iter().all(|p| p.color == ColorKind::Comment));
     }
@@ -508,17 +527,17 @@ mod tests {
     #[test]
     fn matches_cut_wide_characters_at_their_edges() {
         // Two columns for each character: a match from column 2 to 6 is the 2nd and 3rd.
-        let pieces = pieces("日本語です", 0, &cfg(), &[], &[(2, 6, 0)]);
-        let got: Vec<(&str, u32, u32, Option<u8>)> = pieces
+        let pieces = pieces("日本語です", X::ZERO, &cfg(), &[], &[(col(2), col(6), 0)]);
+        let got: Vec<(&str, X, X, Option<u8>)> = pieces
             .iter()
-            .map(|p| (p.text.as_str(), p.col, p.cols, p.found))
+            .map(|p| (p.text.as_str(), p.x, p.width, p.found))
             .collect();
         assert_eq!(
             got,
             [
-                ("日", 0, 2, None),
-                ("本語", 2, 4, Some(0)),
-                ("です", 6, 4, None)
+                ("日", col(0), col(2), None),
+                ("本語", col(2), col(4), Some(0)),
+                ("です", col(6), col(4), None)
             ]
         );
     }
@@ -527,9 +546,11 @@ mod tests {
     fn thousands_of_matches_on_a_row_are_cut_in_a_short_time() {
         // Every other character is a match: 10 000 matches on a row of 20 000 columns.
         let text = "ab".repeat(10_000);
-        let found: Vec<FoundRange> = (0..10_000).map(|i| (2 * i, 2 * i + 1, 0)).collect();
+        let found: Vec<FoundRange> = (0..10_000)
+            .map(|i| (col(2 * i), col(2 * i + 1), 0))
+            .collect();
         let started = std::time::Instant::now();
-        let pieces = pieces(&text, 0, &cfg(), &[], &found);
+        let pieces = pieces(&text, X::ZERO, &cfg(), &[], &found);
         assert_eq!(pieces.len(), 20_000);
         assert!(pieces[0].found.is_some() && pieces[1].found.is_none());
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
@@ -537,7 +558,7 @@ mod tests {
 
     #[test]
     fn a_match_covering_a_tab_marks_the_tab() {
-        let pieces = pieces("a\tb", 0, &cfg(), &[], &[(1, 4, 0)]);
+        let pieces = pieces("a\tb", X::ZERO, &cfg(), &[], &[(col(1), col(4), 0)]);
         assert!(pieces[0].found.is_none());
         assert!(pieces[1].found.is_some());
         assert!(pieces[2].found.is_none());
@@ -545,12 +566,12 @@ mod tests {
 
     #[test]
     fn a_wrapped_row_uses_the_columns_it_starts_at() {
-        let pieces = pieces("ab", 4, &cfg(), &[], &[(5, 6, 0)]);
-        let got: Vec<(&str, u32, Option<u8>)> = pieces
+        let pieces = pieces("ab", col(4), &cfg(), &[], &[(col(5), col(6), 0)]);
+        let got: Vec<(&str, X, Option<u8>)> = pieces
             .iter()
-            .map(|p| (p.text.as_str(), p.col, p.found))
+            .map(|p| (p.text.as_str(), p.x, p.found))
             .collect();
-        assert_eq!(got, [("a", 4, None), ("b", 5, Some(0))]);
+        assert_eq!(got, [("a", col(4), None), ("b", col(5), Some(0))]);
     }
 
     #[test]
@@ -600,7 +621,14 @@ mod tests {
         let text_of = |slot| entry_of(&colors, &rules, ColorKind::Text, Some(slot)).text;
         assert_eq!((text_of(0), text_of(1), text_of(2)), (0x01, 0x02, 0x01));
         // in a row: the second match has the second color
-        let styling = style(&colors, &rules, "ab cd", &[], &[(0, 2, 0), (3, 5, 1)], None);
+        let styling = style(
+            &colors,
+            &rules,
+            "ab cd",
+            &[],
+            &[(col(0), col(2), 0), (col(3), col(5), 1)],
+            None,
+        );
         let colors_of: Vec<Rgb> = styling.items.iter().map(|i| i.style.text).collect();
         assert_eq!(colors_of, [rgb_of(0x01), colors.text, rgb_of(0x02)]);
     }
@@ -726,14 +754,14 @@ mod tests {
         text: &str,
         runs: &[(usize, usize, ColorKind)],
         found: &[FoundRange],
-        selected: Option<(u32, u32)>,
+        selected: Option<(X, X)>,
     ) -> RowStyling {
         style_row(
             colors,
             rules,
             &RowInput {
                 text,
-                start_col: 0,
+                start_x: X::ZERO,
                 cfg: &cfg(),
                 runs,
                 found,
@@ -785,7 +813,14 @@ mod tests {
     fn a_match_of_the_search_has_its_own_colors_over_the_syntax_colors() {
         let (colors, rules) = defaults();
         let runs = [(0, 8, ColorKind::Comment)];
-        let styling = style(&colors, &rules, "abcdefgh", &runs, &[(2, 5, 0)], None);
+        let styling = style(
+            &colors,
+            &rules,
+            "abcdefgh",
+            &runs,
+            &[(col(2), col(5), 0)],
+            None,
+        );
         assert_eq!(
             texts(&styling),
             [
@@ -794,14 +829,21 @@ mod tests {
                 ("fgh".to_owned(), 0x008000),
             ]
         );
-        assert_eq!(styling.backs, [(2, 5, 0xffff00)]);
+        assert_eq!(styling.backs, [(col(2), col(5), 0xffff00)]);
     }
 
     #[test]
     fn selected_pieces_get_the_selection_mixed_with_their_own_colors() {
         let (colors, rules) = defaults();
         let runs = [(0, 4, ColorKind::Text), (4, 8, ColorKind::Comment)];
-        let styling = style(&colors, &rules, "abcdefgh", &runs, &[], Some((2, 6)));
+        let styling = style(
+            &colors,
+            &rules,
+            "abcdefgh",
+            &runs,
+            &[],
+            Some((col(2), col(6))),
+        );
         // Pieces are cut by color, not by the selection: the first (`abcd`) is selected from
         // column 2, the second (`efgh`) up to column 6; the painter clips them.
         let selected: Vec<bool> = styling.items.iter().map(|i| i.selected.is_some()).collect();
@@ -809,11 +851,11 @@ mod tests {
         assert_eq!(styling.selected_backs.len(), 2);
         assert_eq!(
             (styling.selected_backs[0].0, styling.selected_backs[0].1),
-            (2, 4)
+            (col(2), col(4))
         );
         assert_eq!(
             (styling.selected_backs[1].0, styling.selected_backs[1].1),
-            (4, 6)
+            (col(4), col(6))
         );
         // Text and comment under the same selection color mix to different text colors.
         let [text, comment] = &styling.items[..] else {
@@ -846,17 +888,21 @@ mod tests {
             texts(&styling),
             [("a".to_owned(), 0x008000), ("<tab>".to_owned(), 0x808080)]
         );
-        assert_eq!(styling.items[1].col, 1);
+        assert_eq!(styling.items[1].x, col(1));
     }
 
     #[test]
     fn a_selected_tab_that_is_not_shown_still_shows_the_selection() {
         let (mut colors, rules) = defaults();
         colors.tab_entry.disp = false;
-        let styling = style(&colors, &rules, "a\tb", &[], &[], Some((0, 4)));
+        let styling = style(&colors, &rules, "a\tb", &[], &[], Some((col(0), col(4))));
         assert_eq!(styling.items.len(), 2);
         // The selection background under the tab cell: columns 1 to 4.
-        assert!(styling.selected_backs.contains(&(1, 4, colors.selection)));
+        assert!(
+            styling
+                .selected_backs
+                .contains(&(col(1), col(4), colors.selection))
+        );
     }
 
     #[test]
@@ -866,7 +912,7 @@ mod tests {
         let styling = style(&colors, &rules, "\u{3000}", &runs, &[], None);
         assert_eq!(texts(&styling), [("<zen>".to_owned(), 0xc0c0c0)]);
         assert_eq!(styling.items[0].label, Label::FullWidthSpace);
-        assert_eq!(styling.items[0].col, 0);
+        assert_eq!(styling.items[0].x, col(0));
     }
 
     #[test]
@@ -875,7 +921,7 @@ mod tests {
         // URLs are underlined in Sakura's defaults.
         let runs = [(0, 3, ColorKind::Url)];
         let styling = style(&colors, &rules, "a\tb", &runs, &[], None);
-        assert_eq!(styling.underlines, [(1, 4, 0x0000ff)]);
+        assert_eq!(styling.underlines, [(col(1), col(4), 0x0000ff)]);
         assert!(styling.items[0].style.underline);
         // The mark itself is not underlined; the line under it comes from the run.
         assert!(!styling.items[1].style.underline);

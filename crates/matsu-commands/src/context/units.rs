@@ -21,13 +21,14 @@ use crate::command::Result;
 /// window that is the limit; this crate has no setting for it yet.
 pub const MAX_BOX_COLUMNS: u32 = 10240;
 
-/// The stored number as an [`X`].
-pub(crate) fn x_of(raw: usize) -> X {
+/// The stored number as an [`X`]. `matsu-ui` reads the corners of a box and the free caret with
+/// this (re-exported as `cursor_x`), so that it too has no arithmetic on the raw number.
+pub fn x_of(raw: usize) -> X {
     X::from_raw(u32::try_from(raw).unwrap_or(u32::MAX))
 }
 
-/// An [`X`] as the number that the cursor stores.
-pub(crate) fn raw_of(x: X) -> usize {
+/// An [`X`] as the number that the cursor stores (re-exported as `cursor_raw`).
+pub fn raw_of(x: X) -> usize {
     x.raw() as usize
 }
 

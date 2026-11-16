@@ -1,6 +1,8 @@
 //! Scrolling and hit-testing arithmetic in plain `f32` pixels, so that it can be tested without a
 //! window. `EditorView` calls these with the sizes it measured at the last paint.
 
+use matsu_layout::X;
+
 /// The width of the vertical scroll bar.
 pub const SCROLLBAR_WIDTH: f32 = 14.0;
 
@@ -54,6 +56,89 @@ impl Metrics {
     /// How many rows fit in the view, at least one.
     pub fn visible_rows(&self) -> usize {
         ((self.view_height / self.line_height).floor() as usize).max(1)
+    }
+}
+
+/// How many `X` a half-width character without spacing is: the layout of the view counts in 1/64 of
+/// a half-width column (ADR-0034, case C).
+pub const X_PER_HALF_WIDTH: u32 = 64;
+
+/// `X` in one column of a view whose half-width is `half` pixels and whose columns have `space`
+/// pixels of character spacing: 64 plus the spacing in the same unit
+/// (`space_units = round(space * 64 / half)`, ADR-0034, case C). It is exactly 64 without spacing.
+pub fn per_column_for(half: f32, space: u32) -> u32 {
+    if space == 0 || half <= 0.0 {
+        return X_PER_HALF_WIDTH;
+    }
+    let units = (space as f32 * X_PER_HALF_WIDTH as f32 / half).round();
+    X_PER_HALF_WIDTH.saturating_add(units.clamp(0.0, 1.0e6) as u32)
+}
+
+/// The pixels of the layout's `X`: a column is `cell` pixels and `per_column` `X`.
+///
+/// This is the one place where the pixels of the text area and `X` are converted. A position is
+/// `(whole columns) * cell + (the rest) * (cell / per_column)`, so that a position on a column edge
+/// is `columns * cell` as it was when the layout counted columns, whatever `per_column` is (a
+/// product with the quotient `cell / per_column` would be a little off when `per_column` is not a
+/// power of two, the layout with character spacing).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct XScale {
+    cell: f32,
+    per_column: u32,
+}
+
+impl XScale {
+    pub fn new(cell: f32, per_column: u32) -> Self {
+        Self {
+            cell,
+            per_column: per_column.max(1),
+        }
+    }
+
+    /// The width of a column in pixels.
+    pub fn cell(&self) -> f32 {
+        self.cell
+    }
+
+    /// The pixels from the text origin to `x`, or the width in pixels of `x`.
+    pub fn px(&self, x: X) -> f32 {
+        let raw = x.raw();
+        let per = self.per_column;
+        (raw / per) as f32 * self.cell + (raw % per) as f32 * (self.cell / per as f32)
+    }
+
+    /// The `X` of the column edge at or before the pixel `px` (a negative pixel is the start).
+    pub fn column_start(&self, px: f32) -> X {
+        let columns = (px / self.cell).floor().max(0.0);
+        X::from_raw((columns as u32).saturating_mul(self.per_column))
+    }
+
+    /// The `X` of the nearest column edge to the pixel `px`: where a box selection puts a corner.
+    pub fn nearest_column_edge(&self, px: f32) -> X {
+        let columns = (px / self.cell + 0.5).floor().max(0.0);
+        X::from_raw((columns as u32).saturating_mul(self.per_column))
+    }
+
+    /// The `X` at the pixel `px`, rounded down (a negative pixel is the start).
+    pub fn x_at(&self, px: f32) -> X {
+        let cells = (px / self.cell).max(0.0);
+        let columns = cells.floor();
+        let rest = ((cells - columns) * self.per_column as f32).floor() as u32;
+        X::from_raw(
+            (columns as u32)
+                .saturating_mul(self.per_column)
+                .saturating_add(rest.min(self.per_column - 1)),
+        )
+    }
+
+    /// `px` as a fractional number of `X` (for finding the nearer edge of a character).
+    pub fn x_f32(&self, px: f32) -> f32 {
+        (px / self.cell).max(0.0) * self.per_column as f32
+    }
+
+    /// `columns` columns in pixels (the settings of the type count columns: the ruler, the lines).
+    pub fn columns_px(&self, columns: u32) -> f32 {
+        columns as f32 * self.cell
     }
 }
 
@@ -532,5 +617,41 @@ mod tests {
         assert_eq!(bar.part_at(HSCROLL_ARROW + 1.0), BarPart::Thumb);
         assert_eq!(bar.part_at(HSCROLL_ARROW + 200.0), BarPart::PageForward);
         assert_eq!(bar.part_at(299.0), BarPart::LineForward);
+    }
+
+    #[test]
+    fn a_column_edge_is_columns_times_the_cell_whatever_the_unit() {
+        for cell in [7.2_f32, 9.2, 8.0] {
+            for per in [1, 64, 80, 85] {
+                let scale = XScale::new(cell, per);
+                for columns in [0_u32, 1, 3, 17, 1000, 10_240] {
+                    let x = X::from_raw(columns * per);
+                    assert_eq!(scale.px(x), columns as f32 * cell, "{cell} {per} {columns}");
+                    // and back: the edge of the column, and a point a little inside it
+                    assert_eq!(scale.column_start(columns as f32 * cell + 0.01), x);
+                    assert_eq!(scale.nearest_column_edge(columns as f32 * cell + 0.01), x);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_point_in_a_column_is_a_fraction_of_its_unit() {
+        let scale = XScale::new(8.0, 64);
+        assert_eq!(scale.x_at(0.0), X::ZERO);
+        assert_eq!(scale.x_at(4.0), X::from_raw(32));
+        assert_eq!(scale.x_at(8.0), X::from_raw(64));
+        assert_eq!(scale.x_at(-3.0), X::ZERO);
+        assert_eq!(scale.px(X::from_raw(32)), 4.0);
+        assert_eq!(scale.nearest_column_edge(3.9), X::ZERO);
+        assert_eq!(scale.nearest_column_edge(4.0), X::from_raw(64));
+    }
+
+    #[test]
+    fn the_unit_of_a_column_has_the_spacing_in_it() {
+        assert_eq!(per_column_for(8.0, 0), 64);
+        // 2 pixels of spacing on a half-width of 8: 16 units
+        assert_eq!(per_column_for(8.0, 2), 80);
+        assert_eq!(per_column_for(7.2, 0), 64);
     }
 }

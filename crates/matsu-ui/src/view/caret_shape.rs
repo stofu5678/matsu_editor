@@ -14,8 +14,10 @@
 //!
 //! A block is as wide as the char under the caret, and one half-width column at the end of a line
 //! or the document and over a tab; the block of the MS-DOS style is the same, so its width is
-//! `overwrite_caret_cells` of the element. The caret sits at the bottom of the row
+//! `overwrite_caret_width` of the element. The caret sits at the bottom of the row
 //! (`CalcCaretDrawPos`: "下寄せ").
+
+use matsu_layout::X;
 
 /// The width of the bar of the Windows style, in pixels, when the OS has no other say.
 pub(crate) const BAR_WIDTH: f32 = 2.0;
@@ -25,18 +27,17 @@ pub(crate) const BAR_WIDTH: f32 = 2.0;
 pub(crate) enum CaretShape {
     /// A bar, full height, this many pixels wide, in the caret color.
     Bar { width: f32 },
-    /// A see-through block, `cells` columns wide, at the bottom of the row; `half` makes it half
-    /// as high.
-    Block { cells: u32, half: bool },
+    /// A see-through block, `width` wide, at the bottom of the row; `half` makes it half as high.
+    Block { width: X, half: bool },
 }
 
-/// The shape of the caret for the style (`dos`), the typing mode (`overwrite`), the columns of the
-/// char under it (`cells`), the width of a column in pixels (`cell`) and the width the OS gives the
+/// The shape of the caret for the style (`dos`), the typing mode (`overwrite`), the width of the
+/// char under it (`width`), the width of a column in pixels (`cell`) and the width the OS gives the
 /// caret (`os_width`, in pixels).
 pub(crate) fn caret_shape(
     dos: bool,
     overwrite: bool,
-    cells: u32,
+    width: X,
     cell: f32,
     os_width: Option<u32>,
 ) -> CaretShape {
@@ -49,8 +50,8 @@ pub(crate) fn caret_shape(
                 .map_or(BAR_WIDTH, |w| (w as f32).min(cell));
             CaretShape::Bar { width }
         }
-        (_, true) => CaretShape::Block { cells, half: false },
-        (true, false) => CaretShape::Block { cells, half: true },
+        (_, true) => CaretShape::Block { width, half: false },
+        (true, false) => CaretShape::Block { width, half: true },
     }
 }
 
@@ -58,16 +59,20 @@ pub(crate) fn caret_shape(
 mod tests {
     use super::*;
 
+    fn x(columns: u32) -> X {
+        X::from_raw(columns * 64)
+    }
+
     #[test]
     fn the_windows_style_is_a_bar_in_insert_mode_and_a_block_in_overwrite_mode() {
         assert_eq!(
-            caret_shape(false, false, 2, 8.0, None),
+            caret_shape(false, false, x(2), 8.0, None),
             CaretShape::Bar { width: 2.0 }
         );
         assert_eq!(
-            caret_shape(false, true, 2, 8.0, None),
+            caret_shape(false, true, x(2), 8.0, None),
             CaretShape::Block {
-                cells: 2,
+                width: x(2),
                 half: false
             }
         );
@@ -76,24 +81,24 @@ mod tests {
     #[test]
     fn the_dos_style_is_a_block_half_as_high_in_insert_mode() {
         assert_eq!(
-            caret_shape(true, false, 1, 8.0, None),
+            caret_shape(true, false, x(1), 8.0, None),
             CaretShape::Block {
-                cells: 1,
+                width: x(1),
                 half: true
             }
         );
         assert_eq!(
-            caret_shape(true, true, 2, 8.0, None),
+            caret_shape(true, true, x(2), 8.0, None),
             CaretShape::Block {
-                cells: 2,
+                width: x(2),
                 half: false
             }
         );
         // the width of the OS does not touch the DOS style
         assert_eq!(
-            caret_shape(true, false, 1, 8.0, Some(6)),
+            caret_shape(true, false, x(1), 8.0, Some(6)),
             CaretShape::Block {
-                cells: 1,
+                width: x(1),
                 half: true
             }
         );
@@ -101,7 +106,7 @@ mod tests {
 
     #[test]
     fn the_os_width_counts_over_two_pixels_and_up_to_a_column() {
-        let bar = |os| caret_shape(false, false, 1, 8.0, os);
+        let bar = |os| caret_shape(false, false, x(1), 8.0, os);
         assert_eq!(bar(Some(1)), CaretShape::Bar { width: 2.0 });
         assert_eq!(bar(Some(2)), CaretShape::Bar { width: 2.0 });
         assert_eq!(bar(Some(5)), CaretShape::Bar { width: 5.0 });

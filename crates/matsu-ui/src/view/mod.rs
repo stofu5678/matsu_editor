@@ -330,7 +330,7 @@ pub struct EditorView {
 
 impl EditorView {
     pub fn new(document: Entity<SharedDocument>, cx: &mut Context<Self>) -> Self {
-        let mut layout = DocumentLayout::new(document.read(cx).doc(), LayoutConfig::default())
+        let mut layout = DocumentLayout::new(document.read(cx).doc(), initial_layout_config())
             .unwrap_or_else(|_| empty_layout());
         let _ = layout.layout_for(document.read(cx).doc(), LAYOUT_BUDGET);
         let layout_version = document.read(cx).version();
@@ -786,21 +786,30 @@ impl EditorView {
             })
     }
 
-    /// The display column of the caret on its row. In a box selection the caret can be to the right
-    /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`), and so can the caret of
+    /// The `X` of the caret on its row. In a box selection the caret can be to the right of the
+    /// end of the text (see `matsu_core::cursor::Cursor::box_caret_col`), and so can the caret of
     /// the free cursor mode (`Cursor::free_col`).
-    pub(crate) fn caret_column(&self, cx: &App) -> u32 {
-        // The layout counts in `X`, the caret column in columns (ADR-0034 stage 2 changes that).
-        let column = self.layout.config().width.to_columns(self.caret_row(cx).x);
+    pub(crate) fn caret_x(&self, cx: &App) -> matsu_layout::X {
+        let at = self.caret_row(cx).x;
         // The free cursor mode: the caret to the right of the end of the line.
         let free = self
             .cursor
             .free_col()
             .filter(|_| matsu_commands::edit_options::get().free_cursor);
-        self.cursor
-            .box_caret_col()
-            .or(free)
-            .map_or(column, |c| u32::try_from(c).unwrap_or(u32::MAX).max(column))
+        self.cursor.box_caret_col().or(free).map_or(at, |stored| {
+            matsu_commands::context::cursor_x(stored).max(at)
+        })
+    }
+
+    /// The pixels of the layout's `X`, for the width of a column as of the last paint.
+    pub(crate) fn x_scale(&self) -> crate::geometry::XScale {
+        self.x_scale_for(self.metrics.cell_width)
+    }
+
+    /// The pixels of the layout's `X` where a column is `cell` pixels wide (the minimap draws the
+    /// layout of the view in a font of its own).
+    pub(crate) fn x_scale_for(&self, cell: f32) -> crate::geometry::XScale {
+        crate::geometry::XScale::new(cell, self.layout.config().width.per_column())
     }
 
     /// Scrolls so that the caret's row is `offset` rows below the top of the view, as Sakura's
@@ -820,7 +829,7 @@ impl EditorView {
         if self.scroll_y != before {
             self.scroll_past_end = false;
         }
-        let x = self.caret_column(cx) as f32 * m.cell_width;
+        let x = self.x_scale().px(self.caret_x(cx));
         self.scroll_x = scroll_x_to_show(&m, self.scroll_x, x, x);
         self.clamp_scroll();
     }
@@ -1097,8 +1106,20 @@ impl EditorView {
     }
 }
 
+/// The layout settings of a view before `relayout_in` sets the rest: a column is the 64 `X` of
+/// a half-width character (ADR-0034), with no character spacing.
+pub(crate) fn initial_layout_config() -> LayoutConfig {
+    LayoutConfig {
+        width: matsu_layout::Widths::grid_scaled(
+            matsu_layout::WidthRule::default(),
+            crate::geometry::X_PER_HALF_WIDTH,
+        ),
+        ..LayoutConfig::default()
+    }
+}
+
 fn empty_layout() -> DocumentLayout {
-    DocumentLayout::new(&Document::empty(), LayoutConfig::default())
+    DocumentLayout::new(&Document::empty(), initial_layout_config())
         .expect("the layout of an empty document")
 }
 
