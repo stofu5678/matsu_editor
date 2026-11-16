@@ -1929,6 +1929,256 @@ $global:MatsuApiNames = @(
     # MATSU Editor's own F_ONELINER_DIALOG (not in Sakura). Runs the command that a key, the
     # menu and a key macro run.
     'OneLinerDialog'
+    # AiPrompt0() -> null
+    # Sakura's F_AI_PROMPT_0 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt0'
+    # AiPrompt1() -> null
+    # Sakura's F_AI_PROMPT_1 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt1'
+    # AiPrompt2() -> null
+    # Sakura's F_AI_PROMPT_2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt2'
+    # AiPrompt3() -> null
+    # Sakura's F_AI_PROMPT_3 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt3'
+    # AiPrompt4() -> null
+    # Sakura's F_AI_PROMPT_4 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt4'
+    # AiPrompt5() -> null
+    # Sakura's F_AI_PROMPT_5 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt5'
+    # AiPrompt6() -> null
+    # Sakura's F_AI_PROMPT_6 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt6'
+    # AiPrompt7() -> null
+    # Sakura's F_AI_PROMPT_7 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt7'
+    # AiPrompt8() -> null
+    # Sakura's F_AI_PROMPT_8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt8'
+    # AiPrompt9() -> null
+    # Sakura's F_AI_PROMPT_9 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt9'
+    # AiPrompt10() -> null
+    # Sakura's F_AI_PROMPT_10 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt10'
+    # AiPrompt11() -> null
+    # Sakura's F_AI_PROMPT_11 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt11'
+    # AiPrompt12() -> null
+    # Sakura's F_AI_PROMPT_12 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt12'
+    # AiPrompt13() -> null
+    # Sakura's F_AI_PROMPT_13 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt13'
+    # AiPrompt14() -> null
+    # Sakura's F_AI_PROMPT_14 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt14'
+    # AiPrompt15() -> null
+    # Sakura's F_AI_PROMPT_15 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt15'
+    # AiPrompt16() -> null
+    # Sakura's F_AI_PROMPT_16 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt16'
+    # AiPrompt17() -> null
+    # Sakura's F_AI_PROMPT_17 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt17'
+    # AiPrompt18() -> null
+    # Sakura's F_AI_PROMPT_18 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt18'
+    # AiPrompt19() -> null
+    # Sakura's F_AI_PROMPT_19 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt19'
+    # AiPrompt20() -> null
+    # Sakura's F_AI_PROMPT_20 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt20'
+    # AiPrompt21() -> null
+    # Sakura's F_AI_PROMPT_21 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt21'
+    # AiPrompt22() -> null
+    # Sakura's F_AI_PROMPT_22 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt22'
+    # AiPrompt23() -> null
+    # Sakura's F_AI_PROMPT_23 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt23'
+    # AiPrompt24() -> null
+    # Sakura's F_AI_PROMPT_24 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt24'
+    # AiPrompt25() -> null
+    # Sakura's F_AI_PROMPT_25 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt25'
+    # AiPrompt26() -> null
+    # Sakura's F_AI_PROMPT_26 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt26'
+    # AiPrompt27() -> null
+    # Sakura's F_AI_PROMPT_27 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt27'
+    # AiPrompt28() -> null
+    # Sakura's F_AI_PROMPT_28 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt28'
+    # AiPrompt29() -> null
+    # Sakura's F_AI_PROMPT_29 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt29'
+    # AiPrompt30() -> null
+    # Sakura's F_AI_PROMPT_30 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt30'
+    # AiPrompt31() -> null
+    # Sakura's F_AI_PROMPT_31 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt31'
+    # AiPrompt32() -> null
+    # Sakura's F_AI_PROMPT_32 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt32'
+    # AiPrompt33() -> null
+    # Sakura's F_AI_PROMPT_33 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt33'
+    # AiPrompt34() -> null
+    # Sakura's F_AI_PROMPT_34 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt34'
+    # AiPrompt35() -> null
+    # Sakura's F_AI_PROMPT_35 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt35'
+    # AiPrompt36() -> null
+    # Sakura's F_AI_PROMPT_36 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt36'
+    # AiPrompt37() -> null
+    # Sakura's F_AI_PROMPT_37 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt37'
+    # AiPrompt38() -> null
+    # Sakura's F_AI_PROMPT_38 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt38'
+    # AiPrompt39() -> null
+    # Sakura's F_AI_PROMPT_39 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt39'
+    # AiPrompt40() -> null
+    # Sakura's F_AI_PROMPT_40 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt40'
+    # AiPrompt41() -> null
+    # Sakura's F_AI_PROMPT_41 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt41'
+    # AiPrompt42() -> null
+    # Sakura's F_AI_PROMPT_42 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt42'
+    # AiPrompt43() -> null
+    # Sakura's F_AI_PROMPT_43 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt43'
+    # AiPrompt44() -> null
+    # Sakura's F_AI_PROMPT_44 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt44'
+    # AiPrompt45() -> null
+    # Sakura's F_AI_PROMPT_45 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt45'
+    # AiPrompt46() -> null
+    # Sakura's F_AI_PROMPT_46 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt46'
+    # AiPrompt47() -> null
+    # Sakura's F_AI_PROMPT_47 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt47'
+    # AiPrompt48() -> null
+    # Sakura's F_AI_PROMPT_48 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt48'
+    # AiPrompt49() -> null
+    # Sakura's F_AI_PROMPT_49 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    'AiPrompt49'
     # TraceOut(arg1: string?, arg2: int?) -> null
     # MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a
     # key macro run.

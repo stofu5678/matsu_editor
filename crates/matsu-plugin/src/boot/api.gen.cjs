@@ -5219,6 +5219,656 @@ module.exports = function install(call) {
       return call('OneLinerDialog', args);
     },
     /**
+     * AiPrompt0() -> null
+     *
+     * Sakura's F_AI_PROMPT_0 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt0() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt0', args);
+    },
+    /**
+     * AiPrompt1() -> null
+     *
+     * Sakura's F_AI_PROMPT_1 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt1() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt1', args);
+    },
+    /**
+     * AiPrompt2() -> null
+     *
+     * Sakura's F_AI_PROMPT_2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt2() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt2', args);
+    },
+    /**
+     * AiPrompt3() -> null
+     *
+     * Sakura's F_AI_PROMPT_3 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt3() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt3', args);
+    },
+    /**
+     * AiPrompt4() -> null
+     *
+     * Sakura's F_AI_PROMPT_4 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt4() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt4', args);
+    },
+    /**
+     * AiPrompt5() -> null
+     *
+     * Sakura's F_AI_PROMPT_5 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt5() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt5', args);
+    },
+    /**
+     * AiPrompt6() -> null
+     *
+     * Sakura's F_AI_PROMPT_6 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt6() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt6', args);
+    },
+    /**
+     * AiPrompt7() -> null
+     *
+     * Sakura's F_AI_PROMPT_7 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt7() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt7', args);
+    },
+    /**
+     * AiPrompt8() -> null
+     *
+     * Sakura's F_AI_PROMPT_8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt8() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt8', args);
+    },
+    /**
+     * AiPrompt9() -> null
+     *
+     * Sakura's F_AI_PROMPT_9 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt9() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt9', args);
+    },
+    /**
+     * AiPrompt10() -> null
+     *
+     * Sakura's F_AI_PROMPT_10 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt10() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt10', args);
+    },
+    /**
+     * AiPrompt11() -> null
+     *
+     * Sakura's F_AI_PROMPT_11 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt11() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt11', args);
+    },
+    /**
+     * AiPrompt12() -> null
+     *
+     * Sakura's F_AI_PROMPT_12 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt12() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt12', args);
+    },
+    /**
+     * AiPrompt13() -> null
+     *
+     * Sakura's F_AI_PROMPT_13 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt13() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt13', args);
+    },
+    /**
+     * AiPrompt14() -> null
+     *
+     * Sakura's F_AI_PROMPT_14 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt14() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt14', args);
+    },
+    /**
+     * AiPrompt15() -> null
+     *
+     * Sakura's F_AI_PROMPT_15 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt15() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt15', args);
+    },
+    /**
+     * AiPrompt16() -> null
+     *
+     * Sakura's F_AI_PROMPT_16 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt16() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt16', args);
+    },
+    /**
+     * AiPrompt17() -> null
+     *
+     * Sakura's F_AI_PROMPT_17 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt17() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt17', args);
+    },
+    /**
+     * AiPrompt18() -> null
+     *
+     * Sakura's F_AI_PROMPT_18 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt18() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt18', args);
+    },
+    /**
+     * AiPrompt19() -> null
+     *
+     * Sakura's F_AI_PROMPT_19 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt19() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt19', args);
+    },
+    /**
+     * AiPrompt20() -> null
+     *
+     * Sakura's F_AI_PROMPT_20 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt20() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt20', args);
+    },
+    /**
+     * AiPrompt21() -> null
+     *
+     * Sakura's F_AI_PROMPT_21 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt21() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt21', args);
+    },
+    /**
+     * AiPrompt22() -> null
+     *
+     * Sakura's F_AI_PROMPT_22 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt22() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt22', args);
+    },
+    /**
+     * AiPrompt23() -> null
+     *
+     * Sakura's F_AI_PROMPT_23 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt23() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt23', args);
+    },
+    /**
+     * AiPrompt24() -> null
+     *
+     * Sakura's F_AI_PROMPT_24 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt24() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt24', args);
+    },
+    /**
+     * AiPrompt25() -> null
+     *
+     * Sakura's F_AI_PROMPT_25 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt25() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt25', args);
+    },
+    /**
+     * AiPrompt26() -> null
+     *
+     * Sakura's F_AI_PROMPT_26 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt26() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt26', args);
+    },
+    /**
+     * AiPrompt27() -> null
+     *
+     * Sakura's F_AI_PROMPT_27 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt27() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt27', args);
+    },
+    /**
+     * AiPrompt28() -> null
+     *
+     * Sakura's F_AI_PROMPT_28 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt28() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt28', args);
+    },
+    /**
+     * AiPrompt29() -> null
+     *
+     * Sakura's F_AI_PROMPT_29 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt29() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt29', args);
+    },
+    /**
+     * AiPrompt30() -> null
+     *
+     * Sakura's F_AI_PROMPT_30 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt30() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt30', args);
+    },
+    /**
+     * AiPrompt31() -> null
+     *
+     * Sakura's F_AI_PROMPT_31 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt31() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt31', args);
+    },
+    /**
+     * AiPrompt32() -> null
+     *
+     * Sakura's F_AI_PROMPT_32 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt32() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt32', args);
+    },
+    /**
+     * AiPrompt33() -> null
+     *
+     * Sakura's F_AI_PROMPT_33 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt33() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt33', args);
+    },
+    /**
+     * AiPrompt34() -> null
+     *
+     * Sakura's F_AI_PROMPT_34 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt34() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt34', args);
+    },
+    /**
+     * AiPrompt35() -> null
+     *
+     * Sakura's F_AI_PROMPT_35 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt35() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt35', args);
+    },
+    /**
+     * AiPrompt36() -> null
+     *
+     * Sakura's F_AI_PROMPT_36 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt36() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt36', args);
+    },
+    /**
+     * AiPrompt37() -> null
+     *
+     * Sakura's F_AI_PROMPT_37 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt37() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt37', args);
+    },
+    /**
+     * AiPrompt38() -> null
+     *
+     * Sakura's F_AI_PROMPT_38 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt38() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt38', args);
+    },
+    /**
+     * AiPrompt39() -> null
+     *
+     * Sakura's F_AI_PROMPT_39 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt39() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt39', args);
+    },
+    /**
+     * AiPrompt40() -> null
+     *
+     * Sakura's F_AI_PROMPT_40 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt40() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt40', args);
+    },
+    /**
+     * AiPrompt41() -> null
+     *
+     * Sakura's F_AI_PROMPT_41 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt41() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt41', args);
+    },
+    /**
+     * AiPrompt42() -> null
+     *
+     * Sakura's F_AI_PROMPT_42 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt42() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt42', args);
+    },
+    /**
+     * AiPrompt43() -> null
+     *
+     * Sakura's F_AI_PROMPT_43 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt43() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt43', args);
+    },
+    /**
+     * AiPrompt44() -> null
+     *
+     * Sakura's F_AI_PROMPT_44 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt44() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt44', args);
+    },
+    /**
+     * AiPrompt45() -> null
+     *
+     * Sakura's F_AI_PROMPT_45 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt45() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt45', args);
+    },
+    /**
+     * AiPrompt46() -> null
+     *
+     * Sakura's F_AI_PROMPT_46 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt46() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt46', args);
+    },
+    /**
+     * AiPrompt47() -> null
+     *
+     * Sakura's F_AI_PROMPT_47 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt47() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt47', args);
+    },
+    /**
+     * AiPrompt48() -> null
+     *
+     * Sakura's F_AI_PROMPT_48 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt48() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt48', args);
+    },
+    /**
+     * AiPrompt49() -> null
+     *
+     * Sakura's F_AI_PROMPT_49 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    AiPrompt49() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AiPrompt49', args);
+    },
+    /**
      * TraceOut(arg1: string?, arg2: int?) -> null
      *
      * MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a

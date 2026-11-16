@@ -5234,6 +5234,656 @@ final class Editor
     }
 
     /**
+     * AiPrompt0() -> null
+     *
+     * Sakura's F_AI_PROMPT_0 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt0()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt0', func_get_args());
+    }
+
+    /**
+     * AiPrompt1() -> null
+     *
+     * Sakura's F_AI_PROMPT_1 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt1()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt1', func_get_args());
+    }
+
+    /**
+     * AiPrompt2() -> null
+     *
+     * Sakura's F_AI_PROMPT_2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt2()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt2', func_get_args());
+    }
+
+    /**
+     * AiPrompt3() -> null
+     *
+     * Sakura's F_AI_PROMPT_3 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt3()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt3', func_get_args());
+    }
+
+    /**
+     * AiPrompt4() -> null
+     *
+     * Sakura's F_AI_PROMPT_4 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt4()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt4', func_get_args());
+    }
+
+    /**
+     * AiPrompt5() -> null
+     *
+     * Sakura's F_AI_PROMPT_5 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt5()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt5', func_get_args());
+    }
+
+    /**
+     * AiPrompt6() -> null
+     *
+     * Sakura's F_AI_PROMPT_6 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt6()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt6', func_get_args());
+    }
+
+    /**
+     * AiPrompt7() -> null
+     *
+     * Sakura's F_AI_PROMPT_7 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt7()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt7', func_get_args());
+    }
+
+    /**
+     * AiPrompt8() -> null
+     *
+     * Sakura's F_AI_PROMPT_8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt8()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt8', func_get_args());
+    }
+
+    /**
+     * AiPrompt9() -> null
+     *
+     * Sakura's F_AI_PROMPT_9 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt9()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt9', func_get_args());
+    }
+
+    /**
+     * AiPrompt10() -> null
+     *
+     * Sakura's F_AI_PROMPT_10 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt10()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt10', func_get_args());
+    }
+
+    /**
+     * AiPrompt11() -> null
+     *
+     * Sakura's F_AI_PROMPT_11 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt11()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt11', func_get_args());
+    }
+
+    /**
+     * AiPrompt12() -> null
+     *
+     * Sakura's F_AI_PROMPT_12 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt12()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt12', func_get_args());
+    }
+
+    /**
+     * AiPrompt13() -> null
+     *
+     * Sakura's F_AI_PROMPT_13 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt13()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt13', func_get_args());
+    }
+
+    /**
+     * AiPrompt14() -> null
+     *
+     * Sakura's F_AI_PROMPT_14 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt14()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt14', func_get_args());
+    }
+
+    /**
+     * AiPrompt15() -> null
+     *
+     * Sakura's F_AI_PROMPT_15 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt15()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt15', func_get_args());
+    }
+
+    /**
+     * AiPrompt16() -> null
+     *
+     * Sakura's F_AI_PROMPT_16 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt16()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt16', func_get_args());
+    }
+
+    /**
+     * AiPrompt17() -> null
+     *
+     * Sakura's F_AI_PROMPT_17 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt17()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt17', func_get_args());
+    }
+
+    /**
+     * AiPrompt18() -> null
+     *
+     * Sakura's F_AI_PROMPT_18 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt18()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt18', func_get_args());
+    }
+
+    /**
+     * AiPrompt19() -> null
+     *
+     * Sakura's F_AI_PROMPT_19 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt19()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt19', func_get_args());
+    }
+
+    /**
+     * AiPrompt20() -> null
+     *
+     * Sakura's F_AI_PROMPT_20 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt20()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt20', func_get_args());
+    }
+
+    /**
+     * AiPrompt21() -> null
+     *
+     * Sakura's F_AI_PROMPT_21 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt21()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt21', func_get_args());
+    }
+
+    /**
+     * AiPrompt22() -> null
+     *
+     * Sakura's F_AI_PROMPT_22 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt22()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt22', func_get_args());
+    }
+
+    /**
+     * AiPrompt23() -> null
+     *
+     * Sakura's F_AI_PROMPT_23 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt23()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt23', func_get_args());
+    }
+
+    /**
+     * AiPrompt24() -> null
+     *
+     * Sakura's F_AI_PROMPT_24 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt24()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt24', func_get_args());
+    }
+
+    /**
+     * AiPrompt25() -> null
+     *
+     * Sakura's F_AI_PROMPT_25 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt25()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt25', func_get_args());
+    }
+
+    /**
+     * AiPrompt26() -> null
+     *
+     * Sakura's F_AI_PROMPT_26 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt26()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt26', func_get_args());
+    }
+
+    /**
+     * AiPrompt27() -> null
+     *
+     * Sakura's F_AI_PROMPT_27 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt27()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt27', func_get_args());
+    }
+
+    /**
+     * AiPrompt28() -> null
+     *
+     * Sakura's F_AI_PROMPT_28 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt28()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt28', func_get_args());
+    }
+
+    /**
+     * AiPrompt29() -> null
+     *
+     * Sakura's F_AI_PROMPT_29 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt29()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt29', func_get_args());
+    }
+
+    /**
+     * AiPrompt30() -> null
+     *
+     * Sakura's F_AI_PROMPT_30 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt30()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt30', func_get_args());
+    }
+
+    /**
+     * AiPrompt31() -> null
+     *
+     * Sakura's F_AI_PROMPT_31 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt31()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt31', func_get_args());
+    }
+
+    /**
+     * AiPrompt32() -> null
+     *
+     * Sakura's F_AI_PROMPT_32 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt32()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt32', func_get_args());
+    }
+
+    /**
+     * AiPrompt33() -> null
+     *
+     * Sakura's F_AI_PROMPT_33 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt33()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt33', func_get_args());
+    }
+
+    /**
+     * AiPrompt34() -> null
+     *
+     * Sakura's F_AI_PROMPT_34 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt34()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt34', func_get_args());
+    }
+
+    /**
+     * AiPrompt35() -> null
+     *
+     * Sakura's F_AI_PROMPT_35 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt35()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt35', func_get_args());
+    }
+
+    /**
+     * AiPrompt36() -> null
+     *
+     * Sakura's F_AI_PROMPT_36 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt36()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt36', func_get_args());
+    }
+
+    /**
+     * AiPrompt37() -> null
+     *
+     * Sakura's F_AI_PROMPT_37 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt37()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt37', func_get_args());
+    }
+
+    /**
+     * AiPrompt38() -> null
+     *
+     * Sakura's F_AI_PROMPT_38 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt38()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt38', func_get_args());
+    }
+
+    /**
+     * AiPrompt39() -> null
+     *
+     * Sakura's F_AI_PROMPT_39 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt39()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt39', func_get_args());
+    }
+
+    /**
+     * AiPrompt40() -> null
+     *
+     * Sakura's F_AI_PROMPT_40 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt40()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt40', func_get_args());
+    }
+
+    /**
+     * AiPrompt41() -> null
+     *
+     * Sakura's F_AI_PROMPT_41 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt41()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt41', func_get_args());
+    }
+
+    /**
+     * AiPrompt42() -> null
+     *
+     * Sakura's F_AI_PROMPT_42 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt42()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt42', func_get_args());
+    }
+
+    /**
+     * AiPrompt43() -> null
+     *
+     * Sakura's F_AI_PROMPT_43 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt43()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt43', func_get_args());
+    }
+
+    /**
+     * AiPrompt44() -> null
+     *
+     * Sakura's F_AI_PROMPT_44 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt44()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt44', func_get_args());
+    }
+
+    /**
+     * AiPrompt45() -> null
+     *
+     * Sakura's F_AI_PROMPT_45 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt45()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt45', func_get_args());
+    }
+
+    /**
+     * AiPrompt46() -> null
+     *
+     * Sakura's F_AI_PROMPT_46 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt46()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt46', func_get_args());
+    }
+
+    /**
+     * AiPrompt47() -> null
+     *
+     * Sakura's F_AI_PROMPT_47 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt47()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt47', func_get_args());
+    }
+
+    /**
+     * AiPrompt48() -> null
+     *
+     * Sakura's F_AI_PROMPT_48 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt48()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt48', func_get_args());
+    }
+
+    /**
+     * AiPrompt49() -> null
+     *
+     * Sakura's F_AI_PROMPT_49 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AiPrompt49()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AiPrompt49', func_get_args());
+    }
+
+    /**
      * TraceOut(arg1: string?, arg2: int?) -> null
      *
      * MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a

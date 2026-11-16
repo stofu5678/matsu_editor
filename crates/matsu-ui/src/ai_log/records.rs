@@ -80,6 +80,9 @@ pub(crate) struct Started {
     pub(crate) name: String,
     /// The command line as it is run.
     pub(crate) command_line: String,
+    /// The mode of the run (ADR-0035): `None` is mode a (the text goes as the prompt, nothing is added); `Some` is
+    /// mode b, with the instruction that the user wrote. The one value says both, so they cannot disagree.
+    pub(crate) instruction: Option<String>,
     /// The text sent to the command's stdin.
     pub(crate) input: String,
     /// The size of the whole input when `input` is only its head (a text that is read up to a limit); `None` when
@@ -105,6 +108,8 @@ pub(crate) struct Record {
     pub(crate) id: RecordId,
     pub(crate) name: String,
     pub(crate) command_line: LogText,
+    /// Mode a is `None`, mode b has the instruction (see [`Started::instruction`]).
+    pub(crate) instruction: Option<LogText>,
     pub(crate) input: LogText,
     pub(crate) started_at: DateTime<Local>,
     /// `None` while the run goes on.
@@ -151,6 +156,7 @@ impl Log {
             id,
             name: started.name,
             command_line: LogText::new(started.command_line),
+            instruction: started.instruction.map(LogText::new),
             input: LogText::sized(started.input, started.input_size),
             started_at: started.started_at,
             result: None,
@@ -217,7 +223,14 @@ fn write_record(out: &mut String, record: &Record) {
             ));
         }
     }
+    match &record.instruction {
+        None => out.push_str("モード: a（選んだ文字列をそのまま送った）\n\n"),
+        Some(_) => out.push_str("モード: b（指示をつけて送った）\n\n"),
+    }
     write_text(out, "コマンド行", &record.command_line);
+    if let Some(instruction) = &record.instruction {
+        write_text(out, "指示", instruction);
+    }
     write_text(out, "入力", &record.input);
     if let Some(result) = &record.result {
         write_text(out, "答え（標準出力）", &result.output);
@@ -308,6 +321,7 @@ mod tests {
         Started {
             name: name.to_owned(),
             command_line: "claude -p".to_owned(),
+            instruction: None,
             input: "こんにちは".to_owned(),
             input_size: None,
             started_at: at(),
@@ -349,6 +363,34 @@ mod tests {
         assert!(text.contains("**実行中**"));
         // A run ends once.
         assert!(!log.finish(second, finished("again")));
+    }
+
+    #[test]
+    fn the_record_says_the_mode_and_mode_b_has_its_instruction() {
+        let mut log = Log::default();
+        let plain = log.begin(started("a"));
+        let mut with = started("b");
+        with.instruction = Some("Translate.\n\nKeep the tone.".to_owned());
+        let asked = log.begin(with);
+        assert!(log.get(plain).unwrap().instruction.is_none());
+        assert_eq!(
+            log.get(asked)
+                .unwrap()
+                .instruction
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "Translate.\n\nKeep the tone."
+        );
+        let text = log.markdown();
+        assert_eq!(text.matches("モード: a").count(), 1, "{text}");
+        assert_eq!(text.matches("モード: b").count(), 1, "{text}");
+        assert_eq!(
+            text.matches("**指示**").count(),
+            1,
+            "mode a has no instruction: {text}"
+        );
+        assert!(text.contains("Keep the tone."), "{text}");
     }
 
     #[test]

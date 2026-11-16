@@ -17,6 +17,7 @@ fn started(name: &str, command_line: &str) -> Started {
     Started {
         name: name.to_owned(),
         command_line: command_line.to_owned(),
+        instruction: None,
         input: "こんにちは\r\n世界".to_owned(),
         input_size: None,
         started_at: chrono::Local

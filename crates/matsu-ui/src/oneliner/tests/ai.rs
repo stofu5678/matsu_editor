@@ -1,8 +1,9 @@
-//! The one-liners that send to a generative AI (ADR-0030): the confirmation, the working folder and the log, with
-//! real shells as stand-ins for the AI tool. Nothing here runs an AI tool or sends anything anywhere.
+//! Sending to a generative AI in mode a (ADR-0030, ADR-0035): the confirmation, the working folder and the log, with
+//! real shells as stand-ins for the AI tool. Nothing here runs an AI tool or sends anything anywhere. The flow is
+//! the one-liners' (`crate::ai_send` is its entry), so the tests share their harness.
 
 use gpui::{Entity, TestAppContext};
-use matsu_config::settings::oneliner::OutputTo;
+use matsu_config::settings::ai::AiOutput;
 use matsu_core::buffer::Pos;
 
 use super::{COPY, FAIL, LONG, UPPER, Win, ini, run, wait_until};
@@ -18,15 +19,34 @@ fn open(cx: &mut TestAppContext, settings: &str, text: &str) -> (tempfile::TempD
     super::open_in(cx, text)
 }
 
-/// A table of one AI one-liner named `test`.
-fn ai_ini(command: &str, output: OutputTo, ask: bool) -> String {
-    // `ini` ends with the last line of the section, so the keys can follow it
-    let mut text = ini(&[("test", command, output.number())], &[]);
-    text.push_str("AI[000]=1\r\n");
-    if !ask {
-        text.push_str("AskBeforeSend[000]=0\r\n");
-    }
-    text
+/// The code of `F_AI_PROMPT_n`, from the function table.
+fn prompt_code(n: usize) -> u16 {
+    let name = format!("F_AI_PROMPT_{n}");
+    matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == name)
+        .unwrap_or_else(|| panic!("{name} is not a function"))
+        .code
+}
+
+/// Calls `F_AI_PROMPT_n` (no wait).
+fn prompt(w: &Win, cx: &mut TestAppContext, n: usize) {
+    w.call_code(cx, prompt_code(n));
+}
+
+/// Calls `F_AI_PROMPT_n` and waits for the end of the run.
+fn run_ai(cx: &mut TestAppContext, w: &Win, n: usize) {
+    prompt(w, cx, n);
+    wait_idle(w, cx);
+}
+
+/// A table of one destination named `test` in `[AI]`.
+fn ai_ini(command: &str, output: AiOutput, ask: bool) -> String {
+    format!(
+        "[AI]\r\nName[000]=test\r\nCommand[000]={command}\r\nOutput[000]={}\r\nAskBeforeSend[000]={}\r\n",
+        output.number(),
+        i32::from(ask)
+    )
 }
 
 /// What the log of the window has for one record.
@@ -34,6 +54,8 @@ fn ai_ini(command: &str, output: OutputTo, ask: bool) -> String {
 struct Rec {
     name: String,
     command_line: String,
+    /// `None` is mode a.
+    instruction: Option<String>,
     input: String,
     /// The answer, the stderr and the exit code, once the record has ended.
     end: Option<(String, String, Option<i32>)>,
@@ -58,6 +80,7 @@ fn records(w: &Win, cx: &mut TestAppContext) -> Vec<Rec> {
             .map(|record| Rec {
                 name: record.name.clone(),
                 command_line: record.command_line.as_str().to_owned(),
+                instruction: record.instruction.as_ref().map(|i| i.as_str().to_owned()),
                 input: record.input.as_str().to_owned(),
                 end: record.result.as_ref().map(|r| {
                     (
@@ -86,7 +109,7 @@ fn press(w: &Win, cx: &mut TestAppContext, keys: &str) {
 }
 
 fn ask_before_send(cx: &mut TestAppContext) -> bool {
-    cx.update(|app| super::super::table(app)).slots[0].ask_before_send
+    cx.update(|app| crate::ai_send::table(app)).slots[0].ask_before_send
 }
 
 fn wait_idle(w: &Win, cx: &mut TestAppContext) {
@@ -100,16 +123,20 @@ fn wait_idle(w: &Win, cx: &mut TestAppContext) {
 fn the_window_is_asked_with_the_name_the_command_line_and_the_range(cx: &mut TestAppContext) {
     let (_dir, w) = open(
         cx,
-        &ai_ini(UPPER, OutputTo::NextLine, true),
+        &ai_ini(UPPER, AiOutput::NextLine, true),
         "abc\ndef\nghi\n",
     );
     w.select(cx, Pos::new(1, 0), Pos::new(2, 3));
-    w.slot(cx, 0);
+    prompt(&w, cx, 0);
     let dialog = wait_confirm(&w, cx);
     dialog.read_with(cx, |d, _| {
         let request = d.request();
         assert_eq!(request.name, "test");
         assert_eq!(request.command_line, UPPER);
+        assert_eq!(
+            request.lead,
+            Some("選んだ文字列が、そのままプロンプトとして送られます")
+        );
         assert_eq!(request.preview.lines, 2);
         assert_eq!(request.preview.chars, "def\nghi".chars().count());
         let text: Vec<_> = request
@@ -129,8 +156,8 @@ fn the_window_is_asked_with_the_name_the_command_line_and_the_range(cx: &mut Tes
 
 #[gpui::test]
 fn the_window_is_asked_over_the_whole_document_when_nothing_is_selected(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(UPPER, OutputTo::NextLine, true), "abc\ndef\n");
-    w.slot(cx, 0);
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::NextLine, true), "abc\ndef\n");
+    prompt(&w, cx, 0);
     let dialog = wait_confirm(&w, cx);
     dialog.read_with(cx, |d, _| {
         assert_eq!(d.request().preview.lines, 2);
@@ -143,8 +170,8 @@ fn the_window_is_asked_over_the_whole_document_when_nothing_is_selected(cx: &mut
 #[gpui::test]
 fn not_sending_runs_nothing_and_changes_nothing(cx: &mut TestAppContext) {
     for keys in ["escape", "tab enter"] {
-        let (_dir, w) = open(cx, &ai_ini(UPPER, OutputTo::Replace, true), "abc\n");
-        w.slot(cx, 0);
+        let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::Replace, true), "abc\n");
+        prompt(&w, cx, 0);
         wait_confirm(&w, cx);
         press(&w, cx, keys);
         wait_idle(&w, cx);
@@ -168,9 +195,9 @@ fn not_sending_runs_nothing_and_changes_nothing(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn sending_runs_and_records(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(UPPER, OutputTo::NextLine, true), "abc\ndef\n");
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::NextLine, true), "abc\ndef\n");
     w.select(cx, Pos::new(0, 0), Pos::new(1, 0));
-    w.slot(cx, 0);
+    prompt(&w, cx, 0);
     wait_confirm(&w, cx);
     press(&w, cx, "enter");
     wait_idle(&w, cx);
@@ -181,6 +208,7 @@ fn sending_runs_and_records(cx: &mut TestAppContext) {
     let record = &records[0];
     assert_eq!(record.name, "test");
     assert_eq!(record.command_line, UPPER);
+    assert_eq!(record.instruction, None, "mode a has no instruction");
     assert_eq!(record.input, "abc\n");
     let (output, stderr, code) = record.end.clone().expect("the record has ended");
     assert_eq!(output.replace("\r\n", "\n"), "ABC\n");
@@ -191,8 +219,8 @@ fn sending_runs_and_records(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn the_log_tab_opens_behind_the_document(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(COPY, OutputTo::NextLine, false), "abc\n");
-    w.slot(cx, 0);
+    let (_dir, w) = open(cx, &ai_ini(COPY, AiOutput::NextLine, false), "abc\n");
+    prompt(&w, cx, 0);
     wait_idle(&w, cx);
     let ws = workspace(&w, cx).unwrap();
     ws.read_with(cx, |ws, _| {
@@ -204,8 +232,8 @@ fn the_log_tab_opens_behind_the_document(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn dont_ask_again_writes_the_setting_and_the_next_run_does_not_ask(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(UPPER, OutputTo::NextLine, true), "abc\n");
-    w.slot(cx, 0);
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::NextLine, true), "abc\n");
+    prompt(&w, cx, 0);
     wait_confirm(&w, cx);
     // 送る -> (Shift+Tab) the check box, Space toggles it, Tab back to 送る
     press(&w, cx, "shift-tab space tab enter");
@@ -215,7 +243,7 @@ fn dont_ask_again_writes_the_setting_and_the_next_run_does_not_ask(cx: &mut Test
     assert_eq!(records(&w, cx).len(), 1);
 
     // the next run goes at once
-    w.slot(cx, 0);
+    prompt(&w, cx, 0);
     wait_idle(&w, cx);
     assert!(confirm(&w, cx).is_none());
     assert_eq!(w.text(cx), "abc\nABC\nABC\n");
@@ -227,7 +255,7 @@ fn dont_ask_again_is_written_to_the_settings_file(cx: &mut TestAppContext) {
     cx.update(gpui_component::init);
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("matsu.ini");
-    std::fs::write(&file, ai_ini(UPPER, OutputTo::NextLine, true)).unwrap();
+    std::fs::write(&file, ai_ini(UPPER, AiOutput::NextLine, true)).unwrap();
     let user = crate::settings::UserSettings::from_profile(
         matsu_config::Profile::load(&file).unwrap(),
         Some(file.clone()),
@@ -238,19 +266,20 @@ fn dont_ask_again_is_written_to_the_settings_file(cx: &mut TestAppContext) {
     });
     cx.update(crate::view::EditorView::bind_keys);
     let (_doc_dir, w) = super::open_in(cx, "abc\n");
-    w.slot(cx, 0);
+    prompt(&w, cx, 0);
     wait_confirm(&w, cx);
     press(&w, cx, "shift-tab space tab enter");
     wait_idle(&w, cx);
     let saved = String::from_utf8_lossy(&std::fs::read(&file).unwrap()).into_owned();
+    assert!(saved.contains("[AI]"), "{saved}");
     assert!(saved.contains("AskBeforeSend[000]=0"), "{saved}");
-    assert!(saved.contains("AI[000]=1"), "{saved}");
+    assert!(saved.contains("Command[000]="), "{saved}");
 }
 
 #[gpui::test]
 fn not_sending_with_the_box_checked_keeps_asking(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(UPPER, OutputTo::NextLine, true), "abc\n");
-    w.slot(cx, 0);
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::NextLine, true), "abc\n");
+    prompt(&w, cx, 0);
     wait_confirm(&w, cx);
     // check the box, then 送らない
     press(&w, cx, "shift-tab space tab tab enter");
@@ -261,8 +290,8 @@ fn not_sending_with_the_box_checked_keeps_asking(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_document_that_changed_during_the_question_is_not_run(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(UPPER, OutputTo::Replace, true), "abc\n");
-    w.slot(cx, 0);
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::Replace, true), "abc\n");
+    prompt(&w, cx, 0);
     wait_confirm(&w, cx);
     w.view.update(cx, |view, cx| {
         view.document()
@@ -278,8 +307,8 @@ fn a_document_that_changed_during_the_question_is_not_run(cx: &mut TestAppContex
 
 #[gpui::test]
 fn without_asking_it_runs_at_once_and_records(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(UPPER, OutputTo::Replace, false), "abc\n");
-    run(cx, &w, 0);
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::Replace, false), "abc\n");
+    run_ai(cx, &w, 0);
     assert!(confirm(&w, cx).is_none());
     assert_eq!(w.text(cx), "ABC\n");
     let records = records(&w, cx);
@@ -295,8 +324,8 @@ fn the_working_folder_is_a_new_empty_temporary_folder_that_is_removed(cx: &mut T
     } else {
         "pwd; ls -A | wc -l"
     };
-    let (dir, w) = open(cx, &ai_ini(command, OutputTo::OutputWindow, false), "abc\n");
-    run(cx, &w, 0);
+    let (dir, w) = open(cx, &ai_ini(command, AiOutput::LogOnly, false), "abc\n");
+    run_ai(cx, &w, 0);
     let (output, _, code) = records(&w, cx)[0].end.clone().unwrap();
     assert_eq!(code, Some(0));
     let mut lines = output.lines();
@@ -346,8 +375,8 @@ fn a_plain_one_liner_keeps_the_document_folder_and_neither_asks_nor_logs(cx: &mu
 
 #[gpui::test]
 fn a_failing_run_is_recorded_with_its_stderr_and_code(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(FAIL, OutputTo::NextLine, false), "abc\n");
-    run(cx, &w, 0);
+    let (_dir, w) = open(cx, &ai_ini(FAIL, AiOutput::NextLine, false), "abc\n");
+    run_ai(cx, &w, 0);
     // a non-zero exit code changes nothing
     assert_eq!(w.text(cx), "abc\n");
     let (output, stderr, code) = records(&w, cx)[0].end.clone().unwrap();
@@ -358,7 +387,7 @@ fn a_failing_run_is_recorded_with_its_stderr_and_code(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_run_that_cannot_start_is_recorded(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(COPY, OutputTo::NextLine, false), "abc\n");
+    let (_dir, w) = open(cx, &ai_ini(COPY, AiOutput::NextLine, false), "abc\n");
     cx.update(|app| {
         let terminal = matsu_config::terminal::TerminalSettings::from_values(
             "/no/such/shell-qzx",
@@ -367,7 +396,7 @@ fn a_run_that_cannot_start_is_recorded(cx: &mut TestAppContext) {
         );
         crate::terminal::settings::set(app, terminal);
     });
-    w.slot(cx, 0);
+    prompt(&w, cx, 0);
     wait_until(cx, "the box", |cx| w.prompt(cx).is_some());
     w.cx(cx).simulate_prompt_answer("OK");
     wait_idle(&w, cx);
@@ -382,8 +411,8 @@ fn a_run_that_cannot_start_is_recorded(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn cancelling_a_run_is_recorded(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(LONG, OutputTo::NextLine, false), "abc\n");
-    w.slot(cx, 0);
+    let (_dir, w) = open(cx, &ai_ini(LONG, AiOutput::NextLine, false), "abc\n");
+    prompt(&w, cx, 0);
     wait_until(cx, "the box", |cx| w.running(cx));
     // running: the record is open
     let running = records(&w, cx);
@@ -407,12 +436,12 @@ fn the_log_has_the_output_as_the_command_wrote_it_for_every_place(cx: &mut TestA
         "printf answer"
     };
     for (place, expected) in [
-        (OutputTo::NextLine, "abc\nanswer\n"),
-        (OutputTo::Replace, "answer"),
-        (OutputTo::OutputWindow, "abc\n"),
+        (AiOutput::NextLine, "abc\nanswer\n"),
+        (AiOutput::Replace, "answer"),
+        (AiOutput::LogOnly, "abc\n"),
     ] {
         let (_dir, w) = open(cx, &ai_ini(command, place, false), "abc\n");
-        run(cx, &w, 0);
+        run_ai(cx, &w, 0);
         let (output, _, _) = records(&w, cx)[0].end.clone().unwrap();
         assert_eq!(
             output, "answer",
@@ -426,8 +455,8 @@ fn the_log_has_the_output_as_the_command_wrote_it_for_every_place(cx: &mut TestA
 fn the_status_bar_says_where_the_run_is_recorded_after_the_result_is_placed(
     cx: &mut TestAppContext,
 ) {
-    let (_dir, w) = open(cx, &ai_ini(COPY, OutputTo::NextLine, false), "abc\n");
-    run(cx, &w, 0);
+    let (_dir, w) = open(cx, &ai_ini(COPY, AiOutput::NextLine, false), "abc\n");
+    run_ai(cx, &w, 0);
     // the new text is selected, and the message is still the status
     assert!(w.selection(cx).is_some());
     let notice = w.notice(cx).unwrap_or_default();
@@ -436,7 +465,7 @@ fn the_status_bar_says_where_the_run_is_recorded_after_the_result_is_placed(
 
 #[gpui::test]
 fn the_function_show_ai_log_opens_and_goes_to_the_log(cx: &mut TestAppContext) {
-    let (_dir, w) = open(cx, &ai_ini(COPY, OutputTo::NextLine, false), "abc\n");
+    let (_dir, w) = open(cx, &ai_ini(COPY, AiOutput::NextLine, false), "abc\n");
     let code = matsu_config::settings::oneliner::F_AI_LOG_SHOW;
     w.call_code(cx, code);
     let ws = workspace(&w, cx).unwrap();
@@ -479,4 +508,151 @@ fn tab_stays_inside_the_input_dialog_on_a_real_window(cx: &mut TestAppContext) {
         assert!(w.dialog(cx).is_some(), "{key}");
     }
     assert_eq!(w.text(cx), "abc\n");
+}
+
+// ---- the entry of mode a (ADR-0035) ----
+
+#[gpui::test]
+fn a_destination_that_is_not_registered_says_so_and_does_nothing(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::Replace, false), "abc\n");
+    prompt(&w, cx, 1);
+    assert_eq!(
+        w.notice(cx).as_deref(),
+        Some("生成 AI の送り先 1 は登録されていません。")
+    );
+    assert!(confirm(&w, cx).is_none());
+    assert!(!w.running(cx));
+    assert_eq!(w.text(cx), "abc\n");
+    assert!(records(&w, cx).is_empty());
+}
+
+#[gpui::test]
+fn an_empty_target_sends_nothing_and_says_so(cx: &mut TestAppContext) {
+    // asking or not, nothing is shown, run or recorded
+    for ask in [true, false] {
+        let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::NextLine, ask), "");
+        prompt(&w, cx, 0);
+        wait_idle(&w, cx);
+        assert!(confirm(&w, cx).is_none(), "ask {ask}");
+        assert_eq!(w.text(cx), "", "ask {ask}");
+        assert!(
+            w.notice(cx)
+                .is_some_and(|n| n.contains("送る文字がありません")),
+            "ask {ask}: {:?}",
+            w.notice(cx)
+        );
+        assert!(records(&w, cx).is_empty(), "ask {ask}");
+    }
+}
+
+#[gpui::test]
+fn a_slot_of_one_liner_still_marked_ai_does_not_run_as_a_one_liner(cx: &mut TestAppContext) {
+    // ADR-0035, 6, step 4: the slot would send without the confirmation if it ran
+    let mut settings = ini(&[("marked", UPPER, 0)], &[]);
+    settings.push_str("AI[000]=1\r\n");
+    let (_dir, w) = open(cx, &settings, "abc\n");
+    w.slot(cx, 0);
+    assert_eq!(
+        w.notice(cx).as_deref(),
+        Some("この枠は生成 AI の枠です。生成 AI の設定に移してください。")
+    );
+    assert!(confirm(&w, cx).is_none());
+    assert!(!w.running(cx));
+    assert!(!w.view.read_with(cx, |v, _| v.support.oneliner_starting));
+    assert_eq!(w.text(cx), "abc\n");
+    assert!(records(&w, cx).is_empty());
+    // a one-liner next to it still runs
+    let mut settings = ini(&[("marked", UPPER, 0), ("plain", UPPER, 0)], &[]);
+    settings.push_str("AI[000]=1\r\n");
+    let (_dir, w) = open(cx, &settings, "abc\n");
+    run(cx, &w, 1);
+    assert_eq!(w.text(cx), "ABC\n");
+}
+
+#[gpui::test]
+fn the_log_tab_only_leaves_the_document_and_the_output_window(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::LogOnly, false), "abc\n");
+    run_ai(cx, &w, 0);
+    assert_eq!(w.text(cx), "abc\n");
+    assert_eq!(w.output(cx), "", "the answer is in the log");
+    let (output, _, code) = records(&w, cx)[0].end.clone().unwrap();
+    assert_eq!(output.replace("\r\n", "\n"), "ABC\n");
+    assert_eq!(code, Some(0));
+    // it does not need a document that can be edited
+    let (_dir, w) = open(cx, &ai_ini(UPPER, AiOutput::LogOnly, false), "abc\n");
+    w.view_mode(cx);
+    run_ai(cx, &w, 0);
+    assert_eq!(records(&w, cx).len(), 1);
+}
+
+#[gpui::test]
+fn replacing_and_inserting_need_a_document_that_can_be_edited(cx: &mut TestAppContext) {
+    for output in [AiOutput::Replace, AiOutput::NextLine] {
+        let (_dir, w) = open(cx, &ai_ini(UPPER, output, false), "abc\n");
+        w.view_mode(cx);
+        run_ai(cx, &w, 0);
+        assert_eq!(w.text(cx), "abc\n", "{output:?}");
+        assert!(
+            w.notice(cx)
+                .is_some_and(|n| n.contains("生成 AI に送りません")),
+            "{output:?}: {:?}",
+            w.notice(cx)
+        );
+        assert!(records(&w, cx).is_empty(), "{output:?}: nothing was sent");
+    }
+}
+
+#[gpui::test]
+fn the_input_has_lf_line_ends_whatever_the_document_has(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, &ai_ini(COPY, AiOutput::LogOnly, false), "a\r\nb\r\nc");
+    run_ai(cx, &w, 0);
+    assert_eq!(records(&w, cx)[0].input, "a\nb\nc");
+}
+
+#[gpui::test]
+fn a_box_selection_is_the_prompt_and_the_answer_replaces_the_box_once(cx: &mut TestAppContext) {
+    let (_dir, w) = open(
+        cx,
+        &ai_ini(UPPER, AiOutput::Replace, false),
+        "abcd\nefgh\nijkl\n",
+    );
+    w.view.update(cx, |view, _| {
+        view.cursor.move_to(Pos::new(0, 1), false);
+        view.cursor.begin_box(64, false);
+        view.cursor.move_box_to(Pos::new(1, 3), 3 * 64);
+    });
+    run_ai(cx, &w, 0);
+    assert_eq!(records(&w, cx)[0].input, "bc\nfg\n");
+    assert_eq!(w.text(cx), "aBC\nFG\nd\neh\nijkl\n");
+}
+
+#[gpui::test]
+fn every_number_runs_its_own_destination(cx: &mut TestAppContext) {
+    let settings = format!(
+        "[AI]\r\n\
+        Name[007]=seven\r\nCommand[007]={COPY}\r\nOutput[007]=2\r\nAskBeforeSend[007]=0\r\n\
+        Name[049]=last\r\nCommand[049]={COPY}\r\nOutput[049]=2\r\nAskBeforeSend[049]=0\r\n"
+    );
+    let (_dir, w) = open(cx, &settings, "abc\n");
+    run_ai(cx, &w, 7);
+    run_ai(cx, &w, 49);
+    let names: Vec<String> = records(&w, cx).into_iter().map(|r| r.name).collect();
+    assert_eq!(names, ["seven", "last"]);
+}
+
+#[test]
+fn the_functions_are_the_fifty_numbers_in_a_row_and_not_the_one_liners() {
+    use matsu_config::settings::oneliner::{F_AI_LOG_SHOW, F_ONELINER_0};
+    let codes: Vec<u16> = (0..50).map(prompt_code).collect();
+    assert!(codes.windows(2).all(|pair| pair[1] == pair[0] + 1));
+    assert!(
+        codes
+            .iter()
+            .all(|code| !(F_ONELINER_0..=F_AI_LOG_SHOW).contains(code))
+    );
+    assert!(
+        matsu_commands::sakura::FUNCTIONS
+            .iter()
+            .all(|f| f.name != "F_AI_PROMPT_50")
+    );
 }

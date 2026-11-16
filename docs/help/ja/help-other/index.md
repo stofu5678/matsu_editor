@@ -55,7 +55,7 @@
 | `F_GREP`、`F_GREP_REPLACE`、`F_JUMP`、`F_OUTLINE_TOGGLE`、`F_TAGJUMP_LIST`、`F_TAGJUMP_CLOSE`、`F_BOOKMARK_PATTERN`、`F_DIFF` | 「コマンド: 検索」（一覧は [置換の実行、検索ボックス、そのほかの検索系](search-others.md)） |
 | `F_OPTION_GENERAL` などの `F_OPTION_*` | 「コマンド: 設定（共通設定）」の「共通設定...」のページ |
 | `F_EXECMD`、`F_CUSTMENU_1` から `F_CUSTMENU_24`、`F_MENU_RBUTTON` | 「コマンド: ツール」 |
-| `F_ONELINER_0` から `F_ONELINER_49` | 「MATSU Editor だけの機能」 |
+| `F_ONELINER_0` から `F_ONELINER_49`、`F_AI_PROMPT_0` から `F_AI_PROMPT_49` | 「MATSU Editor だけの機能」 |
 
 ## マクロからだけ呼ぶ機能
 

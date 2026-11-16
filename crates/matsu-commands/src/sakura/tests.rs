@@ -39,11 +39,16 @@ const MATSU_ONLY: usize = 11;
 /// `MenuSpecial`), `F_ONELINER_DIALOG`, `F_ONELINER_SETTINGS` and `F_AI_LOG_SHOW`. The main menu has a submenu for them (5 rows).
 const ONELINER_MENU_ITEMS: usize = 5;
 const ONELINER_FUNCTIONS: usize = 54;
+/// The 50 functions of sending to a generative AI in mode a (ADR-0035): `F_AI_PROMPT_0` ... `F_AI_PROMPT_49`.
+const AI_PROMPT_FUNCTIONS: usize = 50;
 const MATSU_MENU_SEPARATORS: usize = 2;
 
 #[test]
 fn counts_match_sakura() {
-    assert_eq!(FUNCTIONS.len(), 524 + MATSU_ONLY + ONELINER_FUNCTIONS);
+    assert_eq!(
+        FUNCTIONS.len(),
+        524 + MATSU_ONLY + ONELINER_FUNCTIONS + AI_PROMPT_FUNCTIONS
+    );
     assert_eq!(KEY_BINDINGS.len(), 100);
     assert_eq!(
         MAIN_MENU.len(),
@@ -63,7 +68,7 @@ fn kinds_match_sakura_ranges() {
     assert_eq!(count(FunctionKind::MacroOnly), 23);
     assert_eq!(
         count(FunctionKind::Command),
-        524 - 9 - 6 - 63 - 59 - 3 - 23 + MATSU_ONLY + ONELINER_FUNCTIONS - 1
+        524 - 9 - 6 - 63 - 59 - 3 - 23 + MATSU_ONLY + ONELINER_FUNCTIONS + AI_PROMPT_FUNCTIONS - 1
     );
 }
 
@@ -392,6 +397,23 @@ fn the_encodings_have_macro_names_that_are_not_sakuras() {
         .find(|m| m.name == "Base64Decode")
         .unwrap();
     assert_eq!(save.function, "F_BASE64DECODE");
+}
+
+#[test]
+fn the_ai_prompt_functions_are_in_a_row_have_no_group_or_menu_item_and_leave_room() {
+    // ADR-0035: MATSU-only codes between Sakura's highest (32018) and `FIRST_CODE` (32700)
+    for n in 0..50u16 {
+        let f = function(&format!("F_AI_PROMPT_{n}"));
+        assert_eq!(f.code, 32600 + n);
+        assert_eq!(f.id, format!("ai_prompt_{n}"));
+        assert_eq!(f.kind, FunctionKind::Command);
+        assert_eq!(f.label, Some(format!("生成 AI に送る {n}").as_str()));
+        assert!(f.groups.is_empty());
+        assert!(MAIN_MENU.iter().all(|m| m.code != f.code));
+    }
+    assert!(FUNCTIONS.iter().all(|f| f.name != "F_AI_PROMPT_50"));
+    // the codes after the fifty are free for the later steps of ADR-0035
+    assert!(FUNCTIONS.iter().all(|f| !(32650..32700).contains(&f.code)));
 }
 
 #[test]

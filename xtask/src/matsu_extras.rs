@@ -328,9 +328,40 @@ fn oneliner_functions() -> Vec<Function> {
     out
 }
 
-/// Adds the functions of the one-liners after `F_SHELL_TAB`.
+/// Sending to a generative AI (ADR-0035): `F_AI_PROMPT_0` to `F_AI_PROMPT_49` send the target text, as the prompt, to
+/// destination n of `[AI]` (mode a), in a row from [`AI_PROMPT_FIRST_CODE`]. MATSU-only, in the gap between Sakura's
+/// highest code (32018) and [`FIRST_CODE`]. The codes after the fifty (up to [`FIRST_CODE`]) are kept for the
+/// functions of the later steps of ADR-0035 (`F_AI_PROMPT_LIST`, `F_AI_ASK`, `F_AI_SETTINGS`). Like the one-liners
+/// they are in no group of the command list; the macro table has a row for each ([`ai_prompt_macros`]).
+pub const AI_PROMPT_FIRST_CODE: u16 = 32600;
+const AI_PROMPT_COUNT: u16 = 50;
+
+/// The functions of mode a, in the order of the function table.
+fn ai_prompt_functions() -> Vec<Function> {
+    (0..AI_PROMPT_COUNT)
+        .map(|n| Function {
+            code: AI_PROMPT_FIRST_CODE + n,
+            name: format!("F_AI_PROMPT_{n}"),
+            id: format!("ai_prompt_{n}"),
+            kind: Kind::Command,
+            groups: Vec::new(),
+            label: Some(format!("生成 AI に送る {n}")),
+        })
+        .collect()
+}
+
+/// The macro names of mode a, in the order of the macro table: `AiPrompt0` to `AiPrompt49` call `F_AI_PROMPT_0` to
+/// `F_AI_PROMPT_49`; a key macro records them. `(macro name, function name, recorded by key macros)`.
+pub fn ai_prompt_macros() -> Vec<(String, String, bool)> {
+    (0..AI_PROMPT_COUNT)
+        .map(|n| (format!("AiPrompt{n}"), format!("F_AI_PROMPT_{n}"), true))
+        .collect()
+}
+
+/// Adds the functions of the one-liners, and then those of sending to an AI, after `F_SHELL_TAB`.
 fn add_oneliner_functions(tables: &mut Tables) -> Result<(), String> {
-    let functions = oneliner_functions();
+    let mut functions = oneliner_functions();
+    functions.extend(ai_prompt_functions());
     for f in &functions {
         if tables.functions.iter().any(|g| g.code == f.code) {
             return Err(format!("code {} is already used", f.code));

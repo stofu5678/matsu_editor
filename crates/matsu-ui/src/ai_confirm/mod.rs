@@ -1,7 +1,7 @@
 //! The confirmation window before text is sent to a generative AI (ADR-0030, 案 2, 4 and 7).
 //!
-//! An AI is a one-liner (ADR-0029) with the AI mark. Before it runs, this window shows where the
-//! text goes (the name of the one-liner), the command line, the first and the last lines of the
+//! Before a destination of `[AI]` runs (ADR-0035), this window shows where the
+//! text goes (the name of the destination), the command line, the first and the last lines of the
 //! text, how big it is, and the lines that look like secrets (partly masked). Nothing is sent
 //! until 「送る」 is pressed. It is drawn inside the editor window and covers the view, which takes
 //! no keys meanwhile (like [`crate::input_dialog`]).
@@ -35,12 +35,14 @@ use crate::view::EditorView;
 /// What to show.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Request {
-    /// The destination: the name the user gave the one-liner.
+    /// The destination: the name the user gave it.
     pub name: String,
     /// The command line that will run.
     pub command_line: String,
     /// The text, as far as the window shows it.
     pub preview: TextPreview,
+    /// A line at the top of the window that says what is sent (mode a: the selected text goes as the prompt).
+    pub lead: Option<&'static str>,
 }
 
 impl Request {
@@ -58,7 +60,14 @@ impl Request {
             name: name.into(),
             command_line: command_line.into(),
             preview: preview_range(doc, from, to, &PreviewLimits::default())?,
+            lead: None,
         })
+    }
+
+    /// The same request with `lead` at the top of the window.
+    pub(crate) fn with_lead(mut self, lead: &'static str) -> Self {
+        self.lead = Some(lead);
+        self
     }
 }
 
@@ -67,7 +76,7 @@ impl Request {
 pub(crate) struct Answer {
     /// 「送る」 was pressed. Esc, 「送らない」 and closing the window are false.
     pub send: bool,
-    /// The check box 「次から聞かない（このワンライナーだけ）」 was on when 「送る」 was pressed.
+    /// The check box 「次から聞かない（この送り先だけ）」 was on when 「送る」 was pressed.
     /// It is false when nothing is sent: not sending changes no setting.
     pub dont_ask_again: bool,
 }
@@ -251,7 +260,7 @@ impl Render for AiConfirmDialog {
         let check = div()
             .id("ai-confirm-dont-ask")
             .role(gpui::Role::CheckBox)
-            .aria_label("次から聞かない（このワンライナーだけ）")
+            .aria_label("次から聞かない（この送り先だけ）")
             .aria_toggled(if self.dont_ask_again {
                 gpui::Toggled::True
             } else {
@@ -276,7 +285,7 @@ impl Render for AiConfirmDialog {
                     .justify_center()
                     .child(if self.dont_ask_again { "✓" } else { "" }),
             )
-            .child("次から聞かない（このワンライナーだけ）")
+            .child("次から聞かない（この送り先だけ）")
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.toggle_check(cx);
                 window.focus(&this.check_focus, cx);
@@ -316,6 +325,7 @@ impl Render for AiConfirmDialog {
             .gap_2()
             .max_h(px(430.))
             .overflow_y_scroll()
+            .children(self.request.lead.map(|lead| div().child(lead)))
             .child(format!("送り先: {}", self.request.name))
             .child(div().child(format!("コマンド: {}", self.request.command_line)))
             .child(counts_text(preview));

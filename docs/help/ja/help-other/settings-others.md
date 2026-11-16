@@ -68,6 +68,7 @@ Enter で入れる改行を、NEL、LS、PS のどれかにします。文書ご
 | `F_OPTION_GENERAL` から `F_OPTION_MAINMENU` まで（共通設定のページを直接開く機能） | 「コマンド: 設定（共通設定）」の「共通設定...」のページ |
 | `F_EXECMD` | 「コマンド: ツール」の外部コマンド実行のページ |
 | `F_ONELINER_0` から `F_ONELINER_49` | 「MATSU Editor だけの機能」のワンライナーのページ |
+| `F_AI_PROMPT_0` から `F_AI_PROMPT_49` | 「MATSU Editor だけの機能」の生成 AI に送るページ |
 | `F_CUSTMENU_1` から `F_CUSTMENU_24`、`F_MENU_RBUTTON` | 「コマンド: ツール」のカスタムメニューのページ |
 
 ## 根拠
