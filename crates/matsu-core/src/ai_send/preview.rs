@@ -247,9 +247,16 @@ pub fn preview_with_head(
     let mut secrets: Vec<SecretLine> = Vec::new();
     let mut secret_lines_total = 0;
     let mut shown_head: Vec<PreviewLine> = Vec::new();
+    // The lines of a private key block are masked whole, as `preview_range` masks them (`shown_lines`).
+    let owned: Vec<String> = head_lines.iter().map(|l| (*l).to_owned()).collect();
+    let in_block = private_key_lines(&owned);
     for (i, text) in head_lines.iter().enumerate() {
         let matches = find_secrets(text);
-        let masked = mask_line(text, &matches);
+        let masked = if in_block[i] || looks_like_key_payload(text) {
+            text.chars().map(|_| '*').collect()
+        } else {
+            mask_line(text, &matches)
+        };
         if !matches.is_empty() {
             secret_lines_total += 1;
             if secrets.len() < limits.max_secret_lines {

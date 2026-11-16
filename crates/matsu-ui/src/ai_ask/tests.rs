@@ -67,9 +67,7 @@ fn is_open(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
 }
 
 fn dialog_text(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
-    view.read_with(cx, |v, cx| {
-        v.ai_ask.as_ref().unwrap().read(cx).text().to_owned()
-    })
+    view.read_with(cx, |v, cx| v.ai_ask.as_ref().unwrap().read(cx).text(cx))
 }
 
 fn selected(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> usize {
@@ -130,7 +128,7 @@ fn the_window_opens_on_the_initial_destination_and_shows_its_command_line(cx: &m
     request.initial = 1;
     let _slot = open(&view, cx, request);
     assert_eq!(selected(&view, cx), 3);
-    let shown = view.read_with(cx, |v, cx| v.ai_ask.as_ref().unwrap().read(cx).shown());
+    let shown = view.read_with(cx, |v, cx| v.ai_ask.as_ref().unwrap().read(cx).shown(cx));
     assert_eq!(shown.name, "要約");
     assert_eq!(shown.command_line, "tool-3 -p");
 }
@@ -278,7 +276,7 @@ fn the_window_shows_the_final_standard_input(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);
     let _slot = open(&view, cx, request_for("こんにちは\r\nさようなら\r\n", &[]));
     let shown = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
-        view.read_with(cx, |v, cx| v.ai_ask.as_ref().unwrap().read(cx).shown())
+        view.read_with(cx, |v, cx| v.ai_ask.as_ref().unwrap().read(cx).shown(cx))
     };
     // no instruction yet: the text alone
     let before = shown(&view, cx);

@@ -99,8 +99,6 @@ pub(crate) struct AiAskDialog {
     /// The position in `request.destinations` of the chosen one.
     selected: usize,
     input: Entity<TextareaState>,
-    /// The text of the field.
-    text: String,
     /// The row of the history whose instruction the field shows, while it is unchanged.
     browsing: Option<usize>,
     /// Sends the answer once; dropping it unanswered (the window closed) is 「送らない」.
@@ -141,7 +139,6 @@ impl AiAskDialog {
             request,
             selected,
             input,
-            text: String::new(),
             browsing: None,
             answer: Some(answer),
             destinations_focus: cx.focus_handle(),
@@ -166,18 +163,23 @@ impl AiAskDialog {
 
     /// The field changed by typing or by a row of the history.
     fn on_change(&mut self, cx: &mut Context<Self>) {
-        self.text = self.input.read(cx).value().to_string();
         if let Some(at) = self.browsing
-            && self.request.history.get(at) != Some(&self.text)
+            && self.request.history.get(at).map(String::as_str)
+                != Some(self.input.read(cx).value().as_ref())
         {
             self.browsing = None;
         }
         cx.notify();
     }
 
+    /// The text of the field (the field owns it; nothing here keeps a copy).
+    fn value(&self, cx: &gpui::App) -> SharedString {
+        self.input.read(cx).value()
+    }
+
     /// Whether the instruction can be sent: it has something besides white space.
-    fn can_send(&self) -> bool {
-        normalized_instruction(&self.text).is_ok()
+    fn can_send(&self, cx: &gpui::App) -> bool {
+        !self.value(cx).trim().is_empty()
     }
 
     /// The destination that is chosen.
@@ -186,9 +188,9 @@ impl AiAskDialog {
     }
 
     /// What the details show now: the final standard input, or (with no instruction yet) the target text alone.
-    fn confirm_request(&self) -> ConfirmRequest {
+    fn confirm_request(&self, cx: &gpui::App) -> ConfirmRequest {
         let destination = self.destination();
-        let (preview, lead) = match instruction_head(&self.text) {
+        let (preview, lead) = match instruction_head(&self.value(cx)) {
             Ok(head) => (
                 preview_with_head(&head, &self.request.material, &PreviewLimits::default()),
                 LEAD,
@@ -209,8 +211,8 @@ impl AiAskDialog {
     }
 
     #[cfg(test)]
-    pub(crate) fn text(&self) -> &str {
-        &self.text
+    pub(crate) fn text(&self, cx: &gpui::App) -> String {
+        self.value(cx).to_string()
     }
 
     #[cfg(test)]
@@ -219,8 +221,8 @@ impl AiAskDialog {
     }
 
     #[cfg(test)]
-    pub(crate) fn shown(&self) -> ConfirmRequest {
-        self.confirm_request()
+    pub(crate) fn shown(&self, cx: &gpui::App) -> ConfirmRequest {
+        self.confirm_request(cx)
     }
 
     /// Ends the window and gives the focus back to the view. `send` is honored only with an instruction.
@@ -229,7 +231,7 @@ impl AiAskDialog {
             return;
         };
         let chosen = if send {
-            normalized_instruction(&self.text)
+            normalized_instruction(&self.value(cx))
                 .ok()
                 .map(|instruction| Chosen {
                     index: self.destination().index,
@@ -263,7 +265,6 @@ impl AiAskDialog {
         let Some(text) = self.request.history.get(at).cloned() else {
             return;
         };
-        self.text.clone_from(&text);
         self.browsing = Some(at);
         self.input.update(cx, |state, cx| {
             state.set_value(text, window, cx);
@@ -275,7 +276,7 @@ impl AiAskDialog {
     /// through the history. Returns false when the key is the field's own (the field has text of its own).
     fn walk_history(&mut self, older: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let history = self.request.history.len();
-        if history == 0 || !(self.text.is_empty() || self.browsing.is_some()) {
+        if history == 0 || !(self.value(cx).is_empty() || self.browsing.is_some()) {
             return false;
         }
         match (self.browsing, older) {
@@ -284,7 +285,6 @@ impl AiAskDialog {
             (Some(0), false) => {
                 // back to the empty field that it was
                 self.browsing = None;
-                self.text.clear();
                 self.input.update(cx, |state, cx| {
                     state.set_value(String::new(), window, cx);
                 });
@@ -325,7 +325,7 @@ impl AiAskDialog {
             }
             "down" if on_destinations => self.select_destination(self.selected + 1, cx),
             "enter" | "space" if on_send => {
-                if self.can_send() {
+                if self.can_send(cx) {
                     self.finish(true, window, cx);
                 }
             }
@@ -355,10 +355,10 @@ fn row_text(instruction: &str) -> String {
 
 impl Render for AiAskDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let can_send = self.can_send();
+        let can_send = self.can_send(cx);
         let send = button("ai-ask-send", "送る", &self.send_focus, window)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                if this.can_send() {
+                if this.can_send(cx) {
                     this.finish(true, window, cx);
                 }
             }))
@@ -523,7 +523,7 @@ impl Render for AiAskDialog {
         let panel = panel
             .child("送り先")
             .child(destinations)
-            .child(details(&self.confirm_request()).max_h(px(250.)))
+            .child(details(&self.confirm_request(cx)).max_h(px(250.)))
             .child(
                 div()
                     .mt_2()

@@ -442,3 +442,36 @@ fn the_size_of_the_head_counts_toward_large() {
     let (_, big) = with_head("Go.", &line.repeat(LARGE_TEXT_BYTES / 1000 + 2));
     assert!(big.large);
 }
+
+#[test]
+fn a_multi_line_private_key_in_the_instruction_is_masked_whole() {
+    let key = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj";
+    let instruction = format!(
+        "Check this:\n-----BEGIN PRIVATE KEY-----\n{key}\nshort+/=\n-----END PRIVATE KEY-----\nthanks"
+    );
+    let (_, p) = with_head(&instruction, "ok\n");
+    assert_eq!(p.secret_lines_total, 1);
+    let shown: Vec<&str> = p.head.iter().map(|l| l.text.as_str()).collect();
+    assert!(
+        shown
+            .iter()
+            .all(|t| !t.contains("MIIEv") && !t.contains("short")),
+        "{shown:?}"
+    );
+    assert!(shown.contains(&"thanks"));
+}
+
+#[test]
+fn a_multi_line_private_key_in_the_material_is_masked_after_a_head() {
+    let key = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj";
+    let material =
+        format!("a\n-----BEGIN PRIVATE KEY-----\n{key}\nshort+/=\n-----END PRIVATE KEY-----\n");
+    let (_, p) = with_head("Go.", &material);
+    let shown: Vec<&str> = p.head.iter().map(|l| l.text.as_str()).collect();
+    assert!(
+        shown
+            .iter()
+            .all(|t| !t.contains("MIIEv") && !t.contains("short")),
+        "{shown:?}"
+    );
+}
