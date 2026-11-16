@@ -161,7 +161,7 @@ pub(super) fn lists(
         .unwrap_or_default();
     let destinations = cx
         .try_global::<crate::settings::UserSettings>()
-        .map(|settings| (*settings.shared_ai_destinations()).clone())
+        .map(crate::settings::UserSettings::shared_ai_destinations)
         .unwrap_or_default();
     let functions = functions_of_kind(values.int(KIND));
 

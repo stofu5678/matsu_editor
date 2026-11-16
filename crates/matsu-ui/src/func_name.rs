@@ -16,6 +16,7 @@
 //!   `-- 不明 --`.
 
 use std::cell::OnceCell;
+use std::sync::Arc;
 
 use gpui::App;
 use matsu_commands::sakura::FUNCTIONS;
@@ -128,7 +129,7 @@ pub(crate) struct FuncNames {
     menus: OnceCell<CustomMenus>,
     macros: OnceCell<RegisteredMacros>,
     oneliners: OnceCell<OneLiners>,
-    destinations: OnceCell<AiDestinations>,
+    destinations: OnceCell<Arc<AiDestinations>>,
 }
 
 impl FuncNames {
@@ -164,9 +165,9 @@ impl FuncNames {
                 })
             },
             &|| {
-                self.destinations.get_or_init(|| {
+                &**self.destinations.get_or_init(|| {
                     cx.try_global::<UserSettings>()
-                        .map(|settings| (*settings.shared_ai_destinations()).clone())
+                        .map(UserSettings::shared_ai_destinations)
                         .unwrap_or_default()
                 })
             },
