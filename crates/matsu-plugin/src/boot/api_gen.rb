@@ -3583,6 +3583,456 @@ module MatsuEditorApi
       @call.call('OneLinerDialog', _pack())
     end
 
+    # AiPrompt0() -> null
+    #
+    # Sakura's F_AI_PROMPT_0 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt0
+      @call.call('AiPrompt0', _pack())
+    end
+
+    # AiPrompt1() -> null
+    #
+    # Sakura's F_AI_PROMPT_1 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt1
+      @call.call('AiPrompt1', _pack())
+    end
+
+    # AiPrompt2() -> null
+    #
+    # Sakura's F_AI_PROMPT_2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt2
+      @call.call('AiPrompt2', _pack())
+    end
+
+    # AiPrompt3() -> null
+    #
+    # Sakura's F_AI_PROMPT_3 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt3
+      @call.call('AiPrompt3', _pack())
+    end
+
+    # AiPrompt4() -> null
+    #
+    # Sakura's F_AI_PROMPT_4 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt4
+      @call.call('AiPrompt4', _pack())
+    end
+
+    # AiPrompt5() -> null
+    #
+    # Sakura's F_AI_PROMPT_5 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt5
+      @call.call('AiPrompt5', _pack())
+    end
+
+    # AiPrompt6() -> null
+    #
+    # Sakura's F_AI_PROMPT_6 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt6
+      @call.call('AiPrompt6', _pack())
+    end
+
+    # AiPrompt7() -> null
+    #
+    # Sakura's F_AI_PROMPT_7 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt7
+      @call.call('AiPrompt7', _pack())
+    end
+
+    # AiPrompt8() -> null
+    #
+    # Sakura's F_AI_PROMPT_8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt8
+      @call.call('AiPrompt8', _pack())
+    end
+
+    # AiPrompt9() -> null
+    #
+    # Sakura's F_AI_PROMPT_9 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt9
+      @call.call('AiPrompt9', _pack())
+    end
+
+    # AiPrompt10() -> null
+    #
+    # Sakura's F_AI_PROMPT_10 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt10
+      @call.call('AiPrompt10', _pack())
+    end
+
+    # AiPrompt11() -> null
+    #
+    # Sakura's F_AI_PROMPT_11 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt11
+      @call.call('AiPrompt11', _pack())
+    end
+
+    # AiPrompt12() -> null
+    #
+    # Sakura's F_AI_PROMPT_12 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt12
+      @call.call('AiPrompt12', _pack())
+    end
+
+    # AiPrompt13() -> null
+    #
+    # Sakura's F_AI_PROMPT_13 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt13
+      @call.call('AiPrompt13', _pack())
+    end
+
+    # AiPrompt14() -> null
+    #
+    # Sakura's F_AI_PROMPT_14 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt14
+      @call.call('AiPrompt14', _pack())
+    end
+
+    # AiPrompt15() -> null
+    #
+    # Sakura's F_AI_PROMPT_15 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt15
+      @call.call('AiPrompt15', _pack())
+    end
+
+    # AiPrompt16() -> null
+    #
+    # Sakura's F_AI_PROMPT_16 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt16
+      @call.call('AiPrompt16', _pack())
+    end
+
+    # AiPrompt17() -> null
+    #
+    # Sakura's F_AI_PROMPT_17 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt17
+      @call.call('AiPrompt17', _pack())
+    end
+
+    # AiPrompt18() -> null
+    #
+    # Sakura's F_AI_PROMPT_18 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt18
+      @call.call('AiPrompt18', _pack())
+    end
+
+    # AiPrompt19() -> null
+    #
+    # Sakura's F_AI_PROMPT_19 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt19
+      @call.call('AiPrompt19', _pack())
+    end
+
+    # AiPrompt20() -> null
+    #
+    # Sakura's F_AI_PROMPT_20 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt20
+      @call.call('AiPrompt20', _pack())
+    end
+
+    # AiPrompt21() -> null
+    #
+    # Sakura's F_AI_PROMPT_21 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt21
+      @call.call('AiPrompt21', _pack())
+    end
+
+    # AiPrompt22() -> null
+    #
+    # Sakura's F_AI_PROMPT_22 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt22
+      @call.call('AiPrompt22', _pack())
+    end
+
+    # AiPrompt23() -> null
+    #
+    # Sakura's F_AI_PROMPT_23 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt23
+      @call.call('AiPrompt23', _pack())
+    end
+
+    # AiPrompt24() -> null
+    #
+    # Sakura's F_AI_PROMPT_24 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt24
+      @call.call('AiPrompt24', _pack())
+    end
+
+    # AiPrompt25() -> null
+    #
+    # Sakura's F_AI_PROMPT_25 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt25
+      @call.call('AiPrompt25', _pack())
+    end
+
+    # AiPrompt26() -> null
+    #
+    # Sakura's F_AI_PROMPT_26 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt26
+      @call.call('AiPrompt26', _pack())
+    end
+
+    # AiPrompt27() -> null
+    #
+    # Sakura's F_AI_PROMPT_27 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt27
+      @call.call('AiPrompt27', _pack())
+    end
+
+    # AiPrompt28() -> null
+    #
+    # Sakura's F_AI_PROMPT_28 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt28
+      @call.call('AiPrompt28', _pack())
+    end
+
+    # AiPrompt29() -> null
+    #
+    # Sakura's F_AI_PROMPT_29 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt29
+      @call.call('AiPrompt29', _pack())
+    end
+
+    # AiPrompt30() -> null
+    #
+    # Sakura's F_AI_PROMPT_30 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt30
+      @call.call('AiPrompt30', _pack())
+    end
+
+    # AiPrompt31() -> null
+    #
+    # Sakura's F_AI_PROMPT_31 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt31
+      @call.call('AiPrompt31', _pack())
+    end
+
+    # AiPrompt32() -> null
+    #
+    # Sakura's F_AI_PROMPT_32 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt32
+      @call.call('AiPrompt32', _pack())
+    end
+
+    # AiPrompt33() -> null
+    #
+    # Sakura's F_AI_PROMPT_33 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt33
+      @call.call('AiPrompt33', _pack())
+    end
+
+    # AiPrompt34() -> null
+    #
+    # Sakura's F_AI_PROMPT_34 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt34
+      @call.call('AiPrompt34', _pack())
+    end
+
+    # AiPrompt35() -> null
+    #
+    # Sakura's F_AI_PROMPT_35 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt35
+      @call.call('AiPrompt35', _pack())
+    end
+
+    # AiPrompt36() -> null
+    #
+    # Sakura's F_AI_PROMPT_36 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt36
+      @call.call('AiPrompt36', _pack())
+    end
+
+    # AiPrompt37() -> null
+    #
+    # Sakura's F_AI_PROMPT_37 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt37
+      @call.call('AiPrompt37', _pack())
+    end
+
+    # AiPrompt38() -> null
+    #
+    # Sakura's F_AI_PROMPT_38 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt38
+      @call.call('AiPrompt38', _pack())
+    end
+
+    # AiPrompt39() -> null
+    #
+    # Sakura's F_AI_PROMPT_39 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt39
+      @call.call('AiPrompt39', _pack())
+    end
+
+    # AiPrompt40() -> null
+    #
+    # Sakura's F_AI_PROMPT_40 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt40
+      @call.call('AiPrompt40', _pack())
+    end
+
+    # AiPrompt41() -> null
+    #
+    # Sakura's F_AI_PROMPT_41 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt41
+      @call.call('AiPrompt41', _pack())
+    end
+
+    # AiPrompt42() -> null
+    #
+    # Sakura's F_AI_PROMPT_42 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt42
+      @call.call('AiPrompt42', _pack())
+    end
+
+    # AiPrompt43() -> null
+    #
+    # Sakura's F_AI_PROMPT_43 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt43
+      @call.call('AiPrompt43', _pack())
+    end
+
+    # AiPrompt44() -> null
+    #
+    # Sakura's F_AI_PROMPT_44 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt44
+      @call.call('AiPrompt44', _pack())
+    end
+
+    # AiPrompt45() -> null
+    #
+    # Sakura's F_AI_PROMPT_45 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt45
+      @call.call('AiPrompt45', _pack())
+    end
+
+    # AiPrompt46() -> null
+    #
+    # Sakura's F_AI_PROMPT_46 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt46
+      @call.call('AiPrompt46', _pack())
+    end
+
+    # AiPrompt47() -> null
+    #
+    # Sakura's F_AI_PROMPT_47 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt47
+      @call.call('AiPrompt47', _pack())
+    end
+
+    # AiPrompt48() -> null
+    #
+    # Sakura's F_AI_PROMPT_48 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt48
+      @call.call('AiPrompt48', _pack())
+    end
+
+    # AiPrompt49() -> null
+    #
+    # Sakura's F_AI_PROMPT_49 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+    # the menu and a key macro run. The last arguments may be left out. A command that this
+    # editor does not have yet answers the error -32001 (not implemented).
+    def AiPrompt49
+      @call.call('AiPrompt49', _pack())
+    end
+
     # TraceOut(arg1: string?, arg2: int?) -> null
     #
     # MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a

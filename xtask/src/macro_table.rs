@@ -144,7 +144,8 @@ fn add_matsu_commands(parsed: &mut MacroTables) -> Result<()> {
     add_oneliner_commands(parsed)
 }
 
-/// The macro names of the one-liners (`matsu_extras::oneliner_macros`), after the row of `F_SHELL_TAB`, which
+/// The macro names of the one-liners and of sending to an AI (`matsu_extras::oneliner_macros`, `ai_prompt_macros`),
+/// after the row of `F_SHELL_TAB`, which
 /// the functions of the one-liners follow in the function table.
 fn add_oneliner_commands(parsed: &mut MacroTables) -> Result<()> {
     let mut position = parsed
@@ -152,7 +153,10 @@ fn add_oneliner_commands(parsed: &mut MacroTables) -> Result<()> {
         .iter()
         .position(|r| r.function == "F_SHELL_TAB")
         .ok_or("no macro row for F_SHELL_TAB")?;
-    for (name, function, recorded) in matsu_extras::oneliner_macros() {
+    for (name, function, recorded) in matsu_extras::oneliner_macros()
+        .into_iter()
+        .chain(matsu_extras::ai_prompt_macros())
+    {
         if parsed.commands.iter().any(|r| r.name == name) {
             return Err(format!("macro name {name} is already used"));
         }

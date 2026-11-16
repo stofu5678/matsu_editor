@@ -5,9 +5,11 @@
 //! (`CLAUDE.md`). [`secrets`] is a pure scanner over one line; [`preview`] walks a range of the
 //! document with a byte budget, so that a huge selection cannot freeze the window.
 
+pub mod instruction;
 pub mod preview;
 pub mod secrets;
 
+pub use instruction::{EmptyInstruction, compose, instruction_head};
 pub use preview::{
     LARGE_TEXT_BYTES, PreviewLimits, PreviewLine, SecretLine, TextPreview, preview_range,
 };

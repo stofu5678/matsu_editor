@@ -23,6 +23,7 @@
 
 mod a11y;
 pub(crate) mod ai_log;
+mod ai_send;
 // Used by the one-liner flow of the next PR (ADR-0030, AI-4).
 #[allow(dead_code)]
 mod ai_confirm;

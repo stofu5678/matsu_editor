@@ -61,6 +61,8 @@ pub struct UserSettings {
     /// The registered one-liners (`[OneLiner]`), read once with the profile: the menus and the toolbar ask for them
     /// every time they are drawn.
     oneliners: Arc<matsu_config::settings::oneliner::OneLiners>,
+    /// The destinations of sending to a generative AI (`[AI]`, ADR-0035), read with the profile for the same reason.
+    ai: Arc<matsu_config::settings::ai::AiDestinations>,
     path: Option<PathBuf>,
     /// Things in the file that could not be used, for the status bar.
     pub warnings: Vec<String>,
@@ -181,6 +183,9 @@ impl UserSettings {
             oneliners: Arc::new(matsu_config::settings::oneliner::OneLiners::from_profile(
                 &profile,
             )),
+            ai: Arc::new(matsu_config::settings::ai::AiDestinations::from_profile(
+                &profile,
+            )),
             profile: Some(profile),
             path,
             warnings,
@@ -236,6 +241,23 @@ impl UserSettings {
         // The values were checked when `table` was written to the file; one the profile cannot hold stays as it was.
         let _ = table.store(profile);
         self.oneliners = Arc::new(table);
+    }
+
+    /// The destinations of sending to a generative AI (`[AI]`, ADR-0035).
+    pub fn ai_destinations(&self) -> matsu_config::settings::ai::AiDestinations {
+        (*self.ai).clone()
+    }
+
+    /// Makes `table` the destinations of these settings, and of the profile they keep, without reading the rest of
+    /// the file again (「次から聞かない」 changes one destination).
+    pub(crate) fn set_ai_destinations(
+        &mut self,
+        table: matsu_config::settings::ai::AiDestinations,
+    ) {
+        let profile = self.profile.get_or_insert_with(Profile::new);
+        // The values were checked when `table` was written to the file; one the profile cannot hold stays as it was.
+        let _ = table.store(profile);
+        self.ai = Arc::new(table);
     }
 
     /// The document types (タイプ別設定).

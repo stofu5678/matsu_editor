@@ -30,14 +30,17 @@
 //!
 //! The line breaks of the result are made the ones of the document.
 //!
-//! # A one-liner that sends to a generative AI (ADR-0030)
+//! # Sending to a generative AI (ADR-0030, ADR-0035)
 //!
-//! A slot with `AI[nnn]=1` goes through the same flow with three more steps:
+//! A destination of `[AI]` run in mode a (`crate::ai_send`) goes through the same flow with three more steps. Its
+//! place of the result 「ログのタブだけ」 is [`OutputTo::OutputWindow`] here, but the output window stays untouched
+//! when the run succeeds: the answer is in the log. A one-liner of `[OneLiner]` never takes these steps: a slot
+//! that is still marked `AI=1` is refused ([`run_slot`]).
 //!
 //! 1. Before anything starts, when `AskBeforeSend[nnn]` is 1, the confirmation window (`ask_ai_confirm`) shows what
 //!    would be sent: the same range as the input. 「送らない」, Escape or closing the window runs nothing and changes
 //!    nothing (the status bar says so, and the log has a record that nothing was sent). 「送る」 with
-//!    「次から聞かない」 writes `AskBeforeSend[nnn]=0`. The state is looked at again after the wait.
+//!    「次から聞かない」 writes `AskBeforeSend[nnn]=0` of `[AI]`. The state is looked at again after the wait.
 //! 2. The working folder is a new, empty folder for each run ([`workdir`]), removed when the run ends.
 //! 3. The log tab (`crate::ai_log`) gets a record before the process starts, and the end of the run completes it,
 //!    whatever the end is.
@@ -77,14 +80,15 @@ const POLL: Duration = Duration::from_millis(15);
 pub(crate) struct Job {
     pub line: String,
     pub output: OutputTo,
-    /// The slot, when it sends to a generative AI (`AI[nnn]=1`). `None` for every other one-liner.
+    /// The destination, when this sends to a generative AI (a destination of `[AI]`, mode a). `None` for every
+    /// one-liner.
     pub ai: Option<AiSlot>,
 }
 
-/// What the flow needs of an AI one-liner's slot (ADR-0030).
+/// What the flow needs of a destination of `[AI]` (ADR-0030, ADR-0035).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AiSlot {
-    /// The number of the slot, to write `AskBeforeSend` back.
+    /// The number of the destination, to write `AskBeforeSend` back.
     pub index: usize,
     /// The name shown in the confirmation window and the log.
     pub name: String,
@@ -104,6 +108,18 @@ struct Prepared {
     eol: Eol,
     /// `[Terminal]` `Shell=` as it is now.
     shell: String,
+}
+
+impl Prepared {
+    /// There is nothing to send: the document is empty and nothing is selected, or the box has no text. (A range
+    /// selection is never empty.)
+    fn target_is_empty(&self) -> bool {
+        match &self.source {
+            Source::Whole => self.doc.end_pos().is_ok_and(|end| end == Pos::new(0, 0)),
+            Source::Range(from, to) => from == to,
+            Source::Box { text, .. } => text.is_empty(),
+        }
+    }
 }
 
 /// The text that goes to the standard input.
@@ -142,20 +158,32 @@ pub(crate) fn run_slot(
         cx.notify();
         return Ok(());
     };
+    // A slot that the move to `[AI]` could not take (ADR-0035, 6, step 4) must not run as a one-liner: it would send
+    // without the confirmation.
+    if one.is_ai_marked() {
+        view.notice = Some("この枠は生成 AI の枠です。生成 AI の設定に移してください。".to_owned());
+        cx.notify();
+        return Ok(());
+    }
     run_job(
         view,
         Job {
             line: one.command.clone(),
             output: one.output,
-            ai: one.ai.then(|| AiSlot {
-                index,
-                name: one.title().to_owned(),
-                ask: one.ask_before_send,
-            }),
+            ai: None,
         },
         window,
         cx,
     )
+}
+
+/// What the status bar says when `job` would change a document that cannot be changed.
+fn not_editable_text(job: &Job) -> &'static str {
+    if job.ai.is_some() {
+        "このウィンドウは編集できないので、生成 AI に送りません。"
+    } else {
+        "このウィンドウは編集できないので、ワンライナーを実行しません。"
+    }
 }
 
 /// Starts the flow of `job`; a macro that called it waits until the flow has ended.
@@ -166,8 +194,7 @@ pub(crate) fn run_job(
     cx: &mut Context<EditorView>,
 ) -> CommandResult {
     if job.output != OutputTo::OutputWindow && !can_edit(view, cx) {
-        view.notice =
-            Some("このウィンドウは編集できないので、ワンライナーを実行しません。".to_owned());
+        view.notice = Some(not_editable_text(&job).to_owned());
         cx.notify();
         return Ok(());
     }
@@ -259,10 +286,14 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         return;
     };
     if job.output != OutputTo::OutputWindow && !prepared.editable {
+        say(view, cx, not_editable_text(&job));
+        return;
+    }
+    if job.ai.is_some() && prepared.target_is_empty() {
         say(
             view,
             cx,
-            "このウィンドウは編集できないので、ワンライナーを実行しません。",
+            "送る文字がありません。生成 AI に送りませんでした。",
         );
         return;
     }
@@ -422,7 +453,7 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         say(
             view,
             cx,
-            "AI に送った内容と答えを、AI ログのタブに記録しました（メニューの「ワンライナー」の「AI ログを表示」で見られます）。",
+            "AI に送った内容と答えを、AI ログのタブに記録しました（「AI ログを表示」で見られます）。",
         );
     }
     if let Some(message) = message {
@@ -444,6 +475,8 @@ async fn begin_ai(
     let started_with = |input: String, input_size: Option<usize>| ai_log::Started {
         name: ai.name.clone(),
         command_line: job.line.clone(),
+        // mode a: the text goes as the prompt, with no instruction (ADR-0035, 3)
+        instruction: None,
         input,
         input_size,
         started_at: Local::now(),
@@ -475,7 +508,7 @@ async fn begin_ai(
         let unchanged = view
             .update_in(cx, |view, _window, cx| {
                 if answer.send && answer.dont_ask_again {
-                    super::store::stop_asking(cx, ai.index, &job.line);
+                    crate::ai_send::store::stop_asking(cx, ai.index, &job.line);
                 }
                 still_the_same(view, prepared, job, cx)
             })
@@ -493,20 +526,12 @@ async fn begin_ai(
                 );
             }
             release(view, cx);
-            say(
-                view,
-                cx,
-                "生成 AI に送らないので、ワンライナーを実行しませんでした。",
-            );
+            say(view, cx, "生成 AI に送らないので、送信しませんでした。");
             return None;
         }
         if !unchanged {
             release(view, cx);
-            say(
-                view,
-                cx,
-                "文書か設定が変わったので、ワンライナーを実行しませんでした。",
-            );
+            say(view, cx, "文書か設定が変わったので、送信しませんでした。");
             return None;
         }
     }
@@ -526,21 +551,13 @@ async fn begin_ai(
         .ok()?;
     if !unchanged {
         release(view, cx);
-        say(
-            view,
-            cx,
-            "文書が変わったので、ワンライナーを実行しませんでした。",
-        );
+        say(view, cx, "文書が変わったので、送信しませんでした。");
         return None;
     }
     let handle = begin_log(view, cx, started_with(text, size)).await;
     if handle.is_none() {
         release(view, cx);
-        say(
-            view,
-            cx,
-            "AI ログを開けないので、ワンライナーを実行しませんでした。",
-        );
+        say(view, cx, "AI ログを開けないので、送信しませんでした。");
     }
     handle
 }
@@ -574,7 +591,9 @@ fn confirm_request(prepared: &Prepared, job: &Job, ai: &AiSlot) -> Result<Confir
             (&boxed, Pos::new(0, 0), end)
         }
     };
-    ConfirmRequest::from_document(&ai.name, &job.line, doc, from, to).map_err(|e| e.to_string())
+    ConfirmRequest::from_document(&ai.name, &job.line, doc, from, to)
+        .map(|request| request.with_lead(crate::ai_send::PLAIN_NOTICE))
+        .map_err(|e| e.to_string())
 }
 
 /// The head of the input for the log, up to the size the log keeps, and the size of the whole when it is more.
@@ -792,6 +811,8 @@ fn finish(
         return None;
     }
     match job.output {
+        // an AI destination that goes to the log tab only: the answer is in the log, not in the output window
+        OutputTo::OutputWindow if job.ai.is_some() => {}
         OutputTo::OutputWindow => {
             let mut body = finished.output.concat();
             if !body.is_empty() && !body.ends_with('\n') {

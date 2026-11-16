@@ -4,6 +4,7 @@
 //! `register_ui_command!(Type);`, add one `pub mod <id>;` line to the group's `mod.rs` (in
 //! alphabetical order), and write its tests. Nothing else lists them.
 
+pub mod ai;
 pub mod box_select;
 pub mod clipboard;
 pub mod cursor;
