@@ -98,13 +98,14 @@ pub fn make_func_list_visual_basic(src: &dyn LineSource, file_path: Option<&str>
     // the last character of the previous line
     let mut previous_last: Option<char> = None;
 
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
         if previous_last.is_some_and(|c| c != '_') {
             parse_count = 0;
         }
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         previous_last = line.last().copied();
         let mut func_id = 0u32;
         let mut double_quote = false;

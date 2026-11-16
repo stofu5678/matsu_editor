@@ -46,10 +46,11 @@ pub fn make_topic_list_cobol(src: &dyn LineSource) -> FuncInfoArr {
     let mut out = FuncInfoArr::new();
     let mut division = String::new();
 
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         // a comment line
         if line.len() >= 7 && line[6] == '*' {
             continue;

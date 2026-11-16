@@ -130,10 +130,11 @@ pub fn make_topic_list_txt(src: &dyn LineSource, marks: &str) -> FuncInfoArr {
     let mut stack: Vec<String> = Vec::new();
     let mut depth = 0usize;
     let mut b278a = false;
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         // skip the blanks at the start
         let Some(i) = line.iter().position(|&c| !is_blank(c)) else {
             continue;
@@ -187,10 +188,11 @@ pub fn make_topic_list_txt(src: &dyn LineSource, marks: &str) -> FuncInfoArr {
 pub fn make_topic_list_wztxt(src: &dyn LineSource) -> FuncInfoArr {
     let mut out = FuncInfoArr::new();
     let mut level_prev = 0usize;
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         if at(&line, 0) != '.' {
             continue;
         }

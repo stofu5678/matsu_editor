@@ -83,10 +83,11 @@ fn next_token(buf: &[char], offset: &mut usize) -> Option<String> {
 /// Lists the labels and the procedures of an assembler source.
 pub fn make_topic_list_asm(src: &dyn LineSource) -> FuncInfoArr {
     let mut out = FuncInfoArr::new();
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(mut line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         // what follows a NUL is not known; a comment is cut off
         if let Some(p) = line.iter().position(|&c| c == '\0' || c == ';') {
             line.truncate(p);

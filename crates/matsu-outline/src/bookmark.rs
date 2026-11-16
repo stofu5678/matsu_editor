@@ -51,11 +51,12 @@ pub fn make_bookmark_list(
 ) -> FuncInfoArr {
     let mut out = FuncInfoArr::new();
     let new_line_len = src.new_line_len();
+    let mut line: Vec<char> = Vec::new();
     for n in bookmarks {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             // `GetDocLineStrWithEOL` is null: the loop ends
             break;
-        };
+        }
         let len = line.len();
         // 2002.01.19 aroka: a line that is only a line ending
         if ignore_blank_lines && len <= new_line_len {

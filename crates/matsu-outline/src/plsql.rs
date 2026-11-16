@@ -99,10 +99,11 @@ pub fn make_func_list_plsql(src: &dyn LineSource) -> FuncInfoArr {
     // 0: nothing, 1: the keyword was read, 2: the name was read
     let mut parse_count = 0u32;
 
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         let mut i = 0usize;
         while i < line.len() {
             let c = line[i];

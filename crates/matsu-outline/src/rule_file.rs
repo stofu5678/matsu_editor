@@ -486,10 +486,11 @@ pub fn make_func_list_rule_file(src: &dyn LineSource, file: Option<&[u8]>) -> Ru
         result.items.push(1, name, NO_CLIP_TEXT, depth);
         depth = 1;
     }
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         // blanks at the start are skipped (normal mode)
         let mut start = 0;
         if !parsed.regex {
