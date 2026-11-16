@@ -56,12 +56,59 @@ pub(super) fn spec() -> &'static TableSpec {
 const NAME: usize = 1;
 const COMMAND: usize = 2;
 const OUTPUT: usize = 3;
-/// The column 状態: empty, except for a slot that is still marked `AI=1` (see [`AI_NOTE`]).
+/// The column 状態 holds the [`SlotState`] as its stable token, never a sentence.
 const STATE: usize = 4;
 
-/// What the list shows in the column 状態 for a slot that `[OneLiner]` still marks `AI=1` (ADR-0035, decision 6,
-/// step 4: the move to `[AI]` did not fit). Such a slot does not run, and the page keeps its keys as they are.
-pub(super) const AI_NOTE: &str = "生成 AI の枠(実行されません)";
+/// What 「ワンライナー」 knows of a slot besides what it shows: a slot that `[OneLiner]` still marks `AI=1`
+/// (ADR-0035, decision 6, step 4: the move to `[AI]` did not fit) must never run as an ordinary one-liner, so
+/// the page does not change it and writes it back as the file has it. The state is what decides that; the
+/// words in the list ([`SlotState::label`]) are made only when the list is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SlotState {
+    Plain,
+    /// Still marked `AI=1`.
+    AiMarked,
+}
+
+impl SlotState {
+    /// The value kept in the column 状態 of the row.
+    const fn token(self) -> &'static str {
+        match self {
+            SlotState::Plain => "",
+            SlotState::AiMarked => "ai-marked",
+        }
+    }
+
+    /// The state of a row; a value that is no token is [`SlotState::Plain`].
+    pub(super) fn of(row: &Row) -> Self {
+        Self::from_token(row.get(STATE).map(String::as_str).unwrap_or_default())
+    }
+
+    fn from_token(text: &str) -> Self {
+        if text == Self::AiMarked.token() {
+            SlotState::AiMarked
+        } else {
+            SlotState::Plain
+        }
+    }
+
+    /// What the list shows for the state (MATSU's own wording, ADR-0018 type F).
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            SlotState::Plain => "",
+            SlotState::AiMarked => "生成 AI の枠(実行されません)",
+        }
+    }
+}
+
+/// What the list shows in a cell: the text of the row, but the words for the state instead of its token.
+pub(super) fn shown(column: usize, text: &str) -> String {
+    if column == STATE {
+        SlotState::from_token(text).label().to_owned()
+    } else {
+        text.to_owned()
+    }
+}
 
 /// What the list shows for a place of the result.
 pub(super) fn output_label(output: OutputTo) -> &'static str {
@@ -87,7 +134,13 @@ fn row_of(index: usize, one: &OneLiner) -> Row {
         one.name.clone(),
         one.command.clone(),
         output_label(one.output).to_owned(),
-        if one.is_ai_marked() { AI_NOTE } else { "" }.to_owned(),
+        if one.is_ai_marked() {
+            SlotState::AiMarked
+        } else {
+            SlotState::Plain
+        }
+        .token()
+        .to_owned(),
     ]
 }
 
@@ -101,7 +154,7 @@ pub(super) fn rows_of(table: &OneLiners) -> Vec<Row> {
 
 /// Whether the row is a slot that `[OneLiner]` still marks `AI=1`.
 pub(super) fn is_ai_row(row: &Row) -> bool {
-    row.get(STATE).is_some_and(|t| t == AI_NOTE)
+    SlotState::of(row) == SlotState::AiMarked
 }
 
 /// The one-liners that the rows stand for, with `recent` as the history. `current` is what the file has now:

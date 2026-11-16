@@ -95,6 +95,7 @@ fn draw(dialog: &CommonSettingsDialog, cx: &mut Context<CommonSettingsDialog>) -
             selected: SELECTED,
             prefix: "ai",
             dimmed: |_| false,
+            shown: |_, text| text.to_owned(),
             select,
         },
         dialog,
@@ -166,11 +167,10 @@ fn register(
 ) {
     let index = super::oneliner::index_of(&typed(dialog, ID, cx));
     let fields = current_fields(dialog, cx);
-    let mut list = dialog.values().rows(LIST).to_vec();
-    match rows::register(&mut list, index, &fields) {
-        Ok(()) => dialog.set_rows(LIST, list, cx),
-        // Nobody waits for this answer.
-        Err(problem) => crate::boxes::tell(window, PromptLevel::Info, &problem.text(), None, cx),
+    // The row is changed in place; a refused value leaves the rows as they were and is told.
+    // Nobody waits for this answer.
+    if let Err(problem) = dialog.edit_rows(LIST, |rows| rows::register(rows, index, &fields), cx) {
+        crate::boxes::tell(window, PromptLevel::Info, &problem.text(), None, cx);
     }
 }
 

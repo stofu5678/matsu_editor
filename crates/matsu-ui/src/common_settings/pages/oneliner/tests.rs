@@ -4,7 +4,8 @@ use matsu_config::settings::oneliner::{OneLiners, OutputTo};
 
 use super::list::{COMMAND, ID, LIST, NAME, OUTPUT, SELECTED, select};
 use super::rows::{
-    AI_NOTE, Fields, Problem, fields_of, index_of, problem, register, rows_of, spec, table_of,
+    Fields, Problem, SlotState, fields_of, index_of, problem, register, rows_of, shown, spec,
+    table_of,
 };
 use crate::common_settings::model::{Kind, controls};
 use crate::common_settings::tests::{cancel, choose, ok, run, setup, type_in, visual, with_dialog};
@@ -407,7 +408,7 @@ fn a_slot_still_marked_ai_is_shown_as_not_runnable_and_cannot_be_changed() {
     let mut rows = rows_of(&table);
     assert_eq!(
         rows[0],
-        ["0", "尋ねる", "claude -p", "次の行に入れる", AI_NOTE]
+        ["0", "尋ねる", "claude -p", "次の行に入れる", "ai-marked"]
     );
     assert_eq!(rows[1][4], "");
     let before = rows.clone();
@@ -448,7 +449,7 @@ fn ok_keeps_the_slots_that_are_still_marked_ai_as_the_file_has_them(cx: &mut Tes
     let (ini, handle) = setup(cx, AI_INI);
     let before = section(&ini.profile());
     open_page(cx, handle);
-    assert_eq!(list(cx)[0][4], AI_NOTE);
+    assert_eq!(SlotState::of(&list(cx)[0]), SlotState::AiMarked);
     // A click on it fills the fields, and 設定 is refused with the reason.
     click(cx, 0);
     type_in(cx, COMMAND, "cat");
@@ -461,4 +462,34 @@ fn ok_keeps_the_slots_that_are_still_marked_ai_as_the_file_has_them(cx: &mut Tes
     assert_eq!(section(&ini.profile()), before);
     let table = cx.update(|app| app.global::<crate::settings::UserSettings>().oneliners());
     assert!(table.get(0).unwrap().is_ai_marked());
+}
+
+#[test]
+fn the_protection_of_an_ai_slot_is_the_state_and_not_the_words_shown() {
+    let table = OneLiners::from_profile(&profile(AI_INI));
+    let rows = rows_of(&table);
+    assert_eq!(SlotState::of(&rows[0]), SlotState::AiMarked);
+    assert_eq!(SlotState::of(&rows[1]), SlotState::Plain);
+    // The list shows words for the state, and the row does not hold them.
+    let words = SlotState::AiMarked.label();
+    assert!(!words.is_empty());
+    assert!(rows[0].iter().all(|cell| cell != words));
+    assert_eq!(shown(4, &rows[0][4]), words);
+    assert_eq!(shown(4, &rows[1][4]), "");
+    assert_eq!(shown(2, &rows[0][2]), "claude -p");
+    // A row that merely carries the words is an ordinary row: it is not refused and does not keep the AI keys.
+    let mut copy = rows.clone();
+    copy[0][4] = words.to_owned();
+    assert_eq!(SlotState::of(&copy[0]), SlotState::Plain);
+    assert_eq!(
+        register(&mut copy, 0, &fields("x", "y", OutputTo::Replace)),
+        Ok(())
+    );
+    assert!(!table_of(&copy, Vec::new(), &table).slots[0].ai);
+    // The row with the state is refused and kept, whatever else is in it.
+    let mut kept = rows;
+    kept[0][1] = "changed".to_owned();
+    let got = table_of(&kept, Vec::new(), &table);
+    assert_eq!(got.slots[0], table.slots[0]);
+    assert!(got.slots[0].is_ai_marked());
 }

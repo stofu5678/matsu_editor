@@ -41,6 +41,8 @@ pub(in crate::common_settings) struct SlotList {
     pub prefix: &'static str,
     /// A row that cannot be used is shown dimmed.
     pub dimmed: fn(&Row) -> bool,
+    /// What a cell shows for the text the row holds in `column`.
+    pub shown: fn(usize, &str) -> String,
     /// A click on row `index`.
     pub select:
         fn(&mut CommonSettingsDialog, usize, &mut Window, &mut Context<CommonSettingsDialog>),
@@ -59,6 +61,7 @@ pub(super) fn draw(
             selected: SELECTED,
             prefix: "oneliner",
             dimmed: rows::is_ai_row,
+            shown: rows::shown,
             select,
         },
         dialog,
@@ -74,7 +77,7 @@ pub(in crate::common_settings) fn draw_slots(
 ) -> AnyElement {
     let spec = list.spec;
     let selected = usize::try_from(dialog.values().int(list.selected)).ok();
-    let (dimmed, select, prefix) = (list.dimmed, list.select, list.prefix);
+    let (dimmed, shown, select, prefix) = (list.dimmed, list.shown, list.select, list.prefix);
     let width = |percent: u32| gpui::relative(percent as f32 / 100.);
     let heading = h_flex()
         .bg(rgb(HEADING_BG))
@@ -100,14 +103,20 @@ pub(in crate::common_settings) fn draw_slots(
                 .when(selected == Some(index), |d| {
                     d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
                 })
-                .children(spec.columns.iter().zip(row).map(|(c, text)| {
-                    div()
-                        .w(width(c.width))
-                        .px_1()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .child(text.clone())
-                }))
+                .children(
+                    spec.columns
+                        .iter()
+                        .zip(row)
+                        .enumerate()
+                        .map(|(i, (c, text))| {
+                            div()
+                                .w(width(c.width))
+                                .px_1()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .child(shown(i, text))
+                        }),
+                )
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     select(this, index, window, cx);
                 }))
@@ -177,11 +186,10 @@ pub(super) fn register(
 ) {
     let index = rows::index_of(&typed(dialog, ID, cx));
     let fields = current_fields(dialog, cx);
-    let mut list = dialog.values().rows(LIST).to_vec();
-    match rows::register(&mut list, index, &fields) {
-        Ok(()) => dialog.set_rows(LIST, list, cx),
-        // Nobody waits for this answer.
-        Err(problem) => crate::boxes::tell(window, PromptLevel::Info, &problem.text(), None, cx),
+    // The row is changed in place; a refused value leaves the rows as they were and is told.
+    // Nobody waits for this answer.
+    if let Err(problem) = dialog.edit_rows(LIST, |rows| rows::register(rows, index, &fields), cx) {
+        crate::boxes::tell(window, PromptLevel::Info, &problem.text(), None, cx);
     }
 }
 

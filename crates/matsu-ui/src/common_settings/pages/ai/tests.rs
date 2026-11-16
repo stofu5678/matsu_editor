@@ -451,3 +451,28 @@ fn the_note_under_the_fields_draws_with_a_problem_in_the_boxes(cx: &mut TestAppC
     visual(cx, dialog_window).run_until_parked();
     cancel(cx);
 }
+
+#[gpui::test]
+fn a_refused_value_does_not_change_the_rows_and_a_good_one_changes_one(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, INI);
+    open_page(cx, handle);
+    let before = list(cx);
+    type_in(cx, ID, "4");
+    type_in(cx, NAME, "名前だけ");
+    type_in(cx, COMMAND, "");
+    press_set(cx);
+    cx.simulate_prompt_answer("OK");
+    assert_eq!(list(cx), before);
+    type_in(cx, COMMAND, "cat");
+    press_set(cx);
+    let after = list(cx);
+    assert_eq!(after[4][2], "cat");
+    assert!(
+        after
+            .iter()
+            .zip(&before)
+            .enumerate()
+            .all(|(i, (a, b))| i == 4 || a == b)
+    );
+    cancel(cx);
+}
