@@ -39,8 +39,10 @@ const MATSU_ONLY: usize = 11;
 /// `MenuSpecial`), `F_ONELINER_DIALOG`, `F_ONELINER_SETTINGS` and `F_AI_LOG_SHOW`. The main menu has a submenu for them (5 rows).
 const ONELINER_MENU_ITEMS: usize = 5;
 const ONELINER_FUNCTIONS: usize = 54;
-/// The 50 functions of sending to a generative AI in mode a (ADR-0035): `F_AI_PROMPT_0` ... `F_AI_PROMPT_49`.
-const AI_PROMPT_FUNCTIONS: usize = 50;
+/// The 53 functions of sending to a generative AI (ADR-0035): `F_AI_PROMPT_0` ... `F_AI_PROMPT_49` (mode a), `F_AI_PROMPT_LIST`
+/// (a `MenuSpecial`), `F_AI_ASK` and `F_AI_SETTINGS`. The main menu has a submenu for them and the log (7 rows).
+const AI_PROMPT_FUNCTIONS: usize = 53;
+const AI_MENU_ITEMS: usize = 7;
 const MATSU_MENU_SEPARATORS: usize = 2;
 
 #[test]
@@ -52,7 +54,7 @@ fn counts_match_sakura() {
     assert_eq!(KEY_BINDINGS.len(), 100);
     assert_eq!(
         MAIN_MENU.len(),
-        336 + MATSU_ONLY + MATSU_MENU_SEPARATORS + ONELINER_MENU_ITEMS
+        336 + MATSU_ONLY + MATSU_MENU_SEPARATORS + ONELINER_MENU_ITEMS + AI_MENU_ITEMS
     );
     assert_eq!(FUNCTION_GROUPS.len(), 15);
 }
@@ -61,14 +63,14 @@ fn counts_match_sakura() {
 fn kinds_match_sakura_ranges() {
     let count = |kind| FUNCTIONS.iter().filter(|f| f.kind == kind).count();
     assert_eq!(count(FunctionKind::Reserved), 9);
-    assert_eq!(count(FunctionKind::MenuSpecial), 6 + 1);
+    assert_eq!(count(FunctionKind::MenuSpecial), 6 + 1 + 1);
     assert_eq!(count(FunctionKind::MenuLabel), 63);
     assert_eq!(count(FunctionKind::MacroFunction), 59);
     assert_eq!(count(FunctionKind::Internal), 3);
     assert_eq!(count(FunctionKind::MacroOnly), 23);
     assert_eq!(
         count(FunctionKind::Command),
-        524 - 9 - 6 - 63 - 59 - 3 - 23 + MATSU_ONLY + ONELINER_FUNCTIONS + AI_PROMPT_FUNCTIONS - 1
+        524 - 9 - 6 - 63 - 59 - 3 - 23 + MATSU_ONLY + ONELINER_FUNCTIONS + AI_PROMPT_FUNCTIONS - 2
     );
 }
 
@@ -412,8 +414,62 @@ fn the_ai_prompt_functions_are_in_a_row_have_no_group_or_menu_item_and_leave_roo
         assert!(MAIN_MENU.iter().all(|m| m.code != f.code));
     }
     assert!(FUNCTIONS.iter().all(|f| f.name != "F_AI_PROMPT_50"));
-    // the codes after the fifty are free for the later steps of ADR-0035
-    assert!(FUNCTIONS.iter().all(|f| !(32650..32700).contains(&f.code)));
+    // the list, the modal of mode b and the settings follow the fifty
+    let list = function("F_AI_PROMPT_LIST");
+    assert_eq!((list.code, list.kind), (32650, FunctionKind::MenuSpecial));
+    assert!(list.groups.is_empty());
+    let ask = function("F_AI_ASK");
+    assert_eq!(
+        (ask.code, ask.kind, ask.label),
+        (32651, FunctionKind::Command, Some("指示をつけて送る..."))
+    );
+    let settings = function("F_AI_SETTINGS");
+    assert_eq!(
+        (settings.code, settings.kind, settings.label),
+        (32652, FunctionKind::Command, Some("生成 AI の設定..."))
+    );
+    // `matsu_config::settings::ai` has the same codes (a test of matsu-ui checks it)
+    for code in [32650, 32651, 32652] {
+        assert!(MAIN_MENU.iter().any(|m| m.code == code), "{code}");
+    }
+    // the codes after them are free
+    assert!(FUNCTIONS.iter().all(|f| !(32653..32700).contains(&f.code)));
+}
+
+#[test]
+fn the_main_menu_has_the_ai_submenu_after_the_oneliners_in_the_tool_menu() {
+    let at = MAIN_MENU.iter().position(|m| m.code == 32650).unwrap();
+    // the rows of the submenu 「生成 AI」, which the node of 「そのまま送る」 holds the list of
+    let rows: Vec<_> = MAIN_MENU[at - 2..at + 5]
+        .iter()
+        .map(|m| (m.level, m.code, m.access_key))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (1, 0, Some('G')),
+            (2, 0, Some('P')),
+            (3, 32650, None),
+            (2, 32651, Some('I')),
+            (2, 1, None),
+            (2, 32764, Some('L')),
+            (2, 32652, Some('S')),
+        ]
+    );
+    // it follows the submenu of the one-liners
+    assert_eq!(MAIN_MENU[at - 3].code, 32763);
+    assert_eq!(MAIN_MENU[at - 2].label, Some("生成 AI"));
+    // G is free among the rows of the tool menu that it sits in
+    let tool = MAIN_MENU[..at - 2]
+        .iter()
+        .rposition(|m| m.level == 0)
+        .unwrap();
+    let siblings = MAIN_MENU[tool + 1..]
+        .iter()
+        .take_while(|m| m.level > 0)
+        .filter(|m| m.level == 1 && m.access_key == Some('G'))
+        .count();
+    assert_eq!(siblings, 1, "only the new submenu has G");
 }
 
 #[test]

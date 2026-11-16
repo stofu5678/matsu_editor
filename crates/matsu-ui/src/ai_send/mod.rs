@@ -13,7 +13,8 @@
 //!
 //! Its tests are with the one-liners' (`crate::oneliner::tests::ai`), whose harness they share.
 //!
-//! The functions are `ui_commands/ai/`: `F_AI_PROMPT_0` to `F_AI_PROMPT_49`. Mode b, the modal and the menus are
+//! The functions are `ui_commands/ai/`: `F_AI_PROMPT_0` to `F_AI_PROMPT_49`, `F_AI_ASK` and `F_AI_SETTINGS`; the menus
+//! take the destinations from [`list`], and [`startup`] moves the AI one-liners at start. Mode b and the modal are
 //! other steps of ADR-0035.
 
 use std::sync::Arc;
@@ -27,7 +28,11 @@ use crate::oneliner::flow::{AiSlot, Job, run_job};
 use crate::settings::UserSettings;
 use crate::view::EditorView;
 
+pub(crate) mod list;
+pub(crate) mod startup;
 pub(crate) mod store;
+
+pub(crate) use list::AiPromptList;
 
 /// The line at the top of the confirmation window in mode a (ADR-0035, 3).
 pub(crate) const PLAIN_NOTICE: &str = "選んだ文字列が、そのままプロンプトとして送られます";

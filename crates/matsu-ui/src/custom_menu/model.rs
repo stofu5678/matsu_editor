@@ -47,6 +47,8 @@
 //!   separator, 「ワンライナーを入力して実行...」 and 「ワンライナーの設定...」. The other lists are items
 //!   in the place of their row, but this one is a submenu, because a custom menu nests only through another custom
 //!   menu with its popup flag and the right-click menu must not use up one of the user's;
+//! * `F_AI_PROMPT_LIST` (MATSU's own, ADR-0035) is the submenu 「生成 AI」, the same kind of row: the submenu 「そのまま送る」
+//!   with the registered destinations, 「指示をつけて送る...」, a separator, 「AI ログを表示」 and 「生成 AI の設定...」;
 //! * a row from the lists that Sakura fills in at run time (`F_SPECIAL_FIRST` to `F_SPECIAL_LAST`) is
 //!   those items;
 //! * any other row is an item named by `CFuncLookup::Funccode2Name`.
@@ -54,10 +56,11 @@
 use matsu_commands::keymap::KeyMap;
 use matsu_commands::sakura::{FUNCTIONS, FunctionKind};
 use matsu_config::settings::CustomMenus;
+use matsu_config::settings::ai::{F_AI_ASK, F_AI_PROMPT_LIST, F_AI_SETTINGS};
 use matsu_config::settings::custom_menu::INDEX_FOR_RBUTTONUP;
 use matsu_config::settings::macros::RegisteredMacros;
 use matsu_config::settings::oneliner::{
-    F_ONELINER_DIALOG, F_ONELINER_LIST, F_ONELINER_SETTINGS, OneLiners,
+    F_AI_LOG_SHOW, F_ONELINER_DIALOG, F_ONELINER_LIST, F_ONELINER_SETTINGS, OneLiners,
 };
 
 use crate::menu::{Available, Entry, Item, Lists, MenuAction, menu_label_with};
@@ -180,6 +183,11 @@ fn fill(index: usize, open: &mut Vec<u16>, cx: &Context<'_>) -> Vec<Entry> {
                 label: menu_label_with(crate::oneliner::SUBMENU_NAME, row.key, cx.parentheses),
                 entries: oneliner_submenu(cx),
             });
+        } else if code == F_AI_PROMPT_LIST {
+            out.push(Entry::Submenu {
+                label: menu_label_with(crate::ai_send::list::SUBMENU_NAME, row.key, cx.parentheses),
+                entries: ai_submenu(cx),
+            });
         } else if is_special(code) {
             // `InitMenu_Special`: the items of the list, or "(なし)" when it is empty.
             let items = cx.lists.entries(code);
@@ -217,6 +225,35 @@ fn oneliner_submenu(cx: &Context<'_>) -> Vec<Entry> {
     entries.push(Entry::Item(cx.item(F_ONELINER_DIALOG, Some('I'))));
     entries.push(Entry::Item(cx.item(F_ONELINER_SETTINGS, Some('S'))));
     entries
+}
+
+/// The entries of the submenu 「生成 AI」 (ADR-0035, 1): the submenu 「そのまま送る」 with the items of
+/// `F_AI_PROMPT_LIST` (「(なし)」 when no destination is registered), 「指示をつけて送る...」, a separator, the log and the
+/// settings.
+fn ai_submenu(cx: &Context<'_>) -> Vec<Entry> {
+    let mut plain = cx.lists.entries(F_AI_PROMPT_LIST);
+    if plain.is_empty() {
+        plain.push(Entry::Item(Item {
+            label: "(なし)".to_owned(),
+            action: MenuAction::Placeholder,
+            shortcut: None,
+            enabled: false,
+        }));
+    }
+    vec![
+        Entry::Submenu {
+            label: menu_label_with(
+                crate::ai_send::list::PLAIN_SUBMENU_NAME,
+                Some('P'),
+                cx.parentheses,
+            ),
+            entries: plain,
+        },
+        Entry::Item(cx.item(F_AI_ASK, Some('I'))),
+        Entry::Separator,
+        Entry::Item(cx.item(F_AI_LOG_SHOW, Some('L'))),
+        Entry::Item(cx.item(F_AI_SETTINGS, Some('S'))),
+    ]
 }
 
 /// The items of the main menu's row for the custom menus (`F_CUSTMENU_LIST`): every menu that has items, the

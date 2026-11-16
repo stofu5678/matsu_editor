@@ -400,7 +400,8 @@ fn a_menu_of_matsu_version_1_gets_the_chooser_after_the_database_run_once() {
     assert_eq!(
         functions(&menu),
         [
-            34056, 30170, 30171, 32703, 31430, 31270, 0, 32761, 1, 32762, 32763
+            34056, 30170, 30171, 32703, 31430, 31270, 0, 32761, 1, 32762, 32763, 0, 0, 32650,
+            32651, 1, 32764, 32652
         ]
     );
     assert_eq!(menu.rows[3], leaf(1, 32703, 'C'));
@@ -408,7 +409,7 @@ fn a_menu_of_matsu_version_1_gets_the_chooser_after_the_database_run_once() {
     let mut file = profile("");
     menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
         .unwrap();
-    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("5"));
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("6"));
     assert_eq!(MainMenu::from_profile(&file, &names, &default_menu()), menu);
     // a menu with no MATSU version at all gets it too, with version 1's items that have a place
     let text = MATSU_MENU_WITH_DATABASE.replace("nMatsuMainMenuVer=1\n", "");
@@ -420,7 +421,10 @@ fn a_menu_of_matsu_version_2_is_not_given_the_chooser() {
     let text = MATSU_MENU_WITH_DATABASE.replace("nMatsuMainMenuVer=1", "nMatsuMainMenuVer=2");
     assert_eq!(
         functions(&read(&text)),
-        [34056, 30170, 30171, 31430, 31270, 0, 32761, 1, 32762, 32763]
+        [
+            34056, 30170, 30171, 31430, 31270, 0, 32761, 1, 32762, 32763, 0, 0, 32650, 32651, 1,
+            32764, 32652,
+        ]
     );
 }
 
@@ -470,7 +474,7 @@ fn the_matsu_version_is_written_with_a_saved_menu_and_not_in_an_exported_file() 
     let menu = read(OLD_MATSU_MENU);
     menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
         .unwrap();
-    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("5"));
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("6"));
     let exported = menu.export_profile(&|_| None).unwrap();
     assert_eq!(exported.get("MainMenu", "nMatsuMainMenuVer"), None);
 }
@@ -496,4 +500,83 @@ fn a_matsu_item_gets_its_key_unless_a_sibling_in_the_same_submenu_has_it() {
     assert_eq!(key_of(32700), None, "N clashes");
     assert_eq!(key_of(32701), Some('M'), "M is free in this submenu");
     assert_eq!(key_of(32702), Some('G'), "G is only a menu of the bar");
+}
+
+/// A saved Tool menu of MATSU version 5: the one-liners' submenu after 「外部コマンド実行」, and a row after it.
+const MATSU_MENU_VERSION_5: &str = "[MainMenu]\nnMainMenuVer=2\nnMatsuMainMenuVer=5\nnMainMenuNum=9\n\
+     MM[000]=0,0,34056,T,\n\
+     MM[001]=1,1,31270,X,\n\
+     MM[002]=1,0,0,O,ワンライナー\n\
+     MM[003]=2,3,32761,,\n\
+     MM[004]=2,2,1,,\n\
+     MM[005]=2,1,32762,I,\n\
+     MM[006]=2,1,32763,S,\n\
+     MM[007]=1,1,31430,H,\n\
+     MM[008]=0,0,34052,F,\n";
+
+#[test]
+fn a_menu_of_matsu_version_5_gets_the_ai_submenu_once_after_the_oneliners() {
+    let menu = read(MATSU_MENU_VERSION_5);
+    assert_eq!(
+        functions(&menu),
+        [
+            34056, 31270, 0, 32761, 1, 32762, 32763, 0, 0, 32650, 32651, 1, 32764, 32652, 31430,
+            34052
+        ]
+    );
+    // the whole submenu of the one-liners stays together, and the new one is its sibling with the key G
+    let levels: Vec<_> = menu.rows.iter().map(|r| r.level).collect();
+    assert_eq!(levels, [0, 1, 1, 2, 2, 2, 2, 1, 2, 3, 2, 2, 2, 2, 1, 0]);
+    let node = &menu.rows[7];
+    assert_eq!((node.name.as_str(), node.key), ("生成 AI", Some('G')));
+    let plain = &menu.rows[8];
+    assert_eq!(
+        (plain.name.as_str(), plain.key),
+        ("そのまま送る", Some('P'))
+    );
+    assert_eq!(menu.rows[9].kind, RowKind::Special);
+    assert_eq!(
+        [10, 12, 13].map(|i| menu.rows[i].key),
+        [Some('I'), Some('L'), Some('S')]
+    );
+    // saved with the version of now, reading it again adds nothing
+    let mut file = profile("");
+    menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
+        .unwrap();
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("6"));
+    assert_eq!(MainMenu::from_profile(&file, &names, &default_menu()), menu);
+}
+
+#[test]
+fn the_ai_submenu_is_not_given_back_after_the_user_removed_it() {
+    let text = MATSU_MENU_VERSION_5.replace("nMatsuMainMenuVer=5", "nMatsuMainMenuVer=6");
+    assert!(!functions(&read(&text)).contains(&32650));
+}
+
+#[test]
+fn the_ai_submenu_is_left_out_without_the_oneliners_and_not_doubled_and_gives_up_a_taken_key() {
+    // no list of the one-liners to follow: nothing is added
+    let text = MATSU_MENU_VERSION_5.replace("MM[003]=2,3,32761,,", "MM[003]=2,3,29001,,");
+    assert!(!functions(&read(&text)).contains(&32650));
+    // the list of the AI is in the menu already (anywhere): it is not added again
+    let text = MATSU_MENU_VERSION_5.replace("MM[007]=1,1,31430,H,", "MM[007]=1,3,32650,,");
+    assert_eq!(
+        functions(&read(&text))
+            .iter()
+            .filter(|&&f| f == 32650)
+            .count(),
+        1
+    );
+    // a sibling in the Tool menu has G: the submenu comes without a key
+    let text = MATSU_MENU_VERSION_5.replace("MM[007]=1,1,31430,H,", "MM[007]=1,1,31430,g,");
+    let menu = read(&text);
+    let node = menu.rows.iter().find(|r| r.name == "生成 AI").unwrap();
+    assert_eq!(node.key, None);
+}
+
+#[test]
+fn the_ai_list_is_a_special_row_of_the_menu() {
+    assert!(is_special_function(32650));
+    assert!(is_special_function(32761));
+    assert!(!is_special_function(32651));
 }

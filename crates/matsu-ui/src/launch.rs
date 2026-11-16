@@ -141,6 +141,8 @@ pub fn launch(args: Vec<OsString>) {
     choose_profile(&first.options);
     // The settings of the old name are copied to the new places before the file is read.
     crate::settings::migrate_old_settings();
+    // The one-liners that were marked for a generative AI move to `[AI]` (ADR-0035), still before the file is read.
+    crate::ai_send::startup::move_at_start();
     // The files of this command line come first, through the entry that the others use.
     tx.send_blocking(first).ok();
     let user = crate::settings::UserSettings::load();

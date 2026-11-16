@@ -476,16 +476,28 @@ fn the_function_show_ai_log_opens_and_goes_to_the_log(cx: &mut TestAppContext) {
 }
 
 #[test]
-fn the_oneliner_submenu_always_ends_with_the_ai_log_item() {
+fn the_oneliner_list_has_no_ai_log_item_and_grays_a_slot_still_marked_for_an_ai() {
     use crate::menu::{Lists as _, MenuAction};
     use matsu_config::settings::oneliner::{F_AI_LOG_SHOW, F_ONELINER_LIST, OneLiners};
-    // with no one-liner registered the item is the whole list; with some, it is the last
+    // the log moved to the submenu 「生成 AI」 (ADR-0035): with none registered the list is empty
     let none = crate::oneliner::OneLinerList(std::sync::Arc::new(OneLiners::default()));
-    let items = none.items(F_ONELINER_LIST);
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].label, crate::oneliner::list::AI_LOG_LABEL);
-    assert_eq!(items[0].action, MenuAction::Function(F_AI_LOG_SHOW));
-    assert!(items[0].enabled);
+    assert!(none.items(F_ONELINER_LIST).is_empty());
+    // a slot that `[OneLiner]` still marks `AI=1` is in the list but grayed; the others are not
+    let text = "[OneLiner]\r\nName[000]=plain\r\nCommand[000]=cat\r\n\
+                Name[001]=marked\r\nCommand[001]=cat\r\nAI[001]=1\r\n";
+    let table = OneLiners::from_profile(&matsu_config::Profile::from_bytes(text.as_bytes()));
+    let list = crate::oneliner::OneLinerList(std::sync::Arc::new(table));
+    let items = list.items(F_ONELINER_LIST);
+    let shape: Vec<_> = items
+        .iter()
+        .map(|i| (i.label.as_str(), i.enabled))
+        .collect();
+    assert_eq!(shape, [("plain", true), ("marked", false)]);
+    assert!(
+        items
+            .iter()
+            .all(|i| i.action != MenuAction::Function(F_AI_LOG_SHOW))
+    );
 }
 
 // ---- Tab in the dialogs of the flow, on a window with the key bindings of the app ----

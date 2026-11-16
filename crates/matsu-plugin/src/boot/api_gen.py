@@ -2899,6 +2899,12 @@ def install(call):
             implemented)."""
             return call("AiPrompt49", _pack())
 
+        def AiAsk(self) -> None:
+            """Sakura's F_AI_ASK (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+            key, the menu and a key macro run. The last arguments may be left out. A command
+            that this editor does not have yet answers the error -32001 (not implemented)."""
+            return call("AiAsk", _pack())
+
         def TraceOut(self, arg1: str = _UNSET, arg2: int = _UNSET) -> None:
             """MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the
             menu and a key macro run."""

@@ -555,3 +555,68 @@ fn the_oneliners_are_grayed_for_an_unregistered_slot_a_view_mode_and_a_run() {
     assert!(!running.is_enabled(F_ONELINER_DIALOG));
     assert!(running.is_enabled(F_ONELINER_SETTINGS));
 }
+
+#[test]
+fn a_oneliner_still_marked_for_an_ai_is_grayed() {
+    use matsu_config::Profile;
+    use matsu_config::settings::oneliner::{OneLiners, function_of_index};
+    let text = "[OneLiner]\r\nName[000]=plain\r\nCommand[000]=cat\r\n\
+                Name[001]=ai\r\nCommand[001]=cat\r\nAI[001]=1\r\n";
+    let table = std::sync::Arc::new(OneLiners::from_profile(&Profile::from_bytes(
+        text.as_bytes(),
+    )));
+    let states = FuncStates {
+        oneliners: table,
+        ..base()
+    };
+    assert!(states.is_enabled(function_of_index(0).unwrap()));
+    assert!(!states.is_enabled(function_of_index(1).unwrap()));
+}
+
+#[test]
+fn the_ai_destinations_are_grayed_for_an_unregistered_slot_a_read_only_document_and_a_run() {
+    use matsu_config::Profile;
+    use matsu_config::settings::ai::{
+        AiDestinations, F_AI_ASK, F_AI_PROMPT_0, F_AI_PROMPT_LIST, F_AI_SETTINGS,
+    };
+    let text = "[AI]\r\nName[000]=r\r\nCommand[000]=cat\r\nOutput[000]=0\r\n\
+                Name[001]=n\r\nCommand[001]=cat\r\nOutput[001]=1\r\n\
+                Name[002]=l\r\nCommand[002]=cat\r\nOutput[002]=2\r\n";
+    let table = std::sync::Arc::new(AiDestinations::from_profile(&Profile::from_bytes(
+        text.as_bytes(),
+    )));
+    let base = FuncStates {
+        ai: table,
+        ..base()
+    };
+    let f = |n: u16| F_AI_PROMPT_0 + n;
+    assert!(base.is_enabled(f(0)) && base.is_enabled(f(1)) && base.is_enabled(f(2)));
+    assert!(!base.is_enabled(f(3)), "no command");
+    let view = FuncStates {
+        view_mode: true,
+        ..base.clone()
+    };
+    assert!(
+        !view.is_enabled(f(0)),
+        "replace needs a document that can be edited"
+    );
+    assert!(!view.is_enabled(f(1)), "so does the next line");
+    assert!(view.is_enabled(f(2)), "the log tab only does not");
+    // a file that cannot be written, or the start of a big file: the same as view mode
+    let locked = FuncStates {
+        text_locked: true,
+        ..base.clone()
+    };
+    assert!(!locked.is_enabled(f(0)) && !locked.is_enabled(f(1)) && locked.is_enabled(f(2)));
+    let running = FuncStates {
+        command_running: true,
+        ..base
+    };
+    assert!(!running.is_enabled(f(0)) && !running.is_enabled(f(2)));
+    assert!(running.is_enabled(F_AI_SETTINGS));
+    // mode b has no modal yet: its item is grayed, whatever the state
+    assert!(!running.is_enabled(F_AI_ASK));
+    assert!(!super::tests::base().is_enabled(F_AI_ASK));
+    // the special item of the list has no rule of its own
+    assert!(super::tests::base().is_enabled(F_AI_PROMPT_LIST));
+}

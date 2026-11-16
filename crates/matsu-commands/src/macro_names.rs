@@ -41,15 +41,15 @@ mod tests {
         // 175 `case F_...:` lines that are not commented out in CanFuncIsKeyMacro. MATSU Editor adds
         // eleven commands of its own that a key macro records (`CopyLF`, `CopyCR`, `PreviewTab`, `ShellTab`, `ExecDatabaseChoice` and the six encodings of the selection).
         // The one-liners (ADR-0029) add `OneLiner0` to `OneLiner49`, which a key macro records, and `OneLinerDialog`.
-        // Sending to an AI (ADR-0035) adds `AiPrompt0` to `AiPrompt49`, which a key macro records too.
-        assert_eq!(MACRO_COMMANDS.len(), 323 + 11 + 51 + 50);
+        // Sending to an AI (ADR-0035) adds `AiPrompt0` to `AiPrompt49`, which a key macro records too, and `AiAsk`.
+        assert_eq!(MACRO_COMMANDS.len(), 323 + 11 + 51 + 50 + 1);
         assert_eq!(MACRO_FUNCTIONS.len(), 62);
         let recorded: HashSet<_> = MACRO_COMMANDS
             .iter()
             .filter(|f| f.key_macro)
             .map(|f| f.function)
             .collect();
-        assert_eq!(recorded.len(), 175 + 11 + 50 + 50);
+        assert_eq!(recorded.len(), 175 + 11 + 50 + 50 + 1);
         assert!(MACRO_FUNCTIONS.iter().all(|f| !f.key_macro));
     }
 
@@ -107,6 +107,24 @@ mod tests {
             assert_eq!(by_code(row.code).unwrap().name, row.name);
         }
         assert!(by_name("AiPrompt50").is_none());
+    }
+
+    #[test]
+    fn ai_ask_opens_the_modal_and_a_key_macro_records_it() {
+        let row = by_name("AiAsk").unwrap();
+        assert_eq!((row.function, row.code), ("F_AI_ASK", 32651));
+        assert!(row.args.is_empty());
+        assert!(
+            row.key_macro,
+            "ADR-0035: recorded like AiPrompt n; the instruction is not part of it"
+        );
+        // no macro for the list of destinations or the settings
+        assert!(
+            MACRO_COMMANDS
+                .iter()
+                .all(|m| m.function != "F_AI_PROMPT_LIST")
+        );
+        assert!(MACRO_COMMANDS.iter().all(|m| m.function != "F_AI_SETTINGS"));
     }
 
     #[test]
