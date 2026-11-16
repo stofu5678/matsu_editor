@@ -1,6 +1,15 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+# third_party/ holds vendored copies of crates (see third_party/gpui-pre-windows/MATSU-CHANGES.md). They are
+# used through [patch.crates-io] below and are not members.
+exclude = ["third_party"]
+
+# GPUI's Windows backend with the glyph upload through a staging texture (ADR-0004): without it, the
+# Qualcomm Adreno driver keeps about 4 MB per glyph upload. Re-apply on every GPUI upgrade; see
+# third_party/gpui-pre-windows/MATSU-CHANGES.md.
+[patch.crates-io]
+gpui-pre-windows = { path = "third_party/gpui-pre-windows" }
 
 [workspace.package]
 version = "0.15.0"

@@ -9,6 +9,8 @@ extend-exclude = [
     "THIRD_PARTY_NOTICES.txt",
     # Vendored C sources of the embedded script engines (mruby, MicroPython) and their generated files.
     "vendor/",
+    # Vendored copies of crates (GPUI Windows backend with our patch), as upstream wrote them.
+    "third_party/",
     # Vendored Onigmo (C sources and Unicode tables) and the test table generated from its testpy.py.
     "crates/matsu-regex/onigmo/",
     "crates/matsu-regex/src/onigmo_suite/cases.rs",
