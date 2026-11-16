@@ -11,6 +11,16 @@ fn text(profile: &Profile) -> String {
 }
 
 #[test]
+fn get_mut_edits_the_slot_in_place_and_falls_back_to_the_first() {
+    let mut s = PrintSettings::new(&PrintSetting::default());
+    s.get_mut(3).print_dansuu = 4;
+    assert_eq!(s.get(3).print_dansuu, 4);
+    assert_eq!(s.get(2).print_dansuu, PrintSetting::default().print_dansuu);
+    s.get_mut(99).print_dansuu = 5;
+    assert_eq!(s.get(0).print_dansuu, 5);
+}
+
+#[test]
 fn the_eight_settings_start_as_the_base_with_sakuras_names() {
     let s = PrintSettings::new(&PrintSetting::default());
     assert_eq!(s.slots().len(), MAX_PRINT_SETTINGS);

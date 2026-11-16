@@ -72,13 +72,15 @@ pub(crate) enum Part {
 
 pub(crate) struct PrintSettingDialog {
     view: WeakEntity<EditorView>,
-    /// The eight settings. The one shown (`current`) is stale until [`Self::keep_current`].
+    /// The eight settings being edited: the dialog's own copy (`m_PrintSettingArr`), the one
+    /// owner of every value except the text of the edit boxes. In the setting shown (`current`)
+    /// the numbers and the forms are stale until [`Self::keep_current`]: the edit boxes own
+    /// that text while it is typed.
     pub(super) settings: PrintSettings,
-    /// The eight settings as they were when the dialog opened.
+    /// The eight settings as they were when the dialog opened: what Cancel leaves, and what
+    /// OK compares with when writing only the changed ones.
     original: PrintSettings,
     current: usize,
-    /// What the controls other than the edit boxes hold, for the setting shown.
-    pub(super) draft: PrintSetting,
     pub(super) numbers: [Entity<InputState>; 8],
     pub(super) header: [Entity<InputState>; 3],
     pub(super) footer: [Entity<InputState>; 3],
@@ -124,13 +126,11 @@ impl PrintSettingDialog {
             ));
         }
         let current = current.min(settings.slots().len() - 1);
-        let draft = settings.get(current).clone();
         let mut dialog = Self {
             view,
             original: settings.clone(),
             settings,
             current,
-            draft,
             numbers,
             header,
             footer,
@@ -150,17 +150,17 @@ impl PrintSettingDialog {
         focus_selecting(&self.numbers[0], window, cx);
     }
 
-    /// `OnChangeSettingType`, the part that sets the edit boxes: they show `draft`.
+    /// `OnChangeSettingType`, the part that sets the edit boxes: they show the setting shown.
     fn show_setting(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let draft = &self.draft;
+        let shown = self.settings.get(self.current);
         for (number, input) in Number::ALL.into_iter().zip(&self.numbers) {
-            let text = number.of(draft).to_string();
+            let text = number.of(shown).to_string();
             input.update(cx, |state, cx| state.set_value(text, window, cx));
         }
-        for (form, input) in draft
+        for (form, input) in shown
             .header_form
             .iter()
-            .chain(&draft.footer_form)
+            .chain(&shown.footer_form)
             .zip(self.header.iter().chain(&self.footer))
         {
             let text = form.clone();
@@ -176,7 +176,7 @@ impl PrintSettingDialog {
     /// `GetData`: the setting the controls make now, checked and corrected.
     pub(crate) fn collect(&self, cx: &gpui::App) -> PrintSetting {
         model::collect(
-            &self.draft,
+            self.shown(),
             &Self::texts(&self.numbers, cx),
             Self::texts(&self.header, cx),
             Self::texts(&self.footer, cx),
@@ -186,7 +186,6 @@ impl PrintSettingDialog {
     /// The setting shown has its place among the eight again, with the values checked.
     fn keep_current(&mut self, cx: &gpui::App) {
         let setting = self.collect(cx);
-        self.draft = setting.clone();
         self.settings.set(self.current, setting);
     }
 
@@ -202,18 +201,13 @@ impl PrintSettingDialog {
         }
         self.keep_current(cx);
         self.current = index;
-        self.draft = self.settings.get(index).clone();
         self.list = None;
         self.show_setting(window, cx);
     }
 
     /// The name of the setting `index` as the list shows it.
     fn name_ref(&self, index: usize) -> &str {
-        if index == self.current {
-            &self.draft.name
-        } else {
-            &self.settings.get(index).name
-        }
+        &self.settings.get(index).name
     }
 
     #[cfg(test)]
@@ -281,7 +275,7 @@ impl PrintSettingDialog {
         let request = InputRequest {
             title: "設定名の変更".into(),
             message: "設定の名称を入力してください。".into(),
-            default: self.draft.name.clone(),
+            default: self.shown().name.clone(),
             max_len: NAME_MAX,
         };
         let answer = view.update(cx, |view, cx| view.open_input_dialog(request, window, cx));
@@ -299,7 +293,7 @@ impl PrintSettingDialog {
     /// An empty name is not taken (`if( szWork[0] != L'\0' )`).
     pub(crate) fn set_name(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         if !name.is_empty() {
-            self.draft.name = name.chars().take(NAME_MAX).collect();
+            self.shown_mut().name = name.chars().take(NAME_MAX).collect();
         }
         window.focus(&self.focus, cx);
         cx.notify();
@@ -332,8 +326,8 @@ impl PrintSettingDialog {
 
     fn font_dialog_start(&self, part: Part) -> FontSetting {
         let font = match part {
-            Part::Header => self.draft.header_font.as_ref(),
-            Part::Footer => self.draft.footer_font.as_ref(),
+            Part::Header => self.shown().header_font.as_ref(),
+            Part::Footer => self.shown().footer_font.as_ref(),
         };
         let mut start = FontSetting::default();
         match font.filter(|f| !f.face.is_empty()) {
@@ -345,8 +339,8 @@ impl PrintSettingDialog {
             None => {
                 // `lf.lfHeight = -( m_nPrintFontHeight * dpi / 254 )`
                 start.log_font = LogFont {
-                    face_name: self.draft.print_font_face_han.clone(),
-                    height: -(self.draft.print_font_height * DPI / 254),
+                    face_name: self.shown().print_font_face_han.clone(),
+                    height: -(self.shown().print_font_height * DPI / 254),
                     ..start.log_font
                 };
                 start.point_size = 0;
@@ -365,8 +359,8 @@ impl PrintSettingDialog {
             point_size: font.point_size_for_dpi(DPI),
         });
         match part {
-            Part::Header => self.draft.header_font = chosen,
-            Part::Footer => self.draft.footer_font = chosen,
+            Part::Header => self.shown_mut().header_font = chosen,
+            Part::Footer => self.shown_mut().footer_font = chosen,
         }
         cx.notify();
     }
@@ -374,15 +368,20 @@ impl PrintSettingDialog {
     /// 使用: unchecking it drops the font (`IDC_CHECK_USE_FONT_HEAD`).
     pub(crate) fn drop_font(&mut self, part: Part, cx: &mut Context<Self>) {
         match part {
-            Part::Header => self.draft.header_font = None,
-            Part::Footer => self.draft.footer_font = None,
+            Part::Header => self.shown_mut().header_font = None,
+            Part::Footer => self.shown_mut().footer_font = None,
         }
         cx.notify();
     }
 
-    #[cfg(test)]
-    pub(crate) fn draft_mut(&mut self) -> &mut PrintSetting {
-        &mut self.draft
+    /// The setting shown, to edit in place.
+    pub(super) fn shown_mut(&mut self) -> &mut PrintSetting {
+        self.settings.get_mut(self.current)
+    }
+
+    /// The setting shown.
+    pub(super) fn shown(&self) -> &PrintSetting {
+        self.settings.get(self.current)
     }
 
     fn toggle_list(&mut self, list: List, cx: &mut Context<Self>) {
@@ -415,25 +414,25 @@ impl PrintSettingDialog {
             ),
             List::FontHan => {
                 let names =
-                    font_names(&self.installed, &self.draft.print_font_face_han).into_owned();
+                    font_names(&self.installed, &self.shown().print_font_face_han).into_owned();
                 let at = names
                     .iter()
-                    .position(|n| *n == self.draft.print_font_face_han);
+                    .position(|n| *n == self.shown().print_font_face_han);
                 (names, at)
             }
             List::FontZen => {
                 let names =
-                    font_names(&self.installed, &self.draft.print_font_face_zen).into_owned();
+                    font_names(&self.installed, &self.shown().print_font_face_zen).into_owned();
                 let at = names
                     .iter()
-                    .position(|n| *n == self.draft.print_font_face_zen);
+                    .position(|n| *n == self.shown().print_font_face_zen);
                 (names, at)
             }
             List::Paper => (
                 PAPER_INFO.iter().map(|p| p.name.to_owned()).collect(),
                 PAPER_INFO
                     .iter()
-                    .position(|p| p.id == self.draft.print_paper_size),
+                    .position(|p| p.id == self.shown().print_paper_size),
             ),
         }
     }
@@ -452,24 +451,24 @@ impl PrintSettingDialog {
                 return;
             }
             List::FontHan => {
-                let name = font_names(&self.installed, &self.draft.print_font_face_han)
+                let name = font_names(&self.installed, &self.shown().print_font_face_han)
                     .get(row)
                     .cloned();
                 if let Some(name) = name {
-                    self.draft.print_font_face_han = name;
+                    self.shown_mut().print_font_face_han = name;
                 }
             }
             List::FontZen => {
-                let name = font_names(&self.installed, &self.draft.print_font_face_zen)
+                let name = font_names(&self.installed, &self.shown().print_font_face_zen)
                     .get(row)
                     .cloned();
                 if let Some(name) = name {
-                    self.draft.print_font_face_zen = name;
+                    self.shown_mut().print_font_face_zen = name;
                 }
             }
             List::Paper => {
                 if let Some(info) = PAPER_INFO.get(row) {
-                    self.draft.print_paper_size = info.id;
+                    self.shown_mut().print_paper_size = info.id;
                 }
             }
         }
@@ -550,7 +549,7 @@ impl PrintSettingDialog {
                 "ヘッダー(U)",
                 "ヘッダー",
                 &self.header,
-                self.draft.header_font.as_ref(),
+                self.shown().header_font.as_ref(),
                 "ps-use-font-head",
                 "ps-font-head",
             ),
@@ -558,7 +557,7 @@ impl PrintSettingDialog {
                 "フッター(D)",
                 "フッター",
                 &self.footer,
-                self.draft.footer_font.as_ref(),
+                self.shown().footer_font.as_ref(),
                 "ps-use-font-foot",
                 "ps-font-foot",
             ),
@@ -616,7 +615,7 @@ impl PrintSettingDialog {
             .label(label)
             .checked(checked)
             .on_click(cx.listener(move |this, value: &bool, _, cx| {
-                set(&mut this.draft, *value);
+                set(this.shown_mut(), *value);
                 cx.notify();
             }))
     }
@@ -633,7 +632,7 @@ impl Render for PrintSettingDialog {
         let now = self.collect(cx);
         let printable = model::printable(&now, self.number_columns);
         let ok_enabled = model::has_printable_area(&now, self.number_columns);
-        let paper_name = find_paper_info(self.draft.print_paper_size).map_or("", |p| p.name);
+        let paper_name = find_paper_info(self.shown().print_paper_size).map_or("", |p| p.name);
         let open = |list: List| self.list == Some(list);
 
         let top = h_flex()
@@ -656,7 +655,7 @@ impl Render for PrintSettingDialog {
                     .child(div().w(px(104.)).text_right().child("半角フォント(F)"))
                     .child(self.combo(
                         "ps-font-han",
-                        &self.draft.print_font_face_han,
+                        &self.shown().print_font_face_han,
                         List::FontHan,
                         cx,
                     )),
@@ -671,7 +670,7 @@ impl Render for PrintSettingDialog {
                     .child(div().w(px(104.)).text_right().child("全角フォント(K)"))
                     .child(self.combo(
                         "ps-font-zen",
-                        &self.draft.print_font_face_zen,
+                        &self.shown().print_font_face_zen,
                         List::FontZen,
                         cx,
                     )),
@@ -712,18 +711,18 @@ impl Render for PrintSettingDialog {
                     .child(
                         Radio::new("ps-portrait")
                             .label("縦(I)")
-                            .checked(self.draft.print_paper_orientation == Orientation::Portrait)
+                            .checked(self.shown().print_paper_orientation == Orientation::Portrait)
                             .on_click(cx.listener(|this, _: &bool, _, cx| {
-                                this.draft.print_paper_orientation = Orientation::Portrait;
+                                this.shown_mut().print_paper_orientation = Orientation::Portrait;
                                 cx.notify();
                             })),
                     )
                     .child(
                         Radio::new("ps-landscape")
                             .label("横(A)")
-                            .checked(self.draft.print_paper_orientation == Orientation::Landscape)
+                            .checked(self.shown().print_paper_orientation == Orientation::Landscape)
                             .on_click(cx.listener(|this, _: &bool, _, cx| {
-                                this.draft.print_paper_orientation = Orientation::Landscape;
+                                this.shown_mut().print_paper_orientation = Orientation::Landscape;
                                 cx.notify();
                             })),
                     ),
@@ -742,7 +741,7 @@ impl Render for PrintSettingDialog {
             .child(self.check(
                 "ps-line-number",
                 "行番号を印刷(N)",
-                self.draft.print_line_number,
+                self.shown().print_line_number,
                 cx,
                 |s, v| {
                     s.print_line_number = v;
@@ -751,7 +750,7 @@ impl Render for PrintSettingDialog {
             .child(self.check(
                 "ps-word-wrap",
                 "英文ワードラップ(W)",
-                self.draft.print_word_wrap,
+                self.shown().print_word_wrap,
                 cx,
                 |s, v| {
                     s.print_word_wrap = v;
@@ -763,7 +762,7 @@ impl Render for PrintSettingDialog {
                     .child(self.check(
                         "ps-kinsoku-head",
                         "行頭禁則",
-                        self.draft.print_kinsoku_head,
+                        self.shown().print_kinsoku_head,
                         cx,
                         |s, v| {
                             s.print_kinsoku_head = v;
@@ -772,7 +771,7 @@ impl Render for PrintSettingDialog {
                     .child(self.check(
                         "ps-kinsoku-ret",
                         "改行ぶら下げ",
-                        self.draft.print_kinsoku_ret,
+                        self.shown().print_kinsoku_ret,
                         cx,
                         |s, v| {
                             s.print_kinsoku_ret = v;
@@ -785,7 +784,7 @@ impl Render for PrintSettingDialog {
                     .child(self.check(
                         "ps-kinsoku-tail",
                         "行末禁則",
-                        self.draft.print_kinsoku_tail,
+                        self.shown().print_kinsoku_tail,
                         cx,
                         |s, v| {
                             s.print_kinsoku_tail = v;
@@ -794,7 +793,7 @@ impl Render for PrintSettingDialog {
                     .child(self.check(
                         "ps-kinsoku-kuto",
                         "句読点ぶら下げ",
-                        self.draft.print_kinsoku_kuto,
+                        self.shown().print_kinsoku_kuto,
                         cx,
                         |s, v| {
                             s.print_kinsoku_kuto = v;
@@ -823,7 +822,7 @@ impl Render for PrintSettingDialog {
             .child(self.check(
                 "ps-color",
                 "カラー印刷(V)",
-                self.draft.color_print,
+                self.shown().color_print,
                 cx,
                 |s, v| {
                     s.color_print = v;
