@@ -115,6 +115,13 @@ impl PrintSettings {
         self.slots.get(index).unwrap_or(&self.slots[0])
     }
 
+    /// The setting `index` to edit in place, or the first one for a number that is out of range
+    /// (like [`Self::get`]).
+    pub fn get_mut(&mut self, index: usize) -> &mut PrintSetting {
+        let index = if index < self.slots.len() { index } else { 0 };
+        &mut self.slots[index]
+    }
+
     /// Replaces the setting `index`. A number that is out of range does nothing.
     pub fn set(&mut self, index: usize, setting: PrintSetting) {
         if let Some(slot) = self.slots.get_mut(index) {

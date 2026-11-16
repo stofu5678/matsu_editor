@@ -187,9 +187,9 @@ fn ok_changes_the_preview(cx: &mut TestAppContext) {
     let dialog = open(&view, cx);
     // two columns on a landscape A3: more room, fewer pages
     dialog.update_in(cx, |d, _, _| {
-        let draft = d.draft_mut();
-        draft.print_paper_size = DMPAPER_A3;
-        draft.print_paper_orientation = Orientation::Landscape;
+        let shown = d.shown_mut();
+        shown.print_paper_size = DMPAPER_A3;
+        shown.print_paper_orientation = Orientation::Landscape;
     });
     type_number(&dialog, Number::Dansuu, "2", cx);
     press_ok(&dialog, cx);
@@ -214,7 +214,7 @@ fn cancel_changes_nothing(cx: &mut TestAppContext) {
     let before = preview.read_with(cx, |p, _| p.page_count());
     let dialog = open(&view, cx);
     type_number(&dialog, Number::FontHeight, "100", cx);
-    dialog.update_in(cx, |d, _, _| d.draft_mut().print_line_number = true);
+    dialog.update_in(cx, |d, _, _| d.shown_mut().print_line_number = true);
     press_cancel(&dialog, cx);
     assert_eq!(dialog_of(&view, cx), None);
     assert_eq!(preview.read_with(cx, |p, _| p.page_count()), before);
@@ -241,17 +241,17 @@ fn another_setting_keeps_what_was_edited_in_the_first(cx: &mut TestAppContext) {
     let dialog = open(&view, cx);
     type_number(&dialog, Number::FontHeight, "30", cx);
     dialog.update_in(cx, |d, window, cx| {
-        d.draft_mut().print_kinsoku_head = true;
+        d.shown_mut().print_kinsoku_head = true;
         d.select_setting(2, window, cx);
     });
     assert_eq!(dialog.read_with(cx, |d, _| d.current()), 2);
     // the third setting is Sakura's default
     assert_eq!(shown(&dialog, Number::FontHeight, cx), "24");
-    assert!(!dialog.read_with(cx, |d, _| d.draft.print_kinsoku_head));
+    assert!(!dialog.read_with(cx, |d, _| d.shown().print_kinsoku_head));
     type_number(&dialog, Number::Dansuu, "3", cx);
     dialog.update_in(cx, |d, window, cx| d.select_setting(0, window, cx));
     assert_eq!(shown(&dialog, Number::FontHeight, cx), "30");
-    assert!(dialog.read_with(cx, |d, _| d.draft.print_kinsoku_head));
+    assert!(dialog.read_with(cx, |d, _| d.shown().print_kinsoku_head));
     press_ok(&dialog, cx);
     let s = saved(cx);
     assert_eq!(s.get(0).print_font_height, 30);
@@ -285,7 +285,7 @@ fn ok_cannot_be_pressed_without_room_to_print(cx: &mut TestAppContext) {
     let dialog = open(&view, cx);
     assert!(dialog.read_with(cx, |d, cx| d.can_ok(cx)));
     // 4 columns of 20 mm characters with 30 mm between them do not fit on an A5 paper
-    dialog.update_in(cx, |d, _, _| d.draft_mut().print_paper_size = DMPAPER_A5);
+    dialog.update_in(cx, |d, _, _| d.shown_mut().print_paper_size = DMPAPER_A5);
     type_number(&dialog, Number::FontHeight, "200", cx);
     type_number(&dialog, Number::Dansuu, "4", cx);
     type_number(&dialog, Number::DanSpace, "30", cx);
@@ -343,7 +343,7 @@ fn the_fonts_of_the_header_and_the_footer(cx: &mut TestAppContext) {
     font.point_size = 120;
     dialog.update_in(cx, |d, _, cx| d.set_font(Part::Header, &font, cx));
     let header = dialog
-        .read_with(cx, |d, _| d.draft.header_font.clone())
+        .read_with(cx, |d, _| d.shown().header_font.clone())
         .unwrap();
     assert_eq!((header.face.as_str(), header.point_size), ("Arial", 120));
     // a font without a face is not taken
@@ -351,14 +351,14 @@ fn the_fonts_of_the_header_and_the_footer(cx: &mut TestAppContext) {
     none.log_font.face_name = String::new();
     dialog.update_in(cx, |d, _, cx| d.set_font(Part::Footer, &none, cx));
     assert_eq!(
-        dialog.read_with(cx, |d, _| d.draft.footer_font.clone()),
+        dialog.read_with(cx, |d, _| d.shown().footer_font.clone()),
         None
     );
     // the check box next to the font drops it
     dialog.update_in(cx, |d, _, cx| d.set_font(Part::Footer, &font, cx));
     dialog.update_in(cx, |d, _, cx| d.drop_font(Part::Footer, cx));
     assert_eq!(
-        dialog.read_with(cx, |d, _| d.draft.footer_font.clone()),
+        dialog.read_with(cx, |d, _| d.shown().footer_font.clone()),
         None
     );
     press_ok(&dialog, cx);
@@ -393,7 +393,7 @@ fn ok_saves_print_of_the_file_in_sakuras_keys(cx: &mut TestAppContext) {
     let dialog = open(&view, cx);
     type_number(&dialog, Number::Dansuu, "2", cx);
     dialog.update_in(cx, |d, window, cx| {
-        d.draft_mut().print_paper_orientation = Orientation::Landscape;
+        d.shown_mut().print_paper_orientation = Orientation::Landscape;
         d.select_setting(1, window, cx);
     });
     dialog.update_in(cx, |d, window, cx| d.select_setting(0, window, cx));
@@ -435,10 +435,10 @@ fn the_settings_of_the_file_are_what_the_dialog_starts_with(cx: &mut TestAppCont
     let values: Vec<String> = Number::ALL.iter().map(|n| shown(&dialog, *n, cx)).collect();
     assert_eq!(values, ["20", "40", "3", "5", "11", "12", "13", "14"]);
     assert_eq!(
-        dialog.read_with(cx, |d, _| d.draft.print_paper_orientation),
+        dialog.read_with(cx, |d, _| d.shown().print_paper_orientation),
         Orientation::Landscape
     );
-    assert!(dialog.read_with(cx, |d, _| d.draft.print_line_number));
+    assert!(dialog.read_with(cx, |d, _| d.shown().print_line_number));
 }
 
 #[gpui::test]
@@ -535,4 +535,21 @@ fn the_font_dialog_starts_from_the_height_shown(cx: &mut TestAppContext) {
     let kept = saved(cx).get(0).header_font.clone().unwrap();
     assert_eq!(kept.point_size, start.point_size_for_dpi(96));
     assert_ne!(kept.point_size, old.point_size_for_dpi(96));
+}
+
+/// The dialog edits its own copy of the eight settings (`m_PrintSettingArr`, which Sakura
+/// copies back only on OK: `CDlgPrintSetting.cpp` lines 115 and 123).
+#[gpui::test]
+fn cancel_leaves_every_setting_as_it_was_after_editing_two(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let before = saved(cx).slots().to_vec();
+    let dialog = open(&view, cx);
+    type_number(&dialog, Number::FontHeight, "30", cx);
+    dialog.update_in(cx, |d, window, cx| {
+        d.shown_mut().print_kinsoku_head = true;
+        d.select_setting(2, window, cx);
+    });
+    dialog.update_in(cx, |d, _, _| d.shown_mut().print_line_number = true);
+    press_cancel(&dialog, cx);
+    assert_eq!(saved(cx).slots(), before.as_slice());
 }
