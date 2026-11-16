@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
-use matsu_core::ai_send::LARGE_TEXT_BYTES;
+use matsu_core::ai_send::{LARGE_TEXT_BYTES, PreviewLimits, preview_range};
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::model::DocumentModel;
 
@@ -28,7 +28,12 @@ fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext
 fn request_for(text: &str) -> Request {
     let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
     let end = doc.end_pos().unwrap();
-    Request::from_document("Claude に聞く", "claude -p", &doc, Pos::new(0, 0), end).unwrap()
+    Request {
+        name: "Claude に聞く".into(),
+        command_line: "claude -p".into(),
+        preview: preview_range(&doc, Pos::new(0, 0), end, &PreviewLimits::default()).unwrap(),
+        lead: None,
+    }
 }
 
 fn open(view: &Entity<EditorView>, cx: &mut VisualTestContext, request: Request) -> Slot {

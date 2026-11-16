@@ -44,6 +44,11 @@
 //! 2. The working folder is a new, empty folder for each run ([`workdir`]), removed when the run ends.
 //! 3. The log tab (`crate::ai_log`) gets a record before the process starts, and the end of the run completes it,
 //!    whatever the end is.
+//!
+//! Mode b (`F_AI_ASK`, [`run_ask`]) goes through the same steps with one difference at the first: the window of
+//! `crate::ai_ask` takes the place of the confirmation, so it asks for the instruction and the destination too, and
+//! it is shown whatever `AskBeforeSend[nnn]` says. What goes to the standard input is the instruction, a blank line
+//! and `---`, then the same text as in mode a (`matsu_core::ai_send::instruction_head`); the log has the instruction.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -56,7 +61,9 @@ use matsu_commands::context::CommandContext;
 use matsu_commands::convert::datetime::{
     Clock, DEFAULT_DATE_PICTURE, DEFAULT_TIME_PICTURE, SystemClock, format_date, format_time,
 };
+use matsu_config::settings::ai::{AiDestinations, AiOutput};
 use matsu_config::settings::oneliner::OutputTo;
+use matsu_core::ai_send::{TextPreview, instruction_head};
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::encoding::Eol;
 use matsu_core::exec::{exit_code_text, header_text};
@@ -94,6 +101,10 @@ pub(crate) struct AiSlot {
     pub name: String,
     /// `AskBeforeSend[nnn]`: the confirmation window comes first.
     pub ask: bool,
+    /// Mode b (ADR-0035, 4): the instruction (trimmed, in LF) that goes before the target text on the standard input.
+    /// `None` is mode a, where the text goes alone. Mode b has been confirmed in its own window (`crate::ai_ask`), so
+    /// `ask` is false for it.
+    pub instruction: Option<String>,
 }
 
 /// What is read from the window before the process starts.
@@ -178,8 +189,8 @@ pub(crate) fn run_slot(
 }
 
 /// What the status bar says when `job` would change a document that cannot be changed.
-fn not_editable_text(job: &Job) -> &'static str {
-    if job.ai.is_some() {
+fn not_editable_text(ai: bool) -> &'static str {
+    if ai {
         "このウィンドウは編集できないので、生成 AI に送りません。"
     } else {
         "このウィンドウは編集できないので、ワンライナーを実行しません。"
@@ -194,7 +205,7 @@ pub(crate) fn run_job(
     cx: &mut Context<EditorView>,
 ) -> CommandResult {
     if job.output != OutputTo::OutputWindow && !can_edit(view, cx) {
-        view.notice = Some(not_editable_text(&job).to_owned());
+        view.notice = Some(not_editable_text(job.ai.is_some()).to_owned());
         cx.notify();
         return Ok(());
     }
@@ -240,8 +251,21 @@ fn prepare(view: &mut EditorView, cx: &mut Context<EditorView>) -> Prepared {
     }
 }
 
-/// The text for the standard input, read from the snapshot that [`prepare`] took.
-fn input_of(prepared: &Prepared) -> Input {
+/// The text for the standard input, read from the snapshot that [`prepare`] took. Mode b has the instruction, a blank
+/// line and `---` before the text (`matsu_core::ai_send::instruction_head`); the text is not changed by it.
+fn input_of(prepared: &Prepared, ai: Option<&AiSlot>) -> Input {
+    let text = text_input_of(prepared);
+    let head = ai
+        .and_then(|ai| ai.instruction.as_deref())
+        .and_then(|instruction| instruction_head(instruction).ok());
+    match head {
+        Some(head) => Arc::new(move |sink| if sink(&head) { text(sink) } else { Ok(()) }),
+        None => text,
+    }
+}
+
+/// The target text for the standard input.
+fn text_input_of(prepared: &Prepared) -> Input {
     match &prepared.source {
         Source::Box { text, .. } => {
             let text = text.clone();
@@ -272,21 +296,11 @@ fn now_texts() -> (String, String) {
 
 /// Runs the one-liner and waits for it, with the window usable but for the text, which the box covers.
 pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext, job: Job) {
-    // The `PATH` of the login shell (macOS started from Finder or the Dock), waited for off the thread of the window
-    // and before the text is read, as 外部コマンド実行 does: then the text that is sent and the place the result goes
-    // into are from the same moment.
-    let login_path = if matsu_platform::login_path::is_pending() {
-        cx.background_executor()
-            .spawn(async { matsu_platform::login_path::wait() })
-            .await
-    } else {
-        matsu_platform::login_path::get()
-    };
-    let Ok(prepared) = view.update_in(cx, |view, _window, cx| prepare(view, cx)) else {
+    let Some((login_path, prepared)) = read_window(view, cx).await else {
         return;
     };
     if job.output != OutputTo::OutputWindow && !prepared.editable {
-        say(view, cx, not_editable_text(&job));
+        say(view, cx, not_editable_text(job.ai.is_some()));
         return;
     }
     if job.ai.is_some() && prepared.target_is_empty() {
@@ -301,7 +315,165 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
         tell_busy(cx).await;
         return;
     }
+    execute(view, cx, job, prepared, login_path).await;
+}
 
+/// What the run needs of the window before anything is asked: the `PATH` of the login shell and the text.
+async fn read_window(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) -> Option<(Option<std::ffi::OsString>, Prepared)> {
+    // The `PATH` of the login shell (macOS started from Finder or the Dock), waited for off the thread of the window
+    // and before the text is read, as 外部コマンド実行 does: then the text that is sent and the place the result goes
+    // into are from the same moment.
+    let login_path = if matsu_platform::login_path::is_pending() {
+        cx.background_executor()
+            .spawn(async { matsu_platform::login_path::wait() })
+            .await
+    } else {
+        matsu_platform::login_path::get()
+    };
+    let prepared = view
+        .update_in(cx, |view, _window, cx| prepare(view, cx))
+        .ok()?;
+    Some((login_path, prepared))
+}
+
+/// `F_AI_ASK` (mode b, ADR-0035, 4): opens the window where the instruction is typed and the destination chosen, and
+/// when 「送る」 is pressed runs the destination on the instruction and the target text. Whatever else happens, nothing
+/// is sent. A macro that called it waits until the flow has ended.
+pub(crate) fn run_ask(
+    _view: &mut EditorView,
+    window: &mut Window,
+    cx: &mut Context<EditorView>,
+) -> CommandResult {
+    spawn_flow(window, cx, async move |view, cx| {
+        ask_and_run(&view, cx).await;
+    });
+    Ok(())
+}
+
+/// The destinations that the window of mode b offers: those with a command, and, when the result goes into the
+/// document, only if the document can be edited.
+fn ask_destinations(table: &AiDestinations, editable: bool) -> Vec<crate::ai_ask::Destination> {
+    table
+        .slots
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| d.is_registered() && (editable || d.output == AiOutput::LogOnly))
+        .map(|(index, d)| crate::ai_ask::Destination {
+            index,
+            name: d.title().to_owned(),
+            command_line: d.command.clone(),
+        })
+        .collect()
+}
+
+/// The flow of mode b: the window, then the same run as mode a.
+async fn ask_and_run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    let Some((login_path, prepared)) = read_window(view, cx).await else {
+        return;
+    };
+    let table = cx
+        .update(|_, app| crate::ai_send::table(app))
+        .unwrap_or_default();
+    let destinations = ask_destinations(&table, prepared.editable);
+    if destinations.is_empty() {
+        let text = if table.slots.iter().any(|d| d.is_registered()) {
+            not_editable_text(true)
+        } else {
+            "生成 AI の送り先が登録されていません。"
+        };
+        say(view, cx, text);
+        return;
+    }
+    if prepared.target_is_empty() {
+        say(
+            view,
+            cx,
+            "送る文字がありません。生成 AI に送りませんでした。",
+        );
+        return;
+    }
+    if !reserve(view, cx) {
+        tell_busy(cx).await;
+        return;
+    }
+    let material = match material_preview(&prepared) {
+        Ok(material) => material,
+        Err(why) => {
+            release(view, cx);
+            tell(
+                cx,
+                PromptLevel::Warning,
+                &format!("送る文字を読めませんでした。\n{why}"),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+    let asked = view.update_in(cx, |view, window, cx| {
+        let request = crate::ai_ask::Request {
+            material,
+            initial: crate::ai_ask::initial_destination(
+                &destinations,
+                crate::ai_ask::history::last_destination(cx),
+            ),
+            history: crate::ai_ask::history::items(cx),
+            destinations,
+        };
+        view.ask_ai_instruction(request, window, cx)
+    });
+    let chosen = match asked {
+        Ok(wait) => wait.await,
+        // the window is gone
+        Err(_) => return,
+    };
+    let Some(chosen) = chosen else {
+        release(view, cx);
+        say(view, cx, "生成 AI に送らないので、送信しませんでした。");
+        return;
+    };
+    let Some(destination) = table.get(chosen.index).filter(|d| d.is_registered()) else {
+        release(view, cx);
+        say(view, cx, "文書か設定が変わったので、送信しませんでした。");
+        return;
+    };
+    let job = Job {
+        line: destination.command.clone(),
+        output: crate::ai_send::output_to(destination.output),
+        ai: Some(AiSlot {
+            index: chosen.index,
+            name: destination.title().to_owned(),
+            // the window was the confirmation
+            ask: false,
+            instruction: Some(chosen.instruction),
+        }),
+    };
+    // After the wait the state is looked at again: the window, and the document that was read.
+    let unchanged = view
+        .update_in(cx, |view, _window, cx| {
+            still_the_same(view, &prepared, &job, cx)
+        })
+        .unwrap_or(false);
+    if !unchanged {
+        release(view, cx);
+        say(view, cx, "文書か設定が変わったので、送信しませんでした。");
+        return;
+    }
+    execute(view, cx, job, prepared, login_path).await;
+}
+
+/// The run itself, from the reservation on: the confirmation of mode a, the record in the log, the process, the
+/// result. The caller has reserved the window ([`reserve`]); every way out releases it.
+async fn execute(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    job: Job,
+    prepared: Prepared,
+    login_path: Option<std::ffi::OsString>,
+) {
     // An AI one-liner: the confirmation, the record in the log and its own working folder (ADR-0030).
     let mut began = Instant::now();
     let mut log = None;
@@ -338,7 +510,7 @@ pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowConte
             Some(dir) => Some(dir.path().to_owned()),
             None => prepared.folder.clone(),
         },
-        input: input_of(&prepared),
+        input: input_of(&prepared, job.ai.as_ref()),
         // always the output as it is: `finish` finishes it off for the place of the result
         output: OutputKind::Window,
         path: login_path,
@@ -475,8 +647,8 @@ async fn begin_ai(
     let started_with = |input: String, input_size: Option<usize>| ai_log::Started {
         name: ai.name.clone(),
         command_line: job.line.clone(),
-        // mode a: the text goes as the prompt, with no instruction (ADR-0035, 3)
-        instruction: None,
+        // mode a: the text goes as the prompt, with no instruction (ADR-0035, 3); mode b has the instruction
+        instruction: ai.instruction.clone(),
         input,
         input_size,
         started_at: Local::now(),
@@ -538,7 +710,7 @@ async fn begin_ai(
 
     // Approved: the text for the log is read now (not before the window, which must not wait for a large input),
     // from the snapshot that the input is read from.
-    let input = input_of(prepared);
+    let input = input_of(prepared, Some(ai));
     let (text, size) = cx
         .background_executor()
         .spawn(async move { log_input(&input) })
@@ -578,6 +750,16 @@ fn still_the_same(
 /// What the confirmation window shows: the name, the command line and the same range that the input is read from
 /// (a box: the text of the box).
 fn confirm_request(prepared: &Prepared, job: &Job, ai: &AiSlot) -> Result<ConfirmRequest, String> {
+    Ok(ConfirmRequest {
+        name: ai.name.clone(),
+        command_line: job.line.clone(),
+        preview: material_preview(prepared)?,
+        lead: Some(crate::ai_send::PLAIN_NOTICE),
+    })
+}
+
+/// The head, the tail and the counts of the text that is read for the standard input (the same range as the input).
+fn material_preview(prepared: &Prepared) -> Result<TextPreview, String> {
     let boxed;
     let (doc, from, to) = match &prepared.source {
         Source::Whole => {
@@ -591,9 +773,13 @@ fn confirm_request(prepared: &Prepared, job: &Job, ai: &AiSlot) -> Result<Confir
             (&boxed, Pos::new(0, 0), end)
         }
     };
-    ConfirmRequest::from_document(&ai.name, &job.line, doc, from, to)
-        .map(|request| request.with_lead(crate::ai_send::PLAIN_NOTICE))
-        .map_err(|e| e.to_string())
+    matsu_core::ai_send::preview_range(
+        doc,
+        from,
+        to,
+        &matsu_core::ai_send::PreviewLimits::default(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// The head of the input for the log, up to the size the log keeps, and the size of the whole when it is more.

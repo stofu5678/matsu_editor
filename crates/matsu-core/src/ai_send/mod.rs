@@ -9,8 +9,9 @@ pub mod instruction;
 pub mod preview;
 pub mod secrets;
 
-pub use instruction::{EmptyInstruction, compose, instruction_head};
+pub use instruction::{EmptyInstruction, compose, instruction_head, normalized_instruction};
 pub use preview::{
     LARGE_TEXT_BYTES, PreviewLimits, PreviewLine, SecretLine, TextPreview, preview_range,
+    preview_with_head,
 };
 pub use secrets::{SecretKind, SecretMatch, find_secrets, mask_line};

@@ -1,17 +1,16 @@
-//! `F_AI_ASK` (「指示をつけて送る...」): the modal of mode b (ADR-0035, 4), where the person types the instruction.
-//! MATSU Editor's own function; Sakura has nothing like it.
+//! `F_AI_ASK` (「指示をつけて送る...」): opens the window of mode b (ADR-0035, 4), where the person types the
+//! instruction and picks the destination; 「送る」 runs the destination on the instruction and the target text. See
+//! [`crate::ai_ask`] for the window and [`crate::oneliner::flow`] for the run. MATSU Editor's own function; Sakura has
+//! nothing like it.
 //!
-//! The modal is a later step of ADR-0035. Until then the item is grayed out in the menus (`crate::menu_state`) and
-//! a key or a macro that calls the function gets [`NOT_READY`] on the status bar and nothing is sent.
+//! A macro calls it as `AiAsk()` and gets the same window: no argument gives the instruction, so it is always typed by
+//! a person (ADR-0035, 1).
 
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, Result};
 
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
-
-/// What the status bar says while mode b has no modal.
-pub(crate) const NOT_READY: &str = "指示をつけて送る（モード b）は、まだ使えません。";
 
 #[derive(Default)]
 pub struct AiAsk;
@@ -24,12 +23,10 @@ impl UiCommand for AiAsk {
         &self,
         view: &mut EditorView,
         _: &[Arg],
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        view.notice = Some(NOT_READY.to_owned());
-        cx.notify();
-        Ok(())
+        crate::oneliner::flow::run_ask(view, window, cx)
     }
 }
 

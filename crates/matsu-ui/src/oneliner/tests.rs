@@ -891,4 +891,5 @@ fn a_document_that_cannot_be_edited_offers_only_the_output_window(cx: &mut TestA
 }
 
 mod ai;
+mod ai_ask;
 mod ai_menus;

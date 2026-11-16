@@ -19,7 +19,44 @@ AI のツールを動かすのは、利用者が書いたコマンドです。MA
 
 文字列は、標準入力だけで渡します。コマンドラインにも環境変数にも入れません。API キーなどの認証は、ツール自身に任せます。MATSU Editor が、キーを渡したり、保存したりすることはありません。
 
-指示をつけて送るモード b（「指示をつけて送る...」）は、窓が、まだありません。
+指示をつけて送るモード b は、[次の節](#ask)です。
+
+## 指示をつけて送る（モード b） {#ask}
+
+メニューの「生成 AI」の「指示をつけて送る...」（機能 `F_AI_ASK`、マクロ `AiAsk()`）で、窓を 1 つ開きます。選んだ文字列（なければ文書全体）を材料にして、入力した指示で加工させます。モード a と同じ送り先が使えます。送り先は、窓の中で選びます。
+
+窓には、次のものが並びます。
+
+- 指示の欄。複数行を入れられます。`Enter` は改行で、送りません
+- 送り先の一覧。最初に選ばれているのは、この起動中に最後に使ったものです。なければ、一覧の最初のものです。`Tab` で一覧に移ると、`↑` `↓` で選べます。クリックでも選べます
+- これまでの指示の一覧（あるとき）。クリックすると、その指示が欄に入ります。欄が空のとき（または、一覧から入れた指示を直していないとき）は、`↑` `↓` でも順に選べます。新しいものが先です。`↓` で新しいほうへ戻り、いちばん新しいものの次は、空の欄に戻ります
+- 送る内容の確認。[確認の窓](#confirm)と同じもの（送り先、コマンド、文字数、行数、大きさ、最初の 10 行と最後の 5 行、秘密に見える行の警告）を、実際に標準入力で送る形で出します。行の番号は、その標準入力の行の番号です
+- 「送る」と「送らない」
+
+標準入力に渡るのは、指示、空行、`---` の行、材料の順です。引数にも環境変数にも、指示は入れません。
+
+```text
+指示（前後の空白は取り、改行は LF にそろえる）
+
+---
+材料（選んだ文字列。改行は LF にそろえる）
+```
+
+- 指示が空（空白だけも空）のあいだは、「送る」を押せません。灰色で出て、`Enter` でも送りません
+- `Esc`、「送らない」、窓を閉じるは、何も送りません。コマンドは動かず、文書も変わらず、指示の履歴にも入りません
+- 材料が 100 KB を超えるときは、最初のフォーカスが「送らない」にあります。急いで `Enter` を押しても、送りません。指示を入れるには、`Shift+Tab` で欄へ戻ります
+- 「次から聞かない」の箱は、ありません。この窓が確認を兼ねるので、送り先の「送る前に確認する」は、モード b には効きません
+- `Tab` と `Shift+Tab` は、欄、送り先の一覧、「送る」、「送らない」の順に動かします（欄には、タブ文字を打てません。貼り付けは使えます）
+- 材料と結果の置き場所は、モード a と同じです。箱形の選択は、箱の文字列です。文書が編集できないときは、結果を文書に入れる送り先は、窓に出ません（ログのタブだけの送り先は出ます）。使える送り先がないときは、窓を開かず、状態バーで知らせます。選んだ範囲も文書も空のときも、何も送らず、状態バーで知らせます
+- 答えは、結果の置き場所に入ります。置き換えるときと次の行に入れるときは、取り消し 1 回で戻ります。ログのタブには、モード（指示つき）と指示の文も記録します
+
+### 指示の履歴 {#ask-history}
+
+窓の「これまでの指示」は、この起動中に「送る」を押した指示を、新しいものを先に、20 件まで持ちます。同じ指示（前後の空白と改行の種類をそろえたあとで同じもの）は 1 件にまとめ、新しいほうへ動かします。
+
+指示には、文書の中身や個人の事柄が入ることがあるので、履歴はメモリにだけ持ちます。`matsu.ini` にも、セッションのファイルにも、ログのファイルにも、書きません。MATSU Editor を終えると、消えます。
+
+マクロ `AiAsk()` は、この窓を開くだけです。指示の文字列をマクロから渡す手段は、ありません（指示は人が入れます）。キーマクロに記録しても、指示は記録に入りません。
 
 ## メニュー {#menu}
 
@@ -28,13 +65,13 @@ AI のツールを動かすのは、利用者が書いたコマンドです。MA
 | 項目 | 動き |
 |---|---|
 | そのまま送る | 登録した送り先が並ぶサブメニューです。選ぶと、選んだ文字列（なければ文書全体）を、そのままプロンプトとして送ります（機能 `F_AI_PROMPT_0` から `F_AI_PROMPT_49`）。登録がないときは、「(なし)」が灰色で出ます |
-| 指示をつけて送る... | 指示を入れる窓を開く機能です（機能 `F_AI_ASK`、マクロ `AiAsk()`）。窓は、まだありません |
+| 指示をつけて送る... | [指示を入れる窓](#ask)を開きます（機能 `F_AI_ASK`、マクロ `AiAsk()`。モード b） |
 | （区切り線） | |
 | AI ログを表示 | [AI ログ](#ai-log)のタブへ移ります（機能 `F_AI_LOG_SHOW`） |
 | 生成 AI の設定... | 共通設定を開きます（機能 `F_AI_SETTINGS`）。「生成 AI」のページで開きます |
 
 - 「そのまま送る」の送り先は、文書が編集できないとき（閲覧モードなど）は、結果を文書に入れるもの（「置き換える」と「次の行に入れる」）が灰色になります。結果をログのタブだけに出す送り先は、選べます。ほかの実行（コマンドや、別のワンライナー）が動いている間も、灰色です。
-- 「指示をつけて送る...」は、窓ができるまで、メニューで灰色です。キーやマクロから呼ぶと、何も送らず、状態バーに「指示をつけて送る（モード b）は、まだ使えません。」と出ます。
+- 「指示をつけて送る...」は、使える送り先が 1 つもないとき（登録がない、文書が編集できず、残りが文書に入れる送り先だけ、など）と、ほかの実行が動いている間は、灰色です。
 - アクセスキーは、右クリックのメニューの「生成 AI」が `8`、メインメニューの「生成 AI」が `G` です。サブメニューの中は、「そのまま送る」が `P`、「指示をつけて送る...」が `I`、「AI ログを表示」が `L`、「生成 AI の設定...」が `S` です。macOS では、メニューの名前にアクセスキーは付きません。
 - 「ワンライナー」のサブメニューにあった「AI ログを表示」は、ここに移りました。機能の名前と番号は同じなので、キー割り当てやメニューに入れてあれば、そのまま動きます。
 - 「ワンライナー」のサブメニューでは、`[OneLiner]` にまだ「生成 AI に送る」の印が残っている枠が、灰色で並びます（次の節）。
@@ -160,10 +197,12 @@ AI に送った内容と答えを並べる、読み取り専用のタブです�
 | 項目 | 内容 |
 |---|---|
 | 名前、番号 | 送り先の名前と、ログの中の通し番号 |
+| モード | 「a（選んだ文字列をそのまま送った）」か「b（指示をつけて送った）」 |
+| 指示 | モード b のときだけ。入れた指示の文 |
 | 開始 | 開始した日時 |
 | 状態 | 実行中か、終了コードとかかった時間 |
 | コマンド行 | 動かしたコマンド |
-| 入力 | 送った文字列 |
+| 入力 | 送った文字列（モード b は、指示と `---` の行をつけた、標準入力の全体） |
 | 答え（標準出力） | コマンドの標準出力 |
 | 標準エラー | コマンドの標準エラー出力 |
 
@@ -209,7 +248,8 @@ AI に送った内容と答えを並べる、読み取り専用のタブです�
 - 決めたこと: `docs/adr/0030-ai-send.md`（決めたこと 1 から 8）、`docs/adr/0035-ai-send-split.md`
 - 設定のキー: `crates/matsu-config/src/settings/ai.rs`（`[AI]`、`migrate`）、`crates/matsu-config/src/settings/oneliner.rs`（`F_AI_LOG_SHOW`）
 - 流れ: `crates/matsu-ui/src/oneliner/flow.rs`（先頭の「A one-liner that sends to a generative AI」、`begin_ai`、`confirm_request`）
-- 確認の窓: `crates/matsu-ui/src/ai_confirm/mod.rs`（`Request`、`Answer`、`on_key_down`、`render`）
+- 確認の窓: `crates/matsu-ui/src/ai_confirm/mod.rs`（`Request`、`Answer`、`on_key_down`、`render`、モード b と共有の `details`）
+- 指示の窓（モード b）: `crates/matsu-ui/src/ai_ask/mod.rs`（`AiAskDialog`）、履歴は `ai_ask/history.rs`（`History`、`MAX_HISTORY`）、標準入力は `crates/matsu-core/src/ai_send/instruction.rs`（`instruction_head`、`compose`）と `preview.rs`（`preview_with_head`）、流れは `crates/matsu-ui/src/oneliner/flow.rs`（`run_ask`、`ask_and_run`）、機能は `crates/matsu-ui/src/ui_commands/ai/ai_ask.rs`
 - 窓の読み取りと検査: `crates/matsu-core/src/ai_send/preview.rs`（`PreviewLimits`、`LARGE_TEXT_BYTES`）、`crates/matsu-core/src/ai_send/secrets.rs`
 - 作業用のフォルダ: `crates/matsu-ui/src/oneliner/workdir.rs`
 - ログ: `crates/matsu-ui/src/ai_log/mod.rs`、`records.rs`（`MAX_RECORDS`、`MAX_TEXT_BYTES`、`Log::markdown`）、`view.rs`、`menus.rs`
@@ -218,4 +258,4 @@ AI に送った内容と答えを並べる、読み取り専用のタブです�
 - 起動のときの移し: `crates/matsu-ui/src/ai_send/startup.rs`、`crates/matsu-config/src/settings/ai.rs`（`migrate`）
 - ウィンドウの機能のキー: `crates/matsu-ui/src/preview/view.rs`（`WINDOW_FUNCTIONS`）、`crates/matsu-ui/src/ai_log/view.rs`（`on_key_down`）、`crates/matsu-commands/src/sakura/key_bindings.rs`（`Tab` の行）
 - 設定のページとひな形: `crates/matsu-ui/src/common_settings/pages/ai.rs` と `ai/` の下のファイル（`TEMPLATES`、`apply_template`）
-- 試験: `crates/matsu-ui/src/oneliner/tests/ai.rs`、`crates/matsu-ui/src/oneliner/tests/ai_menus.rs`、`crates/matsu-ui/src/tabs/ai_log_tests.rs`、`crates/matsu-ui/src/ai_confirm/tests.rs`
+- 試験: `crates/matsu-ui/src/oneliner/tests/ai.rs`、`crates/matsu-ui/src/oneliner/tests/ai_ask.rs`、`crates/matsu-ui/src/ai_ask/tests.rs`、`crates/matsu-ui/src/oneliner/tests/ai_menus.rs`、`crates/matsu-ui/src/tabs/ai_log_tests.rs`、`crates/matsu-ui/src/ai_confirm/tests.rs`
