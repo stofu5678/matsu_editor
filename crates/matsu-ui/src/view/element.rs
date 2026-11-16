@@ -135,6 +135,17 @@ impl EditorElement {
 /// mode can be as wide as the field.
 const MAX_TAB_MARK_COLUMNS: u32 = 1024;
 
+/// How many glyphs the mark of a tab `width` wide has. On the grid a tab is whole columns. With a
+/// table of widths it can end inside a column (or be narrower than one): the mark has a glyph for
+/// each column it touches, at least one, and is cut at the end of the tab when it is drawn.
+fn tab_mark_columns(widths: &matsu_layout::Widths, width: X) -> u32 {
+    if widths.is_table() {
+        widths.to_columns_ceil(width).max(1)
+    } else {
+        widths.to_columns(width)
+    }
+}
+
 /// A long arrow over a tab wider than [`MAX_TAB_MARK_COLUMNS`]: its head is at the end.
 fn wide_long_arrow(mark: &TabMark, cols: u32) -> bool {
     cols > MAX_TAB_MARK_COLUMNS && matches!(mark, TabMark::LongArrow)
@@ -148,6 +159,8 @@ struct Placed {
     line: Option<ShapedLine>,
     /// The width the underline covers and its color.
     underline: Option<(X, u32)>,
+    /// The right edge the glyphs are cut at: the end of a tab that is narrower than its mark.
+    clip: Option<X>,
 }
 
 /// Paints a piece of text: its glyphs at its place, then its underline.
@@ -160,15 +173,18 @@ fn paint_placed(
     lh: Pixels,
 ) {
     if let Some(line) = &placed.line {
-        line.paint(
-            point(x_of(placed.x), y),
-            lh,
-            TextAlign::Left,
-            None,
-            window,
-            cx,
-        )
-        .ok();
+        let at = point(x_of(placed.x), y);
+        match placed.clip {
+            Some(edge) => {
+                let mask = Bounds::from_corners(at, point(x_of(edge), y + lh));
+                window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
+                    line.paint(at, lh, TextAlign::Left, None, window, cx).ok();
+                });
+            }
+            None => {
+                line.paint(at, lh, TextAlign::Left, None, window, cx).ok();
+            }
+        }
     }
     if let Some((width, color)) = placed.underline {
         window.paint_quad(fill(
@@ -566,6 +582,7 @@ fn place(
                 x,
                 line: Some(whole),
                 underline: None,
+                clip: None,
             });
             return;
         }
@@ -604,6 +621,7 @@ fn place(
             x,
             line: (!blank).then(|| shape(window, text, &glyph_style)),
             underline,
+            clip: None,
         });
     }
 }
@@ -964,7 +982,7 @@ impl Element for EditorElement {
                     Label::Text(text) => text.as_str(),
                     Label::Tab(width) => {
                         // The mark of a tab is a glyph for each column of its width.
-                        let cols = widths.to_columns(*width);
+                        let cols = tab_mark_columns(widths, *width);
                         // A tab in a very wide field of the TSV or CSV mode is drawn only where
                         // the window shows it; the head of a long arrow is placed at the true
                         // end of the tab below.
@@ -993,6 +1011,7 @@ impl Element for EditorElement {
                     Label::Tab(_) if !matches!(c, '\u{2192}' | '\u{2500}') => widths.width_of(c),
                     _ => one,
                 };
+                let (text_from, selected_from) = (text.len(), selected_text.len());
                 if let Some(selected_style) = &item.selected {
                     place(
                         window,
@@ -1011,6 +1030,20 @@ impl Element for EditorElement {
                     grid,
                     &shape_styled,
                 );
+                // A tab of a proportional font can be narrower than a column, or end inside one:
+                // its mark is cut at the end of the tab, so it does not run into the next
+                // character.
+                if let Label::Tab(width) = item.label
+                    && widths.is_table()
+                {
+                    let edge = item.x + width;
+                    for placed in text[text_from..]
+                        .iter_mut()
+                        .chain(selected_text[selected_from..].iter_mut())
+                    {
+                        placed.clip = Some(edge);
+                    }
+                }
                 if let Label::Tab(width) = item.label
                     && wide_long_arrow(&settings.tab_mark, widths.to_columns(width))
                 {
@@ -2734,6 +2767,20 @@ mod tests {
             'あ'..='ん' => 115,
             _ => 64,
         })
+    }
+
+    #[test]
+    fn the_mark_of_a_tab_narrower_than_a_column_has_a_glyph() {
+        let table = proportional();
+        // `mm` ends at 214 of a 256 stop: the tab is 42 X, under a column of 64
+        assert_eq!(tab_mark_columns(&table, X::from_raw(42)), 1);
+        assert_eq!(tab_mark_columns(&table, X::from_raw(64)), 1);
+        assert_eq!(tab_mark_columns(&table, X::from_raw(65)), 2);
+        assert_eq!(tab_mark_columns(&table, X::from_raw(256)), 4);
+        // the grid has whole columns and is as it was
+        let grid = widths();
+        assert_eq!(tab_mark_columns(&grid, col(3)), 3);
+        assert_eq!(tab_mark_columns(&grid, X::from_raw(3 * 64 + 10)), 3);
     }
 
     #[test]

@@ -74,7 +74,7 @@ impl TextFont {
                 format!("{fonts} ({missing:?} is not installed: the default family)")
             }
             Reason::SystemFonts { missing } => {
-                format!("{fonts} ({missing:?} is not installed: Menlo with Hiragino Sans)")
+                format!("{fonts} ({missing:?} is not installed: a monospaced font of the system)")
             }
             Reason::ShellMonospaced { editor } => format!(
                 "{fonts} (the shell tab: the editor's font {editor:?} is not monospaced, so a monospaced font is used)"
@@ -87,14 +87,22 @@ impl TextFont {
 }
 
 /// Chooses the font for the family asked for (`None`: the default, [`FONT_FAMILY`]).
-/// `installed` tells whether GPUI can load a family; it is not called off macOS.
+/// `installed` tells whether GPUI can load a family; it is not called on Linux.
+///
+/// When the family is not installed, the text must still be monospaced: GPUI would take its own
+/// default list, which is proportional on Windows (DirectWrite) and Helvetica on macOS, and the
+/// layout would then follow the widths of that face. Sakura asks GDI for a fixed-pitch face
+/// (`LOGFONT` with `FIXED_PITCH | FF_MODERN`, `CShareData::InitShareData` and the font dialog), and GDI's
+/// mapper gives a fixed-pitch face when the one asked for is missing. So the default family comes
+/// next, then the monospaced faces of the shell tab ([`shell_candidates`]). Linux keeps what it was
+/// asked for (GPUI's own default there is monospaced).
 pub(crate) fn choose(
     os: Os,
     asked: Option<&str>,
     mut installed: impl FnMut(&str) -> bool,
 ) -> TextFont {
     let asked = asked.unwrap_or(FONT_FAMILY);
-    if os != Os::MacOs || installed(asked) {
+    if os == Os::Linux || installed(asked) {
         return TextFont {
             family: asked.to_owned().into(),
             fallbacks: None,
@@ -109,10 +117,27 @@ pub(crate) fn choose(
             reason: Reason::DefaultFamily { missing },
         };
     }
+    for (family, fallbacks) in shell_candidates(os) {
+        if family != asked && installed(family) {
+            return TextFont {
+                family: family.into(),
+                fallbacks,
+                reason: Reason::SystemFonts { missing },
+            };
+        }
+    }
+    if os == Os::MacOs {
+        // Menlo is on every Mac, whatever `installed` says.
+        return TextFont {
+            family: MAC_FALLBACK_FAMILY.into(),
+            fallbacks: Some(vec![MAC_FALLBACK_JAPANESE.to_owned()]),
+            reason: Reason::SystemFonts { missing },
+        };
+    }
     TextFont {
-        family: MAC_FALLBACK_FAMILY.into(),
-        fallbacks: Some(vec![MAC_FALLBACK_JAPANESE.to_owned()]),
-        reason: Reason::SystemFonts { missing },
+        family: asked.to_owned().into(),
+        fallbacks: None,
+        reason: Reason::AsAsked,
     }
 }
 
@@ -346,19 +371,57 @@ mod tests {
             false
         });
         assert_eq!(font.family.as_ref(), "Menlo");
-        assert_eq!(asked, [FONT_FAMILY]);
+        // the default family once, then Menlo of the list
+        assert_eq!(asked, [FONT_FAMILY, "Menlo"]);
     }
 
     #[test]
-    fn windows_and_linux_keep_the_family_asked_for() {
-        for os in [Os::Windows, Os::Linux] {
-            let font = choose(os, Some("Nothing"), |_| panic!("not asked off macOS"));
-            assert_eq!(font.family.as_ref(), "Nothing");
-            assert_eq!(font.fallbacks, None);
-            assert_eq!(font.reason, Reason::AsAsked);
-            let font = choose(os, None, |_| panic!("not asked off macOS"));
-            assert_eq!(font.family.as_ref(), FONT_FAMILY);
-        }
+    fn linux_keeps_the_family_asked_for() {
+        let font = choose(Os::Linux, Some("Nothing"), |_| panic!("not asked on Linux"));
+        assert_eq!(font.family.as_ref(), "Nothing");
+        assert_eq!(font.fallbacks, None);
+        assert_eq!(font.reason, Reason::AsAsked);
+        let font = choose(Os::Linux, None, |_| panic!("not asked on Linux"));
+        assert_eq!(font.family.as_ref(), FONT_FAMILY);
+    }
+
+    #[test]
+    fn windows_keeps_a_family_that_is_installed() {
+        let font = choose(Os::Windows, Some("Yu Gothic UI"), only(&["Yu Gothic UI"]));
+        assert_eq!(font.family.as_ref(), "Yu Gothic UI");
+        assert_eq!(font.reason, Reason::AsAsked);
+    }
+
+    #[test]
+    fn windows_goes_to_a_monospaced_font_when_the_family_is_missing() {
+        // The runner of GitHub has no BIZ UDGothic: DirectWrite would fall back to a proportional
+        // face, so the monospaced faces of the shell tab come next.
+        let font = choose(Os::Windows, None, only(&["Consolas", "Yu Gothic"]));
+        assert_eq!(font.family.as_ref(), "Consolas");
+        assert_eq!(
+            font.fallbacks,
+            Some(vec!["Yu Gothic".to_owned(), "Meiryo".to_owned()])
+        );
+        assert!(matches!(font.reason, Reason::SystemFonts { .. }));
+        // MS Gothic comes before Consolas
+        let font = choose(
+            Os::Windows,
+            Some("Nothing"),
+            only(&["ＭＳ ゴシック", "Consolas"]),
+        );
+        assert_eq!(font.family.as_ref(), "ＭＳ ゴシック");
+        // the default family comes before the list
+        let font = choose(
+            Os::Windows,
+            Some("Nothing"),
+            only(&[FONT_FAMILY, "Consolas"]),
+        );
+        assert_eq!(font.family.as_ref(), FONT_FAMILY);
+        assert!(matches!(font.reason, Reason::DefaultFamily { .. }));
+        // nothing of the list: what GPUI makes of the family asked for
+        let font = choose(Os::Windows, None, only(&[]));
+        assert_eq!(font.family.as_ref(), FONT_FAMILY);
+        assert_eq!(font.reason, Reason::AsAsked);
     }
 
     #[test]
