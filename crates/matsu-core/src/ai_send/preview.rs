@@ -248,8 +248,7 @@ pub fn preview_with_head(
     let mut secret_lines_total = 0;
     let mut shown_head: Vec<PreviewLine> = Vec::new();
     // The lines of a private key block are masked whole, as `preview_range` masks them (`shown_lines`).
-    let owned: Vec<String> = head_lines.iter().map(|l| (*l).to_owned()).collect();
-    let in_block = private_key_lines(&owned);
+    let in_block = private_key_lines(&head_lines);
     for (i, text) in head_lines.iter().enumerate() {
         let matches = find_secrets(text);
         let masked = if in_block[i] || looks_like_key_payload(text) {
@@ -385,7 +384,8 @@ impl Selection<'_> {
         // block is found from the shown lines themselves, from its BEGIN or back from its END,
         // and a line that looks like a line of a key (base64, 60 characters or more) is masked
         // too.
-        let in_block = private_key_lines(&texts.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>());
+        let in_block =
+            private_key_lines(&texts.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>());
         Ok(lines
             .zip(texts)
             .zip(in_block)
@@ -427,12 +427,13 @@ fn masked_text(text: &str, cut: bool) -> String {
 /// `-----BEGIN ... PRIVATE KEY-----` line up to the `-----END ... PRIVATE KEY-----` line, or to
 /// the last line when no END is among them; and, when the END is there but no BEGIN, the lines
 /// before it back to the start (or to the end of an earlier block). Short last lines count.
-fn private_key_lines(lines: &[String]) -> Vec<bool> {
+fn private_key_lines<S: AsRef<str>>(lines: &[S]) -> Vec<bool> {
     let mut mask = vec![false; lines.len()];
     // The first line that may belong to a block that is open.
     let mut from = 0;
     let mut begun = false;
     for (i, line) in lines.iter().enumerate() {
+        let line = line.as_ref();
         let private = line.contains("PRIVATE KEY");
         if line.contains("-----END ") {
             if private {
