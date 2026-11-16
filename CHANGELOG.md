@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.16.0](https://github.com/stofu5678/matsu_editor/compare/v0.15.0...v0.16.0) (2026-11-16)
+
+
+### Features
+
+* **config:** add the [AI] settings and the move from [OneLiner] ([#475](https://github.com/stofu5678/matsu_editor/issues/475)) ([da0350f](https://github.com/stofu5678/matsu_editor/commit/da0350f5d62c7b419c3087a9dbb5cab2bfc7e85c))
+* **oneliner:** pipe the selection into a PowerShell line that starts with a filter command ([#473](https://github.com/stofu5678/matsu_editor/issues/473)) ([bd482d8](https://github.com/stofu5678/matsu_editor/commit/bd482d8de51fd867350b7d82162957424f502ef0))
+
+
+### Bug Fixes
+
+* **ui:** size popup menus to their longest item and shorten what the window cannot hold ([#472](https://github.com/stofu5678/matsu_editor/issues/472)) ([e64472a](https://github.com/stofu5678/matsu_editor/commit/e64472a0d5c76d86fc80b32bd4619cecefee50e6))
+* **windows:** use the patched GPUI atlas upload as ADR-0004 decided ([#478](https://github.com/stofu5678/matsu_editor/issues/478)) ([2e67d45](https://github.com/stofu5678/matsu_editor/commit/2e67d45004283778ab1cc055d8bc54877729a86d))
+
 ## [0.15.0](https://github.com/stofu5678/matsu_editor/compare/v0.14.0...v0.15.0) (2026-11-15)
 
 
