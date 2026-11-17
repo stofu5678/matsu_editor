@@ -568,3 +568,91 @@ puts Editor.__send__('plugin/identity')['id']";
     let next = world.call(&mut host, "ok.mruby", PATIENT);
     assert_eq!(stdout(&next), ["n=1"], "{:?}", next.output);
 }
+
+/// The id of a call counts up from 1: a handler can guess it. It still cannot answer its own call
+/// or take the next one, and cannot find the token in the serving loop by looking at what the
+/// language lets it see (procs and their bindings, the heap).
+#[test]
+fn an_mruby_handler_that_guesses_the_id_cannot_answer_or_steal_the_next_call() {
+    let code = "found = []
+(0..5).each do |id|
+  [[id], [id, nil], [id, nil, 0], [id, nil, id]].each do |args|
+    begin
+      Editor.__send__('plugin/respond', *args)
+      found << \"answered #{args.inspect}\"
+    rescue EditorError
+      nil
+    end
+  end
+end
+begin
+  Editor.__send__('plugin/next')
+  found << 'took the next call'
+rescue EditorError
+  nil
+end
+# A binding is only that of the frame that calls `binding`: there is no way from a proc, a method
+# or an exception to the locals of the serving loop.
+found << 'Proc#binding' if Proc.instance_methods(true).include?(:binding)
+found << 'Binding.of_caller' if Binding.respond_to?(:of_caller)
+ObjectSpace.each_object(Binding) { found << 'a binding on the heap' }
+ObjectSpace.each_object(Hash) do |h|
+  found << 'a hash with a token' if h.key?('token')
+end
+found << 'token in my locals' if local_variables.include?(:token)
+puts found.join(',')
+Editor.InsText('mine')";
+    let dir = plugin_dir(&[
+        ("guess.mruby", code),
+        ("second.mruby", "Editor.InsText('second')"),
+    ]);
+    let mut host = host_of(Engine::Mruby, dir.path(), true);
+    let mut world = World::new("");
+    let started = Instant::now();
+    let report = world.call(&mut host, "guess.mruby", PATIENT);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(stdout(&report), [""], "{:?}", report.output);
+    assert_eq!(world.doc.text(), "mine");
+    // The call finished through the boot, and the next call runs its own handler.
+    let second = world.call(&mut host, "second.mruby", PATIENT);
+    assert_eq!(second.outcome, Outcome::Ok, "{:?}", second.output);
+    assert_eq!(world.doc.text(), "minesecond");
+}
+
+/// MicroPython gives a handler no way to the serving loop: its names are not in the handler's
+/// namespace, `__main__` is its own, and there is no way to read another frame (`sys._getframe`,
+/// the garbage collector's object list).
+#[test]
+fn a_micropython_handler_has_no_way_to_the_serving_loop() {
+    let code = "import sys, gc
+found = []
+for name in ('_getframe', '_current_frames', 'settrace'):
+    if hasattr(sys, name):
+        found.append('sys.' + name)
+if hasattr(gc, 'get_objects'):
+    found.append('gc.get_objects')
+for name in ('_respond', '_host', '_serve', '_matsu_call', '_bind', 'token'):
+    if name in globals():
+        found.append(name)
+for call in (lambda: Editor.plugin_next, lambda: getattr(Plugin, 'plugin/next')):
+    try:
+        call()
+        found.append('reached')
+    except AttributeError:
+        pass
+print(','.join(found))
+Editor.InsText('mine')";
+    let dir = plugin_dir(&[
+        ("guess.upy", code),
+        ("second.upy", "Editor.InsText('second')"),
+    ]);
+    let mut host = host_of(Engine::MicroPython, dir.path(), true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "guess.upy", PATIENT);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(stdout(&report), [""], "{:?}", report.output);
+    let second = world.call(&mut host, "second.upy", PATIENT);
+    assert_eq!(second.outcome, Outcome::Ok, "{:?}", second.output);
+    assert_eq!(world.doc.text(), "minesecond");
+}

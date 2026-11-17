@@ -94,6 +94,9 @@ def _serve():
         invoke = _host("plugin/next", [])
         if invoke is None:
             return
+        # The token that proves this loop is the one that answers the call: a local of this
+        # function only, and a small integer (not an object that a handler could find).
+        token = invoke.pop("token")
         name = invoke["name"] or "<plugin>"
         Plugin.jack = invoke["jack"] or ""
         Plugin.args = invoke["args"]
@@ -129,11 +132,12 @@ def _serve():
             failure = _describe(exc)
         _sys.modules.pop("__main__", None)
         try:
-            _respond(invoke["id"], failure)
+            _respond(invoke["id"], failure, token)
         except EditorError:
-            # The handler answered its own call (it knew the id): the host's answer is refused,
-            # which is no reason to stop serving.
+            # Refused: the host does not take the answer (it has answered already). That is no
+            # reason to stop serving.
             pass
+        token = None
 
 
 _serve()

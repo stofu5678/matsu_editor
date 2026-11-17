@@ -82,13 +82,14 @@ pub fn serve_each(
 
 /// An invoke as the object that `plugin/next` answers (the fields are moved, not copied: the
 /// source of a handler can be large).
-fn invoke_value(invoke: Invoke) -> Value {
+fn invoke_value(invoke: Invoke, token: u64) -> Value {
     let mut object = serde_json::Map::new();
     object.insert("id".into(), invoke.id);
     object.insert("jack".into(), Value::String(invoke.jack));
     object.insert("name".into(), Value::String(invoke.name));
     object.insert("source".into(), Value::String(invoke.source));
     object.insert("args".into(), invoke.args);
+    object.insert("token".into(), Value::from(token));
     Value::Object(object)
 }
 
@@ -109,7 +110,8 @@ pub mod reserved {
     /// `plugin/next`: the next invoke as `{"id", "jack", "name", "source", "args"}`, or null when
     /// the editor ended the conversation.
     pub const NEXT: &str = "plugin/next";
-    /// `plugin/respond`: `[id, error]` answers the invoke; `error` is null when the handler ended.
+    /// `plugin/respond`: `[id, error, token]` answers the invoke; `error` is null when the handler
+    /// ended, `token` is the one that `plugin/next` gave with it.
     pub const RESPOND: &str = "plugin/respond";
 }
 
@@ -126,12 +128,26 @@ pub enum Refusal {
 /// What an engine whose loop is in its language needs from the connection. It also keeps the
 /// handler out of the host's loop (docs/ownership.md): the handler reaches the same `Editor` as
 /// the loop does, so `plugin/next` is answered only when no call is outstanding, and
-/// `plugin/respond` only for the outstanding call, once.
+/// `plugin/respond` only for the outstanding call, once, and only with the token that `plugin/next`
+/// gave with that call: the id is no proof (ids count up from 1, a handler can guess them). The
+/// loop keeps the token in a local of its own; the token is a number small enough to be an
+/// immediate value in the engines, so that it is no object that a handler can find by walking the
+/// heap.
 pub struct Reserved {
     link: Rc<RefCell<dyn PluginLink>>,
     identity: Value,
-    /// The id of the call that the handler is running for; none while the loop waits.
-    outstanding: RefCell<Option<Value>>,
+    /// The id and the token of the call that the handler is running for; none while the loop
+    /// waits.
+    outstanding: RefCell<Option<(Value, u64)>>,
+}
+
+/// A number that nobody can guess: the keys of `RandomState` come from the operating system. 60
+/// bits, so that it is an immediate integer in every engine (not an object on the heap).
+fn fresh_token() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u8(0);
+    hasher.finish() & ((1 << 60) - 1)
 }
 
 impl Reserved {
@@ -184,17 +200,24 @@ impl Reserved {
         Ok(match next {
             None => Value::Null,
             Some(invoke) => {
-                *self.outstanding.borrow_mut() = Some(invoke.id.clone());
-                invoke_value(invoke)
+                let token = fresh_token();
+                *self.outstanding.borrow_mut() = Some((invoke.id.clone(), token));
+                invoke_value(invoke, token)
             }
         })
     }
 
     fn respond(&self, params: &[Value]) -> Result<Value, Refusal> {
         let id = params.first().cloned().unwrap_or(Value::Null);
-        if self.outstanding.borrow().as_ref() != Some(&id) {
+        let token = params.get(2).and_then(Value::as_u64);
+        let allowed = self
+            .outstanding
+            .borrow()
+            .as_ref()
+            .is_some_and(|(open, secret)| *open == id && Some(*secret) == token);
+        if !allowed {
             return Err(refused(
-                "plugin/respond answers the call that is running, once",
+                "plugin/respond is the host's own call: it answers the running call with its token, once",
             ));
         }
         let outcome = match params.get(1).and_then(Value::as_str) {
@@ -270,32 +293,49 @@ mod tests {
         let call = |name: &str, params: &[Value]| reserved.answer(name, params).unwrap();
         // Nothing is outstanding: there is no call to answer.
         assert!(matches!(
-            call(reserved::RESPOND, &[json!(1)]),
+            call(reserved::RESPOND, &[json!(1), Value::Null, json!(0)]),
             Err(Refusal::Refused(_))
         ));
         let first = call(reserved::NEXT, &[]).unwrap();
         assert_eq!(first["id"], 1);
+        let token = first["token"].clone();
+        assert!(token.as_u64().unwrap() < 1 << 60);
         // While the handler runs: the next call is refused and nothing is taken from the link.
         assert!(matches!(
             call(reserved::NEXT, &[]),
             Err(Refusal::Refused(_))
         ));
         assert_eq!(fake.borrow().invokes.len(), 1);
-        // An answer for another id is refused; the right one goes out once.
-        assert!(matches!(
-            call(reserved::RESPOND, &[json!(2)]),
-            Err(Refusal::Refused(_))
-        ));
+        // The id alone is no proof (a handler can guess it), and nor is a wrong token or another
+        // id with the right token.
+        let wrong = json!(token.as_u64().unwrap() ^ 1);
+        for params in [
+            vec![json!(1)],
+            vec![json!(1), Value::Null],
+            vec![json!(1), Value::Null, wrong],
+            vec![json!(2), Value::Null, token.clone()],
+        ] {
+            assert!(matches!(
+                call(reserved::RESPOND, &params),
+                Err(Refusal::Refused(_))
+            ));
+        }
         assert!(fake.borrow().answered.is_empty());
-        call(reserved::RESPOND, &[json!(1)]).unwrap();
+        // The right id with its token goes out once.
+        call(reserved::RESPOND, &[json!(1), Value::Null, token.clone()]).unwrap();
         assert!(matches!(
-            call(reserved::RESPOND, &[json!(1)]),
+            call(reserved::RESPOND, &[json!(1), Value::Null, token]),
             Err(Refusal::Refused(_))
         ));
         assert_eq!(fake.borrow().answered, [json!(1)]);
-        // The loop goes on with the next call, and the end is null.
-        assert_eq!(call(reserved::NEXT, &[]).unwrap()["id"], 2);
-        call(reserved::RESPOND, &[json!(2), json!("failed")]).unwrap();
+        // The loop goes on with the next call (with a token of its own), and the end is null.
+        let second = call(reserved::NEXT, &[]).unwrap();
+        assert_eq!(second["id"], 2);
+        call(
+            reserved::RESPOND,
+            &[json!(2), json!("failed"), second["token"].clone()],
+        )
+        .unwrap();
         assert_eq!(call(reserved::NEXT, &[]).unwrap(), Value::Null);
     }
 

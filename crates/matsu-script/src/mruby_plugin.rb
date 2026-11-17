@@ -77,6 +77,11 @@ module MatsuPlugin
       invoke = Editor.__send__('plugin/next')
       break if invoke.nil?
 
+      # The token that proves this loop is the one that answers the call. It is a local of this
+      # block only (no constant, no instance variable, not in the method that evaluates the
+      # handler), and an integer: an immediate value, not an object that a handler could find by
+      # walking the heap (ObjectSpace).
+      token = invoke.delete('token')
       name = invoke['name'].to_s
       name = '<plugin>' if name.empty?
       plugin.jack = invoke['jack'].to_s
@@ -98,12 +103,13 @@ module MatsuPlugin
         failure = MatsuBoot.describe(e, name)
       end
       begin
-        Editor.__send__('plugin/respond', invoke['id'], failure)
+        Editor.__send__('plugin/respond', invoke['id'], failure, token)
       rescue EditorError
-        # The handler answered its own call (it knew the id): the host's answer is refused, which
-        # is no reason to stop serving.
+        # Refused: the host does not take the answer (it has answered already). That is no reason
+        # to stop serving.
         nil
       end
+      token = nil
     end
   end
 end
