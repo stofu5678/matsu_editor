@@ -543,8 +543,16 @@ impl EditorView {
                 // Above or below the view the pointer maps to the first or last row, and
                 // moving the caret there scrolls.
                 if let Some(pos) = self.position_for_point(event.position, cx) {
+                    // In the free cursor mode the caret stands where the pointer is, also to the
+                    // right of the text (`MoveCursorProperly`); the selected text is the same.
+                    let free = self.free_x_for_point(event.position, cx);
                     self.run_with(cx, |command_cx| {
-                        command_cx.mouse_drag_to(DragSelection { bgn, words }, pos)
+                        command_cx.mouse_drag_to(DragSelection { bgn, words }, pos)?;
+                        match free {
+                            // A drag by words may have moved the caret off the pointer.
+                            Some(x) if command_cx.caret() == pos => command_cx.stand_free(x),
+                            _ => Ok(()),
+                        }
                     })
                     .ok();
                 }

@@ -70,6 +70,14 @@ pub trait Layout {
     /// text (`CTextMetrics::GetLayoutXDefault`, ADR-0034 `per_column`).
     fn column_x(&self) -> X;
 
+    /// The width of a row that the wrap column makes, the rightmost `X` of a box or a free caret
+    /// (`CLayoutMgr::GetMaxLineLayout`). Without wrapping Sakura breaks a line at 10240 columns,
+    /// which is the default here.
+    fn max_line_x(&self) -> X {
+        self.column_x()
+            .saturating_mul(crate::context::MAX_BOX_COLUMNS)
+    }
+
     /// The number of columns of a char other than a tab: 1 or 2 (`CNativeW::GetKetaOfChar`). The
     /// default is the short table of [`PlainLayout`]; a real layout answers with its own rule.
     fn char_columns(&self, c: char) -> usize {
