@@ -352,7 +352,15 @@ impl EditorView {
             self.grep_error_box(&error, window, cx);
             return false;
         }
-        if !new_window && self.grep_output_here(cx) {
+        // A Grep 置換 of the text of this very document cannot write its result here: the text the
+        // search read would change under it (and the edits would be refused). The result goes to a
+        // window of its own, as for a document with changes.
+        let replaces_here = info.replace.is_some()
+            && info
+                .window
+                .as_ref()
+                .is_some_and(|w| w.id == self.document.entity_id().as_u64());
+        if !new_window && !replaces_here && self.grep_output_here(cx) {
             if command
                 && self.use_grep_type(cx)
                 && self.run_auto_macro(crate::macros::Auto::TypeChanged, None, window, cx)

@@ -710,6 +710,54 @@ fn a_caret_between_two_matches_of_a_line_stays_with_its_text(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn a_replacement_of_the_text_of_the_window_that_would_show_the_result_goes_to_a_new_window(
+    cx: &mut TestAppContext,
+) {
+    // An untitled window without changes would take the result of a Grep; it is the target here
+    let (_f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(b"a needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let (handle, target) = cx
+        .update(|_, app| editors(app))
+        .into_iter()
+        .next_back()
+        .unwrap();
+    let id = target.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let settings = GrepSettings {
+        key: "needle".to_owned(),
+        replacement: "pin".to_owned(),
+        ..GrepSettings::default()
+    };
+    let info = settings.for_window(id).replace_info(None);
+    let started = {
+        let view = target.clone();
+        handle
+            .update(cx, |_, window, app| {
+                view.update(app, |view, cx| view.start_grep(info, false, window, cx))
+            })
+            .unwrap()
+    };
+    assert!(started);
+    settle(cx);
+    assert_eq!(text_of(&target, cx), "a pin\n");
+    let result = others(cx, &target);
+    let text = result
+        .iter()
+        .map(|view| text_of(view, cx))
+        .find(|text| text.contains("個を置換しました。"))
+        .expect("the result is in a window of its own");
+    assert!(text.ends_with("1 個を置換しました。\r\n"), "{text}");
+}
+
+#[gpui::test]
 fn a_box_selection_does_not_stop_the_replacement(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "", None);
     let doc = Document::from_utf8(b"a needle\nb needle\n".to_vec()).unwrap();

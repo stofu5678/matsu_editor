@@ -57,6 +57,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use matsu_core::buffer::{BufferError, Document, Pos};
@@ -102,7 +103,7 @@ impl Runner<'_> {
         // its line break, as Sakura reads it, so a match can cover the break.
         let by_match = self.replacer.is_none();
         let mut plan: Vec<Replacement> = Vec::new();
-        let mut pieces: Vec<(Range<usize>, String)> = Vec::new();
+        let mut pieces: Vec<(Range<usize>, Cow<'_, str>)> = Vec::new();
         let mut replaced = 0usize;
         let mut any_hit = false;
         let mut shown_any = false;
@@ -170,7 +171,7 @@ impl Runner<'_> {
             match &self.replacer {
                 Some(replacer) => {
                     let done = replacer.for_each_replacement(&whole, &mut |range, text| {
-                        pieces.push((range, text.to_owned()));
+                        pieces.push((range, Cow::Owned(text.to_owned())));
                     });
                     if done.is_err() {
                         self.buffer.push_str(&format::file_read_error(paths.full));
@@ -183,7 +184,7 @@ impl Runner<'_> {
                     let mut end = 0;
                     for m in &hits {
                         if m.start >= end {
-                            pieces.push((m.start..m.end, replace.text.clone()));
+                            pieces.push((m.start..m.end, Cow::Borrowed(replace.text.as_str())));
                             end = m.end;
                         }
                     }
@@ -380,7 +381,7 @@ fn push_line_edits(
     text: &str,
     eol: &str,
     whole: &str,
-    pieces: &[(Range<usize>, String)],
+    pieces: &[(Range<usize>, Cow<'_, str>)],
     plan: &mut Vec<Replacement>,
 ) -> Result<(), BufferError> {
     let len = text.len();
@@ -418,7 +419,7 @@ fn push_line_edits(
         return Ok(());
     }
     for (range, inserted) in pieces {
-        if &whole[range.clone()] == inserted {
+        if whole[range.clone()] == *inserted {
             continue;
         }
         let end = if ends_in_break(range) {
