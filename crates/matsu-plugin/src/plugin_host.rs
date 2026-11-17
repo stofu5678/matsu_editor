@@ -565,6 +565,13 @@ impl PluginHost {
                 Ok(PluginEvent::StderrDone(done)) => {
                     if let Some(current) = self.current.as_mut().filter(|c| c.id == done) {
                         current.marked = true;
+                    } else {
+                        // Counted like any message that means nothing: a plugin that writes
+                        // such lines without end must not keep the caller busy.
+                        dropped += 1;
+                        if dropped >= MAX_DROPPED_IN_A_ROW {
+                            return None;
+                        }
                     }
                 }
                 Ok(PluginEvent::Host(HostEvent::Message(text))) => match classify(&text, id) {
@@ -621,6 +628,8 @@ impl PluginHost {
     /// [`SETTLE_CAP`] after the answer, and the bounded queue of events keeps the memory in check.
     fn settle(&mut self, wait_for: Duration) -> Option<Progress> {
         let until = Instant::now() + wait_for;
+        // What is ignored here counts, as in `poll`: the caller gets its turn after so many.
+        let mut ignored = 0_usize;
         loop {
             let settling = self.settling.as_ref()?;
             let now = Instant::now();
@@ -654,9 +663,18 @@ impl PluginHost {
                     if done == id {
                         return Some(self.end_settling());
                     }
+                    ignored += 1;
+                    if ignored >= MAX_DROPPED_IN_A_ROW {
+                        return None;
+                    }
                 }
                 // The call is answered: a message now is not part of it.
-                Ok(PluginEvent::Host(HostEvent::Message(_))) => {}
+                Ok(PluginEvent::Host(HostEvent::Message(_))) => {
+                    ignored += 1;
+                    if ignored >= MAX_DROPPED_IN_A_ROW {
+                        return None;
+                    }
+                }
                 Ok(PluginEvent::Host(HostEvent::Finished(_)))
                 | Err(RecvTimeoutError::Disconnected) => {
                     // Everything the process wrote has been read (`Finished` is the last event).

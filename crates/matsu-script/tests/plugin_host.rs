@@ -691,6 +691,28 @@ fn a_flood_of_meaningless_messages_does_not_keep_a_poll_from_returning() {
     host.shutdown();
 }
 
+#[test]
+fn a_flood_of_markers_for_other_calls_does_not_keep_a_poll_from_returning() {
+    // Lines that look like the marker of another call are not shown and not output; they count
+    // in the budget of what a poll drops, so the caller (the window) gets its turn.
+    let code = "for (;;) console.error('\\x1fmatsu-stderr-done 999');";
+    let dir = plugin_dir(&[("junk.js", code)]);
+    let mut host = host(dir.path(), false);
+    host.begin("Command", "junk.js", &Value::Null, PATIENT)
+        .unwrap();
+    for _ in 0..50 {
+        let started = Instant::now();
+        let progress = host.poll(Duration::ZERO);
+        assert!(progress.is_none(), "{progress:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+    host.shutdown();
+}
+
 #[cfg(unix)]
 #[test]
 fn an_idle_host_is_shut_down_without_the_caller_waiting_and_leaves_no_process() {

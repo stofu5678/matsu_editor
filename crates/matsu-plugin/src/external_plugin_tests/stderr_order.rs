@@ -188,6 +188,54 @@ fn a_stderr_text_without_a_line_break_is_output_and_the_marker_is_not_shown() {
     );
 }
 
+/// A handler that closes standard error: the marker cannot be written, but the answer is sent, the
+/// call succeeds (at the latest at the cap), and the next call of the process succeeds too.
+fn closing_stderr_keeps_the_answer(language: Language, name: &str, code: &str) {
+    if !available(language) {
+        return;
+    }
+    let dir = plugin_dir(&[(name, code)]);
+    let mut host = host(dir.path(), language, true);
+    let mut world = World::new("");
+    let started = Instant::now();
+    for round in 0..2 {
+        let report = world.call(&mut host, name);
+        assert_eq!(
+            report.outcome,
+            Outcome::Ok,
+            "{language:?}, round {round}: {:?}",
+            report.output
+        );
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_node_handler_that_closes_stderr_still_gets_its_answer_sent() {
+    // The second call finds it closed already.
+    let code = "try { require('fs').closeSync(2); } catch (err) {}";
+    closing_stderr_keeps_the_answer(Language::JavaScript, "h.cjs", code);
+}
+
+#[test]
+fn a_python_handler_that_closes_stderr_still_gets_its_answer_sent() {
+    closing_stderr_keeps_the_answer(Language::Python, "h.py", "import sys\nsys.stderr.close()\n");
+}
+
+#[test]
+fn a_ruby_handler_that_closes_stderr_still_gets_its_answer_sent() {
+    closing_stderr_keeps_the_answer(Language::Ruby, "h.rb", "$stderr.close\n");
+}
+
+#[test]
+fn a_php_handler_that_closes_stderr_still_gets_its_answer_sent() {
+    closing_stderr_keeps_the_answer(Language::Php, "h.php", "<?php\nfclose(STDERR);\n");
+}
+
 #[test]
 fn a_plugin_that_cannot_write_the_marker_still_ends_its_call() {
     if !available(Language::Python) {

@@ -201,7 +201,7 @@ def _respond(request_id, error):
         sys.__stderr__.flush()
         sys.__stderr__.write("\x1fmatsu-stderr-done " + json.dumps(request_id) + "\n")
         sys.__stderr__.flush()
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001 - a closed or broken standard error must not stop the answer
         pass
     _out.flush()
     _out.buffer.write((_RS + json.dumps(message) + "\n").encode("ascii"))
@@ -282,8 +282,12 @@ def _serve_plugin(editor, info):
             failure = _describe(exc)
         finally:
             sys.modules["__main__"] = boot_main
-        sys.stdout.flush()
-        sys.stderr.flush()
+        # A handler may have closed or replaced the streams: the answer goes out all the same.
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:  # noqa: BLE001
+                pass
         _respond(message.get("id"), failure)
 
 

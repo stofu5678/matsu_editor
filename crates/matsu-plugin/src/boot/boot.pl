@@ -191,8 +191,13 @@ sub respond {
     local ($,, $\) = (undef, undef);
     # The marker: a line on standard error that says everything the handler wrote there before its
     # answer has been written (the editor reads the two streams on two threads).
-    print STDERR "\x1fmatsu-stderr-done ", $json->encode($id), "\n";
-    STDERR->flush;
+    # (A handler may have closed STDERR: the answer goes out all the same.)
+    eval {
+        no warnings;
+        print STDERR "\x1fmatsu-stderr-done ", $json->encode($id), "\n";
+        STDERR->flush;
+        1;
+    };
     print STDOUT "$RS", $json->encode($message), "\n";
 }
 
