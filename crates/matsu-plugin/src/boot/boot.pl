@@ -189,6 +189,10 @@ sub respond {
         ? { jsonrpc => '2.0', id => $id, error => { code => -32000, message => $failure } }
         : { jsonrpc => '2.0', id => $id, result => { ok => JSON::PP::true } };
     local ($,, $\) = (undef, undef);
+    # The marker: a line on standard error that says everything the handler wrote there before its
+    # answer has been written (the editor reads the two streams on two threads).
+    print STDERR "\x1fmatsu-stderr-done ", $json->encode($id), "\n";
+    STDERR->flush;
     print STDOUT "$RS", $json->encode($message), "\n";
 }
 

@@ -138,6 +138,14 @@ module MatsuPlugin
   end
 
   def self.respond(id, error)
+    # The marker: a line on standard error that says everything the handler wrote there before its
+    # answer has been written (the editor reads the two streams on two threads).
+    begin
+      $stderr.write("\x1fmatsu-stderr-done #{JSON.generate(id)}\n")
+      $stderr.flush
+    rescue SystemCallError, IOError
+      nil
+    end
     message = if error.nil?
                 { 'jsonrpc' => '2.0', 'id' => id, 'result' => { 'ok' => true } }
               else

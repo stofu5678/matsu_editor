@@ -6,6 +6,23 @@ use serde_json::{Map, Value, json};
 /// The RS character that starts a protocol message in the macro's output.
 pub const RS: char = '\u{1e}';
 
+/// What a plugin writes to standard error right before it writes the answer to a call (ADR-0026):
+/// this text, then the id of the call. The editor reads standard output and standard error on two
+/// threads; the line tells it that all that the handler wrote to standard error is there, so it
+/// can end the call without a guess. A control character starts it, so that it is not mistaken
+/// for the output of a plugin. The editor never shows it.
+pub const STDERR_DONE: &str = "\u{1f}matsu-stderr-done ";
+
+/// The marker line (without its line break) for the call `id`.
+pub fn stderr_done_line(id: &Value) -> String {
+    format!("{STDERR_DONE}{id}")
+}
+
+/// The id of the call that a marker line names, or `None` when the line is not a marker.
+pub fn parse_stderr_done(line: &str) -> Option<i64> {
+    line.strip_prefix(STDERR_DONE)?.trim().parse().ok()
+}
+
 pub const PARSE_ERROR: i64 = -32700;
 pub const INVALID_REQUEST: i64 = -32600;
 pub const METHOD_NOT_FOUND: i64 = -32601;

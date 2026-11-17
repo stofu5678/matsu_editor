@@ -195,6 +195,14 @@ def _respond(request_id, error):
         message = {"jsonrpc": "2.0", "id": request_id, "result": {"ok": True}}
     else:
         message = {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32000, "message": error}}
+    # The marker: a line on standard error that says everything the handler wrote there before its
+    # answer has been written (the editor reads the two streams on two threads).
+    try:
+        sys.__stderr__.flush()
+        sys.__stderr__.write("\x1fmatsu-stderr-done " + json.dumps(request_id) + "\n")
+        sys.__stderr__.flush()
+    except (OSError, ValueError):
+        pass
     _out.flush()
     _out.buffer.write((_RS + json.dumps(message) + "\n").encode("ascii"))
     _out.buffer.flush()

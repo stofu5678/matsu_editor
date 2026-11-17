@@ -246,6 +246,10 @@ where the form that failed began, and what it signaled."
 
 (defun plugin--respond (id failure)
   "Answer the invoke ID: ok, or the text FAILURE."
+  ;; The marker: a line on standard error that says everything the handler wrote there before its
+  ;; answer has been written (the editor reads the two streams on two threads).  `message' in batch
+  ;; mode writes the line to standard error and flushes it.
+  (message "%c%s" 31 (format "matsu-stderr-done %s" (or id "null")))
   (let* ((id (or id :null))
          (answer (if failure
                      `((jsonrpc . "2.0") (id . ,id)

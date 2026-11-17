@@ -192,6 +192,10 @@ final class MatsuBoot
     /** Answers the invoke. */
     public static function respond($id, ?string $failure): void
     {
+        // The marker: a line on standard error that says everything the handler wrote there before
+        // its answer has been written (the editor reads the two streams on two threads).
+        @fwrite(STDERR, "\x1fmatsu-stderr-done " . json_encode($id) . "\n");
+        @fflush(STDERR);
         fflush(STDOUT);
         $message = $failure === null
             ? ['jsonrpc' => '2.0', 'id' => $id, 'result' => ['ok' => true]]

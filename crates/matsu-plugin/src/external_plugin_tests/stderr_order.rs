@@ -101,3 +101,77 @@ process.stderr.write('call' + Plugin.args.n + '\\n');";
     let lines = second.lines(Stream::Stderr);
     assert!(lines.contains(&"call1"), "{lines:?}");
 }
+
+#[test]
+fn a_call_that_writes_nothing_to_stderr_does_not_wait_for_a_quiet_time() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    // The marker ends the call as soon as it has come: no time is added to a call (the jacks
+    // that run on a key, such as SmartIndent, would show it). A wait of 20 ms per call would
+    // take 2 s for these calls alone.
+    let dir = plugin_dir(&[("h.cjs", "const x = 1;")]);
+    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    // The process is started by the first call.
+    let first = world.call(&mut host, "h.cjs");
+    assert_eq!(first.outcome, Outcome::Ok);
+    let started = Instant::now();
+    for _ in 0..100 {
+        let report = world.call(&mut host, "h.cjs");
+        assert_eq!(report.outcome, Outcome::Ok);
+        assert!(report.lines(Stream::Stderr).is_empty());
+    }
+    assert!(
+        started.elapsed() < Duration::from_millis(1500),
+        "100 calls took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_marker_like_line_of_the_plugin_is_not_the_marker_of_another_call() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    // The handler writes markers for other calls (the previous one, one far ahead) before its
+    // line. They are not taken for this call's marker, and they are not shown.
+    let code = "
+const n = Plugin.args.n;
+for (const id of [n, n + 1000]) process.stderr.write('\\x1fmatsu-stderr-done ' + id + '\\n');
+process.stderr.write('e' + n + '\\n');";
+    let dir = plugin_dir(&[("h.cjs", code)]);
+    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut world = World::new("");
+    for round in 0..100 {
+        let args = json!({ "n": round });
+        let report = world.call_jack(&mut host, "Command", "h.cjs", &args, PATIENT);
+        assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+        assert_eq!(
+            report.lines(Stream::Stderr),
+            [format!("e{round}")],
+            "round {round}: {:?}",
+            report.output
+        );
+    }
+}
+
+#[test]
+fn a_plugin_that_cannot_write_the_marker_still_ends_its_call() {
+    if !available(Language::Python) {
+        return;
+    }
+    // Standard error is closed by the handler: the marker cannot be written, and the call ends
+    // at the cap after its answer.
+    let dir = plugin_dir(&[("h.py", "import os\nos.close(2)\n")]);
+    let mut host = host(dir.path(), Language::Python, false);
+    let mut world = World::new("");
+    let started = Instant::now();
+    let report = world.call(&mut host, "h.py");
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+}

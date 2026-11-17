@@ -73,12 +73,14 @@ const EVENT_BACKLOG: usize = 4096;
 /// How long a process that was told to end may take before it is killed.
 const SHUTDOWN_GRACE: Duration = Duration::from_millis(1500);
 
-/// How long a call stays open after its answer, with nothing new from the process, so that the
-/// lines written to standard error before the answer come first.
-const SETTLE_QUIET: Duration = Duration::from_millis(20);
-
-/// The longest a call stays open after its answer, even if the process keeps writing.
+/// The longest a call stays open after its answer while it waits for the lines that the handler
+/// wrote to standard error before it (for the marker of the call, or, in a language that cannot
+/// write one, for a quiet time), even if the process keeps writing or never writes the marker.
 const SETTLE_CAP: Duration = Duration::from_millis(250);
+
+/// In a language without a marker: how long a call stays open after its answer with nothing new
+/// from the process.
+const SETTLE_QUIET: Duration = Duration::from_millis(20);
 
 /// What a host needs to know about its plugin.
 #[derive(Debug, Clone)]
@@ -203,26 +205,83 @@ impl std::error::Error for BeginError {}
 
 struct Process {
     session: Session,
-    events: Receiver<HostEvent>,
+    events: Receiver<PluginEvent>,
     /// The module files of the plugin folder went to this Node.js process already (with its first
     /// call); it keeps them, so they are not sent again.
     files_sent: bool,
+}
+
+/// What the readers of a process send: what the session reports, and the marker of a call (the
+/// readers cut it out of standard error, so nobody downstream shows it).
+enum PluginEvent {
+    Host(HostEvent),
+    /// The plugin wrote the marker for the call with this id: all that the handler wrote to
+    /// standard error before its answer has come.
+    StderrDone(i64),
 }
 
 struct Current {
     id: i64,
     jack: String,
     deadline: Instant,
+    /// The marker of this call has come.
+    marked: bool,
 }
 
-/// A call whose answer has come, kept open for a moment so that the lines the handler wrote to
-/// standard error before the answer reach the caller first (see [`PluginHost::settle`]).
+/// How a call waits for the standard error of its handler after the answer.
+#[derive(Clone, Copy)]
+enum Wait {
+    /// Until the marker of the call has come.
+    Marker,
+    /// Until nothing has come for [`SETTLE_QUIET`]: for a language that cannot write the marker.
+    Quiet(Instant),
+}
+
+/// A call whose answer has come, kept open until the lines that the handler wrote to standard
+/// error before the answer have come (see [`PluginHost::settle`]).
 struct Settling {
     outcome: Outcome,
-    /// The call ends when nothing has come by this time. Each line that comes moves it on.
-    quiet_until: Instant,
+    id: i64,
+    wait: Wait,
     /// The call ends at this time at the latest, however much comes.
     cap: Instant,
+}
+
+/// How a call from `jack` waits after its answer. `None`: it does not wait.
+///
+/// Every language that serves plugins writes the marker, except AppleScript: `osascript` has no
+/// way to write to standard error and flush it (`do shell script` would start a process for each
+/// call). There the call waits for a quiet time, except the jacks that run on a key (`SmartIndent`,
+/// `Complement`, `ComplementGlobal`), which do not wait: a delay at each key is worse than a
+/// line of standard error that comes late.
+fn wait_after_answer(language: Language, jack: &str, now: Instant) -> Option<Wait> {
+    if language != Language::AppleScript {
+        return Some(Wait::Marker);
+    }
+    if matches!(jack, "SmartIndent" | "Complement" | "ComplementGlobal") {
+        return None;
+    }
+    Some(Wait::Quiet(now + SETTLE_QUIET))
+}
+
+/// The sink of a process: the lines of standard error that are markers become [`PluginEvent::StderrDone`].
+fn plugin_sink(tx: mpsc::SyncSender<PluginEvent>) -> Sink {
+    Arc::new(move |event| {
+        let event = match event {
+            HostEvent::Output {
+                stream: Stream::Stderr,
+                text,
+            } => match protocol::parse_stderr_done(&text) {
+                Some(id) => PluginEvent::StderrDone(id),
+                None => PluginEvent::Host(HostEvent::Output {
+                    stream: Stream::Stderr,
+                    text,
+                }),
+            },
+            other => PluginEvent::Host(other),
+        };
+        let _ = tx.send(event);
+    })
 }
 
 /// The host of one plugin in one language.
@@ -300,9 +359,7 @@ impl PluginHost {
         // Bounded: a plugin that prints without end waits here (on the reader thread of the
         // host) for the window to catch up, instead of piling up in memory.
         let (tx, events) = mpsc::sync_channel(EVENT_BACKLOG);
-        let sink: Sink = Arc::new(move |event| {
-            let _ = tx.send(event);
-        });
+        let sink = plugin_sink(tx);
         let session = session::start(&config, sink)?;
         Ok(Process {
             session,
@@ -392,6 +449,7 @@ impl PluginHost {
             id,
             jack: jack.to_owned(),
             deadline: Instant::now() + timeout,
+            marked: false,
         });
         Ok(())
     }
@@ -465,18 +523,19 @@ impl PluginHost {
 
     /// Waits up to `wait` for the next thing that happens in the call. `None` when nothing did
     /// (or no call runs); ask again.
-    pub fn poll(&mut self, wait: Duration) -> Option<Progress> {
+    pub fn poll(&mut self, wait_for: Duration) -> Option<Progress> {
         if std::mem::take(&mut self.interrupted) {
             return Some(Progress::Done(Outcome::Cancelled));
         }
         if self.settling.is_some() {
-            return self.settle(wait);
+            return self.settle(wait_for);
         }
         let (id, deadline) = {
             let current = self.current.as_ref()?;
             (current.id, current.deadline)
         };
-        let until = (Instant::now() + wait).min(deadline);
+        let language = self.settings.language;
+        let until = (Instant::now() + wait_for).min(deadline);
         // Messages that mean nothing are dropped, but only so many in a row: a plugin that sends
         // them without end must not keep the caller (the window) from its other work.
         let mut dropped = 0_usize;
@@ -488,19 +547,36 @@ impl PluginHost {
             let left = until.saturating_duration_since(Instant::now());
             let received = self.process.as_ref()?.events.recv_timeout(left);
             match received {
-                Ok(HostEvent::Output { stream, text }) => {
+                Ok(PluginEvent::Host(HostEvent::Output { stream, text })) => {
                     return Some(Progress::Output { stream, text });
                 }
-                Ok(HostEvent::Message(text)) => match classify(&text, id) {
+                // The marker of an earlier call, or one that the plugin wrote itself for another
+                // call, is not this call's.
+                Ok(PluginEvent::StderrDone(done)) => {
+                    if let Some(current) = self.current.as_mut().filter(|c| c.id == done) {
+                        current.marked = true;
+                    }
+                }
+                Ok(PluginEvent::Host(HostEvent::Message(text))) => match classify(&text, id) {
                     Message::Request => return Some(Progress::Request(text)),
                     Message::Answer(outcome) => {
+                        let current = self.current.as_ref()?;
                         let now = Instant::now();
+                        let wait = if current.marked {
+                            None
+                        } else {
+                            wait_after_answer(language, &current.jack, now)
+                        };
+                        let Some(wait) = wait else {
+                            return Some(self.finish(outcome));
+                        };
                         self.settling = Some(Settling {
                             outcome,
-                            quiet_until: now + SETTLE_QUIET,
+                            id,
+                            wait,
                             cap: now + SETTLE_CAP,
                         });
-                        return self.settle(wait);
+                        return self.settle(wait_for);
                     }
                     Message::Other => {
                         dropped += 1;
@@ -509,7 +585,7 @@ impl PluginHost {
                         }
                     }
                 },
-                Ok(HostEvent::Finished(finished)) => {
+                Ok(PluginEvent::Host(HostEvent::Finished(finished))) => {
                     let text = crate::describe(&finished, "");
                     return Some(self.finish(Outcome::Died(text)));
                 }
@@ -523,36 +599,56 @@ impl PluginHost {
         }
     }
 
-    /// Waits for what the process wrote before its answer. Standard output and standard error are
-    /// read by two threads, so a line that the handler wrote to standard error just before it
-    /// answered can still be on its way when the answer is here. The pipes carry no order between
-    /// them, so the host cannot tell when the last line has come; it keeps the call open until
-    /// nothing has come for [`SETTLE_QUIET`] (the line was in the pipe before the answer was
-    /// written, so the reader needs only to be scheduled), and hands each line out as output of
-    /// the call. A plugin that writes without end cannot hold the call: it ends at [`SETTLE_CAP`]
-    /// after the answer, and the bounded queue of events keeps the memory in check.
-    fn settle(&mut self, wait: Duration) -> Option<Progress> {
-        let until = Instant::now() + wait;
+    /// Waits for what the process wrote to standard error before its answer. Standard output and
+    /// standard error are read by two threads, so a line that the handler wrote to standard error
+    /// just before it answered can still be on its way when the answer is here. Every plugin
+    /// language writes a marker line to standard error, after what the handler wrote and before
+    /// the answer (`protocol::STDERR_DONE`); the call ends when the marker of the call has come,
+    /// which puts every line of the handler before the end of the call, and no time is spent when
+    /// the marker has come already. Each line that comes before is handed out as output of the
+    /// call. A plugin that cannot write the marker (it crashed, its standard error is closed, or
+    /// the language cannot, see [`wait_after_answer`]) cannot hold the call: it ends at
+    /// [`SETTLE_CAP`] after the answer, and the bounded queue of events keeps the memory in check.
+    fn settle(&mut self, wait_for: Duration) -> Option<Progress> {
+        let until = Instant::now() + wait_for;
         loop {
             let settling = self.settling.as_ref()?;
             let now = Instant::now();
-            if now >= settling.quiet_until || now >= settling.cap {
+            let over = match settling.wait {
+                Wait::Marker => false,
+                Wait::Quiet(quiet_until) => now >= quiet_until,
+            };
+            if over || now >= settling.cap {
                 return Some(self.end_settling());
             }
-            let left = until
-                .min(settling.quiet_until)
-                .saturating_duration_since(now);
+            let mut stop = settling.cap;
+            if let Wait::Quiet(quiet_until) = settling.wait {
+                stop = stop.min(quiet_until);
+            }
+            let left = until.min(stop).saturating_duration_since(now);
+            let id = settling.id;
             let received = self.process.as_ref()?.events.recv_timeout(left);
             match received {
-                Ok(HostEvent::Output { stream, text }) => {
-                    if let Some(settling) = &mut self.settling {
-                        settling.quiet_until = (Instant::now() + SETTLE_QUIET).min(settling.cap);
+                Ok(PluginEvent::Host(HostEvent::Output { stream, text })) => {
+                    if let Some(Settling {
+                        wait: Wait::Quiet(quiet_until),
+                        cap,
+                        ..
+                    }) = &mut self.settling
+                    {
+                        *quiet_until = (Instant::now() + SETTLE_QUIET).min(*cap);
                     }
                     return Some(Progress::Output { stream, text });
                 }
+                Ok(PluginEvent::StderrDone(done)) => {
+                    if done == id {
+                        return Some(self.end_settling());
+                    }
+                }
                 // The call is answered: a message now is not part of it.
-                Ok(HostEvent::Message(_)) => {}
-                Ok(HostEvent::Finished(_)) | Err(RecvTimeoutError::Disconnected) => {
+                Ok(PluginEvent::Host(HostEvent::Message(_))) => {}
+                Ok(PluginEvent::Host(HostEvent::Finished(_)))
+                | Err(RecvTimeoutError::Disconnected) => {
                     // Everything the process wrote has been read (`Finished` is the last event).
                     return Some(self.end_settling());
                 }
@@ -634,7 +730,8 @@ impl PluginHost {
                 let end = Instant::now() + SHUTDOWN_GRACE;
                 while let Some(left) = end.checked_duration_since(Instant::now()) {
                     match process.events.recv_timeout(left) {
-                        Ok(HostEvent::Finished(_)) | Err(RecvTimeoutError::Disconnected) => return,
+                        Ok(PluginEvent::Host(HostEvent::Finished(_)))
+                        | Err(RecvTimeoutError::Disconnected) => return,
                         Ok(_) => {}
                         Err(RecvTimeoutError::Timeout) => break,
                     }
@@ -1124,6 +1221,33 @@ mod tests {
         // A notification gets no answer.
         let text = r#"{"jsonrpc":"2.0","method":"Plugin.GetOption","params":[]}"#;
         assert_eq!(respond(text, &mut Api, |_, _| Ok(Value::Null)), None);
+    }
+
+    #[test]
+    fn only_applescript_waits_for_a_quiet_time_and_not_on_the_jacks_of_a_key() {
+        let now = Instant::now();
+        for language in [Language::JavaScript, Language::Python, Language::EmacsLisp] {
+            let wait = wait_after_answer(language, "SmartIndent", now);
+            assert!(matches!(wait, Some(Wait::Marker)), "{language:?}");
+        }
+        for jack in ["SmartIndent", "Complement", "ComplementGlobal"] {
+            assert!(wait_after_answer(Language::AppleScript, jack, now).is_none());
+        }
+        assert!(matches!(
+            wait_after_answer(Language::AppleScript, "Command", now),
+            Some(Wait::Quiet(_))
+        ));
+    }
+
+    #[test]
+    fn a_marker_line_names_its_call_and_other_lines_are_not_markers() {
+        let line = protocol::stderr_done_line(&json!(42));
+        assert_eq!(protocol::parse_stderr_done(&line), Some(42));
+        assert_eq!(protocol::parse_stderr_done("matsu-stderr-done 42"), None);
+        assert_eq!(
+            protocol::parse_stderr_done("\u{1f}matsu-stderr-done x"),
+            None
+        );
     }
 
     #[test]

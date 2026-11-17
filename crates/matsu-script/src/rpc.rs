@@ -193,6 +193,12 @@ impl<R: BufRead, W: Write> PluginLink for Connection<R, W> {
                 "error": {"code": error.code, "message": error.message},
             }),
         };
+        // The marker (see `protocol::STDERR_DONE`): everything the handler wrote to standard error
+        // is out before this line, because standard error is not buffered here.
+        let mut stderr = io::stderr().lock();
+        let _ =
+            writeln!(stderr, "{}", protocol::stderr_done_line(id)).and_then(|()| stderr.flush());
+        drop(stderr);
         let line = format!("{RS}{}\n", protocol::ascii_json(&message));
         self.output
             .write_all(line.as_bytes())
