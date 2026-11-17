@@ -97,7 +97,13 @@ module MatsuPlugin
       rescue Exception => e # whatever the handler raised fails the call
         failure = MatsuBoot.describe(e, name)
       end
-      Editor.__send__('plugin/respond', invoke['id'], failure)
+      begin
+        Editor.__send__('plugin/respond', invoke['id'], failure)
+      rescue EditorError
+        # The handler answered its own call (it knew the id): the host's answer is refused, which
+        # is no reason to stop serving.
+        nil
+      end
     end
   end
 end

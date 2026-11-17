@@ -23,6 +23,7 @@ def _calls(prefix, names):
     return calls
 
 
+_respond = _bind("plugin/respond")
 _identity = _host("plugin/identity", [])
 Plugin = _calls("Plugin.", _identity["members"]["Plugin"])
 Plugin.id = _identity.get("id")
@@ -65,6 +66,21 @@ class _Indent:
 Complement = _Complement()
 
 
+def _main_of(space):
+    """What `import __main__` gives while a handler runs: the names of the handler's own namespace
+    (MicroPython cannot make a module out of a dictionary, and has no `__setattr__` hook, so a name
+    that the handler sets on it stays on this object, which is its own for the file)."""
+
+    class _Main:
+        def __getattr__(self, name):
+            try:
+                return space[name]
+            except KeyError:
+                raise AttributeError(name)
+
+    return _Main()
+
+
 def _describe(exc):
     out = _io.StringIO()
     _sys.print_exception(exc, out)
@@ -73,6 +89,7 @@ def _describe(exc):
 
 def _serve():
     spaces = {}
+    mains = {}
     while True:
         invoke = _host("plugin/next", [])
         if invoke is None:
@@ -92,6 +109,7 @@ def _serve():
                 "Complement": Complement,
             }
             spaces[name] = space
+            mains[name] = _main_of(space)
         if Plugin.jack == "SmartIndent":
             args = Plugin.args
             typed = args.get("char") if isinstance(args, dict) else None
@@ -99,6 +117,9 @@ def _serve():
         else:
             space.pop("Indent", None)
         failure = None
+        # While the handler runs, `import __main__` finds its own names, not the boot's (which is
+        # what `__main__` is without this entry).
+        _sys.modules["__main__"] = mains[name]
         try:
             exec(compile(invoke["source"], name, "exec"), space)
         except SystemExit:
@@ -106,7 +127,13 @@ def _serve():
             pass
         except BaseException as exc:
             failure = _describe(exc)
-        _matsu_call("plugin/respond", [invoke["id"], failure])
+        _sys.modules.pop("__main__", None)
+        try:
+            _respond(invoke["id"], failure)
+        except EditorError:
+            # The handler answered its own call (it knew the id): the host's answer is refused,
+            # which is no reason to stop serving.
+            pass
 
 
 _serve()

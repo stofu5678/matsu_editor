@@ -15,7 +15,7 @@ use matsu_plugin::protocol::RpcError;
 use serde_json::{Map, Number, Value};
 
 use crate::engine::Engine;
-use crate::plugin::{self, Reserved};
+use crate::plugin::{self, Refusal, Reserved};
 use crate::rpc::{CallError, Editor, Initialize, LinkEditor, PluginInit, PluginLink};
 
 pub struct Mruby;
@@ -106,9 +106,14 @@ impl Host for Bridge {
         if let Some(reserved) = &self.reserved
             && let Some(answer) = reserved.answer(function, &params)
         {
-            return answer
-                .map(|result| json_to_mruby(&result))
-                .map_err(Failure::Fatal);
+            return match answer {
+                Ok(result) => Ok(json_to_mruby(&result)),
+                Err(Refusal::Refused(error)) => Err(Failure::Editor {
+                    code: error.code,
+                    message: error.message,
+                }),
+                Err(Refusal::Closed(message)) => Err(Failure::Fatal(message)),
+            };
         }
         let answer = self.editor.borrow_mut().call(function, params);
         match answer {

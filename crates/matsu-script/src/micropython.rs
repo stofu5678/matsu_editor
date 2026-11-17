@@ -31,7 +31,7 @@ use matsu_plugin::protocol::RpcError;
 use serde_json::{Number, Value};
 
 use crate::engine::Engine;
-use crate::plugin::Reserved;
+use crate::plugin::{Refusal, Reserved};
 use crate::rpc::{CallError, Editor, Initialize, LinkEditor, PluginInit, PluginLink};
 
 pub struct MicroPython;
@@ -162,7 +162,11 @@ impl Host for Bridge {
         {
             return match answer {
                 Ok(result) => CallOutcome::Ok(result.to_string()),
-                Err(message) => CallOutcome::Closed(message),
+                Err(Refusal::Refused(error)) => CallOutcome::Error {
+                    code: error.code,
+                    message: error.message,
+                },
+                Err(Refusal::Closed(message)) => CallOutcome::Closed(message),
             };
         }
         let answer = self.editor.borrow_mut().call(name, params);

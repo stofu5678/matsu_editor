@@ -519,3 +519,52 @@ fn lua_os_exit_is_told_by_its_error_not_by_a_flag() {
     assert!(matches!(report.outcome, Outcome::Failed(_)));
     assert_eq!(world.call(&mut host, ok, PATIENT).outcome, Outcome::Ok);
 }
+
+#[test]
+fn a_micropython_handler_sees_its_own_names_as_main_and_not_the_boots_or_another_files() {
+    let a = "a.upy";
+    let code_a = "import __main__\nx = 5\n__main__.state = getattr(__main__, 'state', 0) + 1\nprint(__main__.x, __main__.state, hasattr(__main__, '_matsu_call'))";
+    let code_b = "import __main__\nprint(hasattr(__main__, 'state'), hasattr(__main__, 'x'), hasattr(__main__, '_matsu_call'))";
+    let dir = plugin_dir(&[(a, code_a), ("b.upy", code_b)]);
+    let mut host = host_of(Engine::MicroPython, dir.path(), true);
+    let mut world = World::new("");
+    let first = world.call(&mut host, a, PATIENT);
+    assert_eq!(first.outcome, Outcome::Ok, "{:?}", first.output);
+    assert_eq!(stdout(&first), ["5 1 False"]);
+    let other = world.call(&mut host, "b.upy", PATIENT);
+    assert_eq!(stdout(&other), ["False False False"], "{:?}", other.output);
+    // The file's own object keeps what it was given, and nothing reached the boot's globals.
+    let again = world.call(&mut host, a, PATIENT);
+    assert_eq!(stdout(&again), ["5 2 False"], "{:?}", again.output);
+}
+
+/// A handler can reach the host's calls through `Editor` in mruby: they are refused, the call
+/// is not stuck waiting for the loop, and the next call works.
+#[test]
+fn an_mruby_handler_cannot_take_the_hosts_next_call() {
+    let code = "['plugin/next', 'plugin/respond'].each do |name|
+  begin
+    Editor.__send__(name, 999_999)
+  rescue EditorError => e
+    puts \"#{name} #{e.code}\"
+  end
+end
+puts Editor.__send__('plugin/identity')['id']";
+    let dir = plugin_dir(&[("h.mruby", code), ("ok.mruby", MRUBY.count)]);
+    let mut host = host_of(Engine::Mruby, dir.path(), true);
+    let mut world = World::new("");
+    let started = Instant::now();
+    let report = world.call(&mut host, "h.mruby", PATIENT);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(
+        stdout(&report),
+        [
+            "plugin/next -32602",
+            "plugin/respond -32602",
+            "jp.example.test"
+        ]
+    );
+    let next = world.call(&mut host, "ok.mruby", PATIENT);
+    assert_eq!(stdout(&next), ["n=1"], "{:?}", next.output);
+}
