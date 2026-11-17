@@ -157,6 +157,38 @@ process.stderr.write('e' + n + '\\n');";
 }
 
 #[test]
+fn a_stderr_text_without_a_line_break_is_output_and_the_marker_is_not_shown() {
+    if !available(Language::Python) {
+        return;
+    }
+    // The marker lands on the same line as the text: the text is the call's output, the marker
+    // is not shown, and the call does not wait for the cap.
+    let code = "import sys\nsys.stderr.write('partial')\n";
+    let dir = plugin_dir(&[("h.py", code)]);
+    let mut host = host(dir.path(), Language::Python, true);
+    let mut world = World::new("");
+    let first = world.call(&mut host, "h.py");
+    assert_eq!(first.outcome, Outcome::Ok);
+    let started = Instant::now();
+    for round in 0..100 {
+        let report = world.call(&mut host, "h.py");
+        assert_eq!(report.outcome, Outcome::Ok);
+        assert_eq!(
+            report.lines(Stream::Stderr),
+            ["partial"],
+            "round {round}: {:?}",
+            report.output
+        );
+    }
+    // The cap (250 ms) per call would take 25 s.
+    assert!(
+        started.elapsed() < Duration::from_millis(3000),
+        "100 calls took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn a_plugin_that_cannot_write_the_marker_still_ends_its_call() {
     if !available(Language::Python) {
         return;

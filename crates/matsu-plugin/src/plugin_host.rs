@@ -271,8 +271,18 @@ fn plugin_sink(tx: mpsc::SyncSender<PluginEvent>) -> Sink {
             HostEvent::Output {
                 stream: Stream::Stderr,
                 text,
-            } => match protocol::parse_stderr_done(&text) {
-                Some(id) => PluginEvent::StderrDone(id),
+            } => match protocol::split_stderr_done(&text) {
+                Some((before, id)) => {
+                    // Text written without a line break stands in front of the marker: it is a
+                    // line of the call's output, and the marker is not shown.
+                    if !before.is_empty() {
+                        let _ = tx.send(PluginEvent::Host(HostEvent::Output {
+                            stream: Stream::Stderr,
+                            text: before.to_owned(),
+                        }));
+                    }
+                    PluginEvent::StderrDone(id)
+                }
                 None => PluginEvent::Host(HostEvent::Output {
                     stream: Stream::Stderr,
                     text,
@@ -1242,10 +1252,14 @@ mod tests {
     #[test]
     fn a_marker_line_names_its_call_and_other_lines_are_not_markers() {
         let line = protocol::stderr_done_line(&json!(42));
-        assert_eq!(protocol::parse_stderr_done(&line), Some(42));
-        assert_eq!(protocol::parse_stderr_done("matsu-stderr-done 42"), None);
+        assert_eq!(protocol::split_stderr_done(&line), Some(("", 42)));
         assert_eq!(
-            protocol::parse_stderr_done("\u{1f}matsu-stderr-done x"),
+            protocol::split_stderr_done(&format!("partial{line}")),
+            Some(("partial", 42))
+        );
+        assert_eq!(protocol::split_stderr_done("matsu-stderr-done 42"), None);
+        assert_eq!(
+            protocol::split_stderr_done("\u{1f}matsu-stderr-done x"),
             None
         );
     }

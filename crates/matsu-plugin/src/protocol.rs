@@ -18,9 +18,13 @@ pub fn stderr_done_line(id: &Value) -> String {
     format!("{STDERR_DONE}{id}")
 }
 
-/// The id of the call that a marker line names, or `None` when the line is not a marker.
-pub fn parse_stderr_done(line: &str) -> Option<i64> {
-    line.strip_prefix(STDERR_DONE)?.trim().parse().ok()
+/// Finds the marker in a line of standard error: the text before it (a handler that wrote
+/// without a line break leaves its text in front of the marker) and the id of the call that it
+/// names. `None` when the line holds no marker.
+pub fn split_stderr_done(line: &str) -> Option<(&str, i64)> {
+    let at = line.find(STDERR_DONE)?;
+    let id = line[at + STDERR_DONE.len()..].trim().parse().ok()?;
+    Some((&line[..at], id))
 }
 
 pub const PARSE_ERROR: i64 = -32700;
