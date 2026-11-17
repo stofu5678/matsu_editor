@@ -174,9 +174,8 @@ impl Runner<'_> {
                 None => put_in(&whole, &hits, &replace.text),
             };
             replaced += count;
-            match line_replacement(doc, index, &line.text, eol, &whole, new) {
-                Ok(Some(edit)) => plan.push(edit),
-                Ok(None) => {}
+            match line_replacement(doc, index, &line.text, eol, &whole, &new) {
+                Ok(edits) => plan.extend(edits),
                 Err(_) => {
                     self.buffer.push_str(&format::file_read_error(paths.full));
                     return Ok(None);
@@ -386,30 +385,36 @@ fn line_replacement(
     text: &str,
     eol: &str,
     whole: &str,
-    new: String,
-) -> Result<Option<Replacement>, BufferError> {
+    new: &str,
+) -> Result<Vec<Replacement>, BufferError> {
     if new == whole {
-        return Ok(None);
+        return Ok(Vec::new());
     }
-    let (start, end, new) = if eol.is_empty() || new.ends_with(eol) {
-        // The break stays: only the text between what the old and the new line share is edited, so
-        // a caret in the rest of the line stays with its text.
-        let kept = new.strip_suffix(eol).unwrap_or(&new);
-        let (from, to, middle) = narrow(text, kept);
-        (
-            Pos::new(index, from),
-            Pos::new(index, to),
-            middle.to_owned(),
-        )
-    } else {
-        (Pos::new(index, 0), Pos::new(index + 1, 0), new)
-    };
-    replacement_for(doc, &(start..end), &new, ReplaceTarget::Match).map(Some)
+    if !(eol.is_empty() || new.ends_with(eol)) {
+        let range = Pos::new(index, 0)..Pos::new(index + 1, 0);
+        return replacement_for(doc, &range, new, ReplaceTarget::Match).map(|r| vec![r]);
+    }
+    // The break stays: only what differs is edited, one edit for each stretch of it (one for each
+    // match, with the text between the matches left alone), so a caret in the rest of the line
+    // stays with its text.
+    let kept = new.strip_suffix(eol).unwrap_or(new);
+    diff_edits(text, kept)
+        .into_iter()
+        .map(|(from, to, inserted)| {
+            let range = Pos::new(index, from)..Pos::new(index, to);
+            replacement_for(doc, &range, &inserted, ReplaceTarget::Match)
+        })
+        .collect()
 }
 
-/// The part of `old` that differs from `new`, as the byte range in `old` and what `new` has there:
-/// what the two share at the start and at the end (whole characters) is left out.
-fn narrow<'a>(old: &str, new: &'a str) -> (usize, usize, &'a str) {
+/// The most cells (characters of the old text times characters of the new) of the table that
+/// [`diff_edits`] fills; a line that differs over more than this is edited as one piece.
+const DIFF_CELLS: usize = 1_000_000;
+
+/// The edits that make `old` into `new`, as byte ranges of `old` with the text to put there: what the
+/// two share at the start and the end is left out, and the rest is aligned by its longest common
+/// subsequence, so the text between two changes stays as it is.
+fn diff_edits(old: &str, new: &str) -> Vec<(usize, usize, String)> {
     let start: usize = old
         .chars()
         .zip(new.chars())
@@ -423,7 +428,79 @@ fn narrow<'a>(old: &str, new: &'a str) -> (usize, usize, &'a str) {
         .take_while(|(a, b)| a == b)
         .map(|(a, _)| a.len_utf8())
         .sum();
-    (start, old.len() - end, &new[start..new.len() - end])
+    let (from, to) = (start, old.len() - end);
+    let (a, b) = (&old[from..to], &new[start..new.len() - end]);
+    let whole = || vec![(from, to, b.to_owned())];
+    if a.is_empty() && b.is_empty() {
+        return Vec::new();
+    }
+    if a.is_empty() || b.is_empty() {
+        return whole();
+    }
+    let a: Vec<(usize, char)> = a.char_indices().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.len().saturating_mul(b.len()) > DIFF_CELLS {
+        return whole();
+    }
+    // `table[i][j]`: the length of the longest common subsequence of `a[i..]` and `b[j..]`.
+    let width = b.len() + 1;
+    let mut table = vec![0u32; (a.len() + 1) * width];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            table[i * width + j] = if a[i].1 == b[j] {
+                table[(i + 1) * width + j + 1] + 1
+            } else {
+                table[(i + 1) * width + j].max(table[i * width + j + 1])
+            };
+        }
+    }
+    let mut edits = Vec::new();
+    // The stretch being changed: where it starts in `old` (as an index of `a`), and what it puts.
+    let mut open: Option<(usize, String)> = None;
+    let byte_at = |i: usize| a.get(i).map_or(to, |&(at, _)| from + at);
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() || j < b.len() {
+        let same = i < a.len() && j < b.len() && a[i].1 == b[j];
+        if same {
+            if let Some((first, inserted)) = open.take() {
+                edits.push((byte_at(first), byte_at(i), inserted));
+            }
+            i += 1;
+            j += 1;
+            continue;
+        }
+        let (_, inserted) = open.get_or_insert((i, String::new()));
+        if j >= b.len() || (i < a.len() && table[(i + 1) * width + j] >= table[i * width + j + 1]) {
+            i += 1;
+        } else {
+            inserted.push(b[j]);
+            j += 1;
+        }
+    }
+    if let Some((first, inserted)) = open {
+        edits.push((byte_at(first), byte_at(i), inserted));
+    }
+    merge_close(old, edits)
+}
+
+/// The fewest characters that two edits must have between them to stay two: a shorter stretch of
+/// shared text is a coincidence of the alignment (the `i` of `hit` and `miss`), not text that a
+/// caret should stay with, and is put into one edit.
+const MIN_GAP: usize = 4;
+
+fn merge_close(old: &str, edits: Vec<(usize, usize, String)>) -> Vec<(usize, usize, String)> {
+    let mut merged: Vec<(usize, usize, String)> = Vec::with_capacity(edits.len());
+    for (from, to, inserted) in edits {
+        match merged.last_mut() {
+            Some(last) if old[last.1..from].chars().count() < MIN_GAP => {
+                last.2.push_str(&old[last.1..from]);
+                last.2.push_str(&inserted);
+                last.1 = to;
+            }
+            _ => merged.push((from, to, inserted)),
+        }
+    }
+    merged
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is
@@ -441,4 +518,67 @@ fn copy_new(from: &str, to: &str) -> std::io::Result<()> {
         let _ = std::fs::remove_file(to);
     }
     copied
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diff_edits;
+
+    #[test]
+    fn each_match_of_a_line_is_one_edit() {
+        // the text between the matches is not part of any edit
+        assert_eq!(
+            diff_edits("hit middle hit", "x middle x"),
+            [(0, 3, "x".to_owned()), (11, 14, "x".to_owned())]
+        );
+    }
+
+    #[test]
+    fn what_the_lines_share_at_the_ends_is_left_out() {
+        assert_eq!(
+            diff_edits("ab needle zz", "ab n zz"),
+            [(4, 9, String::new())]
+        );
+        assert!(diff_edits("same", "same").is_empty());
+    }
+
+    #[test]
+    fn the_edits_are_on_character_boundaries() {
+        // 3-byte characters: the byte ranges are of the old text
+        assert_eq!(
+            diff_edits("あ猫いいいい猫う", "あ犬いいいい犬う"),
+            [(3, 6, "犬".to_owned()), (18, 21, "犬".to_owned())]
+        );
+    }
+
+    #[test]
+    fn a_short_stretch_between_changes_is_one_edit_with_them() {
+        // the `i` that `hit` and `miss` share is not text to keep
+        assert_eq!(diff_edits("hit", "miss"), [(0, 3, "miss".to_owned())]);
+        assert_eq!(
+            diff_edits("hit hit", "miss miss"),
+            [(0, 7, "miss miss".to_owned())]
+        );
+    }
+
+    #[test]
+    fn the_edits_make_the_new_text() {
+        for (old, new) in [
+            ("a hit b hit c", "a xx b x c"),
+            ("hithit", "x"),
+            ("", "abc"),
+            ("abc", ""),
+            ("aXbXc", "aYYbc"),
+        ] {
+            let mut made = String::new();
+            let mut at = 0;
+            for (from, to, inserted) in diff_edits(old, new) {
+                made.push_str(&old[at..from]);
+                made.push_str(&inserted);
+                at = to;
+            }
+            made.push_str(&old[at..]);
+            assert_eq!(made, new, "{old:?} to {new:?}");
+        }
+    }
 }

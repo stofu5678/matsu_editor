@@ -700,6 +700,14 @@ fn a_caret_in_a_line_with_a_replacement_stays_with_its_text(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+fn a_caret_between_two_matches_of_a_line_stays_with_its_text(cx: &mut TestAppContext) {
+    // the text between the matches is not part of an edit: the caret before `middle` follows it
+    let (text, caret) = replace_with_caret(cx, "hit middle hit\n", Pos::new(0, 4), ("hit", "x", 5));
+    assert_eq!(text, "x middle x\n");
+    assert_eq!(caret, Pos::new(0, 2));
+}
+
+#[gpui::test]
 fn a_box_selection_does_not_stop_the_replacement(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "", None);
     let doc = Document::from_utf8(b"a needle\nb needle\n".to_vec()).unwrap();
