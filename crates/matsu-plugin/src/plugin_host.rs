@@ -73,6 +73,13 @@ const EVENT_BACKLOG: usize = 4096;
 /// How long a process that was told to end may take before it is killed.
 const SHUTDOWN_GRACE: Duration = Duration::from_millis(1500);
 
+/// How long a call stays open after its answer, with nothing new from the process, so that the
+/// lines written to standard error before the answer come first.
+const SETTLE_QUIET: Duration = Duration::from_millis(20);
+
+/// The longest a call stays open after its answer, even if the process keeps writing.
+const SETTLE_CAP: Duration = Duration::from_millis(250);
+
 /// What a host needs to know about its plugin.
 #[derive(Debug, Clone)]
 pub struct HostSettings {
@@ -208,6 +215,16 @@ struct Current {
     deadline: Instant,
 }
 
+/// A call whose answer has come, kept open for a moment so that the lines the handler wrote to
+/// standard error before the answer reach the caller first (see [`PluginHost::settle`]).
+struct Settling {
+    outcome: Outcome,
+    /// The call ends when nothing has come by this time. Each line that comes moves it on.
+    quiet_until: Instant,
+    /// The call ends at this time at the latest, however much comes.
+    cap: Instant,
+}
+
 /// The host of one plugin in one language.
 pub struct PluginHost {
     settings: HostSettings,
@@ -216,6 +233,8 @@ pub struct PluginHost {
     stopped: bool,
     next_id: i64,
     current: Option<Current>,
+    /// The call in `current` has been answered and waits for the late lines of its output.
+    settling: Option<Settling>,
     /// [`shutdown`](Self::shutdown) ended a call that was running: the next [`poll`](Self::poll)
     /// says so, so that whoever follows the call can clean up.
     interrupted: bool,
@@ -230,6 +249,7 @@ impl PluginHost {
             stopped: false,
             next_id: 1,
             current: None,
+            settling: None,
             interrupted: false,
         }
     }
@@ -449,6 +469,9 @@ impl PluginHost {
         if std::mem::take(&mut self.interrupted) {
             return Some(Progress::Done(Outcome::Cancelled));
         }
+        if self.settling.is_some() {
+            return self.settle(wait);
+        }
         let (id, deadline) = {
             let current = self.current.as_ref()?;
             (current.id, current.deadline)
@@ -470,7 +493,15 @@ impl PluginHost {
                 }
                 Ok(HostEvent::Message(text)) => match classify(&text, id) {
                     Message::Request => return Some(Progress::Request(text)),
-                    Message::Answer(outcome) => return Some(self.finish(outcome)),
+                    Message::Answer(outcome) => {
+                        let now = Instant::now();
+                        self.settling = Some(Settling {
+                            outcome,
+                            quiet_until: now + SETTLE_QUIET,
+                            cap: now + SETTLE_CAP,
+                        });
+                        return self.settle(wait);
+                    }
                     Message::Other => {
                         dropped += 1;
                         if dropped >= MAX_DROPPED_IN_A_ROW {
@@ -490,6 +521,56 @@ impl PluginHost {
                 }
             }
         }
+    }
+
+    /// Waits for what the process wrote before its answer. Standard output and standard error are
+    /// read by two threads, so a line that the handler wrote to standard error just before it
+    /// answered can still be on its way when the answer is here. The pipes carry no order between
+    /// them, so the host cannot tell when the last line has come; it keeps the call open until
+    /// nothing has come for [`SETTLE_QUIET`] (the line was in the pipe before the answer was
+    /// written, so the reader needs only to be scheduled), and hands each line out as output of
+    /// the call. A plugin that writes without end cannot hold the call: it ends at [`SETTLE_CAP`]
+    /// after the answer, and the bounded queue of events keeps the memory in check.
+    fn settle(&mut self, wait: Duration) -> Option<Progress> {
+        let until = Instant::now() + wait;
+        loop {
+            let settling = self.settling.as_ref()?;
+            let now = Instant::now();
+            if now >= settling.quiet_until || now >= settling.cap {
+                return Some(self.end_settling());
+            }
+            let left = until
+                .min(settling.quiet_until)
+                .saturating_duration_since(now);
+            let received = self.process.as_ref()?.events.recv_timeout(left);
+            match received {
+                Ok(HostEvent::Output { stream, text }) => {
+                    if let Some(settling) = &mut self.settling {
+                        settling.quiet_until = (Instant::now() + SETTLE_QUIET).min(settling.cap);
+                    }
+                    return Some(Progress::Output { stream, text });
+                }
+                // The call is answered: a message now is not part of it.
+                Ok(HostEvent::Message(_)) => {}
+                Ok(HostEvent::Finished(_)) | Err(RecvTimeoutError::Disconnected) => {
+                    // Everything the process wrote has been read (`Finished` is the last event).
+                    return Some(self.end_settling());
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    if Instant::now() >= until {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+
+    fn end_settling(&mut self) -> Progress {
+        let outcome = self
+            .settling
+            .take()
+            .map_or(Outcome::Cancelled, |settling| settling.outcome);
+        self.finish(outcome)
     }
 
     /// Sends the answer to a request of the plugin.
@@ -513,6 +594,7 @@ impl PluginHost {
 
     fn finish_progress(&mut self, outcome: Outcome) -> Outcome {
         self.current = None;
+        self.settling = None;
         self.note(&outcome);
         let keep = self.settings.resident && outcome == Outcome::Ok;
         if !keep {
@@ -571,6 +653,7 @@ impl PluginHost {
     /// An idle one is asked to end and left to do so; a thread kills it if it takes too long.
     /// This returns at once.
     pub fn shutdown(&mut self) {
+        self.settling = None;
         let in_a_call = self.current.take().is_some();
         self.interrupted |= in_a_call;
         self.close_process(!in_a_call);
@@ -579,6 +662,7 @@ impl PluginHost {
     /// Kills the process on the spot, idle or not (the editor quits, or the host is dropped): no
     /// process is left behind, and nothing waits.
     pub fn shutdown_now(&mut self) {
+        self.settling = None;
         self.interrupted |= self.current.take().is_some();
         self.close_process(false);
     }

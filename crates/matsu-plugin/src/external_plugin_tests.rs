@@ -1062,3 +1062,5 @@ mod ruby_php;
 mod powershell_perl;
 
 mod emacs_applescript;
+
+mod stderr_order;
