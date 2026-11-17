@@ -132,7 +132,7 @@ def _serve():
             failure = _describe(exc)
         _sys.modules.pop("__main__", None)
         try:
-            _respond(invoke["id"], failure, token)
+            _respond(failure, token)
         except EditorError:
             # Refused: the host does not take the answer (it has answered already). That is no
             # reason to stop serving.

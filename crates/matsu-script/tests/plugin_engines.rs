@@ -656,3 +656,61 @@ Editor.InsText('mine')";
     assert_eq!(second.outcome, Outcome::Ok, "{:?}", second.output);
     assert_eq!(world.doc.text(), "minesecond");
 }
+
+/// What the loop reads after a handler ran must not be on the heap that a handler can reach: the
+/// answer is routed by the host (the outstanding call) and the token is an immediate integer. A
+/// handler that rewrites or empties the loop's hash of the call, and the file name, still has its
+/// call answered, and the next call runs its own handler.
+#[test]
+fn an_mruby_handler_that_changes_the_loops_call_hash_still_gets_its_call_answered() {
+    let code = "ObjectSpace.each_object(Hash) do |h|
+  next unless h.key?('source') && h.key?('jack')
+  h['id'] = 999_999
+  h['token'] = 1
+  h['name'] = 'other.mruby'
+  (h.keys - ['id', 'token']).each { |k| h.delete(k) }
+end
+ObjectSpace.each_object(String) do |s|
+  begin
+    s << 'x' if s == 'tamper.mruby'
+  rescue Exception
+    nil
+  end
+end
+Editor.InsText('mine')";
+    let dir = plugin_dir(&[
+        ("tamper.mruby", code),
+        ("second.mruby", "Editor.InsText('second')"),
+    ]);
+    let mut host = host_of(Engine::Mruby, dir.path(), true);
+    let mut world = World::new("");
+    let started = Instant::now();
+    for round in 0..2 {
+        let report = world.call(&mut host, "tamper.mruby", PATIENT);
+        assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+        assert!(started.elapsed() < Duration::from_secs(20), "round {round}");
+        let second = world.call(&mut host, "second.mruby", PATIENT);
+        assert_eq!(second.outcome, Outcome::Ok, "{:?}", second.output);
+    }
+    assert_eq!(world.doc.text(), "minesecondminesecond");
+}
+
+/// A handler that fails after the same tampering is answered with its error, by name.
+#[test]
+fn an_mruby_handler_that_tampers_and_fails_is_answered_with_its_error() {
+    let code = "ObjectSpace.each_object(Hash) do |h|
+  h['id'] = 999_999 if h.key?('source') && h.key?('jack')
+end
+raise 'broken'";
+    let dir = plugin_dir(&[("bad.mruby", code)]);
+    let mut host = host_of(Engine::Mruby, dir.path(), true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "bad.mruby", PATIENT);
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(
+        text.contains("broken") && text.contains("bad.mruby"),
+        "{text}"
+    );
+}

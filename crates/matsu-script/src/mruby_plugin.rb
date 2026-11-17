@@ -82,17 +82,23 @@ module MatsuPlugin
       # handler), and an integer: an immediate value, not an object that a handler could find by
       # walking the heap (ObjectSpace).
       token = invoke.delete('token')
-      name = invoke['name'].to_s
+      # Frozen copy: the name is read again after the handler ran (for the text of an error), and
+      # a handler that walks the heap must not change it.
+      name = invoke['name'].to_s.dup
       name = '<plugin>' if name.empty?
-      plugin.jack = invoke['jack'].to_s
-      plugin.args = invoke['args']
-      Object.__send__(:remove_const, :Indent) if Object.const_defined?(:Indent)
-      if plugin.jack == 'SmartIndent'
-        typed = plugin.args.is_a?(Hash) ? plugin.args['char'] : nil
-        Object.const_set(:Indent, IndentClass.new(typed.is_a?(String) ? typed : ''))
-      end
+      name.freeze
       failure = nil
+      # Everything that touches what a handler of an earlier call could have changed (the plugin
+      # object, the constants, the map of the files) is inside this `begin`: a failure there fails
+      # this call, with an answer, and does not stop the loop.
       begin
+        plugin.jack = invoke['jack'].to_s
+        plugin.args = invoke['args']
+        Object.__send__(:remove_const, :Indent) if Object.const_defined?(:Indent)
+        if plugin.jack == 'SmartIndent'
+          typed = plugin.args.is_a?(Hash) ? plugin.args['char'] : nil
+          Object.const_set(:Indent, IndentClass.new(typed.is_a?(String) ? typed : ''))
+        end
         @space = spaces[name] ||= Object.new
         # A BOM starts a UTF-8 file but is not Ruby.
         @source = invoke['source'].to_s
@@ -103,7 +109,7 @@ module MatsuPlugin
         failure = MatsuBoot.describe(e, name)
       end
       begin
-        Editor.__send__('plugin/respond', invoke['id'], failure, token)
+        Editor.__send__('plugin/respond', failure, token)
       rescue EditorError
         # Refused: the host does not take the answer (it has answered already). That is no reason
         # to stop serving.
