@@ -339,6 +339,43 @@ mod tests {
         assert_eq!((c, c_col), (Pos::new(200, 6), 2));
     }
 
+    /// A small sort at the end of a large document that is not laid out does not lay out the
+    /// lines before it (the work stays proportional to the sorted lines).
+    #[test]
+    fn a_small_box_sort_at_the_end_does_not_lay_out_the_lines_before_it() {
+        use matsu_core::cursor::Cursor;
+
+        const LINES: usize = 20_000;
+        let text: String = (0..LINES)
+            .map(|i| format!("{:02}xxab\n", i % 100))
+            .collect();
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..scaled(1)
+        };
+        let mut model = DocumentModel::new(doc(&text));
+        let mut layout = DocumentLayout::new(model.doc(), cfg).unwrap();
+        // the second row of the last two lines, columns 0 to 2
+        let mut cursor = Cursor::new(Pos::new(LINES - 2, 4));
+        cursor.begin_box(0, false);
+        cursor.move_box_to(Pos::new(LINES - 1, 4), 2);
+        {
+            let mut adapter = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut adapter, None);
+            Registry::global().run("sort_desc", &mut cx, &[]).unwrap();
+            cx.finish();
+        }
+        // sorted: "9999ab" is first now, and the corners are on the same rows
+        assert_eq!(model.doc().line(LINES - 2).unwrap().unwrap().text, "99xxab");
+        let ((a, a_col), (c, c_col)) = cursor.box_corners().expect("the box stays");
+        assert_eq!((a, a_col), (Pos::new(LINES - 2, 4), 0));
+        assert_eq!((c, c_col), (Pos::new(LINES - 1, 6), 2));
+        // the lines before are still the estimate of the unlaid index, the sorted ones are exact
+        assert_eq!(layout.rows_in_line(0), Some(1));
+        assert_eq!(layout.rows_in_line(LINES / 2), Some(1));
+        assert_eq!(layout.rows_in_line(LINES - 1), Some(2));
+    }
+
     #[test]
     fn a_wrapped_line_has_several_rows() {
         let d = doc("abcdefghij\nxy");
