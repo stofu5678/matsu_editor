@@ -63,10 +63,10 @@ pub(super) fn long_path(path: &str) -> Option<String> {
         // `GetFullPathName` failed: the long name of the path as given, or a failure.
         None => long(&source).map(|buffer| text(&buffer)),
         // The long name of the full path, or the full path when the file is not there.
-        Some(full) => {
-            let mut terminated = full.clone();
-            terminated.push(0);
-            Some(long(&terminated).map_or_else(|| text(&full), |buffer| text(&buffer)))
+        Some(mut full) => {
+            // The NUL goes in place for the call; the text is read without it.
+            full.push(0);
+            Some(long(&full).map_or_else(|| text(&full[..full.len() - 1]), |buffer| text(&buffer)))
         }
     }
 }

@@ -13,6 +13,7 @@
 //!   tells in a message box, are written the same way, so that a batch does not wait for a box.
 
 use std::io::Write;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::Context;
@@ -73,12 +74,20 @@ impl EditorView {
             info.window_gone = true;
         }
         let encoding = self.document.read(cx).file().encoding;
+        // The search counts as running until the worker is done, as a Grep to a window does: the events
+        // of the start wait for it, and the last window cannot close before the output is complete.
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.grep.running = Some(cancel.clone());
         let task = cx.background_executor().spawn(async move {
-            let cancel = AtomicBool::new(false);
             write_grep(&info, encoding, &cancel, std::io::stdout().lock());
         });
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |this, cx| {
             task.await;
+            this.update(cx, |view, cx| {
+                view.grep.running = None;
+                cx.notify();
+            })
+            .ok();
             // `PM_CLOSE_GREPNOCONFIRM | PM_CLOSE_EXIT`: no question, and the process ends.
             cx.update(crate::file_ops::close::quit_at_once);
         })
@@ -172,5 +181,36 @@ mod tests {
             Broken,
         );
         assert!(cancel.load(Ordering::Relaxed));
+    }
+
+    #[gpui::test]
+    fn the_search_counts_as_running_until_the_output_is_done(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        use matsu_core::buffer::Document;
+        use matsu_core::model::DocumentModel;
+        cx.update(gpui_component::init);
+        let doc = Document::from_utf8(Vec::new()).unwrap();
+        let shared =
+            cx.new(|_| crate::document::SharedDocument::new(DocumentModel::new(doc), None));
+        let (view, cx) = cx.add_window_view(move |_, cx| EditorView::new(shared, cx));
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_string_lossy().into_owned();
+        let quits = crate::file_ops::close::quits();
+        view.update(cx, |view, cx| {
+            view.start_grep_stdout(info(&folder, "x"), cx);
+            // the events of the start and the close of the window wait for the worker
+            assert!(view.is_grep_running());
+        });
+        cx.executor().allow_parking();
+        for _ in 0..100 {
+            cx.run_until_parked();
+            if !view.read_with(cx, |v, _| v.is_grep_running()) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        cx.run_until_parked();
+        assert!(!view.read_with(cx, |v, _| v.is_grep_running()));
+        assert_eq!(crate::file_ops::close::quits(), quits + 1);
     }
 }
