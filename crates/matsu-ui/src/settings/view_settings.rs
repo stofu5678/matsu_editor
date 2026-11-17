@@ -592,6 +592,8 @@ impl ViewSettings {
             line_space: t.line_space.clamp(-LINE_SPACE_MAX, LINE_SPACE_MAX),
             tsv_mode: TsvMode::from_setting(t.tsv_mode),
             ins_space: t.ins_space,
+            // The one place that copies the type settings into `InputOptions`: it runs when the
+            // type settings are applied, and every command run borrows the result.
             input: matsu_commands::input_options::InputOptions {
                 auto_indent: t.auto_indent,
                 auto_indent_zenspace: t.auto_indent_zenspace,

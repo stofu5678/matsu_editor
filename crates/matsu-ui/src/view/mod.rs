@@ -481,7 +481,8 @@ impl EditorView {
         let save_path = self.macros.save_path();
         // `bInsSpace` of the view, which `ChangeInsertSpace` and the type settings change.
         let ins_space = self.prefs.settings.ins_space;
-        let input = self.prefs.settings.input.clone();
+        // Lent to the context: the view's own copy, made when the type settings are applied.
+        let input = &self.prefs.settings.input;
         // The states the lines start in, which the C/C++ smart indent looks at.
         let start_states = colors::StartStates {
             states: &self.color_states,
