@@ -9,7 +9,7 @@
 | 版 | Lua 5.4 |
 | 作り | Rust のクレート `mlua` が、C のソースを取り込んで、一緒にビルドしたもの |
 | ライセンス | MIT |
-| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript（macOS だけ）です） |
+| プラグイン | 動かせます。下の「プラグインとして動かすとき」 |
 
 ## 標準ライブラリ
 
@@ -40,6 +40,16 @@ Lua の標準ライブラリが使えます。ファイルを開く `io` も含�
 
 先頭の行が `#` で始まるとき（シバン）は、行番号を保ったまま、その行をコメントにします。
 
+## プラグインとして動かすとき
+
+- ハンドラのファイルごとに、別の Lua の状態（`lua_State`）が作られます。プロセスが残っている（`UseCache=1` か `Resident=1`）間、同じファイルの次の呼び出しは、同じ状態を使います。呼び出しの間に残したいものは、グローバル変数に置きます。`local` は、呼び出しごとに消えます。別のファイルのグローバル変数は、見えません。
+- ハンドラの文面は、ファイルの中身そのままを、1 つのチャンクとして動かします。`return` は、そのハンドラを終えるだけです。
+- `Plugin`、`Outline`、`Complement`（と、`SmartIndent` のとき `Indent`）が、グローバルにあります。関数は、`Editor` と同じに、ドットで呼びます（`Plugin.GetOption('A', 'B')`、`Complement.AddList(word)`）。引数の最後の `nil` は、省略として扱います。
+- `Plugin.id`（プラグインの ID）、`Plugin.dir`、`Plugin.jack`、`Plugin.args`（呼び出しの引数の表。無いときは `nil`）があります（[ハンドラの中で使えるもの](plugin-api.md)）。
+- `Complement.AddList` は、数や真偽値を、文字列にして渡します。
+- エラーが出ると、その呼び出しは失敗になります。メッセージは、ハンドラのファイルの行番号つきです。
+- 標準エラーへの出力は、その呼び出しが終わる前に、エディターに届きます。
+
 ## 根拠
 
 - 版と作り: `crates/matsu-script/Cargo.toml`（`mlua` の `lua54` と `vendored`）、`crates/matsu-script/src/lua.rs` の冒頭
@@ -47,5 +57,6 @@ Lua の標準ライブラリが使えます。ファイルを開く `io` も含�
 - 引数の変換: 同ファイルの `lua_to_json`、`float_to_json`、`json_to_lua`、`bind`
 - `EditorError`: 同ファイルの `BOOT`、`caller_location`
 - ライセンス: `THIRD_PARTY_NOTICES.txt`
-- 試験: `crates/matsu-script/tests/lua.rs`
+- プラグイン: `crates/matsu-script/src/lua.rs` の `PLUGIN_BOOT`、`PluginState`、`crates/matsu-script/src/plugin.rs`
+- 試験: `crates/matsu-script/tests/lua.rs`、`crates/matsu-script/tests/plugin_engines.rs`
 - 設計: `docs/poc/json-rpc.md`（「同梱のスクリプトホスト」）

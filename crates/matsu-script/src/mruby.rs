@@ -15,11 +15,16 @@ use matsu_plugin::protocol::RpcError;
 use serde_json::{Map, Number, Value};
 
 use crate::engine::Engine;
-use crate::rpc::{CallError, Editor, Initialize};
+use crate::plugin::{self, Reserved};
+use crate::rpc::{CallError, Editor, Initialize, LinkEditor, PluginInit, PluginLink};
 
 pub struct Mruby;
 
 const BOOT: &str = include_str!("mruby_boot.rb");
+
+/// The loop that serves a plugin, run after `BOOT`: it asks the host for each `plugin/invoke`
+/// through the reserved calls (`crate::plugin::reserved`).
+const SERVE: &str = include_str!("mruby_plugin.rb");
 
 impl Engine for Mruby {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
@@ -38,18 +43,55 @@ impl Engine for Mruby {
             functions: &names,
             info: &info,
         };
-        matsu_mruby_sys::run(&script, &mut Bridge { editor })
+        let mut bridge = Bridge {
+            editor,
+            reserved: None,
+        };
+        matsu_mruby_sys::run(&script, &mut bridge)
+    }
+
+    /// A plugin: the loop of `SERVE` runs the text of each handler in an object of its own for
+    /// each handler file, kept for the next call of the same file (ADR-0026), as the boot of the
+    /// external Ruby does. The calls of the plugin objects are functions of `Editor` under their
+    /// full names (`Editor.__send__("Plugin.GetDef")`), which `SERVE` wraps.
+    fn serve(&self, init: &PluginInit, link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
+        let names: Vec<&str> = entries()
+            .iter()
+            .map(|f| f.name)
+            .chain(plugin::object_calls())
+            .chain([
+                plugin::reserved::IDENTITY,
+                plugin::reserved::NEXT,
+                plugin::reserved::RESPOND,
+            ])
+            .collect();
+        let info = json_to_mruby(&init.info);
+        let script = Script {
+            boot: BOOT,
+            name: "matsu-script boot",
+            source: SERVE,
+            functions: &names,
+            info: &info,
+        };
+        let mut bridge = Bridge {
+            editor: Rc::new(RefCell::new(LinkEditor(link.clone()))),
+            reserved: Some(Reserved::new(link, &init.plugin)),
+        };
+        matsu_mruby_sys::run(&script, &mut bridge)
     }
 }
 
 /// The functions of the macro API as the editor connection answers them.
 struct Bridge {
     editor: Rc<RefCell<dyn Editor>>,
+    /// The calls for the connection, when the host serves a plugin.
+    reserved: Option<Reserved>,
 }
 
 impl Host for Bridge {
     fn call(&mut self, function: &str, mut args: Vec<Mrb>) -> Result<Mrb, Failure> {
-        let func = find(function).expect("the functions come from the catalog");
+        // The functions of the macro API have an entry; the calls of the plugin objects have not.
+        let func = find(function);
         // `Editor.Jump(2, nil)` means `Editor.Jump(2)`.
         while matches!(args.last(), Some(Mrb::Nil)) {
             args.pop();
@@ -58,10 +100,17 @@ impl Host for Bridge {
         for (index, arg) in args.iter().enumerate() {
             match mruby_to_json(arg) {
                 Ok(value) => params.push(value),
-                Err(got) => return Err(bad_argument(func, index, &got)),
+                Err(got) => return Err(bad_argument(function, func, index, &got)),
             }
         }
-        let answer = self.editor.borrow_mut().call(func.name, params);
+        if let Some(reserved) = &self.reserved
+            && let Some(answer) = reserved.answer(function, &params)
+        {
+            return answer
+                .map(|result| json_to_mruby(&result))
+                .map_err(Failure::Fatal);
+        }
+        let answer = self.editor.borrow_mut().call(function, params);
         match answer {
             Ok(result) => Ok(json_to_mruby(&result)),
             Err(CallError::Rpc(RpcError { code, message, .. })) => {
@@ -72,14 +121,12 @@ impl Host for Bridge {
     }
 }
 
-fn bad_argument(func: &Entry, index: usize, got: &str) -> Failure {
+fn bad_argument(function: &str, func: Option<&Entry>, index: usize, got: &str) -> Failure {
     let (name, ty) = func
-        .params
-        .get(index)
+        .and_then(|func| func.params.get(index))
         .map_or(("?", "a value"), |p| (p.name, p.ty.name()));
     let error = RpcError::invalid_params(format!(
-        "{}: argument \"{name}\" must be {ty}, got {got}",
-        func.name
+        "{function}: argument \"{name}\" must be {ty}, got {got}"
     ));
     Failure::Editor {
         code: error.code,

@@ -1,6 +1,6 @@
 //! The script engines that the host can run. An engine takes the script and the connection to
-//! the editor, and binds the macro API (`matsu_plugin::catalog::entries()`) into its language. The next
-//! engines (QuickJS, MicroPython, mruby) add a module like `lua` and a line to `by_name`.
+//! the editor, and binds the macro API (`matsu_plugin::catalog::entries()`) into its language. A new
+//! engine adds a module like `lua` and a line to `by_name`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -17,10 +17,8 @@ pub trait Engine {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String>;
 
     /// Serves a plugin: answers each `plugin/invoke` until the editor closes the connection
-    /// (ADR-0026). Only the engines that say so can; the others are for macros.
-    fn serve(&self, _init: &PluginInit, _link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
-        Err("this engine cannot run plugins yet (only quickjs can)".into())
-    }
+    /// (ADR-0026), each handler file with the global state of its own.
+    fn serve(&self, init: &PluginInit, link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String>;
 }
 
 /// The names that `--engine` accepts.

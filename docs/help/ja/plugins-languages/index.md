@@ -28,10 +28,10 @@
 | ページ | 内容 |
 |---|---|
 | [すべての言語に共通のこと](lang-common.md) | 文字コード、出力、エラー、時間の制限、止め方 |
-| [Lua](lang-lua.md) | 同梱 |
+| [Lua](lang-lua.md) | 同梱。プラグインも動かせる |
 | [JavaScript（QuickJS）](lang-quickjs.md) | 同梱。プラグインも動かせる |
-| [MicroPython](lang-micropython.md) | 同梱 |
-| [mruby](lang-mruby.md) | 同梱 |
+| [MicroPython](lang-micropython.md) | 同梱。プラグインも動かせる |
+| [mruby](lang-mruby.md) | 同梱。プラグインも動かせる |
 | [JavaScript（Node.js）と TypeScript](lang-node.md) | 外部。プラグインも動かせる |
 | [Python](lang-python.md) | 外部。プラグインも動かせる |
 | [Ruby](lang-ruby.md) | 外部。プラグインも動かせる |

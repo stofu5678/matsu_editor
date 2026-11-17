@@ -33,7 +33,7 @@ use matsu_plugin::plugin_host::{
     self, HostSettings, MAX_FAILURES, Outcome, PluginApi, PluginHost, Progress, limit_of,
 };
 use matsu_plugin::protocol::RpcError;
-use matsu_plugin::session::{Engine, Language, Stream};
+use matsu_plugin::session::{Language, Stream};
 use matsu_plugin::{Value, json};
 
 use super::output::Kind;
@@ -690,10 +690,10 @@ fn prepare(
         }
     };
     let language = match Language::of_file(Path::new(&handler)) {
-        Some(language) if language.serves_plugins() && language.runs_here() => language,
+        Some(language) if language.runs_here() => language,
         _ => {
             return Err(format!(
-                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ) のどれかにしてください"
+                "{handler} は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ)、.lua、.mruby、.upy のどれかにしてください"
             ));
         }
     };
@@ -726,7 +726,7 @@ fn prepare(
                 want_resident,
             )
             .with_verified(agreed);
-            if language == Language::Bundled(Engine::QuickJs)
+            if matches!(language, Language::Bundled(_))
                 && let Some(path) = test_interpreter()
             {
                 settings.interpreter = path.into();

@@ -22,6 +22,7 @@ use rquickjs::{
 use serde_json::{Number, Value as Json};
 
 use crate::engine::Engine;
+use crate::plugin::{COMPLEMENT_CALLS, OUTLINE_CALLS, PLUGIN_CALLS, serve_each};
 use crate::rpc::{CallError, Editor, Initialize, Invoke, LinkEditor, PluginInit, PluginLink};
 
 pub struct QuickJs;
@@ -143,41 +144,25 @@ impl Engine for QuickJs {
         vm.finish()
     }
 
-    /// A plugin: one runtime for as long as the host lives, so that what a handler leaves in the
-    /// global scope is there for the next one. Each `plugin/invoke` runs the text of its handler
-    /// as a classic script, as a macro does.
+    /// A plugin: one runtime for each handler file, for as long as the host lives, so that what a
+    /// handler leaves in the global scope is there for the next call of the same file. Each
+    /// `plugin/invoke` runs the text of its handler as a classic script, as a macro does.
     fn serve(&self, init: &PluginInit, link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
         let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(LinkEditor(link.clone())));
         // One runtime for each handler file: what a handler leaves in the global scope is there
         // the next time the same file is called, and a file never sees another's (ADR-0026).
         let mut vms: HashMap<String, Vm> = HashMap::new();
-        loop {
-            let invoke = link.borrow_mut().next_invoke()?;
-            let Some(invoke) = invoke else {
-                return Ok(());
-            };
-            let outcome = match vms.entry(invoke.name.clone()) {
-                std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    Vm::for_plugin(init, &editor).map(|vm| entry.insert(vm))
-                }
+        serve_each(&link, |invoke| {
+            if !vms.contains_key(&invoke.name) {
+                vms.insert(invoke.name.clone(), Vm::for_plugin(init, &editor)?);
             }
-            .and_then(|vm| {
-                vm.context
-                    .with(|ctx| run_handler(&ctx, &invoke, &vm.hooks))
-                    .and_then(|()| vm.finish())
-            });
-            let answer = match outcome {
-                Ok(()) => Ok(serde_json::json!({"ok": true})),
-                Err(message) => Err(RpcError::new(HANDLER_FAILED, message)),
-            };
-            link.borrow_mut().respond(&invoke.id, answer)?;
-        }
+            let vm = &vms[&invoke.name];
+            vm.context
+                .with(|ctx| run_handler(&ctx, invoke, &vm.hooks))
+                .and_then(|()| vm.finish())
+        })
     }
 }
-
-/// The code of the error answer to an invoke whose handler failed.
-pub const HANDLER_FAILED: i64 = -32000;
 
 /// Runs one handler: tells the boot the jack and its arguments, then evaluates the text.
 fn run_handler(
@@ -338,36 +323,6 @@ fn install<'js>(
     let boot: Function = ctx.eval_with_options(BOOT, named("matsu-script:boot".to_owned()))?;
     boot.call((raw, names, info, write, plugin))
 }
-
-/// The calls of the `Plugin` object (Sakura's `CPluginIfObj`: `help/plugin/Text/implementation02.html`).
-/// They go to the editor under these names; the editor reads the definition file and the options
-/// of the plugin.
-pub const PLUGIN_CALLS: &[&str] = &[
-    "Plugin.GetPluginDir",
-    "Plugin.GetDef",
-    "Plugin.GetOption",
-    "Plugin.SetOption",
-    "Plugin.GetString",
-    "Plugin.GetCommandNo",
-    "Plugin.AddCommand",
-];
-
-/// The calls of the `Outline` object (Sakura's `COutlineIfObj`, `sakura_core/plugin/COutlineIfObj.h`;
-/// `help/plugin/Text/implementation02.html`). The editor answers them, and only while an `Outline`
-/// plug runs.
-pub const OUTLINE_CALLS: &[&str] = &[
-    "Outline.AddFuncInfo",
-    "Outline.AddFuncInfo2",
-    "Outline.AddFuncInfo3",
-    "Outline.AddFuncInfo4",
-    "Outline.SetTitle",
-    "Outline.SetListType",
-    "Outline.SetLabel",
-];
-/// The calls of the `Complement` object that the editor answers (Sakura's `CComplementIfObj`,
-/// `sakura_core/plugin/CComplementIfObj.h`). `GetCurrentWord` and `GetOption` need nothing from the
-/// editor: the word and the option come with the invoke (`Plugin.args`).
-pub const COMPLEMENT_CALLS: &[&str] = &["Complement.AddList"];
 
 /// One function of the macro API (or a call of the `Plugin` object, which has no entry) as a Rust
 /// function for JavaScript. It takes the array of the arguments and answers `[true, result]` or

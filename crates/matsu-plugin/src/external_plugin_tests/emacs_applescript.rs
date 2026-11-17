@@ -14,10 +14,9 @@ const AS: Language = Language::AppleScript;
 const SLOW: Duration = Duration::from_secs(15);
 
 #[test]
-fn emacs_lisp_and_applescript_are_served_as_plugins() {
-    assert!(EL.serves_plugins());
-    assert!(AS.serves_plugins());
+fn applescript_runs_as_a_plugin_only_on_macos() {
     assert_eq!(AS.runs_here(), cfg!(target_os = "macos"));
+    assert!(EL.runs_here());
 }
 
 #[cfg(not(target_os = "macos"))]
