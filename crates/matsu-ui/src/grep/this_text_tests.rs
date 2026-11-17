@@ -235,7 +235,7 @@ fn a_replacement_of_a_window_plans_the_edits_and_counts_them() {
         sink.text
     );
     let inserted: Vec<_> = sink.edits.iter().map(|e| e.inserted.as_str()).collect();
-    assert_eq!(inserted, ["miss", "miss miss"]);
+    assert_eq!(inserted, ["miss", "miss", "miss"]);
 }
 
 #[test]
@@ -263,10 +263,12 @@ fn a_replacement_of_a_window_can_cover_the_line_break() {
     let mut sink = Planning::default();
     let outcome = run(&i, &AtomicBool::new(false), &mut sink).unwrap();
     assert_eq!(outcome.hits, 3);
-    // the edits of the lines that touch each other are one
-    assert_eq!(sink.edits.len(), 1);
-    assert_eq!(sink.edits[0].removed, "a\nb\nc\n");
-    assert_eq!(sink.edits[0].inserted, "a,b,c,");
+    // one edit for each break, which the edit takes up to the start of the next line
+    assert_eq!(sink.edits.len(), 3);
+    for edit in &sink.edits {
+        assert_eq!(edit.removed, "\n");
+        assert_eq!(edit.inserted, ",");
+    }
 }
 
 #[test]

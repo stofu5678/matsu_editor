@@ -189,23 +189,40 @@ impl RegexReplacer {
     /// the line ending; what it covers is replaced like the rest. Returns the new text and the
     /// number of matches replaced.
     pub fn replace_subject(&self, subject: &str) -> Result<(String, usize), MatcherError> {
-        let matches = GlobalScan(&self.matcher).find_all_from(subject, subject.len(), 0)?;
         let mut out = String::with_capacity(subject.len());
+        let mut at = 0;
+        let count = self.for_each_replacement(subject, &mut |range, text| {
+            out.push_str(&subject[at..range.start]);
+            out.push_str(text);
+            at = range.end;
+        })?;
+        out.push_str(&subject[at..]);
+        Ok((out, count))
+    }
+
+    /// Calls `each` with the range of every match that [`replace_subject`](Self::replace_subject)
+    /// replaces and the text it becomes, in order, and returns how many there are. A match that
+    /// begins before the end of the last is left alone.
+    pub fn for_each_replacement(
+        &self,
+        subject: &str,
+        each: &mut dyn FnMut(Range<usize>, &str),
+    ) -> Result<usize, MatcherError> {
+        let matches = GlobalScan(&self.matcher).find_all_from(subject, subject.len(), 0)?;
         let (mut at, mut count) = (0, 0);
+        let mut groups = Vec::new();
         for m in &matches {
             if m.start < at {
                 continue;
             }
-            out.push_str(&subject[at..m.start]);
-            let mut groups = Vec::with_capacity(m.captures.len() + 1);
+            groups.clear();
             groups.push(Some(m.start..m.end));
             groups.extend(m.captures.iter().cloned());
-            out.push_str(&self.template.expand(subject, &groups));
+            each(m.start..m.end, &self.template.expand(subject, &groups));
             at = m.end;
             count += 1;
         }
-        out.push_str(&subject[at..]);
-        Ok((out, count))
+        Ok(count)
     }
 
     /// The edit that replaces `found`.

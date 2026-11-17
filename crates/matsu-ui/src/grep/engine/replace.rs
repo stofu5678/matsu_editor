@@ -57,6 +57,8 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use std::ops::Range;
+
 use matsu_core::buffer::{BufferError, Document, Pos};
 use matsu_core::file::{FileError, SaveOptions, TextFile};
 use matsu_core::search::{
@@ -100,7 +102,7 @@ impl Runner<'_> {
         // its line break, as Sakura reads it, so a match can cover the break.
         let by_match = self.replacer.is_none();
         let mut plan: Vec<Replacement> = Vec::new();
-        let mut differ = Differ::default();
+        let mut pieces: Vec<(Range<usize>, String)> = Vec::new();
         let mut replaced = 0usize;
         let mut any_hit = false;
         let mut shown_any = false;
@@ -163,24 +165,34 @@ impl Runner<'_> {
                 }
                 shown_any = true;
             }
-            // The new text of the line with its break.
-            let (new, count) = match &self.replacer {
-                Some(replacer) => match replacer.replace_subject(&whole) {
-                    Ok(done) => done,
-                    Err(_) => {
+            // What each match becomes, in the line with its break.
+            pieces.clear();
+            match &self.replacer {
+                Some(replacer) => {
+                    let done = replacer.for_each_replacement(&whole, &mut |range, text| {
+                        pieces.push((range, text.to_owned()));
+                    });
+                    if done.is_err() {
                         self.buffer.push_str(&format::file_read_error(paths.full));
                         return Ok(None);
                     }
-                },
-                None => put_in(&whole, &hits, &replace.text),
-            };
-            replaced += count;
-            match line_replacement(doc, index, &line.text, eol, &new, &mut differ, &mut plan) {
-                Ok(()) => {}
-                Err(_) => {
-                    self.buffer.push_str(&format::file_read_error(paths.full));
-                    return Ok(None);
                 }
+                None => {
+                    // A match that begins before the end of the last (a whole word search can) is
+                    // left alone.
+                    let mut end = 0;
+                    for m in &hits {
+                        if m.start >= end {
+                            pieces.push((m.start..m.end, replace.text.clone()));
+                            end = m.end;
+                        }
+                    }
+                }
+            }
+            replaced += pieces.len();
+            if push_line_edits(doc, index, &line.text, eol, &whole, &pieces, &mut plan).is_err() {
+                self.buffer.push_str(&format::file_read_error(paths.full));
+                return Ok(None);
             }
             self.flush_when_due();
         }
@@ -338,25 +350,6 @@ fn staged_name(old: &str) -> String {
     format!("{old}.{}-{n}.tmp", std::process::id())
 }
 
-/// The text of a line after the matches `hits` (found in `whole`, the line with its break) are
-/// replaced by `text` as it is, and the number replaced. A match that begins before the end of
-/// the last (a whole word search can) is left alone.
-fn put_in(whole: &str, hits: &[matsu_core::search::Match], text: &str) -> (String, usize) {
-    let mut out = String::with_capacity(whole.len());
-    let (mut at, mut count) = (0, 0);
-    for m in hits {
-        if m.start < at {
-            continue;
-        }
-        out.push_str(&whole[at..m.start]);
-        out.push_str(text);
-        at = m.end;
-        count += 1;
-    }
-    out.push_str(&whole[at..]);
-    (out, count)
-}
-
 /// Puts edits that touch each other (one ends where the next begins: the lines whose break is
 /// replaced) into one. The document joins a CR and an LF that meet at the seam of two edits into
 /// one CR LF, and the positions of the second edit are then wrong; as one edit the text is
@@ -375,186 +368,72 @@ fn merge_adjacent(plan: Vec<Replacement>) -> Vec<Replacement> {
     merged
 }
 
-/// The edit that makes line `index` (`text` and its break `eol`; `whole` is both) into `new`,
-/// which may have no break, another one or more than one. A line that keeps its own break is
-/// edited in its text only, so the break stays as it was; otherwise the edit goes up to the
-/// start of the next line, and a replacement without a break joins the line with the next one,
-/// as the file written by Sakura does (it writes the text it built for each line).
-fn line_replacement(
+/// The edits of line `index` (`text` and its break `eol`; `whole` is both) for what its matches
+/// become, one edit for each match, so a caret between two matches stays with its text. A match
+/// that covers the line break ends the edit at the start of the next line, and the line is joined
+/// with it, as the file written by Sakura does (it writes the text it built for each line). A match
+/// that covers only a part of the break (the CR of a CR LF) cannot be a range of the document: the
+/// whole line, with its break, is replaced then.
+fn push_line_edits(
     doc: &Document,
     index: usize,
     text: &str,
     eol: &str,
-    new: &str,
-    differ: &mut Differ,
+    whole: &str,
+    pieces: &[(Range<usize>, String)],
     plan: &mut Vec<Replacement>,
 ) -> Result<(), BufferError> {
-    // The line as it was is `text` and its break `eol`.
-    if new.strip_prefix(text) == Some(eol) {
-        return Ok(());
-    }
-    if !(eol.is_empty() || new.ends_with(eol)) {
-        let range = Pos::new(index, 0)..Pos::new(index + 1, 0);
-        plan.push(replacement_for(doc, &range, new, ReplaceTarget::Match)?);
-        return Ok(());
-    }
-    // The break stays: only what differs is edited, one edit for each stretch of it (one for each
-    // match, with the text between the matches left alone), so a caret in the rest of the line
-    // stays with its text.
-    let kept = new.strip_suffix(eol).unwrap_or(new);
-    for edit in differ.diff(text, kept) {
-        let range = Pos::new(index, edit.from)..Pos::new(index, edit.to);
+    let len = text.len();
+    let whole_len = whole.len();
+    let whole_pos = |at: usize| Pos::new(index, at);
+    let ends_in_break = |range: &Range<usize>| range.end > len;
+    let covers_break = |range: &Range<usize>| range.start <= len && range.end == whole_len;
+    if pieces
+        .iter()
+        .any(|(range, _)| ends_in_break(range) && !covers_break(range))
+    {
+        // The new line is the old one with every piece put in.
+        let mut new = String::with_capacity(whole_len);
+        let mut at = 0;
+        for (range, inserted) in pieces {
+            new.push_str(&whole[at..range.start]);
+            new.push_str(inserted);
+            at = range.end;
+        }
+        new.push_str(&whole[at..]);
+        if new == whole {
+            return Ok(());
+        }
+        let end = if eol.is_empty() {
+            whole_pos(len)
+        } else {
+            Pos::new(index + 1, 0)
+        };
         plan.push(replacement_for(
             doc,
-            &range,
-            &kept[edit.new_from..edit.new_to],
+            &(whole_pos(0)..end),
+            &new,
+            ReplaceTarget::Match,
+        )?);
+        return Ok(());
+    }
+    for (range, inserted) in pieces {
+        if &whole[range.clone()] == inserted {
+            continue;
+        }
+        let end = if ends_in_break(range) {
+            Pos::new(index + 1, 0)
+        } else {
+            whole_pos(range.end)
+        };
+        plan.push(replacement_for(
+            doc,
+            &(whole_pos(range.start)..end),
+            inserted,
             ReplaceTarget::Match,
         )?);
     }
     Ok(())
-}
-
-/// The most cells (characters of the old text times characters of the new) of the table that
-/// [`Differ::diff`] fills; a line that differs over more than this is edited as one piece.
-const DIFF_CELLS: usize = 1_000_000;
-
-/// The fewest characters that two edits must have between them to stay two: a shorter stretch of
-/// shared text is a coincidence of the alignment (the `i` of `hit` and `miss`), not text that a
-/// caret should stay with, and is put into one edit.
-const MIN_GAP: usize = 4;
-
-/// One edit of a line: the bytes `from..to` of the old text become the bytes `new_from..new_to` of
-/// the new text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct LineEdit {
-    from: usize,
-    to: usize,
-    new_from: usize,
-    new_to: usize,
-}
-
-/// Finds the edits that make the old text of a line into the new. The buffers are kept between
-/// lines, so a file of many changed lines does not allocate for each.
-#[derive(Default)]
-struct Differ {
-    /// `table[i * width + j]`: the length of the longest common subsequence of `a[i..]` and `b[j..]`.
-    table: Vec<u32>,
-    /// The characters of the middle of the old text, with their byte offsets in it.
-    a: Vec<(usize, char)>,
-    /// The same for the new text.
-    b: Vec<(usize, char)>,
-    edits: Vec<LineEdit>,
-}
-
-impl Differ {
-    /// The edits that make `old` into `new`: what the two share at the start and the end is left
-    /// out, and the rest is aligned by its longest common subsequence, so the text between two
-    /// changes stays as it is.
-    fn diff(&mut self, old: &str, new: &str) -> &[LineEdit] {
-        self.edits.clear();
-        let start: usize = old
-            .chars()
-            .zip(new.chars())
-            .take_while(|(a, b)| a == b)
-            .map(|(a, _)| a.len_utf8())
-            .sum();
-        let end: usize = old[start..]
-            .chars()
-            .rev()
-            .zip(new[start..].chars().rev())
-            .take_while(|(a, b)| a == b)
-            .map(|(a, _)| a.len_utf8())
-            .sum();
-        let (from, to) = (start, old.len() - end);
-        let (new_from, new_to) = (start, new.len() - end);
-        let (middle_old, middle_new) = (&old[from..to], &new[new_from..new_to]);
-        if middle_old.is_empty() && middle_new.is_empty() {
-            return &self.edits;
-        }
-        let whole = LineEdit {
-            from,
-            to,
-            new_from,
-            new_to,
-        };
-        self.a.clear();
-        self.a.extend(middle_old.char_indices());
-        self.b.clear();
-        self.b.extend(middle_new.char_indices());
-        let (n, m) = (self.a.len(), self.b.len());
-        if n == 0 || m == 0 || n.saturating_mul(m) > DIFF_CELLS {
-            self.edits.push(whole);
-            return &self.edits;
-        }
-        let width = m + 1;
-        self.table.clear();
-        self.table.resize((n + 1) * width, 0);
-        for i in (0..n).rev() {
-            for j in (0..m).rev() {
-                self.table[i * width + j] = if self.a[i].1 == self.b[j].1 {
-                    self.table[(i + 1) * width + j + 1] + 1
-                } else {
-                    self.table[(i + 1) * width + j].max(self.table[i * width + j + 1])
-                };
-            }
-        }
-        let old_at = |a: &[(usize, char)], i: usize| a.get(i).map_or(to, |&(at, _)| from + at);
-        let new_at =
-            |b: &[(usize, char)], j: usize| b.get(j).map_or(new_to, |&(at, _)| new_from + at);
-        // Where the stretch being changed starts, as indexes of `a` and `b`.
-        let mut open: Option<(usize, usize)> = None;
-        let (mut i, mut j) = (0, 0);
-        while i < n || j < m {
-            if i < n && j < m && self.a[i].1 == self.b[j].1 {
-                if let Some((first_i, first_j)) = open.take() {
-                    self.edits.push(LineEdit {
-                        from: old_at(&self.a, first_i),
-                        to: old_at(&self.a, i),
-                        new_from: new_at(&self.b, first_j),
-                        new_to: new_at(&self.b, j),
-                    });
-                }
-                i += 1;
-                j += 1;
-                continue;
-            }
-            open.get_or_insert((i, j));
-            if j >= m || (i < n && self.table[(i + 1) * width + j] >= self.table[i * width + j + 1])
-            {
-                i += 1;
-            } else {
-                j += 1;
-            }
-        }
-        if let Some((first_i, first_j)) = open {
-            self.edits.push(LineEdit {
-                from: old_at(&self.a, first_i),
-                to: old_at(&self.a, i),
-                new_from: new_at(&self.b, first_j),
-                new_to: new_at(&self.b, j),
-            });
-        }
-        self.merge_close(old);
-        &self.edits
-    }
-
-    /// Puts two edits with less than [`MIN_GAP`] characters between them into one. What is between
-    /// them is the same in the old and the new text, so the new range is one range too.
-    fn merge_close(&mut self, old: &str) {
-        let mut kept = 0;
-        for read in 0..self.edits.len() {
-            let next = self.edits[read];
-            if kept > 0 && old[self.edits[kept - 1].to..next.from].chars().count() < MIN_GAP {
-                let last = &mut self.edits[kept - 1];
-                last.to = next.to;
-                last.new_to = next.new_to;
-            } else {
-                self.edits[kept] = next;
-                kept += 1;
-            }
-        }
-        self.edits.truncate(kept);
-    }
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is
@@ -572,76 +451,4 @@ fn copy_new(from: &str, to: &str) -> std::io::Result<()> {
         let _ = std::fs::remove_file(to);
     }
     copied
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Differ;
-
-    /// The edits as byte ranges of `old` with the text they put.
-    fn diff_edits(old: &str, new: &str) -> Vec<(usize, usize, String)> {
-        Differ::default()
-            .diff(old, new)
-            .iter()
-            .map(|e| (e.from, e.to, new[e.new_from..e.new_to].to_owned()))
-            .collect()
-    }
-
-    #[test]
-    fn each_match_of_a_line_is_one_edit() {
-        // the text between the matches is not part of any edit
-        assert_eq!(
-            diff_edits("hit middle hit", "x middle x"),
-            [(0, 3, "x".to_owned()), (11, 14, "x".to_owned())]
-        );
-    }
-
-    #[test]
-    fn what_the_lines_share_at_the_ends_is_left_out() {
-        assert_eq!(
-            diff_edits("ab needle zz", "ab n zz"),
-            [(4, 9, String::new())]
-        );
-        assert!(diff_edits("same", "same").is_empty());
-    }
-
-    #[test]
-    fn the_edits_are_on_character_boundaries() {
-        // 3-byte characters: the byte ranges are of the old text
-        assert_eq!(
-            diff_edits("あ猫いいいい猫う", "あ犬いいいい犬う"),
-            [(3, 6, "犬".to_owned()), (18, 21, "犬".to_owned())]
-        );
-    }
-
-    #[test]
-    fn a_short_stretch_between_changes_is_one_edit_with_them() {
-        // the `i` that `hit` and `miss` share is not text to keep
-        assert_eq!(diff_edits("hit", "miss"), [(0, 3, "miss".to_owned())]);
-        assert_eq!(
-            diff_edits("hit hit", "miss miss"),
-            [(0, 7, "miss miss".to_owned())]
-        );
-    }
-
-    #[test]
-    fn the_edits_make_the_new_text() {
-        for (old, new) in [
-            ("a hit b hit c", "a xx b x c"),
-            ("hithit", "x"),
-            ("", "abc"),
-            ("abc", ""),
-            ("aXbXc", "aYYbc"),
-        ] {
-            let mut made = String::new();
-            let mut at = 0;
-            for (from, to, inserted) in diff_edits(old, new) {
-                made.push_str(&old[at..from]);
-                made.push_str(&inserted);
-                at = to;
-            }
-            made.push_str(&old[at..]);
-            assert_eq!(made, new, "{old:?} to {new:?}");
-        }
-    }
 }
