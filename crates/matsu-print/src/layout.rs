@@ -253,7 +253,7 @@ impl Layout {
         // The width of the line numbers depends on the rows (when the rows are numbered), and
         // the rows on that width: go on until they agree, as Sakura does by laying out again
         // (OnChangePrintSetting, "2014.07.23").
-        let tsv = tsv_stops(source, options);
+        let tsv = tsv_stops(source, options, control)?;
         let mut number_cells = if s.print_line_number {
             number_cells_for(options, line_count)
         } else {
@@ -726,16 +726,34 @@ fn layout_config(
 
 /// The ends of the fields of the whole document in the mode of the type (`CalcTabLength`, which
 /// the print layout runs when `SetLayoutInfo` gives it the mode), read a line at a time.
-fn tsv_stops<S: LineSource + ?Sized>(source: &S, options: &TypeOptions) -> TsvStops {
+fn tsv_stops<S: LineSource + ?Sized>(
+    source: &S,
+    options: &TypeOptions,
+    control: &LayoutControl,
+) -> Result<TsvStops, PrintError> {
     if options.tsv_mode == TsvMode::None {
-        return TsvStops::none();
+        return Ok(TsvStops::none());
     }
-    let lines = (0..source.line_count()).map(|line| {
-        let mut text = String::new();
-        source.read_line(line, &mut text);
-        text
-    });
-    TsvStops::from_lines(options.tsv_mode, &Widths::grid(options.width), lines)
+    // This pass reads every line before the scan does: it looks at the control too, and stops
+    // feeding lines when the layout was cancelled.
+    let stopped = std::cell::Cell::new(false);
+    let lines = (0..source.line_count())
+        .take_while(|line| {
+            if line % CONTROL_INTERVAL == 0 && control.is_cancelled() {
+                stopped.set(true);
+            }
+            !stopped.get()
+        })
+        .map(|line| {
+            let mut text = String::new();
+            source.read_line(line, &mut text);
+            text
+        });
+    let stops = TsvStops::from_lines(options.tsv_mode, &Widths::grid(options.width), lines);
+    if stopped.get() {
+        return Err(PrintError::Cancelled);
+    }
+    Ok(stops)
 }
 
 /// The printed rows of a line. An empty last line without a line ending has none (Sakura keeps

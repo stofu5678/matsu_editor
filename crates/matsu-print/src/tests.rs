@@ -170,6 +170,49 @@ fn a_layout_that_is_cancelled_stops_with_an_error() {
 }
 
 #[test]
+fn a_cancelled_layout_stops_in_the_tsv_pass_too() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    /// Counts the lines it is asked for, and cancels the layout at the 5000th.
+    struct Watched<'a> {
+        reads: AtomicUsize,
+        control: &'a LayoutControl,
+    }
+    impl LineSource for Watched<'_> {
+        fn line_count(&self) -> usize {
+            1_000_000
+        }
+        fn read_line(&self, _: usize, buf: &mut String) -> bool {
+            buf.clear();
+            buf.push_str("a\tb");
+            if self.reads.fetch_add(1, Ordering::Relaxed) == 5000 {
+                self.control.cancel();
+            }
+            true
+        }
+    }
+    let control = LayoutControl::default();
+    let src = Watched {
+        reads: AtomicUsize::new(0),
+        control: &control,
+    };
+    let options = TypeOptions {
+        tsv_mode: TsvMode::Tsv,
+        ..TypeOptions::default()
+    };
+    let result = Layout::new_controlled(
+        &src,
+        &PrintSetting::default(),
+        Paper::A4,
+        &options,
+        &control,
+    );
+    assert_eq!(result.err(), Some(PrintError::Cancelled));
+    // It stopped within one interval of the cancel, not after a million lines.
+    let reads = src.reads.load(Ordering::Relaxed);
+    assert!(reads < 5000 + 2 * 4096, "{reads} lines were read");
+}
+
+#[test]
 fn a_controlled_layout_is_the_same_as_the_plain_one_and_counts_its_lines() {
     let lines: Vec<String> = (0..10_000).map(|i| format!("line {i}")).collect();
     let s = PrintSetting::default();
