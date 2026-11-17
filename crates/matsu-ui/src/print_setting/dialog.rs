@@ -463,7 +463,7 @@ impl PrintSettingDialog {
     fn open_list(&mut self, list: List, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
         self.list = Some(list);
-        self.list_cursor = self.list_rows(list).1.unwrap_or(0);
+        self.list_cursor = self.list_selected(list).unwrap_or(0);
         self.list_scroll.scroll_to_item(self.list_cursor);
         cx.notify();
     }
@@ -474,7 +474,7 @@ impl PrintSettingDialog {
     /// focus, a button or a box, sees them. Returns whether the key was one of the list's.
     fn list_key(&mut self, key: &str, cx: &mut Context<Self>) -> Option<usize> {
         let list = self.list?;
-        let last = self.list_rows(list).0.len().checked_sub(1)?;
+        let last = self.list_len(list).checked_sub(1)?;
         let cursor = self.list_cursor.min(last);
         let to = match key {
             "up" => cursor.saturating_sub(1),
@@ -616,6 +616,29 @@ impl PrintSettingDialog {
         }
     }
 
+    /// How many rows the list has, without making them (the keys ask on every press).
+    fn list_len(&self, list: List) -> usize {
+        match list {
+            List::Setting => self.settings.slots().len(),
+            List::FontHan => font_count(&self.installed, &self.shown().print_font_face_han),
+            List::FontZen => font_count(&self.installed, &self.shown().print_font_face_zen),
+            List::Paper => PAPER_INFO.len(),
+        }
+    }
+
+    /// The row of the value that is set, without making the rows.
+    fn list_selected(&self, list: List) -> Option<usize> {
+        match list {
+            List::Setting => Some(self.current),
+            List::FontHan => font_index(&self.installed, &self.shown().print_font_face_han),
+            List::FontZen => font_index(&self.installed, &self.shown().print_font_face_zen),
+            List::Paper => PAPER_INFO
+                .iter()
+                .position(|p| p.id == self.shown().print_paper_size),
+        }
+    }
+
+    /// The rows of the list, for drawing it (once per frame, while it is open).
     fn list_rows(&self, list: List) -> (Vec<String>, Option<usize>) {
         match list {
             List::Setting => (
@@ -1168,6 +1191,20 @@ fn font_names<'a>(installed: &'a [String], face: &str) -> Cow<'a, [String]> {
     }
 }
 
+/// `font_names(..).len()` without making the list.
+fn font_count(installed: &[String], face: &str) -> usize {
+    installed.len() + usize::from(!face.is_empty() && !installed.iter().any(|f| f == face))
+}
+
+/// The row of `face` in `font_names(..)` without making the list: the first one when the machine
+/// lacks the face (it is put first), none for no face.
+fn font_index(installed: &[String], face: &str) -> Option<usize> {
+    if face.is_empty() {
+        return None;
+    }
+    Some(installed.iter().position(|f| f == face).unwrap_or(0))
+}
+
 impl EditorView {
     /// Opens the dialog over the view and focuses it.
     pub(crate) fn open_print_setting_dialog(
@@ -1203,6 +1240,21 @@ mod font_name_tests {
         let list = fonts();
         assert!(matches!(font_names(&list, "Consolas"), Cow::Borrowed(_)));
         assert!(matches!(font_names(&list, ""), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn the_count_and_the_row_agree_with_the_list() {
+        use super::{font_count, font_index};
+        let list = fonts();
+        for face in ["Consolas", "Arial", "", "ＭＳ ゴシック"] {
+            let names = font_names(&list, face);
+            assert_eq!(font_count(&list, face), names.len(), "{face}");
+            assert_eq!(
+                font_index(&list, face),
+                names.iter().position(|n| n == face),
+                "{face}"
+            );
+        }
     }
 
     #[test]
