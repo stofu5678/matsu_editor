@@ -12,7 +12,7 @@ mod styler;
 use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window};
 use matsu_core::buffer::Document;
 use matsu_platform::print::{Error, PrintJob};
-use matsu_print::{LineSource, TypeOptions};
+use matsu_print::{LineSource, Printer, TypeOptions};
 
 pub use preview::{PreviewEvent, PrintPreview};
 
@@ -37,6 +37,28 @@ impl LineSource for DocLines {
             }
             // A line that cannot be read prints as an empty one.
             _ => false,
+        }
+    }
+}
+
+/// What became of the print dialog of the OS.
+pub(crate) enum Outcome {
+    /// The user cancelled.
+    Cancelled,
+    /// The pages went to the printer. The printer is what the dialog gave back, for the setting
+    /// to remember (Windows only: the print panel of macOS and the portal of Linux keep the
+    /// printer they were last used with themselves).
+    Printed(Option<Printer>),
+}
+
+impl Outcome {
+    /// For the OS that only says whether it printed.
+    #[cfg(not(windows))]
+    fn from_printed(printed: bool) -> Self {
+        if printed {
+            Self::Printed(None)
+        } else {
+            Self::Cancelled
         }
     }
 }
@@ -180,19 +202,22 @@ impl EditorView {
     /// What became of the print dialog: printed, cancelled, or failed.
     pub(crate) fn finish_print(
         &mut self,
-        result: Result<bool, Error>,
+        result: Result<Outcome, Error>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.print.printing = false;
         let notice = match result {
-            Ok(true) => {
+            Ok(Outcome::Printed(printer)) => {
+                if let Some(printer) = printer {
+                    self.remember_printer(printer, cx);
+                }
                 self.close_print_preview(window, cx);
                 self.notice = Some("印刷しました".into());
                 cx.notify();
                 return;
             }
-            Ok(false) => "印刷を取り消しました".to_owned(),
+            Ok(Outcome::Cancelled) => "印刷を取り消しました".to_owned(),
             Err(err) => err.0,
         };
         match &self.print.preview {
@@ -219,16 +244,22 @@ fn raw_handle(window: &Window) -> Option<raw_window_handle::RawWindowHandle> {
 }
 
 /// Shows the print dialog of the OS and prints, off the UI thread where the OS blocks until the
-/// dialog closes. Resolves to whether it printed: `false` when the user cancels.
+/// dialog closes. Resolves to what became of it ([`Outcome`]).
 #[cfg(windows)]
 fn os_print(
     job: PrintJob,
     window: &Window,
     cx: &mut Context<EditorView>,
-) -> impl Future<Output = Result<bool, Error>> + use<> {
+) -> impl Future<Output = Result<Outcome, Error>> + use<> {
     // A number rather than a handle, so that it can go to the thread that shows the dialog.
     let owner = raw_handle(window).map_or(0, matsu_platform::print::windows::owner);
-    cx.background_spawn(async move { matsu_platform::print::windows::print(owner, &job) })
+    cx.background_spawn(async move {
+        matsu_platform::print::windows::print(owner, &job).map(|printer| match printer {
+            // A dialog that gave no names leaves the remembered printer as it is.
+            Some(printer) => Outcome::Printed(Some(printer).filter(|p| !p.is_none())),
+            None => Outcome::Cancelled,
+        })
+    })
 }
 
 /// The print portal shows the dialog (`org.freedesktop.portal.Print`).
@@ -237,8 +268,9 @@ fn os_print(
     job: PrintJob,
     _: &Window,
     cx: &mut Context<EditorView>,
-) -> impl Future<Output = Result<bool, Error>> + use<> {
-    cx.background_spawn(matsu_platform::print::linux::print(job))
+) -> impl Future<Output = Result<Outcome, Error>> + use<> {
+    let printed = cx.background_spawn(matsu_platform::print::linux::print(job));
+    async move { printed.await.map(Outcome::from_printed) }
 }
 
 /// AppKit's print panel, as a sheet on the window. It starts here, outside GPUI's update of the
@@ -248,11 +280,13 @@ fn os_print(
     job: PrintJob,
     window: &Window,
     _: &mut Context<EditorView>,
-) -> impl Future<Output = Result<bool, Error>> + use<> {
+) -> impl Future<Output = Result<Outcome, Error>> + use<> {
     let ns_window = raw_handle(window).and_then(matsu_platform::print::mac::ns_window);
     async move {
         match ns_window {
-            Some(ns_window) => Ok(matsu_platform::print::mac::print(ns_window, job).await),
+            Some(ns_window) => Ok(Outcome::from_printed(
+                matsu_platform::print::mac::print(ns_window, job).await,
+            )),
             None => Err("印刷するウィンドウを取得できません".into()),
         }
     }

@@ -34,6 +34,14 @@ impl EditorView {
         prefs::current_setting(cx, self.type_index(), &type_settings)
     }
 
+    /// Remembers the printer the print dialog printed on in the print setting of this window
+    /// (see [`prefs::remember_printer`]).
+    pub(crate) fn remember_printer(&self, printer: matsu_print::Printer, cx: &mut gpui::App) {
+        let type_settings = self.type_settings(cx);
+        let index = prefs::current_index(cx, self.type_index(), &type_settings);
+        prefs::remember_printer(cx, index, printer);
+    }
+
     /// `Command_PRINT_PAGESETUP`: shows the dialog, and applies what OK gives. While the preview
     /// is open the line numbers take the width the document needs; otherwise the least.
     pub(crate) fn print_page_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {

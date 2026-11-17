@@ -7,9 +7,9 @@ use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use matsu_core::buffer::Document;
 use matsu_core::model::DocumentModel;
 use matsu_platform::print::Error;
-use matsu_print::LineSource;
+use matsu_print::{LineSource, Printer};
 
-use super::DocLines;
+use super::{DocLines, Outcome};
 use crate::document::SharedDocument;
 use crate::ui_command::UiRegistry;
 use crate::view::EditorView;
@@ -210,7 +210,7 @@ fn the_preview_closes_after_printing_and_stays_after_a_cancel(cx: &mut TestAppCo
 
     view.update_in(cx, |v, window, cx| {
         v.print.printing = true;
-        v.finish_print(Ok(false), window, cx);
+        v.finish_print(Ok(Outcome::Cancelled), window, cx);
     });
     assert!(view.read_with(cx, |v, _| v.is_print_preview_open() && !v.print.printing));
     let notice = preview.read_with(cx, |p, _| p.notice.clone());
@@ -224,10 +224,48 @@ fn the_preview_closes_after_printing_and_stays_after_a_cancel(cx: &mut TestAppCo
     assert_eq!(notice.as_deref(), Some("プリンターがありません"));
     assert!(view.read_with(cx, |v, _| v.is_print_preview_open()));
 
-    view.update_in(cx, |v, window, cx| v.finish_print(Ok(true), window, cx));
+    view.update_in(cx, |v, window, cx| {
+        v.finish_print(Ok(Outcome::Printed(None)), window, cx)
+    });
     assert!(!view.read_with(cx, |v, _| v.is_print_preview_open()));
     let notice = view.read_with(cx, |v, _| v.notice.clone());
     assert_eq!(notice.as_deref(), Some("印刷しました"));
+}
+
+#[gpui::test]
+fn the_printer_the_dialog_gave_is_remembered_by_the_setting_the_window_prints_with(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = setup(cx, "abc", None);
+    let printer = Printer {
+        driver: "winspool".into(),
+        device: "Microsoft Print to PDF".into(),
+        output: "PORTPROMPT:".into(),
+    };
+    assert!(view.read_with(cx, |v, cx| v.current_print_setting(cx).printer.is_none()));
+
+    view.update_in(cx, |v, window, cx| {
+        v.print.printing = true;
+        v.finish_print(Ok(Outcome::Printed(Some(printer.clone()))), window, cx);
+    });
+    assert_eq!(
+        view.read_with(cx, |v, cx| v.current_print_setting(cx).printer),
+        printer
+    );
+    // the print job of the next print starts the dialog on it
+    assert_eq!(
+        view.read_with(cx, |v, cx| v.print_job(cx).setting.printer),
+        printer
+    );
+
+    // an OS that does not say which printer leaves it as it was
+    view.update_in(cx, |v, window, cx| {
+        v.finish_print(Ok(Outcome::Printed(None)), window, cx);
+    });
+    assert_eq!(
+        view.read_with(cx, |v, cx| v.current_print_setting(cx).printer),
+        printer
+    );
 }
 
 /// The variables that were empty (#138) come from the window, as `ExpandParameter` reads them.

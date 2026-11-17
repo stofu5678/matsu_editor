@@ -14,7 +14,7 @@ use matsu_config::history::update_profile;
 use matsu_config::settings::TypeSettings;
 use matsu_config::settings::print::{self, MAX_PRINT_SETTINGS, PrintSettings};
 use matsu_platform::print::default_setting;
-use matsu_print::PrintSetting;
+use matsu_print::{PrintSetting, Printer};
 
 pub struct PrintPrefs {
     settings: PrintSettings,
@@ -56,16 +56,18 @@ impl PrintPrefs {
 
     /// Makes `new` the settings. The ones that differ from `original`, which the dialog started
     /// with, are written to the file (the file is read again first, so what another window saved
-    /// meanwhile stays), and so is the number `current` of the document type `type_index`.
+    /// meanwhile stays), and so is `current`, the number of the setting of a document type
+    /// (`(type_index, number)`), when there is one.
     fn change(
         &mut self,
         new: &PrintSettings,
         original: &PrintSettings,
-        type_index: usize,
-        current: usize,
+        current: Option<(usize, usize)>,
     ) {
         let before = original.clone();
-        self.chosen.insert(type_index, current);
+        if let Some((type_index, number)) = current {
+            self.chosen.insert(type_index, number);
+        }
         let Some(path) = self.store.clone() else {
             // the slots another dialog changed meanwhile stay
             let mut now = self.settings.clone();
@@ -90,7 +92,9 @@ impl PrintPrefs {
                 }
                 let before_bytes = profile.to_bytes();
                 now.write_changed(&on_disk, profile)?;
-                print::store_current(profile, type_index, current)?;
+                if let Some((type_index, number)) = current {
+                    print::store_current(profile, type_index, number)?;
+                }
                 merged = Some(now);
                 Ok(profile.to_bytes() != before_bytes)
             })()
@@ -144,5 +148,19 @@ pub(crate) fn commit(
     current: usize,
 ) {
     cx.default_global::<PrintPrefs>()
-        .change(new, original, type_index, current);
+        .change(new, original, Some((type_index, current)));
+}
+
+/// Remembers `printer` in the setting `index`, which the print dialog just printed on
+/// (`CPrint::PrintDlg` stores the printer it was given in the setting's `m_mdmDevMode`). Nothing
+/// is written when the setting has that printer already.
+pub(crate) fn remember_printer(cx: &mut App, index: usize, printer: Printer) {
+    let prefs = cx.default_global::<PrintPrefs>();
+    let original = prefs.settings.clone();
+    if original.get(index).printer == printer {
+        return;
+    }
+    let mut new = original.clone();
+    new.get_mut(index).printer = printer;
+    prefs.change(&new, &original, None);
 }

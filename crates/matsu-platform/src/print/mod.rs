@@ -8,6 +8,7 @@
 //! * `linux`: a PDF ([`pdf`]) handed to the print portal (`org.freedesktop.portal.Print`),
 //!   which shows the desktop's print dialog. GTK's own dialog is LGPL and is not used.
 
+pub mod devnames;
 pub mod draw;
 #[cfg(not(any(windows, target_os = "macos")))]
 pub mod linux;

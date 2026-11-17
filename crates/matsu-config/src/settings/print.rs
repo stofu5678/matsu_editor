@@ -50,8 +50,8 @@
 //!
 //! The 19 numbers of `nInts` are read all together or not at all (`ShareData_IO_PrintInts`).
 //! Everything else in the file stays as it is. The printer of a setting (`szDriver`, `szDevice`,
-//! `szOutput`) is not used by MATSU Editor and is left alone; so are the flags `m_bHeaderUse` and
-//! `m_bFooterUse` (the last six numbers of `nInts`), which Sakura's layout never reads.
+//! `szOutput`) is [`Printer`]; the flags `m_bHeaderUse` and `m_bFooterUse` (the last six numbers of
+//! `nInts`) stay as the file has them, as Sakura's layout never reads them.
 //!
 //! Only the face and the size of the header and the footer fonts are used. When the face of a font
 //! is unchanged, the rest of its `LOGFONT` in the file is kept.
@@ -59,7 +59,7 @@
 //! Which of the eight a document type prints with is `nCurrentPrintSetting` of `Types(N)`
 //! ([`store_current`]).
 
-use matsu_print::{HeaderFooterFont, Orientation, PrintSetting};
+use matsu_print::{HeaderFooterFont, Orientation, PrintSetting, Printer};
 
 use super::font::{FontSetting, LogFont};
 use super::{DocumentTypes, TypeSettings};
@@ -74,6 +74,8 @@ pub const MAX_PRINT_SETTINGS: usize = 8;
 pub const NAME_MAX: usize = 32;
 /// The most characters of the name of a font (`LF_FACESIZE` without the end mark).
 pub const FACE_MAX: usize = 31;
+/// The most characters of a name of the printer (`m_szPrinterDriverName[_MAX_PATH + 1]`).
+pub const PRINTER_NAME_MAX: usize = 260;
 
 /// `DMORIENT_LANDSCAPE`.
 const DMORIENT_LANDSCAPE: i32 = 2;
@@ -218,6 +220,11 @@ fn read_slot(s: &mut PrintSetting, profile: &Profile, index: usize) {
     }
     read_font(&mut s.header_font, profile, index, "Header");
     read_font(&mut s.footer_font, profile, index, "Footer");
+    for (name, field) in printer_keys(&mut s.printer) {
+        if let Some(v) = get(name) {
+            *field = clip(v, PRINTER_NAME_MAX);
+        }
+    }
     for (name, flag) in [
         ("bKinsokuHead", &mut s.print_kinsoku_head),
         ("bKinsokuTail", &mut s.print_kinsoku_tail),
@@ -229,6 +236,15 @@ fn read_slot(s: &mut PrintSetting, profile: &Profile, index: usize) {
             *flag = b;
         }
     }
+}
+
+/// The three names of the printer with their keys (`szDriver`, `szDevice`, `szOutput`).
+fn printer_keys(printer: &mut Printer) -> [(&'static str, &mut String); 3] {
+    [
+        ("szDriver", &mut printer.driver),
+        ("szDevice", &mut printer.device),
+        ("szOutput", &mut printer.output),
+    ]
 }
 
 /// The three keys of a header or footer font: `lfHeader`, `nHeaderPointSize`, `lfHeaderFaceName`.
@@ -306,6 +322,15 @@ fn write_slot(s: &PrintSetting, profile: &mut Profile, index: usize) -> Result<(
     }
     write_font(s.header_font.as_ref(), profile, index, "Header")?;
     write_font(s.footer_font.as_ref(), profile, index, "Footer")?;
+    // Sakura always writes the three. A file that does not have them gets them only for a printer,
+    // so that choosing nothing leaves a file of an older version as it is.
+    let mut printer = s.printer.clone();
+    for (name, value) in printer_keys(&mut printer) {
+        let key = key(index, name);
+        if !value.is_empty() || profile.get(SECTION, &key).is_some() {
+            profile.set_string(SECTION, &key, value)?;
+        }
+    }
     for (name, flag) in [
         ("bKinsokuHead", s.print_kinsoku_head),
         ("bKinsokuTail", s.print_kinsoku_tail),
