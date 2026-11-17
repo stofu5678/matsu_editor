@@ -599,6 +599,11 @@ fn a_grep_replace_of_a_window_that_changed_meanwhile_replaces_nothing(cx: &mut T
         .filter(|view| *view != other)
         .collect();
     assert_eq!(result.len(), 1);
+    assert!(
+        text_of(&result[0], cx).ends_with("0 個を置換しました。\r\n"),
+        "{}",
+        text_of(&result[0], cx)
+    );
     assert_eq!(
         result[0].read_with(cx, |v, _| v.notice.clone()),
         Some(super::replace_window::CHANGED.to_owned())
@@ -655,6 +660,31 @@ fn the_caret_follows_the_text_when_a_line_break_is_removed(cx: &mut TestAppConte
     let (text, caret) = replace_with_caret(cx, "a\nb\nc", Pos::new(2, 1), (r"\n", "", 13));
     assert_eq!(text, "abc");
     assert_eq!(caret, Pos::new(0, 3));
+}
+
+#[gpui::test]
+fn a_caret_before_the_replacements_stays_where_it_is(cx: &mut TestAppContext) {
+    let (text, caret) = replace_with_caret(
+        cx,
+        "start\nx needle\ny needle\n",
+        Pos::new(0, 2),
+        ("needle", "n", 5),
+    );
+    assert_eq!(text, "start\nx n\ny n\n");
+    assert_eq!(caret, Pos::new(0, 2));
+}
+
+#[gpui::test]
+fn a_caret_between_the_replacements_moves_only_with_the_earlier_ones(cx: &mut TestAppContext) {
+    // after the first replacement ("needle" to "n" on line 0) and before the second
+    let (text, caret) = replace_with_caret(
+        cx,
+        "needle ab\nlong line\nneedle\n",
+        Pos::new(1, 4),
+        ("needle", "n", 5),
+    );
+    assert_eq!(text, "n ab\nlong line\nn\n");
+    assert_eq!(caret, Pos::new(1, 4));
 }
 
 /// A window of the application (the tag jump finds the windows of the application only) with

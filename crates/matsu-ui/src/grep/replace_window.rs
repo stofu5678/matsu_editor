@@ -11,7 +11,7 @@ use matsu_commands::command::CommandError;
 use matsu_core::search::AppliedEdit;
 
 use crate::file_ops::windows::editors;
-use crate::search::ops::{apply_edits, shift_through};
+use crate::search::ops::{apply_edits, shift_start};
 use crate::view::EditorView;
 
 /// What the result window says when the document changed while the search ran: the edits were
@@ -59,12 +59,13 @@ impl EditorView {
         }
         self.run_with(cx, |c| -> Result<(), CommandError> {
             c.begin_block();
-            // The caret goes with the text, as it does for 「すべて置換」; the selection is dropped.
+            // The caret goes with the text, as it does for 「すべて置換」: one before an edit stays where it
+            // is, one after moves with the text. The selection is dropped.
             // `move_caret` keeps it inside the document, which a shorter line or a removed line
             // break would otherwise leave.
             let caret = c.caret();
             let made = apply_edits(c, edits)
-                .and_then(|ends| c.move_caret(shift_through(caret, edits, &ends), false));
+                .and_then(|ends| c.move_caret(shift_start(caret, edits, &ends), false));
             c.end_block();
             made
         })

@@ -197,6 +197,8 @@ pub(super) enum Event {
     Progress(String, usize),
     /// The edits of a Grep 置換 of the text of a window, to make in the document that was read.
     Replaced(Vec<AppliedEdit>),
+    /// The last line, with the number the engine counted.
+    Count(usize, bool),
     /// The end.
     Done(Result<Outcome, GrepError>),
 }
@@ -223,6 +225,10 @@ impl Sink for ChannelSink {
 
     fn replaced(&mut self, edits: Vec<AppliedEdit>) {
         self.send(Event::Replaced(edits));
+    }
+
+    fn count(&mut self, hits: usize, replace: bool) {
+        self.send(Event::Count(hits, replace));
     }
 
     fn progress(&mut self, file: &str, hits: usize) {
@@ -681,6 +687,16 @@ impl EditorView {
             Event::Replaced(edits) => {
                 self.replace_in_window(&edits, cx);
                 false
+            }
+            Event::Count(hits, replace) => {
+                // The edits of a window may have been refused: the count is of what was made.
+                let hits = if self.grep.replace_refused { 0 } else { hits };
+                let line = if replace {
+                    super::format::replace_count_line(hits)
+                } else {
+                    super::format::count_line(hits)
+                };
+                self.grep_event(Event::Text(line), cx)
             }
             Event::Done(result) => {
                 // Whatever the search ended with (also a stop or an error), what it found is shown.

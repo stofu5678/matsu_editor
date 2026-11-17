@@ -675,7 +675,7 @@ pub(crate) fn shift_through(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> 
 /// Like [`shift_through`], for the start of a range: an edit that began at or before it and
 /// replaced text up to or past it leaves the start at the edit's start (a deleted line takes the
 /// start to the start of that line), not at the end of the new text.
-fn shift_start(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
+pub(crate) fn shift_start(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
     let mut p = p;
     for (e, &old_end) in edits.iter().zip(old_ends) {
         if p <= e.start {

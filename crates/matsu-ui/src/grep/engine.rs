@@ -252,8 +252,18 @@ pub trait Sink {
     /// The file that is being searched and the hits so far (the cancel dialog of Sakura).
     fn progress(&mut self, _file: &str, _hits: usize) {}
     /// The edits that a Grep 置換 of the text of a window makes, for the window that owns the
-    /// document to make (the engine only plans them, on a snapshot).
+    /// document to make (the engine only plans them, on a snapshot). It does not wait for the
+    /// answer: the window tells at the count (see [`Sink::count`]).
     fn replaced(&mut self, _edits: Vec<AppliedEdit>) {}
+    /// The last line: the number of hits, or of replacements. A sink whose window may have
+    /// refused the edits of [`Sink::replaced`] says what was really made.
+    fn count(&mut self, hits: usize, replace: bool) {
+        self.write(&if replace {
+            format::replace_count_line(hits)
+        } else {
+            format::count_line(hits)
+        });
+    }
 }
 
 /// `ChopYen`: the last backslash of a folder is taken off (`C:\a\` is `C:\a`). A slash is taken
@@ -545,11 +555,7 @@ pub fn run(
     if stopped {
         runner.sink.write(format::SUSPENDED);
     }
-    runner.sink.write(&if info.replace.is_some() {
-        format::replace_count_line(runner.hits)
-    } else {
-        format::count_line(runner.hits)
-    });
+    runner.sink.count(runner.hits, info.replace.is_some());
     Ok(Outcome {
         hits: runner.hits,
         stopped,
