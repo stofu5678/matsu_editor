@@ -328,7 +328,7 @@ impl Editor {
         .with_clipboard(&mut self.clipboard)
         .with_overwrite(self.overwrite)
         .with_ins_space(self.ins_space)
-        .with_input_options(self.input.clone())
+        .with_input_options(&self.input)
         .with_view_mode(self.view_mode);
         if let Some(colors) = &self.line_colors {
             cx = cx.with_line_start_colors(colors.as_ref());
@@ -357,7 +357,7 @@ impl Editor {
         .with_clipboard(&mut self.clipboard)
         .with_overwrite(self.overwrite)
         .with_ins_space(self.ins_space)
-        .with_input_options(self.input.clone())
+        .with_input_options(&self.input)
         .with_view_mode(self.view_mode);
         if let Some(colors) = &self.line_colors {
             cx = cx.with_line_start_colors(colors.as_ref());

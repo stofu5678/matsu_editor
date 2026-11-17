@@ -51,7 +51,7 @@ use matsu_core::model::DocumentModel;
 
 use crate::clipboard::Clipboard;
 use crate::command::{CommandError, Result};
-use crate::input_options::{InputOptions, LineStartColors, SmartIndentCall};
+use crate::input_options::{DEFAULT_INPUT_OPTIONS, InputOptions, LineStartColors, SmartIndentCall};
 use crate::layout::{Layout, X};
 
 pub use bookmarks::BookmarkJump;
@@ -171,7 +171,7 @@ pub struct CommandContext<'a> {
     /// The Tab key inserts spaces (the type's `bInsSpace`). See [`with_ins_space`](Self::with_ins_space).
     ins_space: bool,
     /// The indent options of the type. See [`with_input_options`](Self::with_input_options).
-    input: InputOptions,
+    input: &'a InputOptions,
     /// The states the lines start in, if the caller has them. See
     /// [`with_line_start_colors`](Self::with_line_start_colors).
     line_colors: Option<&'a dyn LineStartColors>,
@@ -216,7 +216,7 @@ impl<'a> CommandContext<'a> {
             changes: Changes::default(),
             overwrite: false,
             ins_space: false,
-            input: InputOptions::default(),
+            input: &DEFAULT_INPUT_OPTIONS,
             line_colors: None,
             view_mode: false,
             quote: QUOTE.to_owned(),
@@ -248,17 +248,18 @@ impl<'a> CommandContext<'a> {
         self
     }
 
-    /// Sets the indent options of the type that Enter and the typed chars read (the defaults are
-    /// Sakura's, see [`InputOptions`]).
+    /// Borrows the indent options of the type that Enter and the typed chars read (the defaults
+    /// are Sakura's, see [`InputOptions`]). The caller owns them (the window keeps one per view and
+    /// rebuilds it when the type settings change), so a command run copies nothing.
     #[must_use]
-    pub fn with_input_options(mut self, input: InputOptions) -> Self {
+    pub fn with_input_options(mut self, input: &'a InputOptions) -> Self {
         self.input = input;
         self
     }
 
     /// The indent options of the type.
     pub fn input_options(&self) -> &InputOptions {
-        &self.input
+        self.input
     }
 
     /// Attaches what tells the state a line starts in (a string or a block comment that goes on

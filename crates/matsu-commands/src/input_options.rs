@@ -1,7 +1,7 @@
 //! The type settings that Enter and the typed chars read: the indent side of the "画面" page.
 //!
 //! Sakura keeps them in `STypeConfig` (`sakura_core/env/DocTypeSetting.h`) and `Command_WCHAR`
-//! reads them through `m_pTypeData`. The window hands the ones of the type of the document to the
+//! reads them through `m_pTypeData`. The window keeps the ones of the type of the document and lends them to the
 //! context ([`CommandContext::with_input_options`](crate::context::CommandContext::with_input_options)).
 //! The defaults are those of `InitTypeConfigDefault` (`sakura_core/types/CType.cpp`).
 
@@ -107,18 +107,21 @@ pub struct InputOptions {
     pub cpp_undo_sep: bool,
 }
 
+/// The defaults, for a context that is given no options (it borrows this one).
+pub static DEFAULT_INPUT_OPTIONS: InputOptions = InputOptions {
+    auto_indent: true,
+    auto_indent_zenspace: true,
+    smart_indent: SmartIndent::None,
+    indent_chars: String::new(),
+    rtrim_prev_line: false,
+    cpp_string_ignore: true,
+    cpp_comment_ignore: true,
+    cpp_undo_sep: false,
+};
+
 impl Default for InputOptions {
     fn default() -> Self {
-        Self {
-            auto_indent: true,
-            auto_indent_zenspace: true,
-            smart_indent: SmartIndent::None,
-            indent_chars: String::new(),
-            rtrim_prev_line: false,
-            cpp_string_ignore: true,
-            cpp_comment_ignore: true,
-            cpp_undo_sep: false,
-        }
+        DEFAULT_INPUT_OPTIONS.clone()
     }
 }
 
