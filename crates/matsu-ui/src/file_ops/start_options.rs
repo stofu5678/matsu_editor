@@ -275,6 +275,34 @@ impl LaunchOptions {
         }
     }
 
+    /// The type of `-TYPE=` and the encoding of `-CODE=` for the new document of the window
+    /// (`SetDocumentTypeWhenCreate`): the encoding of the type if `-CODE=` is the one the type has,
+    /// else `-CODE=` with the default BOM and CR LF.
+    fn apply_type_and_encoding(&self, view: &mut EditorView, cx: &mut Context<EditorView>) {
+        let forced = self
+            .doc_type
+            .as_deref()
+            .map(|ext| view.apply_launch_type(ext, cx));
+        if let Some(encoding) = self.file.encoding {
+            let index = forced.unwrap_or(view.prefs.settings.type_index);
+            let defaults =
+                crate::doc_types::with_user(cx, |user| user.new_document_defaults_of_type(index));
+            let defaults = if encoding == defaults.encoding {
+                defaults
+            } else {
+                NewDocumentDefaults {
+                    encoding,
+                    bom: encoding.bom_default_on(),
+                    eol: Eol::CrLf,
+                    mime_decode: defaults.mime_decode,
+                    prefer_cesu8: defaults.prefer_cesu8,
+                }
+            };
+            view.document()
+                .update(cx, |shared, _| shared.set_new_document_defaults(&defaults));
+        }
+    }
+
     /// The document of a launch without a file, when its window is open. `-TYPE=` and `-CODE=`
     /// (`SetDocumentTypeWhenCreate`), `-R`, and then the macro.
     pub(crate) fn start_untitled(
@@ -284,29 +312,7 @@ impl LaunchOptions {
         cx: &mut App,
     ) {
         view.update(cx, |view, cx| {
-            let forced = self
-                .doc_type
-                .as_deref()
-                .map(|ext| view.apply_launch_type(ext, cx));
-            if let Some(encoding) = self.file.encoding {
-                let index = forced.unwrap_or(view.prefs.settings.type_index);
-                let defaults = crate::doc_types::with_user(cx, |user| {
-                    user.new_document_defaults_of_type(index)
-                });
-                let defaults = if encoding == defaults.encoding {
-                    defaults
-                } else {
-                    NewDocumentDefaults {
-                        encoding,
-                        bom: encoding.bom_default_on(),
-                        eol: Eol::CrLf,
-                        mime_decode: defaults.mime_decode,
-                        prefer_cesu8: defaults.prefer_cesu8,
-                    }
-                };
-                view.document()
-                    .update(cx, |shared, _| shared.set_new_document_defaults(&defaults));
-            }
+            self.apply_type_and_encoding(view, cx);
             if self.file.view_mode {
                 view.document()
                     .update(cx, |shared, cx| shared.set_view_mode(true, cx));
@@ -443,6 +449,9 @@ impl LaunchOptions {
                 view.update(cx, |view, cx| {
                     if stdout {
                         // `-GOPT=U`: no result in the window; the application ends after the search.
+                        // The output is in the encoding of its document, which `-CODE=` and
+                        // `-TYPE=` give as they do to the new document of any launch.
+                        self.apply_type_and_encoding(view, cx);
                         view.start_grep_stdout(info, cx);
                     } else {
                         // `DoGrep` is called directly: no `Command_GREP`, so no type change.

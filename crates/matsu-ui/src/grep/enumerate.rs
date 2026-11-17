@@ -217,8 +217,10 @@ pub fn join_path(base: &str, name: &str) -> String {
     }
 }
 
+/// Whether `path` ends with a separator. A backslash is one on Windows only: elsewhere it is a
+/// character of a name.
 fn ends_with_separator(path: &str) -> bool {
-    path.ends_with(['\\', '/'])
+    path.ends_with('/') || (cfg!(windows) && path.ends_with('\\'))
 }
 
 /// The length of `base` and the separator that [`join_path`] puts after it: where the path below
@@ -418,14 +420,27 @@ mod tests {
 
     #[test]
     fn a_root_that_ends_with_a_separator_gets_no_second_one() {
-        assert_eq!(join_path("C:\\", "a.txt"), "C:\\a.txt");
         assert_eq!(join_path("/", "a.txt"), "/a.txt");
-        assert_eq!(
-            join_path("C:\\work", "a.txt"),
-            format!("C:\\work{SEP}a.txt")
-        );
+        assert_eq!(join_path("/work/", "a.txt"), "/work/a.txt");
+        assert_eq!(base_prefix_len("/work/"), 6);
+        assert_eq!(base_prefix_len("/work"), 6);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_root_gets_no_second_separator() {
+        assert_eq!(join_path("C:\\", "a.txt"), "C:\\a.txt");
+        assert_eq!(join_path("C:\\work", "a.txt"), "C:\\work\\a.txt");
         assert_eq!(base_prefix_len("C:\\"), 3);
         assert_eq!(base_prefix_len("C:\\work"), 8);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_backslash_at_the_end_of_a_name_is_a_character_of_it() {
+        // a folder named `odd\` below `/work`: files are joined with a separator
+        assert_eq!(join_path("/work/odd\\", "a.txt"), "/work/odd\\/a.txt");
+        assert_eq!(base_prefix_len("/work/odd\\"), "/work/odd\\".len() + 1);
     }
 
     #[test]
