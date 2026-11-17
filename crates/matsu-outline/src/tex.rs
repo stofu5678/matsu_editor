@@ -195,10 +195,11 @@ pub fn make_topic_list_tex(src: &dyn LineSource) -> FuncInfoArr {
     let mut out = FuncInfoArr::new();
     let mut processor = TagProcessor::new();
     // `TagIterator::each`
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         let line_end = line.len();
         let mut p = 0;
         while let Some(found) = line[p..]

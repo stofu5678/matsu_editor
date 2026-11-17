@@ -55,10 +55,11 @@ enum Mode {
 
 pub fn make_func_list_perl(src: &dyn LineSource) -> FuncInfoArr {
     let mut out = FuncInfoArr::new();
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         let mut mode = Mode::Start;
         let mut word = String::new();
         let mut i = 0;

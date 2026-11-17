@@ -106,10 +106,14 @@ pub fn make_func_list_java(src: &dyn LineSource) -> FuncInfoArr {
     let mut class_name = String::new();
     let mut classes: Vec<Class> = Vec::new();
 
+    // The buffers are kept for all lines: `line` for the line read, `next` for the lines that
+    // are looked ahead at a ")".
+    let mut line: Vec<char> = Vec::new();
+    let mut next: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         let len = line.len();
         let mut i = 0usize;
         while i < len {
@@ -231,12 +235,12 @@ pub fn make_func_list_java(src: &dyn LineSource) -> FuncInfoArr {
                         mode = Mode::Normal;
                     } else if c == ')' {
                         // what follows the ")" decides whether this is a method
-                        let mut owned: Option<Vec<char>> = None;
+                        let mut in_next = false;
                         let mut n2 = n;
                         let mut k = i + 1;
                         let mut in_comment = false;
                         loop {
-                            let line2: &[char] = owned.as_deref().unwrap_or(&line);
+                            let line2: &[char] = if in_next { &next } else { &line };
                             while k < line2.len() {
                                 if !in_comment {
                                     let c2 = line2[k];
@@ -267,16 +271,12 @@ pub fn make_func_list_java(src: &dyn LineSource) -> FuncInfoArr {
                                 // the next line
                                 k = 0;
                                 n2 += 1;
-                                match src.line(n2) {
-                                    Some(next) => {
-                                        owned = Some(next);
-                                        continue;
-                                    }
-                                    None => {
-                                        if let Some(class) = classes.last_mut() {
-                                            class.method = Method::None;
-                                        }
-                                    }
+                                if src.read_line(n2, &mut next) {
+                                    in_next = true;
+                                    continue;
+                                }
+                                if let Some(class) = classes.last_mut() {
+                                    class.method = Method::None;
                                 }
                             } else {
                                 // 2002.10.10 genta: abstract methods too

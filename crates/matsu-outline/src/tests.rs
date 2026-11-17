@@ -1092,3 +1092,46 @@ fn the_item_for_the_caret_passes_over_the_items_of_another_file() {
         Some(0)
     );
 }
+
+#[test]
+fn read_line_does_not_keep_the_old_content_of_the_buffer() {
+    use crate::LineSource;
+    let text = "a long first line with many characters\r\nab\n\nlast";
+    let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+    let vec = VecSource::new(text);
+    for src in [&doc as &dyn LineSource, &vec] {
+        let mut buf = Vec::new();
+        let mut got = Vec::new();
+        for n in 0..src.line_count() {
+            assert!(src.read_line(n, &mut buf));
+            got.push(buf.iter().collect::<String>());
+        }
+        assert_eq!(
+            got,
+            [
+                "a long first line with many characters\r\n",
+                "ab\n",
+                "\n",
+                "last"
+            ]
+        );
+        // past the last line: false, and the buffer is empty
+        assert!(!src.read_line(src.line_count(), &mut buf));
+        assert!(buf.is_empty());
+    }
+}
+
+#[test]
+fn a_parser_does_not_depend_on_the_buffer_of_the_line_before() {
+    // A long line is followed by short ones: the tail of the long line must not be seen.
+    let long = "x".repeat(200);
+    let with_long = format!("{long}\n1. Heading\n{long}\n\n2. Next\n");
+    let names = |text: &str| -> Vec<String> {
+        make_topic_list_txt(&VecSource::new(text), DEFAULT_HEADING_MARKS)
+            .items()
+            .iter()
+            .map(|i| i.name.clone())
+            .collect()
+    };
+    assert_eq!(names(&with_long), names("x\n1. Heading\nx\n\n2. Next\n"));
+}

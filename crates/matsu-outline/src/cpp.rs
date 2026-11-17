@@ -379,10 +379,11 @@ pub fn make_func_list_c(
         ns.iter().take(len).chain(name.iter()).collect::<String>()
     }
 
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         let len = line.len();
         let mut i: usize;
         // The directives of the preprocessor are read first, unless in a comment (2004.08.10 genta)

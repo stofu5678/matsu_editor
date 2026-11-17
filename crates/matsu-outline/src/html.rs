@@ -159,11 +159,12 @@ pub fn make_topic_list_html(src: &dyn LineSource, xml: bool) -> FuncInfoArr {
     // (2008.08.15 aroka). Index 0 is not used.
     let mut head_depth = [-1isize; 7];
 
+    let mut line: Vec<char> = Vec::new();
     let mut n = 0usize;
     while n < src.line_count() {
-        let Some(mut line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         let mut i = 0usize;
         while (line.len() as isize) - 1 > i as isize {
             let len = line.len() as isize;
@@ -283,13 +284,10 @@ pub fn make_topic_list_html(src: &dyn LineSource, xml: bool) -> FuncInfoArr {
                         }
                         if keep_going {
                             n += 1;
-                            match src.line(n) {
-                                Some(next) => line = next,
-                                None => {
-                                    // no more lines: the length is 0 and the line is null
-                                    line = Vec::new();
-                                    has_line = false;
-                                }
+                            if !src.read_line(n, &mut line) {
+                                // no more lines: the length is 0 and the line is null
+                                line.clear();
+                                has_line = false;
                             }
                             j = 0;
                             i = 0;

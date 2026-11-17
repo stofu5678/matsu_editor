@@ -201,10 +201,11 @@ pub fn make_func_list_python(src: &dyn LineSource) -> FuncInfoArr {
     // the column of each level of the indentation
     let mut indent_level = [0usize; MAX_DEPTH];
     let mut depth_index = 0usize;
+    let mut line: Vec<char> = Vec::new();
     for n in 0..src.line_count() {
-        let Some(line) = src.line(n) else {
+        if !src.read_line(n, &mut line) {
             break;
-        };
+        }
         let len = line.len();
         let mut col = 0usize;
         if scanner.is_logical_line_top() {

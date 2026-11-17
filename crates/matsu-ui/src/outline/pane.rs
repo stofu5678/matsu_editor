@@ -1289,8 +1289,8 @@ impl matsu_outline::LineSource for DocumentSource {
         matsu_outline::LineSource::line_count(&self.doc)
     }
 
-    fn line(&self, index: usize) -> Option<Vec<char>> {
-        matsu_outline::LineSource::line(&self.doc, index)
+    fn read_line(&self, index: usize, buf: &mut Vec<char>) -> bool {
+        matsu_outline::LineSource::read_line(&self.doc, index, buf)
     }
 
     fn new_line_len(&self) -> usize {

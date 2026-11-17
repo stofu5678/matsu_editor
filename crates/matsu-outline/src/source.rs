@@ -5,16 +5,18 @@ use matsu_core::buffer::Document;
 /// A document that is read one line at a time.
 ///
 /// Sakura's analyzers walk `CDocLineMgr` and ask for `GetDocLineStrWithEOL`: the text of the line
-/// with its line ending. [`line`](Self::line) gives the same, as characters, so that the analyzers
+/// with its line ending. [`read_line`](Self::read_line) gives the same, as characters, so that the analyzers
 /// index a line as Sakura does without caring for the UTF-8 byte offsets of the buffer.
 pub trait LineSource {
     /// The number of lines (`CDocLineMgr::GetLineCount`). A document that ends with a line
     /// ending has no empty last line here, as in Sakura.
     fn line_count(&self) -> usize;
 
-    /// The characters of line `index` (0 origin), followed by its line ending, or `None` past the
-    /// last line (or if the line cannot be read).
-    fn line(&self, index: usize) -> Option<Vec<char>>;
+    /// Fills `buf` with the characters of line `index` (0 origin), followed by its line ending,
+    /// and returns `true`. The old content of `buf` is dropped, its allocation is kept: the caller
+    /// reads every line into one buffer. Past the last line (or if the line cannot be read) it
+    /// returns `false` and `buf` is empty.
+    fn read_line(&self, index: usize, buf: &mut Vec<char>) -> bool;
 
     /// The length of the line ending the document gets for new line breaks
     /// (`CDocEditor::m_cNewLineCode.GetLen()`), 1 or 2. Used by the bookmark list only.
@@ -28,13 +30,16 @@ impl LineSource for Document {
         Document::line_count(self)
     }
 
-    fn line(&self, index: usize) -> Option<Vec<char>> {
-        let line = Document::line(self, index).ok().flatten()?;
-        let mut chars: Vec<char> = line.text.chars().collect();
+    fn read_line(&self, index: usize, buf: &mut Vec<char>) -> bool {
+        buf.clear();
+        let Some(line) = Document::line(self, index).ok().flatten() else {
+            return false;
+        };
+        buf.extend(line.text.chars());
         if let Some(eol) = line.eol {
-            chars.extend(eol.as_str().chars());
+            buf.extend(eol.as_str().chars());
         }
-        Some(chars)
+        true
     }
 }
 
@@ -90,8 +95,13 @@ impl LineSource for VecSource {
         self.lines.len()
     }
 
-    fn line(&self, index: usize) -> Option<Vec<char>> {
-        self.lines.get(index).cloned()
+    fn read_line(&self, index: usize, buf: &mut Vec<char>) -> bool {
+        buf.clear();
+        let Some(line) = self.lines.get(index) else {
+            return false;
+        };
+        buf.extend_from_slice(line);
+        true
     }
 
     fn new_line_len(&self) -> usize {

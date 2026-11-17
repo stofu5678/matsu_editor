@@ -45,7 +45,7 @@ Rust の「だれが値を持つか」「状態をどう持つか」「長く生
 
 - 例: `crates/matsu-core/src/file/source.rs` の `Source::read` は `io::Result<Cow<'_, [u8]>>` を返す。メモリにあるものは借りて返し、ファイルは読んで持って返す
 - 例: `MemorySource::new(bytes: impl Into<Arc<[u8]>>)`。`Vec<u8>` も `Arc<[u8]>` も受けられる
-- 戻り値も同じ。持ち物の一部を見せるだけなら借りて返す。1 行ごとに呼ばれる関数が、呼ぶたびに新しい `Vec` を作って返さない。例: `crates/matsu-print/src/source.rs` の `LineSource::read_line(&self, index, buf: &mut String)` は、呼ぶ側の `String` を使い回す。`crates/matsu-outline/src/source.rs` の `LineSource::line(&self, index) -> Option<Vec<char>>` は 1 行ごとに `Vec<char>` を作る（「直す候補」）
+- 戻り値も同じ。持ち物の一部を見せるだけなら借りて返す。1 行ごとに呼ばれる関数が、呼ぶたびに新しい `Vec` を作って返さない。例: `crates/matsu-print/src/source.rs` の `LineSource::read_line(&self, index, buf: &mut String)` は、呼ぶ側の `String` を使い回す。`crates/matsu-outline/src/source.rs` の `LineSource::read_line(&self, index, buf: &mut Vec<char>) -> bool` も同じ（呼ぶ側が 1 つのバッファを使い回す。以前は 1 行ごとに `Vec<char>` を作っていた。ADR-0033 段階 2 で直した）
 - Clippy の `needless_pass_by_value`・`ref_option`・`trivially_copy_pass_by_ref` は、ワークスペースで警告にしてある（`Cargo.toml`）
 
 ## 5. clone
@@ -95,7 +95,6 @@ ownership のレビューは、変更された部分だけを、次の順で見�
 
 | もの | 場所 | 直し方 |
 |---|---|---|
-| アウトラインの `LineSource::line` が `Vec<char>` を返す | `crates/matsu-outline/src/source.rs`、`crates/matsu-ui/src/outline/pane.rs`（実装） | 印刷の `LineSource::read_line`（呼ぶ側のバッファを使い回す）に合わせる。解析が文字の位置で見る部分は、バッファの `Vec<char>` を呼ぶ側が持つ |
 | `InputOptions` を、設定から 1 項目ずつ写している | `crates/matsu-ui/src/settings/view_settings.rs`（`input: InputOptions { ... }`）、`crates/matsu-commands/src/input_options.rs` | `InputOptions` を設定の側の型にして、写しをなくす。または、写しを作る時点（設定が変わったとき）を 1 か所にして、コメントで書く |
 
 #444・#448（プラグインの起動のしくみ）は直してある。#447（サブメニューのキー）は、食い違いを直したが、gpui-component が選択を教えない限り、追いかける形が残る（確かめていない推測: 上流に頼めば、なくせる）。上流に頼むかは、CLAUDE.md の「ほかの OSS への報告」に従って、ユーザーが決める。
