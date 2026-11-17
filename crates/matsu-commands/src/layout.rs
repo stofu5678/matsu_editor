@@ -33,6 +33,11 @@ pub trait Layout {
     /// known: lay out `doc` again.
     fn reset(&mut self, doc: &Document);
 
+    /// Makes the rows of line `line` exact. After an edit of very many lines at once a layout may
+    /// only estimate their rows (one row each) until it has laid them out; the row functions of
+    /// that line are not right before. A layout that always knows them has nothing to do.
+    fn make_exact(&mut self, _doc: &Document, _line: usize) {}
+
     /// The horizontal position of `pos` counted from the left edge of the screen, so the indent
     /// of a wrapped row is included (Sakura: the layout X of the caret).
     fn display_x(&self, doc: &Document, pos: Pos) -> Result<X>;
@@ -190,6 +195,16 @@ impl PlainLayout {
 }
 
 impl Layout for PlainLayout {
+    // A row is a line: the row functions are direct (the defaults walk the rows from the start of
+    // the document, which makes a loop over many lines quadratic).
+    fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
+        Ok(doc.clamp_pos(pos)?.line)
+    }
+
+    fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
+        Ok((row <= Self::last_row(doc)?).then(|| Pos::new(row, 0)))
+    }
+
     fn tab_width(&self) -> usize {
         self.tab_width.max(1)
     }
