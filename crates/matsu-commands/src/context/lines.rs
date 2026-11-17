@@ -148,6 +148,15 @@ impl CommandContext<'_> {
         self.refuse_in_view_mode()?;
         let new_line = eol_text(self.new_line());
         // The screen rows of the corners: Sakura restores them (`sRangeA`) after the sort.
+        // (A layout that is not finished counts one row for the lines it has not laid out: the rows
+        // down to the lower corner are made exact first, so that these are the real screen rows.)
+        for line in 0..=a
+            .line
+            .max(c.line)
+            .min(self.doc().line_count().saturating_sub(1))
+        {
+            self.layout.make_exact(self.model.doc(), line);
+        }
         let a_row = self.layout.row_index(self.doc(), a)?;
         let c_row = self.layout.row_index(self.doc(), c)?;
         // the key, the line with its ending, and the length of the ending

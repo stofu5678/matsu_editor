@@ -308,6 +308,37 @@ mod tests {
         assert_eq!(model.doc().line(100).unwrap().unwrap().text, "4900ab");
     }
 
+    /// The corners keep their real screen rows also when the layout of the lines above them is
+    /// not finished (the index counts one row for each of those lines).
+    #[test]
+    fn a_box_sort_in_a_partly_laid_out_document_keeps_the_real_screen_rows() {
+        use matsu_core::cursor::Cursor;
+
+        const LINES: usize = 300;
+        // each line has two rows: "dddd" and "ab"
+        let text: String = (0..LINES).map(|i| format!("{:04}ab\n", i)).collect();
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..scaled(1)
+        };
+        let mut model = DocumentModel::new(doc(&text));
+        // nothing is laid out: every line counts one row
+        let mut layout = DocumentLayout::new(model.doc(), cfg).unwrap();
+        // from the second row of line 100 to the second row of line 200, columns 0 to 2
+        let mut cursor = Cursor::new(Pos::new(100, 4));
+        cursor.begin_box(0, false);
+        cursor.move_box_to(Pos::new(200, 4), 2);
+        {
+            let mut adapter = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut adapter, None);
+            Registry::global().run("sort_desc", &mut cx, &[]).unwrap();
+            cx.finish();
+        }
+        let ((a, a_col), (c, c_col)) = cursor.box_corners().expect("the box stays");
+        assert_eq!((a, a_col), (Pos::new(100, 4), 0));
+        assert_eq!((c, c_col), (Pos::new(200, 6), 2));
+    }
+
     #[test]
     fn a_wrapped_line_has_several_rows() {
         let d = doc("abcdefghij\nxy");
