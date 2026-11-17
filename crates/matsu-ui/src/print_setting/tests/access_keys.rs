@@ -206,3 +206,26 @@ fn alt_2_asks_for_the_name_and_alt_x_and_alt_o_close_the_dialog(cx: &mut TestApp
     assert!(dialog_of(&view, cx).is_none());
     assert_eq!(saved(cx).get(0).print_dansuu, 2);
 }
+
+#[gpui::test]
+fn the_list_closes_when_the_focus_goes_to_a_box_and_enter_is_then_the_boxs(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    cx.simulate_keystrokes("alt-1 down");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
+        Some((List::Setting, 1))
+    );
+    // the focus goes to a box of the dialog (a click or Tab does the same)
+    dialog.update_in(cx, |d, window, cx| d.focus_first(window, cx));
+    cx.run_until_parked();
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+    // Enter in the box is OK, as before; it does not choose the row the list was on
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(dialog_of(&view, cx).is_none());
+    let name = view.read_with(cx, |v, cx| v.current_print_setting(cx).name);
+    assert_eq!(name, "印刷設定 1");
+}

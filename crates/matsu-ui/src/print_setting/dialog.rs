@@ -499,7 +499,18 @@ impl PrintSettingDialog {
         cx: &mut Context<Self>,
     ) {
         let modifiers = event.keystroke.modifiers;
-        if self.list.is_none() || modifiers.modified() {
+        if self.list.is_none() {
+            return;
+        }
+        // The list was opened with the focus on the dialog itself. Once the focus is in a box or on
+        // a button, the list is closed, as a combo box closes its list when it loses the focus: the
+        // keys belong to the control that has the focus.
+        if !self.focus.is_focused(window) {
+            self.list = None;
+            cx.notify();
+            return;
+        }
+        if modifiers.modified() {
             return;
         }
         let key = event.keystroke.key.as_str();
@@ -880,8 +891,12 @@ impl Focusable for PrintSettingDialog {
 }
 
 impl Render for PrintSettingDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
+        // a click or Tab to another control closes the list (it has the focus of the dialog)
+        if self.list.is_some() && !self.focus.is_focused(window) {
+            self.list = None;
+        }
         let now = self.collect(cx);
         let printable = model::printable(&now, self.number_columns);
         let ok_enabled = model::has_printable_area(&now, self.number_columns);
