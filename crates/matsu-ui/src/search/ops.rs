@@ -561,7 +561,7 @@ fn first_line_of_selection(doc: &Document, a: Pos, b: Pos) -> Option<String> {
 /// Makes `edits` in the document, in order, and returns where each one's replaced text ended
 /// before it was made (the old end, for [`shift_through`]). The edits come from running the same
 /// replacement on a copy of the document, so their positions fit.
-fn apply_edits(
+pub(crate) fn apply_edits(
     c: &mut CommandContext<'_>,
     edits: &[AppliedEdit],
 ) -> Result<Vec<Pos>, CommandError> {

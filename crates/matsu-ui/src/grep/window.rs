@@ -26,6 +26,7 @@ use gpui_component::checkbox::Checkbox;
 use matsu_commands::clipboard::{ClipKind, Clipboard};
 use matsu_commands::command::CommandError;
 use matsu_core::buffer::{Eol, Pos};
+use matsu_core::search::AppliedEdit;
 
 use super::engine::{self, GrepError, GrepInfo, Outcome, Sink, WindowSource};
 use super::panel::GrepPanel;
@@ -157,6 +158,9 @@ pub struct GrepWindow {
     /// Sakura writes it as it comes and only stops drawing; the text is the same when the search
     /// ends.
     held: String,
+    /// The document a Grep 置換 of a window's text replaces in: its id and the version that the
+    /// search read. Set when the search begins, taken when the edits come.
+    pub(super) replace_target: Option<(u64, u64)>,
     /// The dialog, while it is open.
     pub(crate) panel: Option<Entity<GrepPanel>>,
 }
@@ -188,6 +192,8 @@ pub(super) enum Event {
     Text(String),
     /// The file being searched and the hits so far.
     Progress(String, usize),
+    /// The edits of a Grep 置換 of the text of a window, to make in the document that was read.
+    Replaced(Vec<AppliedEdit>),
     /// The end.
     Done(Result<Outcome, GrepError>),
 }
@@ -210,6 +216,10 @@ impl ChannelSink {
 impl Sink for ChannelSink {
     fn write(&mut self, text: &str) {
         self.send(Event::Text(text.to_owned()));
+    }
+
+    fn replaced(&mut self, edits: Vec<AppliedEdit>) {
+        self.send(Event::Replaced(edits));
     }
 
     fn progress(&mut self, file: &str, hits: usize) {
@@ -465,6 +475,8 @@ impl EditorView {
         // While the scan of a huge file runs, the document has only the scanned start of it.
         let scanning = shared.scan_index();
         Some(WindowSource {
+            id,
+            version: shared.version(),
             document: shared.doc().clone(),
             encoding: shared.file().encoding,
             folder,
@@ -600,6 +612,11 @@ impl EditorView {
             .end_pos()
             .map_or(0, |pos| pos.line);
         let cancel = Arc::new(AtomicBool::new(false));
+        self.grep.replace_target = info
+            .window
+            .as_ref()
+            .filter(|_| info.replace.is_some())
+            .map(|w| (w.id, w.version));
         self.grep.key = Some(info.key.clone());
         self.grep.running = Some(cancel.clone());
         self.grep.progress = None;
@@ -656,6 +673,10 @@ impl EditorView {
             Event::Progress(file, hits) => {
                 self.grep.progress = Some((file, hits));
                 cx.notify();
+                false
+            }
+            Event::Replaced(edits) => {
+                self.replace_in_window(&edits, cx);
                 false
             }
             Event::Done(result) => {

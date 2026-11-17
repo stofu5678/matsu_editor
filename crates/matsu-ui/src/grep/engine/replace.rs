@@ -59,9 +59,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use matsu_core::buffer::{BufferError, Document, Pos};
 use matsu_core::file::{FileError, SaveOptions, TextFile};
-use matsu_core::search::{ReplaceTarget, Replacement, apply_replacements, replacement_for};
+use matsu_core::search::{
+    AppliedEdit, ReplaceTarget, Replacement, apply_replacements, replacement_for,
+};
 
-use super::{Runner, Stopped, next_hit, shown_path};
+use super::{ReplaceInfo, Runner, Stopped, WindowSource, next_hit, shown_path};
 use crate::grep::format::{self, Body, FilePaths, LineType, PathInfoState};
 
 /// The suffix of the backup file (`.skrold`).
@@ -70,22 +72,26 @@ pub const BACKUP_SUFFIX: &str = ".skrold";
 /// How often the stop flag is read, in lines.
 const CANCEL_CHECK_LINES: usize = 32;
 
+/// What a Grep 置換 of one document will do: the edits, and the number of replacements.
+pub(super) struct Planned {
+    pub(super) edits: Vec<Replacement>,
+    pub(super) replaced: usize,
+}
+
 impl Runner<'_> {
-    /// `DoGrepReplaceFile`.
-    pub(super) fn replace_file(
+    /// The loop of `DoGrepReplaceFile` over the lines of `doc`: writes the hits to the result and
+    /// plans the new text of each line. `None` when nothing is to be replaced, or the text could
+    /// not be read (the result says so).
+    pub(super) fn plan_replacements(
         &mut self,
+        doc: &Document,
         paths: &FilePaths<'_>,
         state: &mut PathInfoState,
-    ) -> Result<(), Stopped> {
-        let Some(replace) = self.info.replace.clone() else {
-            return Ok(());
-        };
-        let Some(mut file) = self.open(paths.full)? else {
-            return Ok(());
-        };
-        let code_name = self.code_name(file.encoding);
+        code_name: &str,
+        replace: &ReplaceInfo,
+    ) -> Result<Option<Planned>, Stopped> {
         let Some(matcher) = self.matcher.clone() else {
-            return Ok(());
+            return Ok(None);
         };
         let layout = self.info.layout;
         let shown = shown_path(paths, layout);
@@ -93,7 +99,6 @@ impl Runner<'_> {
         // `g` option); the rest is replaced match by match. Either way the line is handled with
         // its line break, as Sakura reads it, so a match can cover the break.
         let by_match = self.replacer.is_none();
-        let mut doc = file.document.clone();
         let mut plan: Vec<Replacement> = Vec::new();
         let mut replaced = 0usize;
         let mut any_hit = false;
@@ -107,7 +112,7 @@ impl Runner<'_> {
                 Ok(None) => break,
                 Err(_) => {
                     self.buffer.push_str(&format::file_read_error(paths.full));
-                    return Ok(());
+                    return Ok(None);
                 }
             };
             // The empty line after the last line break is not a line of the file: Sakura reads
@@ -144,12 +149,12 @@ impl Runner<'_> {
                     } else {
                         Body::Part(&whole[m.start..m.end])
                     };
-                    format::push_path_info(&mut self.buffer, &layout, paths, &code_name, state);
+                    format::push_path_info(&mut self.buffer, &layout, paths, code_name, state);
                     format::push_result(
                         &mut self.buffer,
                         &layout,
                         shown,
-                        &code_name,
+                        code_name,
                         index as u64 + 1,
                         column,
                         body,
@@ -163,39 +168,101 @@ impl Runner<'_> {
                     Ok(done) => done,
                     Err(_) => {
                         self.buffer.push_str(&format::file_read_error(paths.full));
-                        return Ok(());
+                        return Ok(None);
                     }
                 },
                 None => put_in(&whole, &hits, &replace.text),
             };
             replaced += count;
-            match line_replacement(&doc, index, &line.text, eol, &whole, new) {
+            match line_replacement(doc, index, &line.text, eol, &whole, new) {
                 Ok(Some(edit)) => plan.push(edit),
                 Ok(None) => {}
                 Err(_) => {
                     self.buffer.push_str(&format::file_read_error(paths.full));
-                    return Ok(());
+                    return Ok(None);
                 }
             }
             self.flush_when_due();
         }
         self.check_cancel()?;
-        if !any_hit {
-            return Ok(());
+        Ok(any_hit.then_some(Planned {
+            edits: plan,
+            replaced,
+        }))
+    }
+
+    /// Makes the plan in a copy of `doc`. The edits as they were made, and the number of
+    /// replacements, or `None` (the result says why) when the document refuses them or nothing
+    /// changes.
+    fn apply_plan(
+        &mut self,
+        doc: &mut Document,
+        planned: Planned,
+        full: &str,
+    ) -> Option<(Vec<AppliedEdit>, usize)> {
+        match apply_replacements(doc, &merge_adjacent(planned.edits)) {
+            Ok(edits) if planned.replaced > 0 => Some((edits, planned.replaced)),
+            Ok(_) => None,
+            Err(_) => {
+                self.buffer.push_str(&format::file_read_error(full));
+                None
+            }
         }
-        let replaced = apply_replacements(&mut doc, &merge_adjacent(plan))
-            .map(|_| replaced)
-            .ok();
-        let Some(replaced) = replaced else {
-            self.buffer.push_str(&format::file_read_error(paths.full));
+    }
+
+    /// `DoGrepReplaceFile`.
+    pub(super) fn replace_file(
+        &mut self,
+        paths: &FilePaths<'_>,
+        state: &mut PathInfoState,
+    ) -> Result<(), Stopped> {
+        let Some(replace) = self.info.replace.clone() else {
             return Ok(());
         };
-        if replaced == 0 {
+        let Some(mut file) = self.open(paths.full)? else {
             return Ok(());
-        }
+        };
+        let code_name = self.code_name(file.encoding);
+        let mut doc = file.document.clone();
+        let Some(planned) = self.plan_replacements(&doc, paths, state, &code_name, &replace)?
+        else {
+            return Ok(());
+        };
+        let Some((_, replaced)) = self.apply_plan(&mut doc, planned, paths.full) else {
+            return Ok(());
+        };
         file.document = doc;
         if self.write_back(paths.full, &mut file, replace.backup)? {
             self.hits += replaced;
+        }
+        Ok(())
+    }
+
+    /// Grep 置換 of the text of a window (`:HWND:`): the same loop as for a file, on the snapshot
+    /// of the document. Nothing is written here: the edits go to the sink, and the window that
+    /// owns the document makes them (one undo step).
+    ///
+    /// Sakura reaches `DoGrepFile` for a window even in a Grep 置換, so it replaces nothing and
+    /// prints the count of the hits as if it had (`CGrepAgent::DoGrep`, the `hWndTarget` loop).
+    /// That is a bug and not something a macro could rely on: the result of a macro is the same
+    /// text with the count, and the window is not changed.
+    pub(super) fn replace_window(
+        &mut self,
+        window: &WindowSource,
+        paths: &FilePaths<'_>,
+        state: &mut PathInfoState,
+        code_name: &str,
+    ) -> Result<(), Stopped> {
+        let Some(replace) = self.info.replace.clone() else {
+            return Ok(());
+        };
+        let mut doc = window.document.clone();
+        let Some(planned) = self.plan_replacements(&doc, paths, state, code_name, &replace)? else {
+            return Ok(());
+        };
+        if let Some((edits, replaced)) = self.apply_plan(&mut doc, planned, paths.full) {
+            self.hits += replaced;
+            self.sink.replaced(edits);
         }
         Ok(())
     }

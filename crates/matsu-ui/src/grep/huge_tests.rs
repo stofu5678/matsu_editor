@@ -311,6 +311,8 @@ fn window_info(key: &str, window: WindowSource) -> GrepInfo {
 
 fn window(document: Document, name: &str, scanning: Option<BlockIndex>) -> WindowSource {
     WindowSource {
+        id: 0,
+        version: 0,
         document,
         encoding: Encoding::Utf8,
         folder: String::new(),

@@ -14,7 +14,7 @@ use matsu_core::buffer::{Document, Pos};
 use matsu_core::encoding::Encoding;
 use matsu_core::model::DocumentModel;
 
-use super::engine::{GrepError, GrepInfo, ReplaceInfo, Sink, WindowSource, check, run};
+use super::engine::{GrepInfo, ReplaceInfo, Sink, WindowSource, run};
 use super::enumerate::join_path;
 use super::format::Layout;
 use super::settings::GrepSettings;
@@ -36,6 +36,8 @@ impl Sink for Text {
 
 fn source(text: &str, folder: &str, name: &str, title: &str) -> WindowSource {
     WindowSource {
+        id: 0,
+        version: 0,
         document: Document::from_utf8(text.as_bytes().to_vec()).unwrap(),
         encoding: Encoding::Utf8,
         folder: folder.to_owned(),
@@ -187,20 +189,84 @@ fn a_window_that_is_gone_ends_the_heading_with_the_error() {
     );
 }
 
-#[test]
-fn a_replacement_of_a_window_is_refused() {
-    // The dialog greys the check box out; the search of a window never replaces, and Sakura
-    // would still say that it did.
-    let mut i = info("hit", source("a hit\n", "/proj", "x", "x"));
+/// A sink that keeps the edits of a Grep 置換 as well as the text.
+#[derive(Default)]
+struct Planning {
+    text: String,
+    edits: Vec<matsu_core::search::AppliedEdit>,
+}
+
+impl Sink for Planning {
+    fn write(&mut self, text: &str) {
+        self.text.push_str(text);
+    }
+
+    fn replaced(&mut self, edits: Vec<matsu_core::search::AppliedEdit>) {
+        self.edits.extend(edits);
+    }
+}
+
+fn replacing(key: &str, text: &str, new: &str) -> (Planning, usize) {
+    let mut i = info(key, source(text, "/proj", "x", "x"));
     i.replace = Some(ReplaceInfo {
-        text: "miss".to_owned(),
+        text: new.to_owned(),
         paste: false,
         backup: false,
     });
-    assert!(matches!(check(&i), Err(GrepError::WindowReplace)));
-    let mut sink = Text(String::new());
-    assert!(run(&i, &AtomicBool::new(false), &mut sink).is_err());
-    assert!(sink.0.is_empty());
+    let mut sink = Planning::default();
+    let outcome = run(&i, &AtomicBool::new(false), &mut sink).unwrap();
+    (sink, outcome.hits)
+}
+
+#[test]
+fn a_replacement_of_a_window_plans_the_edits_and_counts_them() {
+    // Sakura prints the count of a replacement here and changes nothing (`DoGrep` calls
+    // `DoGrepFile` for a window): MATSU plans the edits, which the window makes.
+    let (sink, hits) = replacing("hit", "a hit\nno\nhit hit\n", "miss");
+    assert_eq!(hits, 3);
+    assert!(
+        sink.text.ends_with("3 個を置換しました。\r\n"),
+        "{}",
+        sink.text
+    );
+    assert!(
+        sink.text.contains("(1,3)  [UTF-8]: a hit\r\n"),
+        "{}",
+        sink.text
+    );
+    let inserted: Vec<_> = sink.edits.iter().map(|e| e.inserted.as_str()).collect();
+    assert_eq!(inserted, ["a miss", "miss miss"]);
+}
+
+#[test]
+fn nothing_is_planned_without_a_hit() {
+    let (sink, hits) = replacing("zzz", "a hit\n", "miss");
+    assert_eq!(hits, 0);
+    assert!(sink.edits.is_empty());
+    assert!(
+        sink.text.ends_with("0 個を置換しました。\r\n"),
+        "{}",
+        sink.text
+    );
+}
+
+#[test]
+fn a_replacement_of_a_window_can_cover_the_line_break() {
+    // As for a file: the line is read with its break, so `\n` joins the lines
+    let mut i = info("\\n", source("a\nb\nc\n", "/proj", "x", "x"));
+    i.options.regex = true;
+    i.replace = Some(ReplaceInfo {
+        text: ",".to_owned(),
+        paste: false,
+        backup: false,
+    });
+    let mut sink = Planning::default();
+    let outcome = run(&i, &AtomicBool::new(false), &mut sink).unwrap();
+    assert_eq!(outcome.hits, 3);
+    // the edits of the lines that touch each other are one
+    assert_eq!(sink.edits.len(), 1);
+    assert_eq!(sink.edits[0].removed, "a\nb\nc\n");
+    assert_eq!(sink.edits[0].inserted, "a,b,c,");
 }
 
 #[test]
@@ -455,10 +521,21 @@ fn a_window_that_is_gone_is_told_in_the_result(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_grep_replace_of_a_window_is_refused_in_a_box(cx: &mut TestAppContext) {
+fn a_grep_replace_of_a_window_replaces_in_one_undo_step(cx: &mut TestAppContext) {
+    // The window that runs the Grep is not the one that is replaced in
     let (f, cx) = setup(cx, "", None);
-    cx.simulate_input("a needle");
-    let id = f.id(cx);
+    let doc = Document::from_utf8(b"a needle\nneedle needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let other = others(cx, &f.view).remove(0);
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
     let args = vec![
         Arg::Text("needle".to_owned()),
         Arg::Text("pin".to_owned()),
@@ -467,12 +544,55 @@ fn a_grep_replace_of_a_window_is_refused_in_a_box(cx: &mut TestAppContext) {
         Arg::Int(5),
     ];
     f.run(cx, "F_GREP_REPLACE", &args);
-    assert!(cx.has_pending_prompt());
-    cx.simulate_prompt_answer("OK");
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(text_of(&other, cx), "a pin\npin pin\n");
+    let result: Vec<_> = others(cx, &f.view)
+        .into_iter()
+        .filter(|view| *view != other)
+        .collect();
+    assert_eq!(result.len(), 1);
+    let text = text_of(&result[0], cx);
+    assert!(text.contains(&format!(":HWND:[{id:016x}]")), "{text}");
+    assert!(text.ends_with("3 個を置換しました。\r\n"), "{text}");
+    // one undo step brings the text back
+    run_in_window(cx, &other, "F_UNDO");
+    assert_eq!(text_of(&other, cx), "a needle\nneedle needle\n");
+}
+
+#[gpui::test]
+fn a_grep_replace_of_a_window_that_changed_meanwhile_replaces_nothing(cx: &mut TestAppContext) {
+    // The edits were planned for the text that was read: the version tells it changed.
+    let (f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(b"a needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
     cx.run_until_parked();
-    assert!(others(cx, &f.view).is_empty());
-    // nothing was replaced
-    assert_eq!(text_of(&f.view, cx), "a needle");
+    let other = others(cx, &f.view).remove(0);
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let mut info = info("needle", source("a needle\n", "", "x", "x"));
+    info.file = window_token(id);
+    info.window = None;
+    info.replace = Some(ReplaceInfo {
+        text: "pin".to_owned(),
+        paste: false,
+        backup: false,
+    });
+    // the search starts at once; the text is changed before the window takes the edits
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep_in(info, true, false, window, cx);
+        other.update(cx, |view, cx| {
+            view.run_with(cx, |c| c.replace(Pos::new(0, 0), Pos::new(0, 0), "X"))
+                .unwrap();
+        });
+    });
+    settle(cx);
+    assert_eq!(text_of(&other, cx), "Xa needle\n");
 }
 
 /// A window of the application (the tag jump finds the windows of the application only) with
