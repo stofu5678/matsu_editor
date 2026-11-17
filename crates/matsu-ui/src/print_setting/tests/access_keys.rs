@@ -208,7 +208,7 @@ fn alt_2_asks_for_the_name_and_alt_x_and_alt_o_close_the_dialog(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn the_list_closes_when_the_focus_goes_to_a_box_and_enter_is_then_the_boxs(
+fn the_list_closes_when_the_focus_goes_to_a_box_and_enter_then_belongs_to_the_box(
     cx: &mut TestAppContext,
 ) {
     let (view, cx) = setup(cx, "abc");
