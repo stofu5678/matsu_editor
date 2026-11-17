@@ -225,7 +225,7 @@ impl OutlinePane {
         self.view_id = view.entity_id();
         self.last_caret = None;
         let observe = cx.observe(view, |this, view, cx| this.caret_moved(&view, cx));
-        let events = cx.subscribe(&document, |this, _, event, cx| match *event {
+        let events = cx.subscribe(&document, |this, _, event, cx| match event {
             // NotifyDocModification: the result stays, but it no longer follows the caret
             DocumentEvent::Changed { .. } => {
                 // a file loaded into this tab replaces the document (`Refresh` after a load)

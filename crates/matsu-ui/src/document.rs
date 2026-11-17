@@ -69,11 +69,24 @@ fn next_untitled_number() -> u32 {
     return UNTITLED_SEQUENCE.with(|n| n.fetch_add(1, Ordering::Relaxed)) + 1;
 }
 
+/// The edits that a command of a view made, in the order it made them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditedBy {
+    /// The view that ran the command. Its own caret has followed the edits already.
+    pub view: gpui::EntityId,
+    pub edits: Vec<matsu_commands::context::TextChange>,
+}
+
 /// What the document tells its views.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DocumentEvent {
-    /// The text changed. `version` is the number [`SharedDocument::version`] has now.
-    Changed { version: u64 },
+    /// The text changed. `version` is the number [`SharedDocument::version`] has now. `edited`
+    /// says what a command of one view changed, when that is known: the other views move their
+    /// carets with it. `None` when the text was replaced some other way (undo, a load).
+    Changed {
+        version: u64,
+        edited: Option<EditedBy>,
+    },
     /// The document got the type (タイプ別設定) number `index`. Every view of the document takes
     /// its settings: Sakura keeps the type per document (`CEditDoc::m_cDocType`), not per pane.
     TypeChanged { index: usize },
@@ -844,9 +857,30 @@ impl SharedDocument {
 
     /// Tells the views that the text changed, and returns the new version.
     pub fn changed(&mut self, cx: &mut Context<Self>) -> u64 {
+        self.changed_with(None, cx)
+    }
+
+    /// The version that the next [`changed`](Self::changed) or [`edited`](Self::edited) gives.
+    pub fn next_version(&self) -> u64 {
+        self.version + 1
+    }
+
+    /// Like [`changed`](Self::changed), for the edits of a command of `view`, which the other
+    /// views follow.
+    pub fn edited(
+        &mut self,
+        view: gpui::EntityId,
+        edits: Vec<matsu_commands::context::TextChange>,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        self.changed_with(Some(EditedBy { view, edits }), cx)
+    }
+
+    fn changed_with(&mut self, edited: Option<EditedBy>, cx: &mut Context<Self>) -> u64 {
         self.version += 1;
         cx.emit(DocumentEvent::Changed {
             version: self.version,
+            edited,
         });
         cx.notify();
         self.version

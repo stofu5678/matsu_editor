@@ -224,6 +224,23 @@ impl Cursor {
         self.free_col = None;
     }
 
+    /// Moves the caret and the anchor to where `f` maps them, after the text changed under them
+    /// (an edit made in another view). The goal column stays; a selection that no longer covers
+    /// anything is dropped. A box selection whose corners moved becomes a normal selection
+    /// between the moved positions: its display columns are not the columns of the new text.
+    pub fn map_positions(&mut self, f: impl Fn(Pos) -> Pos) {
+        let (caret, anchor) = (self.caret, self.anchor);
+        self.caret = f(caret);
+        self.anchor = anchor.map(&f);
+        if self.is_box() && (self.caret != caret || self.anchor != anchor) {
+            self.drop_box();
+        }
+        if !self.is_box() && self.anchor == Some(self.caret) {
+            self.anchor = None;
+        }
+        self.free_col = None;
+    }
+
     /// Selects from `anchor` to `caret` (the caret may come first).
     pub fn select(&mut self, anchor: Pos, caret: Pos) {
         self.drop_box();

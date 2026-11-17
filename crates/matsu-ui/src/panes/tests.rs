@@ -719,3 +719,223 @@ fn a_split_box_drag_ends_without_a_split_when_the_window_loses_the_activation(
     cx.run_until_parked();
     assert_eq!(f.grid(cx), (1, 1));
 }
+
+/// Makes `edit` in `pane` (as one of its commands) and returns after the other panes were told.
+fn edit_in(
+    cx: &mut VisualTestContext,
+    pane: &Entity<EditorView>,
+    edit: impl FnOnce(&mut matsu_commands::context::CommandContext<'_>),
+) {
+    pane.update(cx, |v, cx| {
+        v.run_with(cx, edit);
+    });
+    cx.run_until_parked();
+}
+
+fn selection(cx: &mut VisualTestContext, pane: &Entity<EditorView>) -> Option<(Pos, Pos)> {
+    pane.read_with(cx, |v, _| v.cursor().selection())
+}
+
+#[gpui::test]
+fn the_carets_of_the_other_panes_follow_an_edit_before_them(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc\ndef\nghi");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(1, 2));
+    // a line is inserted above the caret
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(0, 0), Pos::new(0, 0), "new\n").unwrap();
+    });
+    assert_eq!(caret(cx, &right), Pos::new(2, 2));
+    // text is inserted before the caret on its line
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(2, 0), Pos::new(2, 0), "XY").unwrap();
+    });
+    assert_eq!(caret(cx, &right), Pos::new(2, 4));
+    // an edit after the caret does not move it
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(2, 5), Pos::new(2, 5), "Z").unwrap();
+    });
+    assert_eq!(caret(cx, &right), Pos::new(2, 4));
+    // lines above are deleted
+    edit_in(cx, &left, |c| {
+        c.delete_range(Pos::new(0, 0), Pos::new(2, 0)).unwrap()
+    });
+    assert_eq!(caret(cx, &right), Pos::new(0, 4));
+}
+
+#[gpui::test]
+fn a_caret_inside_deleted_text_goes_to_where_the_text_was(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcdef\nghi");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(0, 3));
+    edit_in(cx, &left, |c| {
+        c.delete_range(Pos::new(0, 1), Pos::new(0, 5)).unwrap()
+    });
+    assert_eq!(f.lines(cx)[0], "af");
+    assert_eq!(caret(cx, &right), Pos::new(0, 1));
+}
+
+#[gpui::test]
+fn the_selection_of_another_pane_follows_an_edit(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc\ndef\nghi");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    right.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.select_range(Pos::new(1, 1), Pos::new(2, 2)))
+            .unwrap();
+    });
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(0, 1), Pos::new(0, 1), "1\n2\n").unwrap();
+    });
+    assert_eq!(
+        selection(cx, &right),
+        Some((Pos::new(3, 1), Pos::new(4, 2)))
+    );
+    // an edit inside the selection moves its end only
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(4, 0), Pos::new(4, 0), "__").unwrap();
+    });
+    assert_eq!(
+        selection(cx, &right),
+        Some((Pos::new(3, 1), Pos::new(4, 4)))
+    );
+}
+
+#[gpui::test]
+fn a_replace_all_moves_the_carets_of_the_other_panes(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "a a a\nb a\nlast");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(2, 2));
+    f.click(cx, 0);
+    // every "a" becomes two lines: the text before the caret changes in more than one place
+    edit_in(cx, &left, |c| {
+        let edits = [
+            (Pos::new(0, 0), Pos::new(0, 1)),
+            (Pos::new(1, 2), Pos::new(1, 3)),
+        ];
+        for (from, to) in edits.iter().rev() {
+            c.replace(*from, *to, "x\ny").unwrap();
+        }
+    });
+    assert_eq!(f.lines(cx), ["x", "y a a", "b x", "y", "last"]);
+    assert_eq!(caret(cx, &right), Pos::new(4, 2));
+}
+
+#[gpui::test]
+fn deleting_a_character_between_cr_and_lf_keeps_the_other_caret_on_its_text(
+    cx: &mut TestAppContext,
+) {
+    // CR, X, LF: deleting X makes one CRLF line break
+    let (f, cx) = setup(cx, "ab\rX\ncd\nef");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(2, 1));
+    edit_in(cx, &left, |c| {
+        c.delete_range(Pos::new(1, 0), Pos::new(1, 1)).unwrap()
+    });
+    assert_eq!(f.lines(cx), ["ab", "cd", "ef"]);
+    // the caret stood after the "c": it still does
+    assert_eq!(caret(cx, &right), Pos::new(1, 1));
+    // a caret on the line break itself ends up at its start
+    put_caret(cx, &right, Pos::new(0, 2));
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(1, 0), Pos::new(1, 0), "\r").unwrap();
+    });
+    assert!(caret(cx, &right) <= Pos::new(0, 2));
+}
+
+#[gpui::test]
+fn an_undo_in_one_pane_keeps_the_other_caret_in_the_text(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc\ndef");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    left.update(cx, |v, cx| {
+        put_in(v, Pos::new(0, 0), cx);
+        v.type_char('\r', cx);
+    });
+    put_caret(cx, &right, Pos::new(2, 3));
+    left.update(cx, |v, cx| v.run_command("undo", &[], cx));
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["abc", "def"]);
+    // the undo does not say what it changed: the caret is only kept in the text
+    assert!(caret(cx, &right).line <= 1);
+}
+
+fn put_in(v: &mut EditorView, pos: Pos, cx: &mut gpui::Context<EditorView>) {
+    v.run_with(cx, |c| c.move_caret(pos, false)).unwrap();
+}
+
+#[gpui::test]
+fn commands_run_in_a_row_move_the_own_caret_once_and_the_other_one_by_each(
+    cx: &mut TestAppContext,
+) {
+    // The events of the document come after the commands (a macro runs them in one update): a
+    // pane must not follow its own edits again.
+    let (f, cx) = setup(cx, "abc\ndef");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &left, Pos::new(0, 0));
+    put_caret(cx, &right, Pos::new(0, 2));
+    left.update(cx, |v, cx| {
+        v.type_char('x', cx);
+        v.type_char('y', cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx)[0], "xyabc");
+    assert_eq!(caret(cx, &left), Pos::new(0, 2));
+    assert_eq!(caret(cx, &right), Pos::new(0, 4));
+}
+
+#[gpui::test]
+fn an_edit_and_its_undoing_in_one_update_bring_the_other_caret_back(cx: &mut TestAppContext) {
+    // The events of both edits reach the other pane after the text is back: the position that the
+    // first one moved past the end of the text must not be clamped before the second moves it back.
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(0, 2));
+    left.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.replace(Pos::new(0, 0), Pos::new(0, 0), "XYZ").unwrap();
+        });
+        v.run_with(cx, |c| {
+            c.delete_range(Pos::new(0, 0), Pos::new(0, 3)).unwrap()
+        });
+    });
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["abc"]);
+    assert_eq!(caret(cx, &right), Pos::new(0, 2));
+}
+
+#[gpui::test]
+fn a_box_selection_of_another_pane_keeps_its_caret_and_columns_together(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcdef\nghijkl");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(0, 1));
+    right.update(cx, |v, cx| {
+        for id in [
+            "begin_box",
+            "cursor_down_box",
+            "cursor_right_box",
+            "cursor_right_box",
+        ] {
+            v.run_command(id, &[], cx);
+        }
+    });
+    assert!(right.read_with(cx, |v, _| v.cursor().is_box()));
+    // two characters go in before the caret on its line
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(1, 0), Pos::new(1, 0), "XY").unwrap();
+    });
+    right.read_with(cx, |v, _| {
+        let cursor = v.cursor();
+        assert_eq!(cursor.caret(), Pos::new(1, 5));
+        // not a box with the old columns: the caret and the box agree
+        assert!(!cursor.is_box());
+        assert_eq!(cursor.selection(), Some((Pos::new(0, 1), Pos::new(1, 5))));
+    });
+}

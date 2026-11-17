@@ -345,11 +345,16 @@ impl EditorView {
     /// After a command: the list follows the word before the caret when the text changed
     /// (`PostprocessCommand_hokan`: the search is made again, without the automatic completion of
     /// a single candidate), and closes when the caret moved without an edit.
-    pub(crate) fn completion_after_command(&mut self, changes: &Changes, cx: &gpui::App) {
+    pub(crate) fn completion_after_command(
+        &mut self,
+        text_changed: bool,
+        changes: &Changes,
+        cx: &gpui::App,
+    ) {
         if self.support.completion.is_none() {
             return;
         }
-        if changes.text_changed() {
+        if text_changed {
             // What the plugins add to a text that changed would not fit the word (ADR-0026).
             self.stop_complement();
             if self.support.completion.is_none() {

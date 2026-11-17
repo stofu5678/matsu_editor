@@ -349,7 +349,7 @@ impl EditorView {
         let Some(version) = opened else {
             return false;
         };
-        self.document_changed(version, cx);
+        self.document_changed(version, None, cx);
         true
     }
 
