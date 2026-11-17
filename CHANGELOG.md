@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.0](https://github.com/stofu5678/matsu_editor/compare/v0.17.0...v0.18.0) (2026-11-17)
+
+
+### Features
+
+* **ui:** act on Alt+letter access keys in the main dialogs ([#493](https://github.com/stofu5678/matsu_editor/issues/493)) ([bb46aa6](https://github.com/stofu5678/matsu_editor/commit/bb46aa610809f1656ad814c7ad14d361e4dfa52f))
+* **ui:** act on Alt+letter access keys in the remaining dialogs ([#498](https://github.com/stofu5678/matsu_editor/issues/498)) ([f0baa1f](https://github.com/stofu5678/matsu_editor/commit/f0baa1f76a4f7f1754974a8ac5e07b47f7e77c3a))
+
+
+### Bug Fixes
+
+* **plugin:** deliver a handler's stderr lines before its answer ([#497](https://github.com/stofu5678/matsu_editor/issues/497)) ([f8ab9c5](https://github.com/stofu5678/matsu_editor/commit/f8ab9c5a7dabc0104af1bd5dd7d8fe7432581336))
+
 ## [0.17.0](https://github.com/stofu5678/matsu_editor/compare/v0.16.0...v0.17.0) (2026-11-16)
 
 
