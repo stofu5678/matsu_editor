@@ -640,6 +640,31 @@ fn in_the_free_cursor_mode_a_click_right_of_the_text_puts_the_caret_there(cx: &m
 }
 
 #[gpui::test]
+fn in_the_free_cursor_mode_the_caret_follows_a_drag_into_the_gap(cx: &mut TestAppContext) {
+    // `OnMOUSEMOVE` moves the caret with `MoveCursorProperly`, which puts it in the gap too; the
+    // selected text is the same as without the mode.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "abcd\nef");
+    down_at(&f, cx, 0, 1, 1, Modifiers::default());
+    drag_at(&f, cx, 1, 6, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.selection(), Some((Pos::new(0, 1), Pos::new(1, 2))));
+        assert_eq!(v.cursor.caret(), Pos::new(1, 2));
+        assert_eq!(v.cursor.free_col(), Some(6 * 64));
+    });
+    // back on the text: the gap is left
+    drag_at(&f, cx, 1, 1, Modifiers::default());
+    up_at(&f, cx, 1, 1, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(1, 1));
+        assert_eq!(v.cursor.free_col(), None);
+    });
+}
+
+#[gpui::test]
 fn without_the_free_cursor_mode_a_click_right_of_the_text_goes_to_its_end(cx: &mut TestAppContext) {
     let _o = options();
     let (f, cx) = setup(cx, "ab\ncdef");

@@ -36,6 +36,10 @@ impl Layout for RowLayout<'_> {
         self.0.config().width.to_x(1)
     }
 
+    fn max_line_x(&self) -> X {
+        self.0.config().max_x()
+    }
+
     fn char_columns(&self, c: char) -> usize {
         self.0.config().width.columns(c) as usize
     }
@@ -223,6 +227,46 @@ mod tests {
                 "pos_at_x {col}"
             );
         }
+    }
+
+    /// The rightmost `X` of a box or a free caret is the wrap column (`GetMaxLineLayout`).
+    #[test]
+    fn the_free_caret_goes_no_further_than_the_wrap_column() {
+        use matsu_commands::edit_options::{EditOptions, with_options};
+
+        let d = doc("abcdefgh\nabcdefghi\nxy");
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(10),
+            ..LayoutConfig::default()
+        };
+        let mut layout = laid_out(&d, cfg.clone());
+        assert_eq!(RowLayout(&mut layout).max_line_x(), X::from_raw(10));
+        let options = EditOptions {
+            free_cursor: true,
+            ..EditOptions::DEFAULT
+        };
+        let right = |line: usize, times: usize| {
+            let mut model = DocumentModel::new(d.clone());
+            let mut cursor = Cursor::new(Pos::new(line, d.line_len(line).unwrap().unwrap()));
+            let mut layout = laid_out(&d, cfg.clone());
+            let mut row_layout = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut row_layout, None);
+            for _ in 0..times {
+                Registry::global()
+                    .run("cursor_right", &mut cx, &[])
+                    .unwrap();
+            }
+            drop(cx);
+            (cursor.caret(), cursor.free_col())
+        };
+        with_options(options, || {
+            // 8 characters: the caret goes into the gap (columns 8 and 9), then to the next line
+            assert_eq!(right(0, 1), (Pos::new(0, 8), Some(9)));
+            assert_eq!(right(0, 2), (Pos::new(1, 0), None));
+            // 9 characters: one more column would reach the wrap column, so the caret goes to the
+            // next line at once (`x_wrap + dx_default < GetMaxLineLayout()` is false)
+            assert_eq!(right(1, 1), (Pos::new(2, 0), None));
+        });
     }
 
     #[test]
@@ -467,9 +511,10 @@ mod tests {
         for _ in 0..3 {
             run("cursor_right_box", &mut cursor);
         }
-        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(6)));
+        // not further than the wrap column (`GetMaxLineLayout`)
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(4)));
         run("cursor_left_box", &mut cursor);
-        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(5)));
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(3)));
         // the end of a row: the last char of a wrapped one, the end of the text of the last one
         run("cursor_up_box", &mut cursor);
         run("go_line_end_box", &mut cursor);

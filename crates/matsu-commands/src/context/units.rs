@@ -33,10 +33,10 @@ pub fn raw_of(x: X) -> usize {
 }
 
 impl CommandContext<'_> {
-    /// The rightmost `X` of a box caret and of a free caret: [`MAX_BOX_COLUMNS`] columns
-    /// (`CLayoutMgr::GetMaxLineLayout`, which is that many times the width of a column).
+    /// The rightmost `X` of a box caret and of a free caret: the width of a row, which is the wrap
+    /// column, or [`MAX_BOX_COLUMNS`] columns without wrapping (`CLayoutMgr::GetMaxLineLayout`).
     pub fn max_box_x(&self) -> X {
-        self.layout.column_x().saturating_mul(MAX_BOX_COLUMNS)
+        self.layout.max_line_x()
     }
 
     /// The goal of the vertical moves (`m_nCaretPosX_Prev`).

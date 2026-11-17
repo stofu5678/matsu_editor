@@ -7,8 +7,9 @@
 //!
 //! * a vertical move keeps the goal column on a row that is shorter
 //!   (`CCaret::Cursor_UPDOWN`, `sakura_core/view/CCaret.cpp`);
-//! * a click to the right of a row puts the caret there, up to the longest line
-//!   (`CCaret::MoveCursorProperly`);
+//! * a click to the right of a row, and the pointer of a drag, put the caret there, up to the
+//!   width of a row (`CCaret::MoveCursorProperly`, called by `MoveCursorToClientPoint`, which a
+//!   press and `OnMOUSEMOVE` use; the selected text is the same, only the caret differs);
 //! * `Command_RIGHT` goes on one column at a time through the empty space, and to the next line
 //!   only at the right edge (`sakura_core/cmd/CViewCommander_Cursor.cpp`); `Command_LEFT` comes
 //!   back one column at a time.
@@ -57,9 +58,9 @@ impl CommandContext<'_> {
     }
 
     /// Lets the caret, which is at a position already, stand at `x` if that is to the right of
-    /// the text of its row and the mode is on. `x` goes up to the longest line
-    /// ([`max_box_x`](Self::max_box_x)).
-    pub(super) fn stand_free(&mut self, x: X) -> Result<()> {
+    /// the text of its row and the mode is on. `x` goes up to the width of a row
+    /// ([`max_box_x`](Self::max_box_x)). A drag calls it after it moved the selection.
+    pub fn stand_free(&mut self, x: X) -> Result<()> {
         if self.is_free_cursor()
             && self.can_stand_free(self.caret())?
             && x > self.caret_display_x()?
@@ -86,9 +87,11 @@ impl CommandContext<'_> {
 
     /// `Command_RIGHT` in the free cursor mode, at the end of the text of a row: one column to the
     /// right through the empty space (`to_x = x + dx_default`, where `dx_default` is
-    /// [`column_x`](crate::layout::Layout::column_x)). At the right edge (the longest line) the caret goes to
-    /// the start of the next line, and stops there on the last line (`on_x_max`,
-    /// `MOVE_NEXTLINE_IMMEDIATELY` and `STOP`). Returns `false` when the move is not a free one
+    /// [`column_x`](crate::layout::Layout::column_x)). At the right edge (the width of a row,
+    /// [`max_box_x`](Self::max_box_x)) the caret goes to the start of the next line, and stops there
+    /// on the last line (`on_x_max`, `MOVE_NEXTLINE_IMMEDIATELY` and `STOP`). A line whose end is
+    /// within one column of the edge has no empty space to enter: the move goes on to the next line
+    /// at once (`MOVE_NEXTLINE_NEXTTIME` when `x_wrap + dx_default >= GetMaxLineLayout()`). Returns `false` when the move is not a free one
     /// (the caret is not at the end of a row, or it goes to the next line).
     pub(super) fn free_right(&mut self, extend: bool) -> Result<bool> {
         if !self.is_free_cursor() || !self.can_stand_free(self.caret())? {
