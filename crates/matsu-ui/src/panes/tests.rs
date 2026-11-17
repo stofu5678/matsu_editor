@@ -888,3 +888,24 @@ fn commands_run_in_a_row_move_the_own_caret_once_and_the_other_one_by_each(
     assert_eq!(caret(cx, &left), Pos::new(0, 2));
     assert_eq!(caret(cx, &right), Pos::new(0, 4));
 }
+
+#[gpui::test]
+fn an_edit_and_its_undoing_in_one_update_bring_the_other_caret_back(cx: &mut TestAppContext) {
+    // The events of both edits reach the other pane after the text is back: the position that the
+    // first one moved past the end of the text must not be clamped before the second moves it back.
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(0, 2));
+    left.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.replace(Pos::new(0, 0), Pos::new(0, 0), "XYZ").unwrap();
+        });
+        v.run_with(cx, |c| {
+            c.delete_range(Pos::new(0, 0), Pos::new(0, 3)).unwrap()
+        });
+    });
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["abc"]);
+    assert_eq!(caret(cx, &right), Pos::new(0, 2));
+}

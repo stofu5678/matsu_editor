@@ -771,8 +771,13 @@ impl EditorView {
             self.cursor
                 .map_positions(|p| edited.edits.iter().fold(p, |p, e| e.follow(p)));
         }
-        let doc = self.document.read(cx).doc();
-        let _ = self.cursor.clamp_if_outside(doc);
+        // The events of several commands can come together, each with the edits of its own
+        // version: the caret is put back into the text only by the last one (a clamp against the
+        // final text in between would lose the position that a later edit moves it back to).
+        let shared = self.document.read(cx);
+        if edited.is_none() || version == shared.version() {
+            let _ = self.cursor.clamp_if_outside(shared.doc());
+        }
         // The text of the line may have grown under a caret that stood right of its end.
         self.cursor.set_free_col(None);
         self.layout_version = version;
