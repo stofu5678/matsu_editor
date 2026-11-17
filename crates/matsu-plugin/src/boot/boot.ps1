@@ -311,6 +311,13 @@ function global:Format-MatsuPluginFailure([string]$Name, [int]$Line, [string]$Ki
 function global:Send-MatsuAnswer($Id, $Failure) {
     $global:MatsuOut.Flush()
     $idText = ConvertTo-MatsuJsonValue $Id
+    # The marker: a line on standard error that says everything the handler wrote there before its
+    # answer has been written (the editor reads the two streams on two threads).
+    # (A handler may have closed standard error: the answer goes out all the same.)
+    try {
+        [Console]::Error.Write([string][char]0x1f + 'matsu-stderr-done ' + $idText + "`n")
+        [Console]::Error.Flush()
+    } catch { }
     if ($null -eq $Failure) {
         $line = '{"jsonrpc":"2.0","id":' + $idText + ',"result":{"ok":true}}'
     } else {

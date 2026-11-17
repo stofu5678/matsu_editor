@@ -138,6 +138,15 @@ module MatsuPlugin
   end
 
   def self.respond(id, error)
+    # The marker: a line on standard error that says everything the handler wrote there before its
+    # answer has been written (the editor reads the two streams on two threads).
+    begin
+      STDERR.write("\x1fmatsu-stderr-done #{JSON.generate(id)}\n")
+      STDERR.flush
+    rescue StandardError
+      # A closed or broken standard error must not stop the answer.
+      nil
+    end
     message = if error.nil?
                 { 'jsonrpc' => '2.0', 'id' => id, 'result' => { 'ok' => true } }
               else
@@ -228,8 +237,12 @@ module MatsuPlugin
       rescue Exception => e # rubocop:disable Lint/RescueException -- whatever the handler raised fails the call
         failure = describe(e)
       end
-      $stdout.flush
-      $stderr.flush
+      # A handler may have closed or replaced the streams: the answer goes out all the same.
+      [$stdout, $stderr].each do |stream|
+        stream.flush
+      rescue StandardError
+        nil
+      end
       respond(message['id'], failure)
     end
   end

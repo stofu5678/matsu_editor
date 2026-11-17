@@ -212,6 +212,13 @@ function bindCalls(target, prefix, names) {
 }
 
 function respond(id, error) {
+  // The marker: the editor reads standard error on a thread of its own, and this line tells it
+  // that everything the handler wrote there before its answer has been written.
+  try {
+    writeAll(2, Buffer.from('\x1fmatsu-stderr-done ' + JSON.stringify(id) + '\n', 'latin1'));
+  } catch (err) {
+    // Standard error is closed: the editor stops waiting for the marker by itself.
+  }
   const message =
     error === undefined
       ? { jsonrpc: '2.0', id, result: { ok: true } }
