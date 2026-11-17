@@ -12,6 +12,7 @@
 //! which this program does not have.
 
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
@@ -37,6 +38,20 @@ pub(crate) const NO_DIFFERENCE: &str = "異なる箇所は見つかりません�
 pub(crate) const FOUND_DIFFERENCE: &str = "異なる箇所が見つかりました。";
 /// A window that still scans its huge file (ADR-0020; no text in Sakura, type F).
 const SCANNING: &str = "まだ改行位置を調べている途中のウィンドウがあるので、比較できません。調べ終わってからやり直してください。";
+
+/// The labels that show an access key (`IDD_COMPARE`: `sakura_core/sakura_rc.rc`).
+const TILE: &str = "左右に並べて表示(T)";
+const CANCEL: &str = "キャンセル(X)";
+/// `&OK` in the resource file: the label shows no key.
+const OK_KEY: char = 'o';
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    Tile,
+    Ok,
+    Cancel,
+}
 
 pub struct ComparePanel {
     editor: WeakEntity<EditorView>,
@@ -75,6 +90,35 @@ impl ComparePanel {
         cx.notify();
     }
 
+    /// Alt with the access key of a label (`IsDialogMessage`): uses that control. Returns whether the
+    /// letter was one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let entries = [
+            Entry::labelled(TILE, true, Use::Tile),
+            Entry::keyed(OK_KEY, true, Use::Ok),
+            Entry::labelled(CANCEL, true, Use::Cancel),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Tile) => self.set_tile(!self.tile, cx),
+            Found::One(Use::Ok) => self.ok(window, cx),
+            Found::One(Use::Cancel) => self.cancel(window, cx),
+        }
+        true
+    }
+
+    /// Whether 左右に並べて表示 is checked (for the tests).
+    #[cfg(test)]
+    pub(crate) fn tile(&self) -> bool {
+        self.tile
+    }
+
     /// OK: compares. Without a selected window the dialog just closes
     /// (`GetData` is false and `Command_COMPARE` returns).
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -109,6 +153,7 @@ impl Focusable for ComparePanel {
 
 impl Render for ComparePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let rows: Vec<Candidate> = candidates(cx, self.owner);
         let list = rows.iter().enumerate().map(|(i, row)| {
             let doc = row.doc;
@@ -137,7 +182,7 @@ impl Render for ComparePanel {
             )
             .child(
                 Button::new("compare-cancel")
-                    .labelled("キャンセル(X)")
+                    .labelled(CANCEL)
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
             );
         v_flex()
@@ -158,6 +203,9 @@ impl Render for ComparePanel {
             .shadow_md()
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |panel, cx| panel.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" => this.cancel(window, cx),
@@ -186,7 +234,7 @@ impl Render for ComparePanel {
             )
             .child(
                 Checkbox::new("compare-tile")
-                    .labelled("左右に並べて表示(T)")
+                    .labelled(TILE)
                     .checked(self.tile)
                     .on_click(cx.listener(|this, value: &bool, _, cx| this.set_tile(*value, cx))),
             )

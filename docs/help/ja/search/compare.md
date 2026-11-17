@@ -27,6 +27,10 @@
 
 行ごとの違いを印で見たいときは、[DIFF差分表示](diff.md) を使います。
 
+## アクセスキー
+
+「左右に並べて表示(T)」は `Alt+T`、「キャンセル(X)」は `Alt+X`、「OK」は `Alt+O` です（サクラエディタと同じ）。
+
 ## 根拠
 
 - サクラのソース: `sakura_core/cmd/CViewCommander_Diff.cpp` の `Command_COMPARE`、`sakura_core/dlg/CDlgCompare.cpp`

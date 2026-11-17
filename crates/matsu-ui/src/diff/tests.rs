@@ -780,3 +780,5 @@ fn the_sizes_and_the_scan_decide_whether_a_text_is_compared() {
     let reason = too_big("x", 5, true, 10 * mb).unwrap();
     assert!(reason.contains("調べている途中"), "{reason}");
 }
+
+mod access_keys;

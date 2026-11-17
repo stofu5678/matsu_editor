@@ -28,6 +28,7 @@ use gpui::{
 use gpui_component::Root;
 use matsu_config::history::{History, Recent};
 
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::file_ops::windows::editors;
 use crate::saved_state::dialog_rect::{
     Rect, favorite as saved_rect, remember_favorite, work_areas,
@@ -180,6 +181,26 @@ fn confirm_missing(tab: Tab) -> String {
         "最近使った{}の存在しないパスを削除します。\nよろしいですか？",
         tab.caption()
     )
+}
+
+/// The labels of the buttons that show an access key (`IDD_FAVORITE`: `sakura_core/sakura_rc.rc`,
+/// `すべて(&A)...`, `お気に入り以外(&F)...`, `存在しない項目(&N)...`, `選択項目(&D)`, `閉じる(&C)`).
+mod labels {
+    pub(super) const ALL: &str = "すべて(A)";
+    pub(super) const NON_FAVORITES: &str = "お気に入り以外(F)";
+    pub(super) const MISSING: &str = "存在しない項目(N)";
+    pub(super) const SELECTED: &str = "選択項目(D)";
+    pub(super) const CLOSE: &str = "閉じる(C)";
+}
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    All,
+    NonFavorites,
+    Missing,
+    Selected,
+    Close,
 }
 
 /// The dialog that is open, so that a second `F_FAVORITE` brings it to the front.
@@ -448,6 +469,33 @@ impl FavoriteDialog {
         cx.notify();
     }
 
+    /// Alt with the access key of a button (`IsDialogMessage`): presses it. Returns whether the
+    /// letter was one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let entries = [
+            Entry::labelled(labels::ALL, true, Use::All),
+            Entry::labelled(labels::NON_FAVORITES, true, Use::NonFavorites),
+            Entry::labelled(labels::MISSING, true, Use::Missing),
+            Entry::labelled(labels::SELECTED, true, Use::Selected),
+            Entry::labelled(labels::CLOSE, true, Use::Close),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::All) => self.ask_delete_all(window, cx),
+            Found::One(Use::NonFavorites) => self.ask_delete_non_favorites(window, cx),
+            Found::One(Use::Missing) => self.ask_delete_missing(window, cx),
+            Found::One(Use::Selected) => self.delete_selected_rows(cx),
+            Found::One(Use::Close) => self.close(window),
+        }
+        true
+    }
+
     fn close(&mut self, window: &mut Window) {
         window.remove_window();
     }
@@ -511,6 +559,7 @@ impl Focusable for FavoriteDialog {
 
 impl Render for FavoriteDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         if !self.focus.is_focused(window) {
             window.focus(&self.focus, cx);
         }
@@ -613,6 +662,9 @@ impl Render for FavoriteDialog {
         crate::a11y::dialog(div().id("favorite-dialog"), "履歴とお気に入りの管理")
             .key_context("FavoriteDialog")
             .track_focus(&self.focus)
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(Self::on_key_down))
             .size_full()
             .p_3()
@@ -652,26 +704,26 @@ impl Render for FavoriteDialog {
                     .items_center()
                     .gap_2()
                     .child("削除:")
-                    .child(button("delete-all", "すべて(A)").on_click(cx.listener(
+                    .child(button("delete-all", labels::ALL).on_click(cx.listener(
                         |this, _: &ClickEvent, window, cx| this.ask_delete_all(window, cx),
                     )))
                     .child(
-                        button("delete-non-favorites", "お気に入り以外(N)").on_click(cx.listener(
-                            |this, _: &ClickEvent, window, cx| {
+                        button("delete-non-favorites", labels::NON_FAVORITES).on_click(
+                            cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.ask_delete_non_favorites(window, cx);
-                            },
-                        )),
+                            }),
+                        ),
                     )
                     .child(
-                        button("delete-missing", "存在しない項目(E)").on_click(cx.listener(
+                        button("delete-missing", labels::MISSING).on_click(cx.listener(
                             |this, _: &ClickEvent, window, cx| this.ask_delete_missing(window, cx),
                         )),
                     )
-                    .child(button("delete-selected", "選択項目(S)").on_click(
+                    .child(button("delete-selected", labels::SELECTED).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| this.delete_selected_rows(cx)),
                     ))
                     .child(div().flex_1())
-                    .child(button("close", "閉じる").on_click(
+                    .child(button("close", labels::CLOSE).on_click(
                         cx.listener(|this, _: &ClickEvent, window, _| this.close(window)),
                     )),
             )

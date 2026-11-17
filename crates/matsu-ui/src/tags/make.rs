@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -30,6 +31,23 @@ use gpui_component::{h_flex, v_flex};
 use matsu_core::tags_make::TagsMakeOptions;
 
 use crate::view::EditorView;
+
+/// The labels that show an access key (`IDD_TAG_MAKE`: `sakura_core/sakura_rc.rc`; 中断 is the
+/// button of the box that stands for `CDlgCancel`).
+mod labels {
+    pub(super) const UP: &str = "上(B)";
+    pub(super) const MAKE: &str = "作成(O)";
+    pub(super) const CANCEL: &str = "キャンセル(X)";
+    pub(super) const STOP: &str = "中断(X)";
+}
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    Up,
+    Make,
+    Cancel,
+}
 
 /// What the dialog gives back.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +185,34 @@ impl TagsMakeDialog {
         cx.notify();
     }
 
+    /// Alt with the access key of a button (`IsDialogMessage`). While ctags runs only 中断 is
+    /// there. Returns whether the letter was one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let form = !self.is_running();
+        let entries = [
+            Entry::labelled(labels::UP, form, Use::Up),
+            Entry::labelled(labels::MAKE, form, Use::Make),
+            Entry::labelled(
+                if form { labels::CANCEL } else { labels::STOP },
+                true,
+                Use::Cancel,
+            ),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Up) => self.folder_up(window, cx),
+            Found::One(Use::Make) => self.make(cx),
+            Found::One(Use::Cancel) => self.cancel(window, cx),
+        }
+        true
+    }
+
     /// キャンセル before ctags runs, 中断 while it runs.
     pub(crate) fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.is_running() {
@@ -206,6 +252,7 @@ impl Focusable for TagsMakeDialog {
 
 impl Render for TagsMakeDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let body =
             match self.phase {
                 Phase::Running => {
@@ -214,7 +261,7 @@ impl Render for TagsMakeDialog {
                         // STR_ERR_CEDITVIEW_CMD05
                         .child("タグファイルを作成中です。")
                         .child(h_flex().child(
-                            Button::new("tags-stop").labelled("中断(X)").on_click(
+                            Button::new("tags-stop").labelled(labels::STOP).on_click(
                                 cx.listener(|this, _, window, cx| this.cancel(window, cx)),
                             ),
                         ))
@@ -235,7 +282,7 @@ impl Render for TagsMakeDialog {
                                         cx.listener(|this, _, window, cx| this.browse(window, cx)),
                                     ),
                             )
-                            .child(Button::new("tags-up").labelled("上(B)").on_click(
+                            .child(Button::new("tags-up").labelled(labels::UP).on_click(
                                 cx.listener(|this, _, window, cx| this.folder_up(window, cx)),
                             )),
                     )
@@ -254,12 +301,12 @@ impl Render for TagsMakeDialog {
                             .gap_2()
                             .child(
                                 Button::new("tags-make")
-                                    .labelled("作成(O)")
+                                    .labelled(labels::MAKE)
                                     .on_click(cx.listener(|this, _, _, cx| this.make(cx))),
                             )
                             .child(
                                 Button::new("tags-cancel")
-                                    .labelled("キャンセル(X)")
+                                    .labelled(labels::CANCEL)
                                     .on_click(
                                         cx.listener(|this, _, window, cx| this.cancel(window, cx)),
                                     ),
@@ -273,6 +320,9 @@ impl Render for TagsMakeDialog {
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
             .key_context("TagsMake")
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(Self::on_key_down))
             .w(px(480.))
             .max_w_full()

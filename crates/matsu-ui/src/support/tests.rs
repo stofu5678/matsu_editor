@@ -613,3 +613,26 @@ fn the_keys_do_not_reach_the_text_while_the_control_code_dialog_is_open(cx: &mut
     assert_eq!(f.text(cx), "abc");
     assert!(f.ctrl_code_open(cx));
 }
+
+#[gpui::test]
+fn alt_o_types_the_chosen_code_and_alt_x_cancels(cx: &mut TestAppContext) {
+    // `IDD_CTRLCODE`: `&OK` and `キャンセル(&X)`
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    cx.simulate_keystrokes("down down down alt-o");
+    assert!(!f.ctrl_code_open(cx));
+    assert_eq!(f.text(cx), "abc\u{3}");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    cx.simulate_keystrokes("down alt-x");
+    assert!(!f.ctrl_code_open(cx));
+    assert_eq!(f.text(cx), "abc\u{3}");
+}
+
+#[gpui::test]
+fn a_letter_with_alt_that_is_not_an_access_key_does_not_choose_its_code(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    cx.simulate_keystrokes("alt-a");
+    assert!(f.ctrl_code_open(cx));
+    assert_eq!(f.text(cx), "abc");
+}

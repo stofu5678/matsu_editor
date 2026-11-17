@@ -20,6 +20,7 @@ use gpui_component::{Disableable as _, h_flex, v_flex};
 use super::actions::PATH_MENU;
 use super::{FileTreeDialog, Kind};
 use crate::a11y::{AriaDisabled as _, label_name};
+use crate::access_keys::OnAccessKey as _;
 use crate::common_settings::model::parse_label;
 use crate::dialog_focus::tab_inside;
 use crate::outline::file_tree::source::SettingFrom;
@@ -519,15 +520,6 @@ impl FileTreeDialog {
             cx.stop_propagation();
             return;
         }
-        if modifiers.alt && !modifiers.control {
-            let mut chars = key.chars();
-            if let (Some(letter), None) = (chars.next(), chars.next())
-                && self.use_access_key(letter, window, cx)
-            {
-                cx.stop_propagation();
-            }
-            return;
-        }
         if self.tree_focus.is_focused(window) && !modifiers.modified() {
             // Enter is the default button (OK) from the tree too
             if key == "enter" {
@@ -542,6 +534,7 @@ impl FileTreeDialog {
 
 impl Render for FileTreeDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let body = h_flex()
             .gap_3()
             .items_start()
@@ -556,6 +549,10 @@ impl Render for FileTreeDialog {
             .track_focus(&self.focus)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .capture_key_down(cx.listener(Self::on_capture_key))
+            // Alt+letter works from the boxes too, and does not type the letter
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(Self::on_key_down))
             .max_w_full()
             .max_h_full()

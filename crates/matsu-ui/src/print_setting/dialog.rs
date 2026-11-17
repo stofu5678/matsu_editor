@@ -10,9 +10,12 @@
 //! chosen one; OK cannot be pressed while the paper has no room for a character
 //! (`CalcPrintableLineAndColumn`).
 //!
-//! Not done: the spin buttons next to the numbers, the access keys of the labels, and the help
-//! button.
+//! The keys of a drop-down list (the arrows, Home, End, PageUp, PageDown, Enter, Escape) and the
+//! access keys of the labels (Alt+letter, `access_keys`) work as in Sakura's dialog.
+//!
+//! Not done: the spin buttons next to the numbers, and the help button.
 
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
@@ -36,6 +39,54 @@ use super::model::{self, Number};
 use crate::font_dialog::model::families;
 use crate::input_dialog::InputRequest;
 use crate::view::EditorView;
+
+/// The labels that show an access key (`IDD_PRINTSETTING`: `sakura_core/sakura_rc.rc`).
+mod labels {
+    pub(super) const SETTING: &str = "ページ設定(1)";
+    pub(super) const RENAME: &str = "設定名変更(2)...";
+    pub(super) const FONT_HAN: &str = "半角フォント(F)";
+    pub(super) const FONT_ZEN: &str = "全角フォント(K)";
+    pub(super) const FONT_HEIGHT: &str = "フォント高(P)";
+    pub(super) const LINE_SPACING: &str = "行送り(S)";
+    pub(super) const DANSUU: &str = "段数(C)";
+    pub(super) const DAN_SPACE: &str = "段の隙間(E)";
+    pub(super) const PAPER: &str = "用紙サイズ(Z)";
+    pub(super) const PORTRAIT: &str = "縦(I)";
+    pub(super) const LANDSCAPE: &str = "横(A)";
+    pub(super) const MARGIN_TOP: &str = "余白／上(T)";
+    pub(super) const MARGIN_BOTTOM: &str = "下(B)";
+    pub(super) const MARGIN_LEFT: &str = "左(L)";
+    pub(super) const MARGIN_RIGHT: &str = "右(R)";
+    pub(super) const LINE_NUMBER: &str = "行番号を印刷(N)";
+    pub(super) const WORD_WRAP: &str = "英文ワードラップ(W)";
+    pub(super) const COLOR: &str = "カラー印刷(V)";
+    pub(super) const HEADER: &str = "ヘッダー(U)";
+    pub(super) const FOOTER: &str = "フッター(D)";
+    pub(super) const CANCEL: &str = "キャンセル(X)";
+    /// `&OK` in the resource file: the label shows no key.
+    pub(super) const OK_KEY: char = 'o';
+}
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    /// The list of a drop-down list opens (Sakura moves the focus to the combo box).
+    List(List),
+    Rename,
+    /// The focus goes to the box of the number.
+    Number(Number),
+    /// The focus goes to the first box of the header or the footer.
+    Form(Part),
+    Orientation(Orientation),
+    LineNumber,
+    WordWrap,
+    Color,
+    Ok,
+    Cancel,
+}
+
+/// How many rows PageUp and PageDown move in an open list: what its box shows (`max_h(160)`).
+const LIST_PAGE: usize = 8;
 
 /// The resolution Sakura works the font height out at on the screen (96 dpi).
 const DPI: i32 = 96;
@@ -90,6 +141,9 @@ pub(crate) struct PrintSettingDialog {
     /// once: the OS does not change them while the dialog is open).
     installed: Vec<String>,
     list: Option<List>,
+    /// The row of the open list that the keys are on (`CB_SETCURSEL` of the list of a combo box).
+    list_cursor: usize,
+    list_scroll: ScrollHandle,
     result: Option<async_channel::Sender<Option<Answer>>>,
     focus: FocusHandle,
     /// The scroll position of the dialog, which the scroll bar draws from.
@@ -120,7 +174,8 @@ impl PrintSettingDialog {
                 |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                     // the two numbers of the printable size follow the edit boxes
                     InputEvent::Change => cx.notify(),
-                    InputEvent::PressEnter { .. } => this.ok(window, cx),
+                    // Enter in an open list takes the row (`on_capture_key`), not OK
+                    InputEvent::PressEnter { .. } if this.list.is_none() => this.ok(window, cx),
                     _ => {}
                 },
             ));
@@ -137,6 +192,8 @@ impl PrintSettingDialog {
             number_columns,
             installed: families(cx.text_system().all_font_names(), ""),
             list: None,
+            list_cursor: 0,
+            list_scroll: ScrollHandle::default(),
             result: Some(result),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::default(),
@@ -218,6 +275,12 @@ impl PrintSettingDialog {
     #[cfg(test)]
     pub(crate) fn current(&self) -> usize {
         self.current
+    }
+
+    /// The list that is open and the row the keys are on (for the tests).
+    #[cfg(test)]
+    pub(crate) fn open_list_and_cursor(&self) -> Option<(List, usize)> {
+        self.list.map(|list| (list, self.list_cursor))
     }
 
     /// OK can be pressed when there is room to print.
@@ -384,13 +447,162 @@ impl PrintSettingDialog {
         self.settings.get(self.current)
     }
 
-    fn toggle_list(&mut self, list: List, cx: &mut Context<Self>) {
-        self.list = if self.list == Some(list) {
-            None
+    fn toggle_list(&mut self, list: List, window: &mut Window, cx: &mut Context<Self>) {
+        if self.list == Some(list) {
+            self.list = None;
+            cx.notify();
         } else {
-            Some(list)
-        };
+            self.open_list(list, window, cx);
+        }
+    }
+
+    /// Opens the list with the row of the value that is set under the keys.
+    ///
+    /// The focus goes to the dialog itself: a box keeps Home, End and the like for its text (they
+    /// are its actions, which come before the keys of the dialog).
+    fn open_list(&mut self, list: List, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        self.list = Some(list);
+        self.list_cursor = self.list_rows(list).1.unwrap_or(0);
+        self.list_scroll.scroll_to_item(self.list_cursor);
         cx.notify();
+    }
+
+    /// The keys of an open list, as those of the list of a combo box: the arrows, Home, End, PageUp
+    /// and PageDown move, Enter takes the row (`CBN_SELCHANGE` of the first list shows another
+    /// setting), Escape closes it (`on_key_down`). They are taken before the control that has the
+    /// focus, a button or a box, sees them. Returns whether the key was one of the list's.
+    fn list_key(&mut self, key: &str, cx: &mut Context<Self>) -> Option<usize> {
+        let list = self.list?;
+        let last = self.list_rows(list).0.len().checked_sub(1)?;
+        let cursor = self.list_cursor.min(last);
+        let to = match key {
+            "up" => cursor.saturating_sub(1),
+            "down" => (cursor + 1).min(last),
+            "home" => 0,
+            "end" => last,
+            "pageup" => cursor.saturating_sub(LIST_PAGE),
+            "pagedown" => (cursor + LIST_PAGE).min(last),
+            "enter" => return Some(cursor),
+            _ => return None,
+        };
+        self.list_cursor = to;
+        self.list_scroll.scroll_to_item(to);
+        cx.notify();
+        Some(to)
+    }
+
+    fn on_capture_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let modifiers = event.keystroke.modifiers;
+        if self.list.is_none() || modifiers.modified() {
+            return;
+        }
+        let key = event.keystroke.key.as_str();
+        let list = self.list;
+        if let Some(row) = self.list_key(key, cx) {
+            if key == "enter"
+                && let Some(list) = list
+            {
+                // after the key has been through the control that has the focus (a box says
+                // PressEnter, a button is clicked), which see the list still open
+                let this = cx.entity();
+                window.defer(cx, move |window, cx| {
+                    this.update(cx, |dialog, cx| dialog.pick(list, row, window, cx));
+                });
+            }
+            cx.stop_propagation();
+        }
+    }
+
+    /// Alt with the access key of a label (`IsDialogMessage`). The label of a drop-down list
+    /// opens the list (Sakura moves the focus to the combo box, which a button of ours cannot
+    /// take from outside), so that the keys can choose from it. Returns whether the letter was
+    /// one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let ok = self.can_ok(cx);
+        let entries = [
+            Entry::labelled(labels::SETTING, true, Use::List(List::Setting)),
+            Entry::labelled(labels::RENAME, true, Use::Rename),
+            Entry::labelled(labels::FONT_HAN, true, Use::List(List::FontHan)),
+            Entry::labelled(labels::FONT_ZEN, true, Use::List(List::FontZen)),
+            Entry::labelled(labels::FONT_HEIGHT, true, Use::Number(Number::FontHeight)),
+            Entry::labelled(labels::LINE_SPACING, true, Use::Number(Number::LineSpacing)),
+            Entry::labelled(labels::DANSUU, true, Use::Number(Number::Dansuu)),
+            Entry::labelled(labels::DAN_SPACE, true, Use::Number(Number::DanSpace)),
+            Entry::labelled(labels::PAPER, true, Use::List(List::Paper)),
+            Entry::labelled(
+                labels::PORTRAIT,
+                true,
+                Use::Orientation(Orientation::Portrait),
+            ),
+            Entry::labelled(
+                labels::LANDSCAPE,
+                true,
+                Use::Orientation(Orientation::Landscape),
+            ),
+            Entry::labelled(labels::MARGIN_TOP, true, Use::Number(Number::MarginTop)),
+            Entry::labelled(
+                labels::MARGIN_BOTTOM,
+                true,
+                Use::Number(Number::MarginBottom),
+            ),
+            Entry::labelled(labels::MARGIN_LEFT, true, Use::Number(Number::MarginLeft)),
+            Entry::labelled(labels::MARGIN_RIGHT, true, Use::Number(Number::MarginRight)),
+            Entry::labelled(labels::LINE_NUMBER, true, Use::LineNumber),
+            Entry::labelled(labels::WORD_WRAP, true, Use::WordWrap),
+            Entry::labelled(labels::COLOR, true, Use::Color),
+            Entry::labelled(labels::HEADER, true, Use::Form(Part::Header)),
+            Entry::labelled(labels::FOOTER, true, Use::Form(Part::Footer)),
+            // OK is greyed out while the paper has no room (`can_ok`)
+            Entry::keyed(labels::OK_KEY, ok, Use::Ok),
+            Entry::labelled(labels::CANCEL, true, Use::Cancel),
+        ];
+        let what = match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => return true,
+            Found::One(what) => what,
+        };
+        // a key in the dialog closes the list that is open, as a click elsewhere does
+        if !matches!(what, Use::List(_)) {
+            self.list = None;
+        }
+        match what {
+            Use::List(list) => self.open_list(list, window, cx),
+            Use::Rename => self.rename(window, cx),
+            Use::Number(number) => {
+                let at = Number::ALL.iter().position(|n| *n == number).unwrap_or(0);
+                focus_selecting(&self.numbers[at], window, cx);
+            }
+            Use::Form(Part::Header) => focus_selecting(&self.header[0], window, cx),
+            Use::Form(Part::Footer) => focus_selecting(&self.footer[0], window, cx),
+            Use::Orientation(orientation) => self.shown_mut().print_paper_orientation = orientation,
+            Use::LineNumber => {
+                let on = &mut self.shown_mut().print_line_number;
+                *on = !*on;
+            }
+            Use::WordWrap => {
+                let on = &mut self.shown_mut().print_word_wrap;
+                *on = !*on;
+            }
+            Use::Color => {
+                let on = &mut self.shown_mut().color_print;
+                *on = !*on;
+            }
+            Use::Ok => self.ok(window, cx),
+            Use::Cancel => self.cancel(window, cx),
+        }
+        cx.notify();
+        true
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -477,24 +689,39 @@ impl PrintSettingDialog {
     }
 
     fn list_view(&self, list: List, cx: &mut Context<Self>) -> impl IntoElement {
-        let (rows, selected) = self.list_rows(list);
-        let id = match list {
-            List::Setting => "ps-list-setting",
-            List::FontHan => "ps-list-han",
-            List::FontZen => "ps-list-zen",
-            List::Paper => "ps-list-paper",
+        let (rows, _) = self.list_rows(list);
+        let selected = Some(self.list_cursor);
+        let (id, name) = match list {
+            List::Setting => (
+                "ps-list-setting",
+                crate::a11y::without_key_hint(labels::SETTING),
+            ),
+            List::FontHan => (
+                "ps-list-han",
+                crate::a11y::without_key_hint(labels::FONT_HAN),
+            ),
+            List::FontZen => (
+                "ps-list-zen",
+                crate::a11y::without_key_hint(labels::FONT_ZEN),
+            ),
+            List::Paper => (
+                "ps-list-paper",
+                crate::a11y::without_key_hint(labels::PAPER),
+            ),
         };
         let mut view = v_flex()
             .id(id)
+            .role(gpui::Role::ListBox)
+            .aria_label(name)
             .max_h(px(160.))
             .overflow_y_scroll()
+            .track_scroll(&self.list_scroll)
             .border_1()
             .border_color(rgb(0xaaaaaa))
             .bg(rgb(0xffffff));
         for (i, text) in rows.into_iter().enumerate() {
             view = view.child(
-                div()
-                    .id((id, i))
+                crate::a11y::list_row(div().id((id, i)), &text, selected == Some(i))
                     .px_1()
                     .cursor_pointer()
                     .when(selected == Some(i), |row| row.bg(rgb(0xc8dcf5)))
@@ -519,7 +746,9 @@ impl PrintSettingDialog {
             Button::new(id)
                 .label(format!("{text}  v"))
                 .w_full()
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_list(list, cx))),
+                .on_click(
+                    cx.listener(move |this, _, window, cx| this.toggle_list(list, window, cx)),
+                ),
         )
     }
 
@@ -546,7 +775,7 @@ impl PrintSettingDialog {
     fn form_row(&self, part: Part, cx: &mut Context<Self>) -> impl IntoElement {
         let (label, name, inputs, font, use_id, button_id) = match part {
             Part::Header => (
-                "ヘッダー(U)",
+                labels::HEADER,
                 "ヘッダー",
                 &self.header,
                 self.shown().header_font.as_ref(),
@@ -554,7 +783,7 @@ impl PrintSettingDialog {
                 "ps-font-head",
             ),
             Part::Footer => (
-                "フッター(D)",
+                labels::FOOTER,
                 "フッター",
                 &self.footer,
                 self.shown().footer_font.as_ref(),
@@ -629,6 +858,7 @@ impl Focusable for PrintSettingDialog {
 
 impl Render for PrintSettingDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let now = self.collect(cx);
         let printable = model::printable(&now, self.number_columns);
         let ok_enabled = model::has_printable_area(&now, self.number_columns);
@@ -638,11 +868,11 @@ impl Render for PrintSettingDialog {
         let top = h_flex()
             .gap_2()
             .items_center()
-            .child(div().w(px(104.)).text_right().child("ページ設定(1)"))
+            .child(div().w(px(104.)).text_right().child(labels::SETTING))
             .child(self.combo("ps-setting", self.name_ref(self.current), List::Setting, cx))
             .child(
                 Button::new("ps-rename")
-                    .label("設定名変更(2)...")
+                    .label(labels::RENAME)
                     .on_click(cx.listener(|this, _, window, cx| this.rename(window, cx))),
             );
 
@@ -652,7 +882,7 @@ impl Render for PrintSettingDialog {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(div().w(px(104.)).text_right().child("半角フォント(F)"))
+                    .child(div().w(px(104.)).text_right().child(labels::FONT_HAN))
                     .child(self.combo(
                         "ps-font-han",
                         &self.shown().print_font_face_han,
@@ -667,7 +897,7 @@ impl Render for PrintSettingDialog {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(div().w(px(104.)).text_right().child("全角フォント(K)"))
+                    .child(div().w(px(104.)).text_right().child(labels::FONT_ZEN))
                     .child(self.combo(
                         "ps-font-zen",
                         &self.shown().print_font_face_zen,
@@ -687,17 +917,17 @@ impl Render for PrintSettingDialog {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(self.number_row("フォント高(P)", Number::FontHeight, "(1/10mm)"))
+                    .child(self.number_row(labels::FONT_HEIGHT, Number::FontHeight, "(1/10mm)"))
                     .child(model::font_points_text(now.print_font_height)),
             )
-            .child(self.number_row("行送り(S)", Number::LineSpacing, "(%)"))
-            .child(self.number_row("段数(C)", Number::Dansuu, ""))
-            .child(self.number_row("段の隙間(E)", Number::DanSpace, "(mm)"))
+            .child(self.number_row(labels::LINE_SPACING, Number::LineSpacing, "(%)"))
+            .child(self.number_row(labels::DANSUU, Number::Dansuu, ""))
+            .child(self.number_row(labels::DAN_SPACE, Number::DanSpace, "(mm)"))
             .child(
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(div().w(px(104.)).text_right().child("用紙サイズ(Z)"))
+                    .child(div().w(px(104.)).text_right().child(labels::PAPER))
                     .child(self.combo("ps-paper", paper_name, List::Paper, cx)),
             )
             .when(open(List::Paper), |this| {
@@ -710,7 +940,7 @@ impl Render for PrintSettingDialog {
                     .child(div().w(px(104.)).text_right().child("用紙の向き"))
                     .child(
                         Radio::new("ps-portrait")
-                            .label("縦(I)")
+                            .label(labels::PORTRAIT)
                             .checked(self.shown().print_paper_orientation == Orientation::Portrait)
                             .on_click(cx.listener(|this, _: &bool, _, cx| {
                                 this.shown_mut().print_paper_orientation = Orientation::Portrait;
@@ -719,7 +949,7 @@ impl Render for PrintSettingDialog {
                     )
                     .child(
                         Radio::new("ps-landscape")
-                            .label("横(A)")
+                            .label(labels::LANDSCAPE)
                             .checked(self.shown().print_paper_orientation == Orientation::Landscape)
                             .on_click(cx.listener(|this, _: &bool, _, cx| {
                                 this.shown_mut().print_paper_orientation = Orientation::Landscape;
@@ -727,10 +957,10 @@ impl Render for PrintSettingDialog {
                             })),
                     ),
             )
-            .child(self.number_row("余白／上(T)", Number::MarginTop, "(mm)"))
-            .child(self.number_row("下(B)", Number::MarginBottom, "(mm)"))
-            .child(self.number_row("左(L)", Number::MarginLeft, "(mm)"))
-            .child(self.number_row("右(R)", Number::MarginRight, "(mm)"));
+            .child(self.number_row(labels::MARGIN_TOP, Number::MarginTop, "(mm)"))
+            .child(self.number_row(labels::MARGIN_BOTTOM, Number::MarginBottom, "(mm)"))
+            .child(self.number_row(labels::MARGIN_LEFT, Number::MarginLeft, "(mm)"))
+            .child(self.number_row(labels::MARGIN_RIGHT, Number::MarginRight, "(mm)"));
 
         let (columns, lines) = printable.map_or(("-".to_owned(), "-".to_owned()), |(c, l)| {
             (c.to_string(), l.to_string())
@@ -740,7 +970,7 @@ impl Render for PrintSettingDialog {
             .flex_1()
             .child(self.check(
                 "ps-line-number",
-                "行番号を印刷(N)",
+                labels::LINE_NUMBER,
                 self.shown().print_line_number,
                 cx,
                 |s, v| {
@@ -749,7 +979,7 @@ impl Render for PrintSettingDialog {
             ))
             .child(self.check(
                 "ps-word-wrap",
-                "英文ワードラップ(W)",
+                labels::WORD_WRAP,
                 self.shown().print_word_wrap,
                 cx,
                 |s, v| {
@@ -821,7 +1051,7 @@ impl Render for PrintSettingDialog {
             )
             .child(self.check(
                 "ps-color",
-                "カラー印刷(V)",
+                labels::COLOR,
                 self.shown().color_print,
                 cx,
                 |s, v| {
@@ -858,7 +1088,7 @@ impl Render for PrintSettingDialog {
                     )
                     .child(
                         Button::new("ps-cancel")
-                            .label("キャンセル(X)")
+                            .label(labels::CANCEL)
                             .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
                     ),
             );
@@ -870,6 +1100,11 @@ impl Render for PrintSettingDialog {
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
             .key_context("PrintSettingDialog")
+            .capture_key_down(cx.listener(Self::on_capture_key))
+            // Alt+letter works from the boxes too, and does not type the letter
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)
             }))

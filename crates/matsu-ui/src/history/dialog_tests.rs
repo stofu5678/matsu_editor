@@ -333,3 +333,40 @@ fn the_function_shows_one_window(cx: &mut TestAppContext) {
     cx.update(super::dialog::open);
     assert_eq!(cx.windows().len(), before + 1);
 }
+
+#[gpui::test]
+fn the_letters_of_the_buttons_press_them(cx: &mut TestAppContext) {
+    // `IDD_FAVORITE`: すべて(A), お気に入り以外(F), 存在しない項目(N), 選択項目(D), 閉じる(C)
+    let (dialog, cx) = setup(cx, sample());
+    cx.simulate_keystrokes("alt-d");
+    // no row is selected: nothing to delete
+    assert_eq!(history_paths(cx).len(), 3);
+    dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+    cx.simulate_keystrokes("alt-d");
+    assert_eq!(history_paths(cx), ["/x/b", "/x/a"]);
+    dialog.update(cx, |d, cx| d.toggle_favorite(0, cx));
+    cx.simulate_keystrokes("alt-f");
+    answer(cx, "はい(Y)");
+    assert_eq!(history_paths(cx), ["/x/b"]);
+    // the files of the sample do not exist
+    cx.simulate_keystrokes("alt-n");
+    answer(cx, "はい(Y)");
+    assert!(history_paths(cx).is_empty());
+    // すべて(A) asks nothing of an empty list
+    cx.simulate_keystrokes("alt-shift-a");
+    assert!(!cx.has_pending_prompt());
+    let before = cx.windows().len();
+    cx.simulate_keystrokes("alt-c");
+    assert_eq!(cx.windows().len(), before - 1, "the dialog is closed");
+}
+
+#[gpui::test]
+fn alt_a_asks_before_it_deletes_the_whole_history(cx: &mut TestAppContext) {
+    let (_dialog, cx) = setup(cx, sample());
+    cx.simulate_keystrokes("alt-a");
+    answer(cx, "いいえ(N)");
+    assert_eq!(history_paths(cx).len(), 3);
+    cx.simulate_keystrokes("alt-a");
+    answer(cx, "はい(Y)");
+    assert!(history_paths(cx).is_empty());
+}

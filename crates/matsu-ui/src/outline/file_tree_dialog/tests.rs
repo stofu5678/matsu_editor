@@ -228,6 +228,76 @@ fn the_setting_button_is_there_for_the_file_tree_only(cx: &mut TestAppContext) {
     assert!(keys.debug_bounds("outline-settings").is_some());
 }
 
+/// The focus is in the pane, as after a click on it.
+fn focus_pane(cx: &mut TestAppContext, handle: AnyWindowHandle) {
+    let focus = pane(cx, handle).read_with(cx, gpui::Focusable::focus_handle);
+    handle
+        .update(cx, |_, window, app| window.focus(&focus, app))
+        .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn alt_s_in_the_pane_opens_the_settings_of_the_file_tree_and_alt_c_is_gray(
+    cx: &mut TestAppContext,
+) {
+    let (_ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
+    show_tree(cx, handle);
+    focus_pane(cx, handle);
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    // コピー(C) is gray for the file tree: the letter is not the pane's, and nothing is copied
+    keys.write_to_clipboard(gpui::ClipboardItem::new_string("before".to_owned()));
+    keys.simulate_keystrokes("alt-c");
+    assert_eq!(
+        keys.read_from_clipboard().and_then(|c| c.text()).as_deref(),
+        Some("before")
+    );
+    assert!(!is_open(keys, handle));
+    // 設定(S)
+    keys.simulate_keystrokes("alt-s");
+    keys.run_until_parked();
+    assert!(is_open(keys, handle), "Alt+S opens 「ファイルツリー設定」");
+}
+
+#[gpui::test]
+fn alt_b_and_alt_c_in_the_bookmark_pane_switch_the_box_and_copy(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
+    let view = active_view(cx, handle);
+    let bookmark = code_of("F_BOOKMARK_VIEW");
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.run_function(bookmark, &[] as &[Arg], window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    focus_pane(cx, handle);
+    let ignoring = |cx: &mut TestAppContext| {
+        cx.update(|app| {
+            app.try_global::<crate::outline::OutlineOptions>()
+                .is_some_and(|o| o.ignore_blank_bookmarks)
+        })
+    };
+    let before = ignoring(cx);
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    keys.simulate_keystrokes("alt-b");
+    keys.run_until_parked();
+    assert_eq!(ignoring(cx), !before, "Alt+B switches 空行を無視する");
+    // コピー(C) works for a list
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    keys.write_to_clipboard(gpui::ClipboardItem::new_string("before".to_owned()));
+    keys.simulate_keystrokes("alt-c");
+    assert_ne!(
+        keys.read_from_clipboard().and_then(|c| c.text()).as_deref(),
+        Some("before")
+    );
+    // 設定(S) is the file tree's: no dialog here
+    keys.simulate_keystrokes("alt-s");
+    keys.run_until_parked();
+    assert!(!is_open(keys, handle));
+}
+
 #[gpui::test]
 fn the_button_opens_the_dialog_with_the_tree_of_the_settings(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
