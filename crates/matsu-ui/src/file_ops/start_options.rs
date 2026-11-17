@@ -333,6 +333,13 @@ impl LaunchOptions {
         self.grep.as_ref().is_some_and(|grep| !grep.dialog)
     }
 
+    /// `-GREPMODE` with `-GOPT=U`: the Grep writes to the standard output and the application ends.
+    fn greps_to_stdout(&self) -> bool {
+        self.grep
+            .as_ref()
+            .is_some_and(|grep| !grep.dialog && grep.args.stdout)
+    }
+
     /// `CNormalProcess`: after the Grep come `EditorStart` and `DocumentOpen` (the window was made with its
     /// `EditorStart` deferred, see [`defer_editor_start`]). A search that cannot start is over at once.
     pub(crate) fn events_after_grep(
@@ -342,11 +349,16 @@ impl LaunchOptions {
         cx: &mut App,
     ) {
         let weak = view.downgrade();
+        // `-GOPT=U`: the window closes after the events (`CNormalProcess` posts the close after them).
+        let quits = self.greps_to_stdout();
         handle
             .update(cx, |_, window, app| {
                 window
                     .spawn(app, async move |cx| {
                         crate::plugin_events::start_after_grep(&weak, cx).await;
+                        if quits {
+                            cx.update(|_, app| super::close::quit_at_once(app)).ok();
+                        }
                     })
                     .detach();
             })
@@ -415,8 +427,12 @@ impl LaunchOptions {
                 cx.notify();
             });
             if grep.args.stdout {
-                // The close that `CNormalProcess` posts comes all the same.
-                super::close::quit_at_once(cx);
+                // A batch reads the standard output: the reason goes there, as the other mistakes of
+                // `-GOPT=U` do. The window ends after its events.
+                crate::grep::stdout::write_message(
+                    view.read(cx).document().read(cx).file().encoding,
+                    crate::grep::panel::NO_CLIPBOARD,
+                );
             }
             return;
         }

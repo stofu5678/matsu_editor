@@ -62,9 +62,26 @@ pub(crate) fn write_grep<W: Write>(
     let _ = sink.out.flush();
 }
 
+/// One line to the standard output, in `encoding`: why no search was made.
+pub(crate) fn write_message(encoding: Encoding, message: &str) {
+    write_message_to(std::io::stdout().lock(), encoding, message);
+}
+
+fn write_message_to<W: Write>(out: W, encoding: Encoding, message: &str) {
+    let cancel = AtomicBool::new(false);
+    let mut sink = WriteSink {
+        out,
+        encoding,
+        cancel: &cancel,
+        bytes: Vec::new(),
+    };
+    sink.write(&format!("{message}\r\n"));
+    let _ = sink.out.flush();
+}
+
 impl EditorView {
-    /// `-GREPMODE` with `-GOPT=U`: searches on a background thread, writes to the standard output,
-    /// and ends the application when it is done.
+    /// `-GREPMODE` with `-GOPT=U`: searches on a background thread and writes to the standard
+    /// output. The application ends when the events of the start are over.
     pub(crate) fn start_grep_stdout(&mut self, mut info: GrepInfo, cx: &mut Context<Self>) {
         let prefs = crate::file_ops::prefs::prefs(cx);
         info.mime_decode = prefs.auto_mime_decode;
@@ -88,8 +105,7 @@ impl EditorView {
                 cx.notify();
             })
             .ok();
-            // `PM_CLOSE_GREPNOCONFIRM | PM_CLOSE_EXIT`: no question, and the process ends.
-            cx.update(crate::file_ops::close::quit_at_once);
+            // The process ends after the events of the start (`LaunchOptions::events_after_grep`).
         })
         .detach();
     }
@@ -146,6 +162,19 @@ mod tests {
     }
 
     #[test]
+    fn the_reason_of_an_empty_clipboard_is_written_in_the_encoding() {
+        let mut out = Vec::new();
+        write_message_to(
+            &mut out,
+            Encoding::ShiftJis,
+            "クリップボードに有効なデータがありません！",
+        );
+        let (text, _, _) = encoding_rs::SHIFT_JIS.decode(&out);
+        assert_eq!(text, "クリップボードに有効なデータがありません！\r\n");
+        assert!(String::from_utf8(out).is_err());
+    }
+
+    #[test]
     fn a_folder_that_is_not_there_is_written_as_a_line() {
         let mut out = Vec::new();
         write_grep(
@@ -195,7 +224,6 @@ mod tests {
         let (view, cx) = cx.add_window_view(move |_, cx| EditorView::new(shared, cx));
         let dir = tempfile::tempdir().unwrap();
         let folder = dir.path().to_string_lossy().into_owned();
-        let quits = crate::file_ops::close::quits();
         view.update(cx, |view, cx| {
             view.start_grep_stdout(info(&folder, "x"), cx);
             // the events of the start and the close of the window wait for the worker
@@ -211,6 +239,5 @@ mod tests {
         }
         cx.run_until_parked();
         assert!(!view.read_with(cx, |v, _| v.is_grep_running()));
-        assert_eq!(crate::file_ops::close::quits(), quits + 1);
     }
 }

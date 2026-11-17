@@ -458,3 +458,45 @@ fn a_grep_launch_tells_editor_start_and_document_open_after_the_search(cx: &mut 
     assert!(seen + 1 >= all, "seen {seen} of {all}\n{output}");
     finish(cx);
 }
+
+#[gpui::test]
+fn a_grep_to_the_standard_output_ends_after_the_events_of_the_start(cx: &mut TestAppContext) {
+    use matsu_platform::instance::Request;
+    let Some((place, _files)) = begin(cx, &[("EditorStart", "console.log('[EditorStart]');")])
+    else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    cx.update(gpui_component::init);
+    cx.executor().allow_parking();
+    let user = {
+        let (_, vcx) = super::tests::setup(cx);
+        place.enable(vcx);
+        vcx.update(|_, app| app.global::<crate::settings::UserSettings>().clone())
+    };
+    cx.update(|app| app.set_global(user));
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle\n").unwrap();
+    let request = crate::launch::OpenRequest::from_launch(&Request {
+        cwd: dir.path().to_owned(),
+        args: [
+            "-GREPMODE",
+            "-GKEY=needle",
+            "-GFILE=*.txt",
+            "-GFOLDER=.",
+            "-GOPT=SU",
+        ]
+        .iter()
+        .map(std::ffi::OsString::from)
+        .collect(),
+    });
+    let options = crate::file_ops::start_options::LaunchOptions::from_request(&request);
+    let before = quits();
+    cx.update(|app| crate::file_ops::windows::open_from_outside_with(app, request.paths, &options))
+        .unwrap();
+    let view = cx.update(|app| editors(app).pop().map(|(_, v)| v)).unwrap();
+    wait(cx, "the process did not end", |_| quits() > before);
+    // The plugins were told before the process ended, not skipped by it.
+    assert_eq!(told(&view, cx), ["EditorStart", "DocumentOpen"]);
+    finish(cx);
+}
