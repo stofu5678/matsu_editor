@@ -92,6 +92,98 @@ fn pages_break_at_the_exact_boundary() {
     assert!(lay.page(2, &l, &HeaderContext::default()).is_none());
 }
 
+/// How long the layout of a big document takes (the ledger asks whether it blocks the UI thread,
+/// which lays the document out when the preview opens). It does not run with the others: run it
+/// in release, `cargo test --release -p matsu-print timing -- --ignored --nocapture`.
+/// The text is made line by line, so 100 MB costs no memory here.
+#[test]
+#[ignore = "a timing, not a check"]
+fn timing_of_the_layout_of_a_100_mb_text() {
+    /// 1 million lines of 99 characters and a line ending: 100 MB.
+    struct Big {
+        ascii: bool,
+    }
+    impl LineSource for Big {
+        fn line_count(&self) -> usize {
+            1_000_000
+        }
+        fn read_line(&self, index: usize, buf: &mut String) -> bool {
+            buf.clear();
+            let word = if self.ascii {
+                "lorem ipsum "
+            } else {
+                "日本語の文 "
+            };
+            let mut n = 0;
+            while n < 99 {
+                buf.push_str(word);
+                n += word.chars().count();
+            }
+            buf.push_str(&index.to_string());
+            true
+        }
+    }
+    for (name, ascii) in [("ascii", true), ("japanese", false)] {
+        let src = Big { ascii };
+        for (what, setting) in [
+            ("default", PrintSetting::default()),
+            (
+                "2 columns, line numbers, kinsoku",
+                PrintSetting {
+                    print_dansuu: 2,
+                    print_line_number: true,
+                    print_kinsoku_head: true,
+                    print_kinsoku_tail: true,
+                    ..PrintSetting::default()
+                },
+            ),
+        ] {
+            let start = std::time::Instant::now();
+            let lay = layout(&src, &setting, Paper::A4);
+            let took = start.elapsed();
+            eprintln!(
+                "{name}, {what}: {} pages, {} rows, layout {took:?}",
+                lay.page_count(),
+                lay.row_count()
+            );
+            let start = std::time::Instant::now();
+            let _ = page(&lay, lay.page_count() / 2, &src);
+            eprintln!("  one page in the middle: {:?}", start.elapsed());
+        }
+    }
+}
+
+#[test]
+fn a_layout_that_is_cancelled_stops_with_an_error() {
+    let lines: Vec<String> = (0..10_000).map(|i| i.to_string()).collect();
+    let control = LayoutControl::default();
+    control.cancel();
+    let result = Layout::new_controlled(
+        &lines,
+        &PrintSetting::default(),
+        Paper::A4,
+        &TypeOptions::default(),
+        &control,
+    );
+    assert_eq!(result.err(), Some(PrintError::Cancelled));
+    assert!(control.is_cancelled());
+}
+
+#[test]
+fn a_controlled_layout_is_the_same_as_the_plain_one_and_counts_its_lines() {
+    let lines: Vec<String> = (0..10_000).map(|i| format!("line {i}")).collect();
+    let s = PrintSetting::default();
+    let control = LayoutControl::default();
+    let controlled =
+        Layout::new_controlled(&lines, &s, Paper::A4, &TypeOptions::default(), &control).unwrap();
+    let plain = layout(&lines, &s, Paper::A4);
+    assert_eq!(controlled.page_count(), plain.page_count());
+    assert_eq!(controlled.row_count(), plain.row_count());
+    // It looks every 4096 lines: the last look was at line 8192.
+    assert_eq!(control.lines_done(), 8192);
+    assert!(!control.is_cancelled());
+}
+
 #[test]
 fn a_million_lines() {
     struct Many;
