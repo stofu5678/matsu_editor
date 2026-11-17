@@ -54,8 +54,8 @@
 //! block index, not the whole text; while its scan is still running the snapshot has only the
 //! scanned start, so the file behind it is read in order instead ([`WindowSource::scanning`]).
 //!
-//! Differences from Sakura: `GetLongFileName` is not applied to the folders; the output to the
-//! standard output (`-GOPT=S`) is not here; a Grep 置換 of the text of a window is refused
+//! Differences from Sakura: the output to the standard output (`-GOPT=U`) is in [`super::stdout`];
+//! a Grep 置換 of the text of a window is refused
 //! (Sakura only searches, and then says that it replaced). A window that is gone is told in the
 //! result, as Sakura does (`GetHwndTitle` is -1 in `DoGrep`: "HWND handle error." follows the
 //! conditions of the heading and nothing else is written).

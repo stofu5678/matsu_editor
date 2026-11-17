@@ -288,7 +288,8 @@ fn expanded_pattern(pattern: &str, expand: &dyn Fn(&str) -> Option<String>) -> O
         return expand(pattern);
     }
     let split = pattern.rfind(['\\', '/'])?;
-    let (folder, name) = (&pattern[..split], &pattern[split + 1..]);
+    // The folder keeps its separator: `C:` alone is the current folder of that drive, `C:\` its root.
+    let (folder, name) = (&pattern[..=split], &pattern[split + 1..]);
     if has_wildcard(folder) {
         return None;
     }
@@ -462,6 +463,23 @@ mod tests {
         assert_eq!(
             keys.except_abs_folders,
             strings(&[r"C:\Program Files\skip"])
+        );
+    }
+
+    #[test]
+    fn the_folder_of_a_drive_root_exclusion_keeps_its_separator() {
+        // `C:` is the current folder of the drive: only `C:\` is the root
+        let seen = std::cell::RefCell::new(Vec::new());
+        let expand = |path: &str| {
+            seen.borrow_mut().push(path.to_owned());
+            Some(path.to_owned())
+        };
+        let mut keys = GrepKeys::parse(r"!C:\*.log;!\\server\share\*.tmp", false).unwrap();
+        keys.expand_absolute(&expand);
+        assert_eq!(*seen.borrow(), [r"C:\", r"\\server\share\"]);
+        assert_eq!(
+            keys.except_abs_files,
+            strings(&[r"C:\*.log", r"\\server\share\*.tmp"])
         );
     }
 }
