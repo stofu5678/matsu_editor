@@ -5,7 +5,7 @@
 //! function. A small Lua part (`BOOT`) only turns the answer of a Rust function into a return
 //! value or into a thrown `EditorError`, because a Rust function cannot throw a table.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
@@ -145,12 +145,24 @@ struct PluginState {
     lua: mlua::Lua,
     /// The `Plugin` object: `jack` and `args` are set before each call.
     plugin: Table,
+    /// Set by the handler's `os.exit`, which ends the handler and not the host.
+    exited: Rc<Cell<bool>>,
 }
 
 impl PluginState {
     fn new(init: &PluginInit, editor: &Rc<RefCell<dyn Editor>>) -> mlua::Result<Self> {
         let lua = mlua::Lua::new();
         install(&lua, &init.info, editor)?;
+        // `os.exit` would end the whole host (and the state of every plugin file with it): in a
+        // handler it ends the handler only, with no failure, as `sys.exit()` does in Python.
+        let exited = Rc::new(Cell::new(false));
+        let flag = exited.clone();
+        let exit = lua.create_function(move |_, _: Variadic<LuaValue>| -> mlua::Result<()> {
+            flag.set(true);
+            Err(mlua::Error::runtime("os.exit"))
+        })?;
+        let os: Table = lua.globals().get("os")?;
+        os.set("exit", exit)?;
         let raw = lua.create_table()?;
         let members = lua.create_table()?;
         for object in ["Plugin", "Outline", "Complement"] {
@@ -168,7 +180,11 @@ impl PluginState {
             .load(PLUGIN_BOOT)
             .set_name("=matsu-script plugin boot")
             .call((error, raw, members, identity))?;
-        Ok(Self { lua, plugin })
+        Ok(Self {
+            lua,
+            plugin,
+            exited,
+        })
     }
 
     /// Runs the text of a handler in the globals of this state.
@@ -190,11 +206,17 @@ impl PluginState {
             LuaValue::Nil
         };
         self.lua.globals().set("Indent", indent)?;
-        self.lua
+        self.exited.set(false);
+        let result = self
+            .lua
             .load(prepare_source(&invoke.source))
             .set_name(format!("@{}", invoke.name))
             .into_function()?
-            .call::<()>(())
+            .call::<()>(());
+        match result {
+            Err(_) if self.exited.get() => Ok(()),
+            other => other,
+        }
     }
 }
 

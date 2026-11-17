@@ -354,6 +354,22 @@ fn leaving_the_handler_early_is_not_a_failure(lang: &Lang) {
     assert_eq!(world.doc.text(), "aa");
 }
 
+/// A handler that raises the exit of its language after it counted: it ends the handler only.
+fn exiting_the_handler_keeps_the_host_and_its_state(lang: &Lang, exit: &str) {
+    let name = file(lang, "exit");
+    let code = format!("{}\n{exit}", lang.count);
+    let dir = plugin_dir(&[(&name, &code)]);
+    let mut host = host_of(lang.engine, dir.path(), true);
+    let mut world = World::new("");
+    for expected in ["n=1", "n=2"] {
+        let report = world.call(&mut host, &name, PATIENT);
+        assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+        assert_eq!(stdout(&report), [expected]);
+    }
+    assert!(host.is_running());
+    assert_eq!(host.failures(), 0);
+}
+
 fn an_error_of_the_editor_is_an_editor_error_in_the_handler(lang: &Lang) {
     // The same text in the three languages: `Editor.GetLineStr('x')` is refused by the editor.
     let name = file(lang, "editor_error");
@@ -439,3 +455,33 @@ macro_rules! per_engine {
 per_engine!(lua, LUA);
 per_engine!(micropython, MICROPYTHON);
 per_engine!(mruby, MRUBY);
+
+#[test]
+fn lua_os_exit_ends_the_handler_only_with_any_code() {
+    exiting_the_handler_keeps_the_host_and_its_state(&LUA, "os.exit()");
+    exiting_the_handler_keeps_the_host_and_its_state(&LUA, "os.exit(3)");
+    exiting_the_handler_keeps_the_host_and_its_state(&LUA, "os.exit(false, true)");
+}
+
+#[test]
+fn micropython_sys_exit_ends_the_handler_only() {
+    exiting_the_handler_keeps_the_host_and_its_state(&MICROPYTHON, "import sys\nsys.exit(2)");
+}
+
+/// The bundled mruby has no `exit` (no `mruby-exit` gem): calling it fails that call with
+/// `NoMethodError` (the host does not end, and the next call works).
+#[test]
+fn mruby_has_no_exit_so_it_fails_the_call_with_no_method_error() {
+    let name = file(&MRUBY, "exit");
+    let code = format!("{}\nexit", MRUBY.count);
+    let dir = plugin_dir(&[(&name, &code), (&file(&MRUBY, "n"), MRUBY.count)]);
+    let mut host = host_of(Engine::Mruby, dir.path(), true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, &name, PATIENT);
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains("NoMethodError"), "{text}");
+    let next = world.call(&mut host, &file(&MRUBY, "n"), PATIENT);
+    assert_eq!(stdout(&next), ["n=1"], "{:?}", next.output);
+}
