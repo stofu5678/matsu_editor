@@ -577,15 +577,14 @@ impl FileTreeDialog {
 
     // --- the keys -----------------------------------------------------------------------------
 
-    /// Alt with the access key of a label (`IsDialogMessage`): uses that control. Returns whether
-    /// the key was one of the dialog's.
+    /// Alt with the access key of a label (`IsDialogMessage`): uses that control. `key` is lowercase
+    /// (`access_keys::letter_of`). Returns whether the key was one of the dialog's.
     pub(crate) fn use_access_key(
         &mut self,
         key: char,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let key = key.to_lowercase().next().unwrap_or(key);
         let focus = |input: &gpui::Entity<gpui_component::input::InputState>,
                      window: &mut Window,
                      cx: &mut Context<Self>| {

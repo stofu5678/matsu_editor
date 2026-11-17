@@ -21,7 +21,8 @@
 //! The dialog is a window of its own that is not modal (GPUI has no modal child window); one is
 //! open at a time.
 
-use crate::input_select::input_field;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
+use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Role,
@@ -59,6 +60,32 @@ const KINDS: [(&str, i32); 3] = [
     ("最大化", SIZE_MAXIMIZED),
     ("(最小化)", SIZE_MINIMIZED),
 ];
+
+/// The labels that show an access key (`IDD_WINPOSSIZE`: `sakura_core/sakura_rc.rc`), with the
+/// key as the settings dialogs write it (`(&D)`).
+const POS_LABELS: [&str; 3] = ["指定しない(&D)", "継承する(&I)", "直接指定(&S)"];
+const SIZE_LABELS: [&str; 3] = ["指定しない(&E)", "継承する(&N)", "直接指定(&T)"];
+const X_LABEL: &str = "X座標(&X)";
+const Y_LABEL: &str = "Y座標(&Y)";
+const WIDTH_LABEL: &str = "幅(&W)";
+const HEIGHT_LABEL: &str = "高さ(&G)";
+const CLOSE_LABEL: &str = "閉じる(&C)";
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    PosMode(i32),
+    SizeMode(i32),
+    /// The focus goes to the box.
+    Field(Field),
+    Close,
+}
+
+/// The key of a label that marks it with `&` (`直接指定(&S)` is `s`).
+fn mark_of(label: &str) -> Option<char> {
+    let (_, key) = crate::common_settings::model::parse_label(label);
+    key.map(|key| key.to_ascii_lowercase())
+}
 
 /// What the dialog edits: the seven values of the settings file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,6 +235,49 @@ impl WinSizeDialog {
         }
     }
 
+    /// Alt with the access key of a label (`IsDialogMessage`): the radio buttons are chosen, the
+    /// label of a box moves the focus to it (only while the box can be used), 閉じる closes.
+    /// Returns whether the letter was one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let (pos_set, size_set) = (self.pos_mode == MODE_SET, self.size_mode == MODE_SET);
+        let mut entries = Vec::new();
+        for (label, mode) in POS_LABELS
+            .into_iter()
+            .zip([MODE_DEFAULT, MODE_SAVE, MODE_SET])
+        {
+            entries.extend(mark_of(label).map(|key| Entry::keyed(key, true, Use::PosMode(mode))));
+        }
+        for (label, mode) in SIZE_LABELS
+            .into_iter()
+            .zip([MODE_DEFAULT, MODE_SAVE, MODE_SET])
+        {
+            entries.extend(mark_of(label).map(|key| Entry::keyed(key, true, Use::SizeMode(mode))));
+        }
+        for (label, field, usable) in [
+            (X_LABEL, Field::X, pos_set),
+            (Y_LABEL, Field::Y, pos_set),
+            (WIDTH_LABEL, Field::Width, size_set),
+            (HEIGHT_LABEL, Field::Height, size_set),
+        ] {
+            entries.extend(mark_of(label).map(|key| Entry::keyed(key, usable, Use::Field(field))));
+        }
+        entries.extend(mark_of(CLOSE_LABEL).map(|key| Entry::keyed(key, true, Use::Close)));
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::PosMode(mode)) => self.set_pos_mode(mode, cx),
+            Found::One(Use::SizeMode(mode)) => self.set_size_mode(mode, cx),
+            Found::One(Use::Field(field)) => focus_selecting(self.input(field), window, cx),
+            Found::One(Use::Close) => self.close(window, cx),
+        }
+        true
+    }
+
     /// 閉じる: gives the values to whoever asked and closes the window.
     pub(crate) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.finish(cx);
@@ -239,6 +309,7 @@ impl Focusable for WinSizeDialog {
 
 impl Render for WinSizeDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let focused = self.focus.is_focused(window)
             || [&self.x, &self.y, &self.width, &self.height]
                 .iter()
@@ -280,15 +351,16 @@ impl Render for WinSizeDialog {
                 .children(radios)
         };
         let number = |label: &'static str, input: &Entity<InputState>, usable: bool| {
+            let (shown, name) = radio_texts(label);
             div()
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(div().w(px(56.)).child(label))
+                .child(div().w(px(72.)).child(shown))
                 .child(
                     div()
                         .w(px(110.))
-                        .child(Input::new(input).aria_label(label).disabled(!usable)),
+                        .child(Input::new(input).aria_label(name).disabled(!usable)),
                 )
         };
         let kinds = KINDS
@@ -317,6 +389,9 @@ impl Render for WinSizeDialog {
         crate::a11y::dialog(div().id("win-size-dialog"), "ウィンドウの位置と大きさ")
             .key_context("WinSizeDialog")
             .track_focus(&self.focus)
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(Self::on_key_down))
             .size_full()
             .p_3()
@@ -332,19 +407,14 @@ impl Render for WinSizeDialog {
                     div()
                         .flex()
                         .gap_4()
-                        .child(modes(
-                            "win-pos",
-                            ["指定しない(&D)", "継承する(&I)", "直接指定(&S)"],
-                            self.pos_mode,
-                            cx,
-                        ))
+                        .child(modes("win-pos", POS_LABELS, self.pos_mode, cx))
                         .child(
                             div()
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(number("X座標", &self.x, pos_set))
-                                .child(number("Y座標", &self.y, pos_set)),
+                                .child(number(X_LABEL, &self.x, pos_set))
+                                .child(number(Y_LABEL, &self.y, pos_set)),
                         ),
                 ),
             )
@@ -353,12 +423,7 @@ impl Render for WinSizeDialog {
                     div()
                         .flex()
                         .gap_4()
-                        .child(modes(
-                            "win-size",
-                            ["指定しない(&E)", "継承する(&N)", "直接指定(&T)"],
-                            self.size_mode,
-                            cx,
-                        ))
+                        .child(modes("win-size", SIZE_LABELS, self.size_mode, cx))
                         .child(
                             div()
                                 .flex()
@@ -373,14 +438,14 @@ impl Render for WinSizeDialog {
                                         .gap_1()
                                         .children(kinds),
                                 )
-                                .child(number("幅", &self.width, size_set))
-                                .child(number("高さ", &self.height, size_set)),
+                                .child(number(WIDTH_LABEL, &self.width, size_set))
+                                .child(number(HEIGHT_LABEL, &self.height, size_set)),
                         ),
                 ),
             )
             .child(
                 div().flex().justify_end().child(
-                    crate::a11y::button(div().id("win-size-close"), "閉じる(&C)")
+                    crate::a11y::button(div().id("win-size-close"), CLOSE_LABEL)
                         .px_4()
                         .h(px(28.))
                         .flex()

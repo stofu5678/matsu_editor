@@ -31,6 +31,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -58,6 +59,29 @@ pub(crate) const SHORT_DELAY: Duration = Duration::from_millis(50);
 /// `STR_DLGTAGJMP1`, `STR_DLGTAGJMP2`: the row that says nothing was found.
 const NOTICE: &str = "(通知)";
 const NOT_FOUND: &str = "(候補は見つかりませんでした)";
+
+/// The labels that show an access key (`IDD_TAGJUMPLIST`: `sakura_core/sakura_rc.rc`).
+mod labels {
+    pub(super) const KEYWORD: &str = "キーワード(K)";
+    pub(super) const IGNORE_CASE: &str = "大文字小文字の同一視(F)";
+    pub(super) const PARTIAL: &str = "文字列の途中にマッチ(A)";
+    pub(super) const PREVIOUS: &str = "前へ(P)";
+    pub(super) const NEXT: &str = "次へ(N)";
+    pub(super) const JUMP: &str = "ジャンプ(J)";
+    pub(super) const CANCEL: &str = "キャンセル(X)";
+}
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    Keyword,
+    IgnoreCase,
+    Partial,
+    Previous,
+    Next,
+    Jump,
+    Cancel,
+}
 
 /// The two forms of the dialog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -316,6 +340,53 @@ impl TagList {
         self.finish(chosen, window, cx);
     }
 
+    /// Alt with the access key of a label (`IsDialogMessage`): the keyword moves the focus to its box,
+    /// the buttons and the check boxes are used. What the form does not show, and the page buttons
+    /// that are grey, do not answer. Returns whether the letter was one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let keyword_form = self.form == Form::Keyword;
+        let pages = self.shows_pages();
+        let entries = [
+            Entry::labelled(labels::KEYWORD, keyword_form, Use::Keyword),
+            Entry::labelled(labels::IGNORE_CASE, keyword_form, Use::IgnoreCase),
+            Entry::labelled(labels::PARTIAL, keyword_form, Use::Partial),
+            Entry::labelled(
+                labels::PREVIOUS,
+                pages && !self.busy && self.top > 0,
+                Use::Previous,
+            ),
+            Entry::labelled(
+                labels::NEXT,
+                pages && !self.busy && self.page.has_next,
+                Use::Next,
+            ),
+            Entry::labelled(labels::JUMP, true, Use::Jump),
+            Entry::labelled(labels::CANCEL, true, Use::Cancel),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Keyword) => focus_selecting(&self.keyword, window, cx),
+            Found::One(Use::IgnoreCase) => self.set_options(!self.ignore_case, self.partial, cx),
+            Found::One(Use::Partial) => self.set_options(self.ignore_case, !self.partial, cx),
+            Found::One(Use::Previous) => self.previous_page(cx),
+            Found::One(Use::Next) => self.next_page(cx),
+            Found::One(Use::Jump) => self.choose(window, cx),
+            Found::One(Use::Cancel) => self.cancel(window, cx),
+        }
+        true
+    }
+
+    /// The page buttons are shown unless the direct form has all its hits on one page.
+    fn shows_pages(&self) -> bool {
+        !(self.form == Form::Direct && self.top == 0 && !self.page.has_next)
+    }
+
     /// キャンセル.
     pub(crate) fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.finish(None, window, cx);
@@ -503,6 +574,7 @@ fn tag_row_name(item: &TagItem) -> String {
 
 impl Render for TagList {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let cell = |index: usize, text: String| {
             let (_, share) = COLUMNS[index];
             div()
@@ -575,11 +647,11 @@ impl Render for TagList {
             .map(|p| p.display().to_string())
             .unwrap_or_default();
         let direct = self.form == Form::Direct;
-        let hide_pages = direct && self.top == 0 && !self.page.has_next;
+        let hide_pages = !self.shows_pages();
         let keyword_label = if self.busy {
             "キーワード 検索中..."
         } else {
-            "キーワード(K)"
+            labels::KEYWORD
         };
         let ignore_case = self.ignore_case;
         let partial = self.partial;
@@ -621,6 +693,9 @@ impl Render for TagList {
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
             .key_context("TagList")
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |list, cx| list.use_access_key(letter, window, cx))
+            })
             .capture_key_down(cx.listener(Self::on_key_down))
             .w(px(760.))
             .max_w_full()
@@ -685,7 +760,7 @@ impl Render for TagList {
                                         .gap_3()
                                         .child(
                                             Checkbox::new("tag-icase")
-                                                .labelled("大文字小文字の同一視(F)")
+                                                .labelled(labels::IGNORE_CASE)
                                                 .checked(ignore_case)
                                                 .on_click(cx.listener(
                                                     move |this, value: &bool, _, cx| {
@@ -695,7 +770,7 @@ impl Render for TagList {
                                         )
                                         .child(
                                             Checkbox::new("tag-anywhere")
-                                                .labelled("文字列の途中にマッチ(A)")
+                                                .labelled(labels::PARTIAL)
                                                 .checked(partial)
                                                 .on_click(cx.listener(
                                                     move |this, value: &bool, _, cx| {
@@ -716,7 +791,7 @@ impl Render for TagList {
                                         .gap_2()
                                         .child(
                                             Button::new("tag-prev")
-                                                .labelled("前へ(P)")
+                                                .labelled(labels::PREVIOUS)
                                                 .disabled(self.busy || self.top == 0)
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     this.previous_page(cx)
@@ -724,7 +799,7 @@ impl Render for TagList {
                                         )
                                         .child(
                                             Button::new("tag-next")
-                                                .labelled("次へ(N)")
+                                                .labelled(labels::NEXT)
                                                 .disabled(self.busy || !self.page.has_next)
                                                 .on_click(
                                                     cx.listener(|this, _, _, cx| {
@@ -737,16 +812,12 @@ impl Render for TagList {
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .child(
-                                        Button::new("tag-jump").labelled("ジャンプ(J)").on_click(
-                                            cx.listener(|this, _, window, cx| {
-                                                this.choose(window, cx)
-                                            }),
-                                        ),
-                                    )
+                                    .child(Button::new("tag-jump").labelled(labels::JUMP).on_click(
+                                        cx.listener(|this, _, window, cx| this.choose(window, cx)),
+                                    ))
                                     .child(
                                         Button::new("tag-cancel")
-                                            .labelled("キャンセル(X)")
+                                            .labelled(labels::CANCEL)
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.cancel(window, cx)
                                             })),

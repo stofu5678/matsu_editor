@@ -710,3 +710,5 @@ fn the_tags_file_dialog_writes_its_options_on_ok_only(cx: &mut TestAppContext) {
         Some("--languages=C")
     );
 }
+
+mod access_keys;

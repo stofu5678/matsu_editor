@@ -18,6 +18,7 @@
 //! Not here: the file association (the two check boxes and `AlertFileAssociation`, which write to the
 //! registry of Windows) and the help button.
 
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
@@ -36,6 +37,37 @@ pub(crate) fn label(t: &TypeSettings) -> String {
     } else {
         format!("{} ( {} )", t.type_name, t.type_exts)
     }
+}
+
+/// The labels that show an access key (`IDD_TYPELIST`: `sakura_core/sakura_rc.rc`).
+mod labels {
+    pub(super) const SETTINGS: &str = "設定変更(S)...";
+    pub(super) const APPLY: &str = "一時適用(R)";
+    pub(super) const CANCEL: &str = "キャンセル(X)";
+    pub(super) const IMPORT: &str = "インポート(I)...";
+    pub(super) const EXPORT: &str = "エクスポート(E)...";
+    pub(super) const RESET: &str = "初期化(N)";
+    pub(super) const COPY: &str = "複製(C)";
+    pub(super) const UP: &str = "↑(U)";
+    pub(super) const DOWN: &str = "↓(O)";
+    pub(super) const ADD: &str = "追加(A)";
+    pub(super) const DELETE: &str = "削除(D)";
+}
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    Settings,
+    Apply,
+    Cancel,
+    Import,
+    Export,
+    Reset,
+    Copy,
+    Up,
+    Down,
+    Add,
+    Delete,
 }
 
 pub(crate) struct TypeList {
@@ -102,6 +134,45 @@ impl TypeList {
         .ok();
     }
 
+    /// Alt with the access key of a button (`IsDialogMessage`): presses it. A button that is grey
+    /// for the selected type is not pressed. Returns whether the letter was one of the dialog's.
+    pub(super) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let entries = [
+            Entry::labelled(labels::SETTINGS, true, Use::Settings),
+            Entry::labelled(labels::APPLY, true, Use::Apply),
+            Entry::labelled(labels::CANCEL, true, Use::Cancel),
+            Entry::labelled(labels::IMPORT, true, Use::Import),
+            Entry::labelled(labels::EXPORT, true, Use::Export),
+            Entry::labelled(labels::RESET, true, Use::Reset),
+            Entry::labelled(labels::COPY, self.has_room(), Use::Copy),
+            Entry::labelled(labels::UP, self.can_move_up(), Use::Up),
+            Entry::labelled(labels::DOWN, self.can_move_down(), Use::Down),
+            Entry::labelled(labels::ADD, self.has_room(), Use::Add),
+            Entry::labelled(labels::DELETE, self.can_delete(), Use::Delete),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Settings) => self.change_settings(window, cx),
+            Found::One(Use::Apply) => self.apply(window, cx),
+            Found::One(Use::Cancel) => self.close(window, cx),
+            Found::One(Use::Import) => self.import(window, cx),
+            Found::One(Use::Export) => self.export(window, cx),
+            Found::One(Use::Reset) => self.reset(window, cx),
+            Found::One(Use::Copy) => self.copy(window, cx),
+            Found::One(Use::Up) => self.move_selected(true, window, cx),
+            Found::One(Use::Down) => self.move_selected(false, window, cx),
+            Found::One(Use::Add) => self.add(window, cx),
+            Found::One(Use::Delete) => self.delete(window, cx),
+        }
+        true
+    }
+
     pub(super) fn on_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -141,6 +212,7 @@ pub(super) const SELECTED_BG: u32 = 0x2f6fd0;
 
 impl Render for TypeList {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         if self.ascertain.is_some() {
             return self.render_ascertain(cx).into_any_element();
         }
@@ -212,53 +284,53 @@ impl Render for TypeList {
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(button("type-list-settings", "設定変更(S)...").on_click(
+                .child(button("type-list-settings", labels::SETTINGS).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.change_settings(window, cx)
                     }),
                 ))
-                .child(button("type-list-apply", "一時適用(R)").on_click(
+                .child(button("type-list-apply", labels::APPLY).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.apply(window, cx)),
                 ))
-                .child(button("type-list-cancel", "キャンセル(X)").on_click(
+                .child(button("type-list-cancel", labels::CANCEL).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.close(window, cx)),
                 ))
                 .child(div().h(px(10.)))
-                .child(button("type-list-import", "インポート(I)...").on_click(
+                .child(button("type-list-import", labels::IMPORT).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.import(window, cx)),
                 ))
-                .child(button("type-list-export", "エクスポート(E)...").on_click(
+                .child(button("type-list-export", labels::EXPORT).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.export(window, cx)),
                 ))
-                .child(button("type-list-reset", "初期化(N)").on_click(
+                .child(button("type-list-reset", labels::RESET).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.reset(window, cx)),
                 ))
                 .child(crate::a11y::disabled(
-                    grey("type-list-copy", "複製(C)", has_room).on_click(
+                    grey("type-list-copy", labels::COPY, has_room).on_click(
                         cx.listener(|this, _: &ClickEvent, window, cx| this.copy(window, cx)),
                     ),
                     !has_room,
                 ))
                 .child(crate::a11y::disabled(
-                    grey("type-list-up", "↑(U)", can_up).on_click(cx.listener(
+                    grey("type-list-up", labels::UP, can_up).on_click(cx.listener(
                         |this, _: &ClickEvent, window, cx| this.move_selected(true, window, cx),
                     )),
                     !can_up,
                 ))
                 .child(crate::a11y::disabled(
-                    grey("type-list-down", "↓(O)", can_down).on_click(cx.listener(
+                    grey("type-list-down", labels::DOWN, can_down).on_click(cx.listener(
                         |this, _: &ClickEvent, window, cx| this.move_selected(false, window, cx),
                     )),
                     !can_down,
                 ))
                 .child(crate::a11y::disabled(
-                    grey("type-list-add", "追加(A)", has_room).on_click(
+                    grey("type-list-add", labels::ADD, has_room).on_click(
                         cx.listener(|this, _: &ClickEvent, window, cx| this.add(window, cx)),
                     ),
                     !has_room,
                 ))
                 .child(crate::a11y::disabled(
-                    grey("type-list-delete", "削除(D)", can_delete).on_click(
+                    grey("type-list-delete", labels::DELETE, can_delete).on_click(
                         cx.listener(|this, _: &ClickEvent, window, cx| this.delete(window, cx)),
                     ),
                     !can_delete,
@@ -268,6 +340,9 @@ impl Render for TypeList {
             .key_context("TypeList")
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |list, cx| list.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(Self::on_key_down))
             .min_w(px(480.))
             .max_w(px(760.))

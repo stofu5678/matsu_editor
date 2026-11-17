@@ -47,6 +47,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::a11y::AriaDisabled as _;
+use crate::access_keys::OnAccessKey as _;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollStrategy,
@@ -79,6 +80,10 @@ pub(crate) const HUGE_FILE_MESSAGE: &str = "巨大なファイルなので、ア
 
 /// `ApiWrap::TreeView_ExpandAll( hwndTree, true, 64 )`: how deep すべて展開 goes.
 const EXPAND_ALL_DEPTH: usize = 64;
+/// The labels of the pane that show an access key (`IDD_FUNCLIST`: `sakura_core/sakura_rc.rc`).
+const SETTINGS: &str = "設定(S)";
+const COPY: &str = "コピー(C)";
+const IGNORE_BLANK: &str = "空行を無視する(B)";
 const TEXT: u32 = 0x1e1e1e;
 const SELECTED_BG: u32 = 0x2f6fd0;
 const STALE_TEXT: u32 = 0x777777;
@@ -846,6 +851,50 @@ impl OutlinePane {
         self.keep_sort(cx);
     }
 
+    /// Alt with the access key of a button or a check box of the pane (`IsDialogMessage`). Only
+    /// what is shown and works answers: 設定 is the file tree's, 空行を無視する the bookmarks', and
+    /// コピー is gray for the file tree. Returns whether the letter was the pane's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use crate::access_keys::{Entry, Found, pick};
+        #[derive(Clone, Copy)]
+        enum Use {
+            Settings,
+            Copy,
+            IgnoreBlank,
+        }
+        let entries = [
+            Entry::labelled(
+                SETTINGS,
+                self.outline_type == OutlineKind::FileTree,
+                Use::Settings,
+            ),
+            Entry::labelled(COPY, self.copy_enabled(), Use::Copy),
+            Entry::labelled(
+                IGNORE_BLANK,
+                self.outline_type == OutlineKind::Bookmark,
+                Use::IgnoreBlank,
+            ),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Settings) => self.open_file_tree_settings(window, cx),
+            Found::One(Use::Copy) => self.copy(cx),
+            Found::One(Use::IgnoreBlank) => {
+                let on = cx
+                    .try_global::<OutlineOptions>()
+                    .is_some_and(|o| o.ignore_blank_bookmarks);
+                self.set_ignore_blank(!on, cx);
+            }
+        }
+        true
+    }
+
     fn set_ignore_blank(&mut self, on: bool, cx: &mut Context<Self>) {
         cx.set_global(OutlineOptions {
             ignore_blank_bookmarks: on,
@@ -1306,6 +1355,7 @@ impl Focusable for OutlinePane {
 
 impl Render for OutlinePane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let side = self.place(cx).side;
         let button = |id: &'static str, text: &'static str| {
             crate::a11y::button(div().id(id), text)
@@ -1361,7 +1411,7 @@ impl Render for OutlinePane {
                     .gap_1()
                     // `IDC_BUTTON_SETTING` is shown for the file tree only (`CDlgFuncList::SetData`)
                     .children((self.outline_type == OutlineKind::FileTree).then(|| {
-                        button("outline-settings", "設定(S)")
+                        button("outline-settings", SETTINGS)
                             // names the button in the tests (nothing in release builds)
                             .debug_selector(|| "outline-settings".to_owned())
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -1508,11 +1558,11 @@ impl Render for OutlinePane {
             .px_2()
             .py_1()
             .child(if self.copy_enabled() {
-                button("outline-copy", "コピー(C)")
+                button("outline-copy", COPY)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.copy(cx)))
             } else {
                 // gray, and no click
-                button("outline-copy", "コピー(C)")
+                button("outline-copy", COPY)
                     .aria_disabled(true)
                     .text_color(rgb(STALE_TEXT))
                     .cursor_default()
@@ -1546,7 +1596,7 @@ impl Render for OutlinePane {
                             gpui::Toggled::False
                         })
                         .cursor_pointer()
-                        .child(format!("{} 空行を無視する(B)", if on { "☑" } else { "☐" }))
+                        .child(format!("{} {IGNORE_BLANK}", if on { "☑" } else { "☐" }))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.set_ignore_blank(!on, cx)
                         })),
@@ -1569,6 +1619,9 @@ impl Render for OutlinePane {
         // the side that faces the text.
         let pane = crate::a11y::group(div().id("outline-pane"), pane_name)
             .key_context("Outline")
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |pane, cx| pane.use_access_key(letter, window, cx))
+            })
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
             // `OnContextMenu`: the menu opens over the title, the list and the tree

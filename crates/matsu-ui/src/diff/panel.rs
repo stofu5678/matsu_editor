@@ -9,6 +9,7 @@
 //!
 //! Left out: the button ヘルプ.
 
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use std::path::{Path, PathBuf};
 
@@ -31,6 +32,39 @@ use super::{
 use crate::file_dialog::{self, Ask};
 use crate::search::SearchOptions;
 use crate::view::EditorView;
+
+/// The labels that show an access key (`IDD_DIFF`: `sakura_core/sakura_rc.rc`).
+mod labels {
+    pub(super) const BROWSE: &str = "参照(R)...";
+    pub(super) const CASE: &str = "大文字小文字の同一視(C)";
+    pub(super) const SPACE: &str = "空白無視(W)";
+    pub(super) const SPACE_CHANGE: &str = "空白変更無視(B)";
+    pub(super) const BLANK_LINES: &str = "空白行無視(L)";
+    pub(super) const TAB_SPACE: &str = "タブ空白変換(T)";
+    pub(super) const NEW: &str = "新ファイル(N)";
+    pub(super) const OLD: &str = "旧ファイル(D)";
+    pub(super) const NOTIFY: &str = "見つからないときにメッセージを表示(M)";
+    pub(super) const WRAP: &str = "先頭（末尾）から再検索する(Z)";
+    pub(super) const CANCEL: &str = "キャンセル(X)";
+    /// `&OK` in the resource file: the label shows no key.
+    pub(super) const OK_KEY: char = 'o';
+}
+
+/// What an access key does in the dialog.
+#[derive(Clone, Copy)]
+enum Use {
+    Browse,
+    Case,
+    Space,
+    SpaceChange,
+    BlankLines,
+    TabSpace,
+    OwnIsOld(bool),
+    Notify,
+    Wrap,
+    Ok,
+    Cancel,
+}
 
 pub struct DiffPanel {
     editor: WeakEntity<EditorView>,
@@ -83,6 +117,59 @@ impl DiffPanel {
             wrap: search.wrap,
             _subscriptions: vec![subscription],
         }
+    }
+
+    /// Alt with the access key of a label (`IsDialogMessage`): uses that control. Returns whether the
+    /// letter was one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let entries = [
+            Entry::labelled(labels::BROWSE, true, Use::Browse),
+            Entry::labelled(labels::CASE, true, Use::Case),
+            Entry::labelled(labels::SPACE, true, Use::Space),
+            Entry::labelled(labels::SPACE_CHANGE, true, Use::SpaceChange),
+            Entry::labelled(labels::BLANK_LINES, true, Use::BlankLines),
+            Entry::labelled(labels::TAB_SPACE, true, Use::TabSpace),
+            Entry::labelled(labels::NEW, true, Use::OwnIsOld(false)),
+            Entry::labelled(labels::OLD, true, Use::OwnIsOld(true)),
+            Entry::labelled(labels::NOTIFY, true, Use::Notify),
+            Entry::labelled(labels::WRAP, true, Use::Wrap),
+            Entry::keyed(labels::OK_KEY, true, Use::Ok),
+            Entry::labelled(labels::CANCEL, true, Use::Cancel),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Browse) => self.browse(window, cx),
+            Found::One(Use::Case) => self.options.ignore_case = !self.options.ignore_case,
+            Found::One(Use::Space) => {
+                self.options.ignore_all_space = !self.options.ignore_all_space
+            }
+            Found::One(Use::SpaceChange) => {
+                self.options.ignore_space_change = !self.options.ignore_space_change;
+            }
+            Found::One(Use::BlankLines) => {
+                self.options.ignore_blank_lines = !self.options.ignore_blank_lines;
+            }
+            Found::One(Use::TabSpace) => self.options.expand_tabs = !self.options.expand_tabs,
+            Found::One(Use::OwnIsOld(old)) => self.options.own_is_old = old,
+            Found::One(Use::Notify) => self.notify_not_found = !self.notify_not_found,
+            Found::One(Use::Wrap) => self.wrap = !self.wrap,
+            Found::One(Use::Ok) => {
+                self.ok(window, cx);
+                return true;
+            }
+            Found::One(Use::Cancel) => {
+                self.cancel(window, cx);
+                return true;
+            }
+        }
+        cx.notify();
+        true
     }
 
     /// The flags of the options as the dialog has them now.
@@ -221,6 +308,7 @@ impl Focusable for DiffPanel {
 
 impl Render for DiffPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let rows: Vec<Candidate> = candidates(cx, self.owner);
         let list = rows.iter().enumerate().map(|(i, row)| {
             let doc = row.doc;
@@ -262,7 +350,7 @@ impl Render for DiffPanel {
                     .child(div().flex_1().child(Input::new(&self.file)))
                     .child(
                         Button::new("diff-browse")
-                            .labelled("参照(R)...")
+                            .labelled(labels::BROWSE)
                             .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
                     ),
             )
@@ -294,35 +382,35 @@ impl Render for DiffPanel {
             .gap_1()
             .child(self.option(
                 "diff-case",
-                "大文字小文字の同一視(C)",
+                labels::CASE,
                 o.ignore_case,
                 |s, v| s.options.ignore_case = v,
                 cx,
             ))
             .child(self.option(
                 "diff-space",
-                "空白無視(W)",
+                labels::SPACE,
                 o.ignore_all_space,
                 |s, v| s.options.ignore_all_space = v,
                 cx,
             ))
             .child(self.option(
                 "diff-space-change",
-                "空白変更無視(B)",
+                labels::SPACE_CHANGE,
                 o.ignore_space_change,
                 |s, v| s.options.ignore_space_change = v,
                 cx,
             ))
             .child(self.option(
                 "diff-blank-lines",
-                "空白行無視(L)",
+                labels::BLANK_LINES,
                 o.ignore_blank_lines,
                 |s, v| s.options.ignore_blank_lines = v,
                 cx,
             ))
             .child(self.option(
                 "diff-tab-space",
-                "タブ空白変換(T)",
+                labels::TAB_SPACE,
                 o.expand_tabs,
                 |s, v| s.options.expand_tabs = v,
                 cx,
@@ -335,7 +423,7 @@ impl Render for DiffPanel {
                     .gap_2()
                     .child(
                         Button::new("diff-new")
-                            .labelled("新ファイル(N)")
+                            .labelled(labels::NEW)
                             .selected(!o.own_is_old)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.options.own_is_old = false;
@@ -344,7 +432,7 @@ impl Render for DiffPanel {
                     )
                     .child(
                         Button::new("diff-old")
-                            .labelled("旧ファイル(D)")
+                            .labelled(labels::OLD)
                             .selected(o.own_is_old)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.options.own_is_old = true;
@@ -355,18 +443,12 @@ impl Render for DiffPanel {
             .child("次の差分(前の差分)へ移動時")
             .child(self.option(
                 "diff-notify",
-                "見つからないときにメッセージを表示(M)",
+                labels::NOTIFY,
                 self.notify_not_found,
                 |s, v| s.notify_not_found = v,
                 cx,
             ))
-            .child(self.option(
-                "diff-wrap",
-                "先頭（末尾）から再検索する(Z)",
-                self.wrap,
-                |s, v| s.wrap = v,
-                cx,
-            ))
+            .child(self.option("diff-wrap", labels::WRAP, self.wrap, |s, v| s.wrap = v, cx))
             .child(self.option(
                 "diff-notify-none",
                 "DIFF差分がないときにメッセージを表示",
@@ -383,7 +465,7 @@ impl Render for DiffPanel {
             )
             .child(
                 Button::new("diff-cancel")
-                    .labelled("キャンセル(X)")
+                    .labelled(labels::CANCEL)
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
             );
         div()
@@ -407,6 +489,10 @@ impl Render for DiffPanel {
             .border_color(rgb(0xb0b0b0))
             .rounded_md()
             .shadow_md()
+            // Alt+letter works from the box of the file too, and does not type the letter
+            .on_access_key(move |letter, window, cx| {
+                this.update(cx, |panel, cx| panel.use_access_key(letter, window, cx))
+            })
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     this.cancel(window, cx);

@@ -181,6 +181,8 @@ pub(crate) fn refresh_open_views(cx: &mut App, index: usize) {
 #[cfg(test)]
 mod keep_tests;
 #[cfg(test)]
+mod list_access_key_tests;
+#[cfg(test)]
 mod list_tests;
 #[cfg(test)]
 mod shared_tests;

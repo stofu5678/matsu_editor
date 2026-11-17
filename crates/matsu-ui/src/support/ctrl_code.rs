@@ -42,6 +42,7 @@
 //! Not done: the help button (the help is not ported). The key `@` of a US keyboard is on the
 //! key of the back quote, so both choose NUL.
 
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -153,6 +154,11 @@ impl EditorView {
     }
 }
 
+/// `キャンセル(&X)` of `IDD_CTRLCODE` (`sakura_core/sakura_rc.rc`).
+const CANCEL: &str = "キャンセル(X)";
+/// `&OK` of `IDD_CTRLCODE`: the label shows no key.
+const OK_KEY: char = 'o';
+
 /// The modal dialog over the view.
 pub(crate) struct CtrlCodeDialog {
     view: WeakEntity<EditorView>,
@@ -192,6 +198,32 @@ impl CtrlCodeDialog {
         .ok();
     }
 
+    /// Alt with the access key of a button (`IsDialogMessage`): OK (the row that is chosen) or
+    /// キャンセル. Returns whether the letter was one of the dialog's.
+    pub(crate) fn use_access_key(
+        &mut self,
+        letter: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        #[derive(Clone, Copy)]
+        enum Use {
+            Ok,
+            Cancel,
+        }
+        let entries = [
+            Entry::keyed(OK_KEY, true, Use::Ok),
+            Entry::labelled(CANCEL, true, Use::Cancel),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Ok) => self.finish(Some(self.selected), window, cx),
+            Found::One(Use::Cancel) => self.finish(None, window, cx),
+        }
+        true
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let last = CODES.len() - 1;
         let key = event.keystroke.key.as_str();
@@ -204,6 +236,8 @@ impl CtrlCodeDialog {
             "pagedown" => self.selected = (self.selected + 10).min(last),
             "home" => self.selected = 0,
             "end" => self.selected = last,
+            // a letter with Alt is an access key (`use_access_key`), not the code of the letter
+            _ if event.keystroke.modifiers.alt => {}
             _ => {
                 if let Some(row) = row_of_key(key) {
                     self.selected = row;
@@ -230,6 +264,7 @@ const BACKGROUND: u32 = 0xf7f7f7;
 
 impl Render for CtrlCodeDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
         let rows = CODES.iter().enumerate().map(|(i, code)| {
             let row = crate::a11y::list_row(
                 div().id(("ctrl-code", i)),
@@ -306,6 +341,9 @@ impl Render for CtrlCodeDialog {
                     .track_focus(&self.focus)
                     .keep_tab_inside(&self.focus)
                     .key_context("CtrlCodeDialog")
+                    .on_access_key(move |letter, window, cx| {
+                        this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+                    })
                     .on_key_down(cx.listener(Self::on_key_down))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .p_2()
@@ -342,11 +380,9 @@ impl Render for CtrlCodeDialog {
                                     this.finish(Some(this.selected), window, cx)
                                 },
                             )))
-                            .child(button("ctrl-code-cancel", "キャンセル(X)").on_click(
-                                cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    this.finish(None, window, cx)
-                                }),
-                            )),
+                            .child(button("ctrl-code-cancel", CANCEL).on_click(cx.listener(
+                                |this, _: &ClickEvent, window, cx| this.finish(None, window, cx),
+                            ))),
                     ),
             )
     }

@@ -553,3 +553,5 @@ fn cancel_leaves_every_setting_as_it_was_after_editing_two(cx: &mut TestAppConte
     press_cancel(&dialog, cx);
     assert_eq!(saved(cx).slots(), before.as_slice());
 }
+
+mod access_keys;

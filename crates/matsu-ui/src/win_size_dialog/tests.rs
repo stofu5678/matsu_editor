@@ -132,6 +132,59 @@ fn enter_and_escape_close_the_dialog_like_the_button(cx: &mut TestAppContext) {
     }
 }
 
+fn keys(cx: &mut TestAppContext, keys: &str) {
+    let (_, handle) = cx.update(|app| current(app)).unwrap();
+    let vcx = gpui::VisualTestContext::from_window(handle, cx).into_mut();
+    vcx.simulate_keystrokes(keys);
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_letters_of_the_radio_buttons_choose_them(cx: &mut TestAppContext) {
+    // `IDD_WINPOSSIZE`: 起動時の位置 D, I, S and 大きさ E, N, T
+    let _got = open_dialog(cx, START);
+    keys(cx, "alt-s alt-t");
+    let now = with_dialog(cx, |d, _, dcx| d.values(dcx));
+    assert_eq!((now.pos_mode, now.size_mode), (MODE_SET, MODE_SET));
+    keys(cx, "alt-i alt-shift-e");
+    let now = with_dialog(cx, |d, _, dcx| d.values(dcx));
+    assert_eq!((now.pos_mode, now.size_mode), (MODE_SAVE, MODE_DEFAULT));
+    keys(cx, "alt-d alt-n");
+    let now = with_dialog(cx, |d, _, dcx| d.values(dcx));
+    assert_eq!((now.pos_mode, now.size_mode), (MODE_DEFAULT, MODE_SAVE));
+}
+
+#[gpui::test]
+fn the_label_of_a_box_moves_the_focus_to_it_only_while_the_box_can_be_used(
+    cx: &mut TestAppContext,
+) {
+    let _got = open_dialog(cx, START);
+    // 直接指定 is not chosen: X, Y, W and G find no box that can be used, and the letter is not typed
+    keys(cx, "alt-x alt-y alt-w alt-g");
+    assert_eq!(with_dialog(cx, |d, _, dcx| d.values(dcx)), START);
+    // with 直接指定, Alt+X focuses the box of X and the next keys type into it
+    keys(cx, "alt-s alt-x");
+    let (_, handle) = cx.update(|app| current(app)).unwrap();
+    let vcx = gpui::VisualTestContext::from_window(handle, cx).into_mut();
+    vcx.simulate_input("7");
+    cx.run_until_parked();
+    assert_eq!(with_dialog(cx, |d, _, dcx| d.values(dcx)).x, 7);
+    // the size boxes are the same after 直接指定 of 大きさ
+    keys(cx, "alt-t alt-w");
+    let vcx = gpui::VisualTestContext::from_window(handle, cx).into_mut();
+    vcx.simulate_input("9");
+    cx.run_until_parked();
+    assert_eq!(with_dialog(cx, |d, _, dcx| d.values(dcx)).width, 9);
+}
+
+#[gpui::test]
+fn alt_c_closes_the_dialog_like_the_button(cx: &mut TestAppContext) {
+    let got = open_dialog(cx, START);
+    keys(cx, "alt-c");
+    assert!(cx.update(|app| current(app)).is_none());
+    assert_eq!(got.borrow().as_slice(), [START]);
+}
+
 #[test]
 fn the_radio_buttons_show_and_speak_their_labels_like_the_other_settings() {
     assert_eq!(
