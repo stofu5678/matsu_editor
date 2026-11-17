@@ -409,12 +409,16 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
     });
     assert_eq!(stops(&view, cx), [6, 10]);
     // another pane changed the text: the stops stay
-    view.update(cx, |v, cx| v.document_changed(v.layout_version + 1, cx));
+    view.update(cx, |v, cx| {
+        v.document_changed(v.layout_version + 1, None, cx)
+    });
     assert_eq!(stops(&view, cx), [6, 10]);
     // they were worked out from the part of a file that the scan had read: the scan has ended,
     // so the document works them out from the whole text, for every pane
     view.read_with(cx, |v, cx| v.document.read(cx).forget_tsv_stops());
-    view.update(cx, |v, cx| v.document_changed(v.layout_version + 1, cx));
+    view.update(cx, |v, cx| {
+        v.document_changed(v.layout_version + 1, None, cx)
+    });
     count_stops(&view, cx);
     assert_eq!(stops(&view, cx), [7, 11]);
 

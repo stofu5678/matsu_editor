@@ -224,6 +224,18 @@ impl Cursor {
         self.free_col = None;
     }
 
+    /// Moves the caret and the anchor to where `f` maps them, after the text changed under them
+    /// (an edit made in another view). The kind of selection, the box columns and the goal
+    /// column stay; a selection that no longer covers anything is dropped.
+    pub fn map_positions(&mut self, f: impl Fn(Pos) -> Pos) {
+        self.caret = f(self.caret);
+        self.anchor = self.anchor.map(&f);
+        if !self.is_box() && self.anchor == Some(self.caret) {
+            self.anchor = None;
+        }
+        self.free_col = None;
+    }
+
     /// Selects from `anchor` to `caret` (the caret may come first).
     pub fn select(&mut self, anchor: Pos, caret: Pos) {
         self.drop_box();

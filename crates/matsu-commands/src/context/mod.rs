@@ -73,6 +73,26 @@ pub struct TextChange {
     pub new_end: Pos,
 }
 
+impl TextChange {
+    /// Where position `p`, in the document before this edit, is after it. A position at or before
+    /// the start stays; one inside the removed text goes to the end of the new text; one after it
+    /// keeps its place relative to the end of the edit.
+    pub fn follow(&self, p: Pos) -> Pos {
+        if p <= self.start {
+            p
+        } else if p < self.old_end {
+            self.new_end
+        } else if p.line == self.old_end.line {
+            Pos::new(
+                self.new_end.line,
+                self.new_end.col + p.col - self.old_end.col,
+            )
+        } else {
+            Pos::new(self.new_end.line + p.line - self.old_end.line, p.col)
+        }
+    }
+}
+
 /// Line endings that an edit joins into one CRLF. The buffer reports positions in the new text,
 /// where the CR and the LF of a CRLF are one line ending, so the reported change has to be
 /// widened to the whole line ending.

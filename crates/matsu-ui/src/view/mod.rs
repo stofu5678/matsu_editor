@@ -343,9 +343,11 @@ impl EditorView {
         let _ = layout.layout_for(document.read(cx).doc(), LAYOUT_BUDGET);
         let layout_version = document.read(cx).version();
         let frame_seen = document.read(cx).frame_seq();
-        let subscription = cx.subscribe(&document, |this, _, event, cx| match *event {
-            DocumentEvent::Changed { version } => this.document_changed(version, cx),
-            DocumentEvent::TypeChanged { index } => this.follow_document_type(index, cx),
+        let subscription = cx.subscribe(&document, |this, _, event, cx| match event {
+            DocumentEvent::Changed { version, edited } => {
+                this.document_changed(*version, edited.as_ref(), cx)
+            }
+            DocumentEvent::TypeChanged { index } => this.follow_document_type(*index, cx),
         });
         // The typing mode changes only notify the document (no `Changed` event, no new layout):
         // repaint for the caret and the status bar.
@@ -698,7 +700,14 @@ impl EditorView {
     fn after_command(&mut self, mut changes: Changes, cx: &mut Context<Self>) {
         if changes.text_changed() {
             // The context has already told the layout about every edit (`RowLayout`).
-            self.layout_version = self.document.update(cx, |shared, cx| shared.changed(cx));
+            let entity_id = self.entity_id;
+            self.layout_version = self.document.update(cx, |shared, cx| {
+                if changes.replaced_all {
+                    shared.changed(cx)
+                } else {
+                    shared.edited(entity_id, &changes.edits, cx)
+                }
+            });
             self.colors_after_edit(&changes, self.layout_version, cx);
         }
         if changes.text_changed() || changes.caret_moved || changes.selection_changed {
@@ -732,7 +741,12 @@ impl EditorView {
     }
 
     /// Another view (or code that is not a command) changed the text.
-    fn document_changed(&mut self, version: u64, cx: &mut Context<Self>) {
+    fn document_changed(
+        &mut self,
+        version: u64,
+        edited: Option<&crate::document::EditedBy>,
+        cx: &mut Context<Self>,
+    ) {
         if version == self.layout_version {
             return; // our own change, already laid out
         }
@@ -749,6 +763,13 @@ impl EditorView {
         }
         if let Some(moved) = moved {
             self.apply_frame_move(&moved, cx);
+        }
+        // The caret and the selection of this pane follow the edit that another pane made.
+        // (The view that made them has followed them already, also when its events come late, after
+        // the commands of a macro.)
+        if let Some(edited) = edited.filter(|e| e.view != self.entity_id) {
+            self.cursor
+                .map_positions(|p| edited.edits.iter().fold(p, |p, e| e.follow(p)));
         }
         let doc = self.document.read(cx).doc();
         let _ = self.cursor.clamp_if_outside(doc);
