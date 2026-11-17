@@ -80,7 +80,7 @@ use matsu_regex::{
     PatternError, RegexMatcher, RegexReplacer, RegexSearchOptions, ReplacementError,
 };
 
-use super::enumerate::{Walker, join_path};
+use super::enumerate::{Walker, base_prefix_len, join_path};
 use super::format::{
     self, Body, EOL, FilePaths, HeaderConditions, Layout, LineType, OutputStyle, PathInfoState,
 };
@@ -617,7 +617,7 @@ impl Runner<'_> {
             }
             // `nBasePathLen2`: the folder below the base, without the separator after the base.
             let below_base = path
-                .get(base.len() + 1..)
+                .get(base_prefix_len(base)..)
                 .or_else(|| path.get(base.len()..))
                 .unwrap_or("");
             let layout = self.info.layout;
@@ -629,7 +629,7 @@ impl Runner<'_> {
             let relative = if layout.separate_folder {
                 name.as_str()
             } else {
-                full.get(base.len() + 1..).unwrap_or(&full)
+                full.get(base_prefix_len(base)..).unwrap_or(&full)
             };
             let paths = FilePaths {
                 full: &full,

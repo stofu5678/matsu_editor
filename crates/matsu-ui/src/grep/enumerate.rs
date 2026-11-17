@@ -206,12 +206,28 @@ fn read_entries(dir: &Path) -> Vec<Entry> {
 }
 
 /// Joins the base folder and a name the way `Enumerates` builds `strFullPath`: no separator when
-/// the base is empty.
+/// the base is empty, and none added after a base that ends with one (the root `C:\` or `/`).
 pub fn join_path(base: &str, name: &str) -> String {
     if base.is_empty() {
         name.to_owned()
+    } else if ends_with_separator(base) {
+        format!("{base}{name}")
     } else {
         format!("{base}{SEP}{name}")
+    }
+}
+
+fn ends_with_separator(path: &str) -> bool {
+    path.ends_with(['\\', '/'])
+}
+
+/// The length of `base` and the separator that [`join_path`] puts after it: where the path below
+/// the base begins in a joined path.
+pub fn base_prefix_len(base: &str) -> usize {
+    if base.is_empty() || ends_with_separator(base) {
+        base.len()
+    } else {
+        base.len() + 1
     }
 }
 
@@ -398,6 +414,31 @@ mod tests {
 
     fn base(dir: &tempfile::TempDir) -> String {
         dir.path().to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_root_that_ends_with_a_separator_gets_no_second_one() {
+        assert_eq!(join_path("C:\\", "a.txt"), "C:\\a.txt");
+        assert_eq!(join_path("/", "a.txt"), "/a.txt");
+        assert_eq!(
+            join_path("C:\\work", "a.txt"),
+            format!("C:\\work{SEP}a.txt")
+        );
+        assert_eq!(base_prefix_len("C:\\"), 3);
+        assert_eq!(base_prefix_len("C:\\work"), 8);
+    }
+
+    #[test]
+    fn an_absolute_exclusion_is_found_when_the_base_ends_with_a_separator() {
+        // a search of a root (`C:\`, `/`) has a base with its own separator
+        let dir = tree(&["a.log", "b.log", "sub/c.log"]);
+        let b = base(&dir);
+        let skip = join_path(&b, "a.log");
+        let mut w = walker(&format!("*.log;!{skip}"));
+        let rooted = format!("{b}{SEP}");
+        assert_eq!(w.files_in(&rooted), vec!["b.log"]);
+        assert_eq!(base_prefix_len(&rooted), rooted.len());
+        assert_eq!(join_path(&rooted, "sub"), join_path(&b, "sub"));
     }
 
     #[test]
