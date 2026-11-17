@@ -238,6 +238,25 @@ fn read_slot(s: &mut PrintSetting, profile: &Profile, index: usize) {
     }
 }
 
+/// Writes the printer of the setting `index` and nothing else of it, for a print that only
+/// remembers the printer (the rest of the setting stays as the file has it).
+///
+/// Sakura always writes the three keys. A file that does not have them gets them only for a
+/// printer, so that choosing nothing leaves a file of an older version as it is.
+pub fn write_printer(
+    printer: &Printer,
+    profile: &mut Profile,
+    index: usize,
+) -> Result<(), ProfileError> {
+    for (name, value) in printer_values(printer) {
+        let key = key(index, name);
+        if !value.is_empty() || profile.get(SECTION, &key).is_some() {
+            profile.set_string(SECTION, &key, value)?;
+        }
+    }
+    Ok(())
+}
+
 /// The three names of the printer with their keys (`szDriver`, `szDevice`, `szOutput`).
 fn printer_keys(printer: &mut Printer) -> [(&'static str, &mut String); 3] {
     [
@@ -331,14 +350,7 @@ fn write_slot(s: &PrintSetting, profile: &mut Profile, index: usize) -> Result<(
     }
     write_font(s.header_font.as_ref(), profile, index, "Header")?;
     write_font(s.footer_font.as_ref(), profile, index, "Footer")?;
-    // Sakura always writes the three. A file that does not have them gets them only for a printer,
-    // so that choosing nothing leaves a file of an older version as it is.
-    for (name, value) in printer_values(&s.printer) {
-        let key = key(index, name);
-        if !value.is_empty() || profile.get(SECTION, &key).is_some() {
-            profile.set_string(SECTION, &key, value)?;
-        }
-    }
+    write_printer(&s.printer, profile, index)?;
     for (name, flag) in [
         ("bKinsokuHead", s.print_kinsoku_head),
         ("bKinsokuTail", s.print_kinsoku_tail),
