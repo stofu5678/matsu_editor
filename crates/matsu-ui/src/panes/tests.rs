@@ -909,3 +909,33 @@ fn an_edit_and_its_undoing_in_one_update_bring_the_other_caret_back(cx: &mut Tes
     assert_eq!(f.lines(cx), ["abc"]);
     assert_eq!(caret(cx, &right), Pos::new(0, 2));
 }
+
+#[gpui::test]
+fn a_box_selection_of_another_pane_keeps_its_caret_and_columns_together(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcdef\nghijkl");
+    f.run(cx, F_SPLIT_H);
+    let (left, right) = (f.pane(cx, 0), f.pane(cx, 1));
+    put_caret(cx, &right, Pos::new(0, 1));
+    right.update(cx, |v, cx| {
+        for id in [
+            "begin_box",
+            "cursor_down_box",
+            "cursor_right_box",
+            "cursor_right_box",
+        ] {
+            v.run_command(id, &[], cx);
+        }
+    });
+    assert!(right.read_with(cx, |v, _| v.cursor().is_box()));
+    // two characters go in before the caret on its line
+    edit_in(cx, &left, |c| {
+        c.replace(Pos::new(1, 0), Pos::new(1, 0), "XY").unwrap();
+    });
+    right.read_with(cx, |v, _| {
+        let cursor = v.cursor();
+        assert_eq!(cursor.caret(), Pos::new(1, 5));
+        // not a box with the old columns: the caret and the box agree
+        assert!(!cursor.is_box());
+        assert_eq!(cursor.selection(), Some((Pos::new(0, 1), Pos::new(1, 5))));
+    });
+}
