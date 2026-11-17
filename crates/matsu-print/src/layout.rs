@@ -153,7 +153,7 @@ pub struct LayoutControl {
 }
 
 impl LayoutControl {
-    /// Stops the layout at the next look (within [`CONTROL_INTERVAL`] lines); it ends with
+    /// Stops the layout at the next look (within 4096 lines); it ends with
     /// [`PrintError::Cancelled`].
     pub fn cancel(&self) {
         self.cancelled
