@@ -485,3 +485,37 @@ fn mruby_has_no_exit_so_it_fails_the_call_with_no_method_error() {
     let next = world.call(&mut host, &file(&MRUBY, "n"), PATIENT);
     assert_eq!(stdout(&next), ["n=1"], "{:?}", next.output);
 }
+
+#[test]
+fn lua_os_exit_is_told_by_its_error_not_by_a_flag() {
+    let (caught_then_fail, caught_then_end, in_function, ok) =
+        ("a.lua", "b.lua", "c.lua", "ok.lua");
+    let dir = plugin_dir(&[
+        (caught_then_fail, "pcall(os.exit)\nerror('real failure')"),
+        (caught_then_end, "pcall(os.exit)\nEditor.InsText('x')"),
+        (
+            in_function,
+            "local function leave() os.exit(1) end\nEditor.InsText('y')\nleave()\nEditor.InsText('z')",
+        ),
+        (ok, "Editor.InsText('ok')"),
+    ]);
+    let mut host = host_of(Engine::Lua, dir.path(), true);
+    let mut world = World::new("");
+    let report = world.call(&mut host, caught_then_fail, PATIENT);
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains("real failure"), "{text}");
+    assert_eq!(host.failures(), 1);
+    let report = world.call(&mut host, caught_then_end, PATIENT);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(world.doc.text(), "x");
+    let report = world.call(&mut host, in_function, PATIENT);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(world.doc.text(), "xy");
+    assert_eq!(host.failures(), 0);
+    // A failure after an exit of an earlier call is still a failure.
+    let report = world.call(&mut host, caught_then_fail, PATIENT);
+    assert!(matches!(report.outcome, Outcome::Failed(_)));
+    assert_eq!(world.call(&mut host, ok, PATIENT).outcome, Outcome::Ok);
+}

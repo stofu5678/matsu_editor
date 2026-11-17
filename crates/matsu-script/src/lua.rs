@@ -5,7 +5,7 @@
 //! function. A small Lua part (`BOOT`) only turns the answer of a Rust function into a return
 //! value or into a thrown `EditorError`, because a Rust function cannot throw a table.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
@@ -140,13 +140,23 @@ fn prepare_source(source: &str) -> String {
     }
 }
 
+/// The error that the handler's `os.exit` raises.
+#[derive(Debug)]
+struct HandlerExit;
+
+impl std::fmt::Display for HandlerExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("os.exit")
+    }
+}
+
+impl std::error::Error for HandlerExit {}
+
 /// The Lua state of one handler file of a plugin.
 struct PluginState {
     lua: mlua::Lua,
     /// The `Plugin` object: `jack` and `args` are set before each call.
     plugin: Table,
-    /// Set by the handler's `os.exit`, which ends the handler and not the host.
-    exited: Rc<Cell<bool>>,
 }
 
 impl PluginState {
@@ -155,11 +165,10 @@ impl PluginState {
         install(&lua, &init.info, editor)?;
         // `os.exit` would end the whole host (and the state of every plugin file with it): in a
         // handler it ends the handler only, with no failure, as `sys.exit()` does in Python.
-        let exited = Rc::new(Cell::new(false));
-        let flag = exited.clone();
-        let exit = lua.create_function(move |_, _: Variadic<LuaValue>| -> mlua::Result<()> {
-            flag.set(true);
-            Err(mlua::Error::runtime("os.exit"))
+        // It raises an error of its own type, which the end of the chunk recognizes (a handler may
+        // catch it with `pcall`, and then it simply goes on, as `except SystemExit` does).
+        let exit = lua.create_function(|_, _: Variadic<LuaValue>| -> mlua::Result<()> {
+            Err(mlua::Error::external(HandlerExit))
         })?;
         let os: Table = lua.globals().get("os")?;
         os.set("exit", exit)?;
@@ -180,11 +189,7 @@ impl PluginState {
             .load(PLUGIN_BOOT)
             .set_name("=matsu-script plugin boot")
             .call((error, raw, members, identity))?;
-        Ok(Self {
-            lua,
-            plugin,
-            exited,
-        })
+        Ok(Self { lua, plugin })
     }
 
     /// Runs the text of a handler in the globals of this state.
@@ -206,7 +211,6 @@ impl PluginState {
             LuaValue::Nil
         };
         self.lua.globals().set("Indent", indent)?;
-        self.exited.set(false);
         let result = self
             .lua
             .load(prepare_source(&invoke.source))
@@ -214,7 +218,7 @@ impl PluginState {
             .into_function()?
             .call::<()>(());
         match result {
-            Err(_) if self.exited.get() => Ok(()),
+            Err(error) if error.downcast_ref::<HandlerExit>().is_some() => Ok(()),
             other => other,
         }
     }
