@@ -713,6 +713,27 @@ fn a_flood_of_markers_for_other_calls_does_not_keep_a_poll_from_returning() {
     host.shutdown();
 }
 
+#[test]
+fn a_flood_of_markers_for_the_running_call_does_not_keep_a_poll_from_returning() {
+    // The first call of a host has the id 1: the marker is written again and again during it.
+    let code = "for (;;) console.error('\\x1fmatsu-stderr-done 1');";
+    let dir = plugin_dir(&[("junk.js", code)]);
+    let mut host = host(dir.path(), false);
+    host.begin("Command", "junk.js", &Value::Null, PATIENT)
+        .unwrap();
+    for _ in 0..50 {
+        let started = Instant::now();
+        let progress = host.poll(Duration::ZERO);
+        assert!(progress.is_none(), "{progress:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+    host.shutdown();
+}
+
 #[cfg(unix)]
 #[test]
 fn an_idle_host_is_shut_down_without_the_caller_waiting_and_leaves_no_process() {

@@ -563,14 +563,16 @@ impl PluginHost {
                 // The marker of an earlier call, or one that the plugin wrote itself for another
                 // call, is not this call's.
                 Ok(PluginEvent::StderrDone(done)) => {
-                    if let Some(current) = self.current.as_mut().filter(|c| c.id == done) {
-                        current.marked = true;
-                    } else {
-                        // Counted like any message that means nothing: a plugin that writes
-                        // such lines without end must not keep the caller busy.
-                        dropped += 1;
-                        if dropped >= MAX_DROPPED_IN_A_ROW {
-                            return None;
+                    match self.current.as_mut().filter(|c| c.id == done && !c.marked) {
+                        Some(current) => current.marked = true,
+                        None => {
+                            // The marker of another call, or this one's again: counted like
+                            // any message that means nothing, so that a plugin that writes
+                            // such lines without end cannot keep the caller busy.
+                            dropped += 1;
+                            if dropped >= MAX_DROPPED_IN_A_ROW {
+                                return None;
+                            }
                         }
                     }
                 }

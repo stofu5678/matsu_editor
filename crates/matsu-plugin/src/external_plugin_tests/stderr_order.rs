@@ -233,7 +233,11 @@ fn a_ruby_handler_that_closes_stderr_still_gets_its_answer_sent() {
 
 #[test]
 fn a_php_handler_that_closes_stderr_still_gets_its_answer_sent() {
-    closing_stderr_keeps_the_answer(Language::Php, "h.php", "<?php\nfclose(STDERR);\n");
+    closing_stderr_keeps_the_answer(
+        Language::Php,
+        "h.php",
+        "<?php\nif (is_resource(STDERR)) { fclose(STDERR); }\n",
+    );
 }
 
 #[test]
