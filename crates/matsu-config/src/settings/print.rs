@@ -247,6 +247,15 @@ fn printer_keys(printer: &mut Printer) -> [(&'static str, &mut String); 3] {
     ]
 }
 
+/// The same for writing, which only reads the names.
+fn printer_values(printer: &Printer) -> [(&'static str, &str); 3] {
+    [
+        ("szDriver", &printer.driver),
+        ("szDevice", &printer.device),
+        ("szOutput", &printer.output),
+    ]
+}
+
 /// The three keys of a header or footer font: `lfHeader`, `nHeaderPointSize`, `lfHeaderFaceName`.
 fn font_keys(index: usize, which: &str) -> (String, String, String) {
     (
@@ -324,8 +333,7 @@ fn write_slot(s: &PrintSetting, profile: &mut Profile, index: usize) -> Result<(
     write_font(s.footer_font.as_ref(), profile, index, "Footer")?;
     // Sakura always writes the three. A file that does not have them gets them only for a printer,
     // so that choosing nothing leaves a file of an older version as it is.
-    let mut printer = s.printer.clone();
-    for (name, value) in printer_keys(&mut printer) {
+    for (name, value) in printer_values(&s.printer) {
         let key = key(index, name);
         if !value.is_empty() || profile.get(SECTION, &key).is_some() {
             profile.set_string(SECTION, &key, value)?;

@@ -34,12 +34,22 @@ impl EditorView {
         prefs::current_setting(cx, self.type_index(), &type_settings)
     }
 
-    /// Remembers the printer the print dialog printed on in the print setting of this window
-    /// (see [`prefs::remember_printer`]).
-    pub(crate) fn remember_printer(&self, printer: matsu_print::Printer, cx: &mut gpui::App) {
+    /// The number of the print setting this window prints with now (of the eight).
+    pub(crate) fn print_slot(&self, cx: &gpui::App) -> usize {
         let type_settings = self.type_settings(cx);
-        let index = prefs::current_index(cx, self.type_index(), &type_settings);
-        prefs::remember_printer(cx, index, printer);
+        prefs::current_index(cx, self.type_index(), &type_settings)
+    }
+
+    /// The printer the setting `slot` remembers now, from the preferences (a preview's copy of the
+    /// setting can be older: another window may have printed on another printer).
+    pub(crate) fn remembered_printer(slot: usize, cx: &gpui::App) -> matsu_print::Printer {
+        prefs::settings(cx).get(slot).printer.clone()
+    }
+
+    /// Remembers the printer the print dialog printed on in the setting `slot`, the one the print
+    /// started with (see [`prefs::remember_printer`]).
+    pub(crate) fn remember_printer(slot: usize, printer: matsu_print::Printer, cx: &mut gpui::App) {
+        prefs::remember_printer(cx, slot, printer);
     }
 
     /// `Command_PRINT_PAGESETUP`: shows the dialog, and applies what OK gives. While the preview

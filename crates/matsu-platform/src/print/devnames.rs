@@ -35,6 +35,14 @@ pub fn build(printer: &Printer) -> Option<Vec<u16>> {
     Some(block)
 }
 
+/// Whether the print dialog is asked again without a printer: it failed (`error` is what
+/// `CommDlgExtendedError` gave; 0 is the user cancelling) while it was given a remembered
+/// printer, which may be gone or renamed (`PDERR_PRINTERNOTFOUND`; the API does not promise a
+/// fall back to the default printer).
+pub fn retry_without_printer(error: u32, had_printer: bool) -> bool {
+    had_printer && error != 0
+}
+
 /// The printer a `DEVNAMES` names (what the dialog returns). A block that is too short or has
 /// an offset outside it gives empty names for those it cannot read.
 pub fn parse(block: &[u16]) -> Printer {
@@ -104,6 +112,15 @@ mod tests {
             ..printer()
         };
         assert_eq!(build(&p), None);
+    }
+
+    #[test]
+    fn the_dialog_is_asked_again_only_for_a_failure_with_a_remembered_printer() {
+        // PDERR_PRINTERNOTFOUND
+        assert!(retry_without_printer(0x100B, true));
+        assert!(!retry_without_printer(0x100B, false));
+        // the user cancelled
+        assert!(!retry_without_printer(0, true));
     }
 
     #[test]

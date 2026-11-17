@@ -74,6 +74,9 @@ pub(crate) struct PrintState {
     observation: Option<Subscription>,
     /// The print dialog of the OS is open.
     printing: bool,
+    /// The print setting the running print started with: the printer that comes back goes to it,
+    /// whatever another window selects meanwhile.
+    slot: Option<usize>,
     /// The print setting dialog, while it is open (`crate::print_setting`).
     pub(crate) setup_dialog: Option<Entity<crate::print_setting::dialog::PrintSettingDialog>>,
 }
@@ -186,9 +189,14 @@ impl EditorView {
             preview.notice = job.as_ref().err().cloned();
             cx.notify();
         });
-        let Ok(job) = job else {
+        let Ok(mut job) = job else {
             return;
         };
+        // The dialog starts on the printer the preferences have now, not on the copy the preview
+        // took (another window may have printed on another one since).
+        let slot = self.print_slot(cx);
+        job.setting.printer = Self::remembered_printer(slot, cx);
+        self.print.slot = Some(slot);
         self.print.printing = true;
         let outcome = os_print(job, window, cx);
         cx.spawn_in(window, async move |this, cx| {
@@ -207,10 +215,12 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         self.print.printing = false;
+        let slot = self.print.slot.take();
         let notice = match result {
             Ok(Outcome::Printed(printer)) => {
                 if let Some(printer) = printer {
-                    self.remember_printer(printer, cx);
+                    let slot = slot.unwrap_or_else(|| self.print_slot(cx));
+                    Self::remember_printer(slot, printer, cx);
                 }
                 self.close_print_preview(window, cx);
                 self.notice = Some("印刷しました".into());
