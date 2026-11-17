@@ -593,6 +593,68 @@ fn a_grep_replace_of_a_window_that_changed_meanwhile_replaces_nothing(cx: &mut T
     });
     settle(cx);
     assert_eq!(text_of(&other, cx), "Xa needle\n");
+    // the finished result says so: text written after the failure does not clear the notice
+    let result: Vec<_> = others(cx, &f.view)
+        .into_iter()
+        .filter(|view| *view != other)
+        .collect();
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        result[0].read_with(cx, |v, _| v.notice.clone()),
+        Some(super::replace_window::CHANGED.to_owned())
+    );
+}
+
+/// Runs a Grep 置換 of the text of another window whose caret is at `caret` (flags 5, and 13 for a
+/// regular expression) and returns the text and the caret afterwards.
+fn replace_with_caret(
+    cx: &mut TestAppContext,
+    text: &str,
+    caret: Pos,
+    (key, new, flags): (&str, &str, i64),
+) -> (String, Pos) {
+    let (f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let other = others(cx, &f.view).remove(0);
+    other.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.move_caret(caret, false)).unwrap();
+    });
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let args = vec![
+        Arg::Text(key.to_owned()),
+        Arg::Text(new.to_owned()),
+        Arg::Text(window_token(id)),
+        Arg::Text(String::new()),
+        Arg::Int(flags),
+    ];
+    f.run(cx, "F_GREP_REPLACE", &args);
+    let at = other.read_with(cx, |v, _| v.cursor.caret());
+    (text_of(&other, cx), at)
+}
+
+#[gpui::test]
+fn the_caret_stays_in_the_text_when_a_line_gets_shorter(cx: &mut TestAppContext) {
+    // the caret is at the end of a line that gets shorter
+    let (text, caret) =
+        replace_with_caret(cx, "ab needle\nzz\n", Pos::new(0, 9), ("needle", "n", 5));
+    assert_eq!(text, "ab n\nzz\n");
+    assert_eq!(caret, Pos::new(0, 4));
+}
+
+#[gpui::test]
+fn the_caret_follows_the_text_when_a_line_break_is_removed(cx: &mut TestAppContext) {
+    let (text, caret) = replace_with_caret(cx, "a\nb\nc", Pos::new(2, 1), (r"\n", "", 13));
+    assert_eq!(text, "abc");
+    assert_eq!(caret, Pos::new(0, 3));
 }
 
 /// A window of the application (the tag jump finds the windows of the application only) with

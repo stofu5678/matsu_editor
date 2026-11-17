@@ -161,6 +161,9 @@ pub struct GrepWindow {
     /// The document a Grep 置換 of a window's text replaces in: its id and the version that the
     /// search read. Set when the search begins, taken when the edits come.
     pub(super) replace_target: Option<(u64, u64)>,
+    /// The edits of a Grep 置換 of a window were not made (the document changed). Told when the search
+    /// ends: the text of the result that comes after would clear a notice set earlier.
+    pub(super) replace_refused: bool,
     /// The dialog, while it is open.
     pub(crate) panel: Option<Entity<GrepPanel>>,
 }
@@ -685,7 +688,12 @@ impl EditorView {
                 self.grep.running = None;
                 self.grep.progress = None;
                 match result {
-                    Ok(_) => self.finish_grep(cx),
+                    Ok(_) => {
+                        self.finish_grep(cx);
+                        if std::mem::take(&mut self.grep.replace_refused) {
+                            self.notice = Some(super::replace_window::CHANGED.to_owned());
+                        }
+                    }
                     Err(error) => {
                         self.notice = Some(error.message());
                     }

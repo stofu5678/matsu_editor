@@ -11,7 +11,7 @@ use matsu_commands::command::CommandError;
 use matsu_core::search::AppliedEdit;
 
 use crate::file_ops::windows::editors;
-use crate::search::ops::apply_edits;
+use crate::search::ops::{apply_edits, shift_through};
 use crate::view::EditorView;
 
 /// What the result window says when the document changed while the search ran: the edits were
@@ -42,10 +42,8 @@ impl EditorView {
                 })
             })
         };
-        if made != Some(true) {
-            self.notice = Some(CHANGED.to_owned());
-            cx.notify();
-        }
+        // Told when the search ends: the result text written after this would clear the notice.
+        self.grep.replace_refused = made != Some(true);
     }
 
     /// Makes `edits` as one undo step, if the document is still at `version`. Returns whether it
@@ -61,7 +59,12 @@ impl EditorView {
         }
         self.run_with(cx, |c| -> Result<(), CommandError> {
             c.begin_block();
-            let made = apply_edits(c, edits).map(|_| ());
+            // The caret goes with the text, as it does for 「すべて置換」; the selection is dropped.
+            // `move_caret` keeps it inside the document, which a shorter line or a removed line
+            // break would otherwise leave.
+            let caret = c.caret();
+            let made = apply_edits(c, edits)
+                .and_then(|ends| c.move_caret(shift_through(caret, edits, &ends), false));
             c.end_block();
             made
         })

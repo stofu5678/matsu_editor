@@ -216,7 +216,8 @@ impl Runner<'_> {
         paths: &FilePaths<'_>,
         state: &mut PathInfoState,
     ) -> Result<(), Stopped> {
-        let Some(replace) = self.info.replace.clone() else {
+        let info = self.info;
+        let Some(replace) = info.replace.as_ref() else {
             return Ok(());
         };
         let Some(mut file) = self.open(paths.full)? else {
@@ -224,8 +225,7 @@ impl Runner<'_> {
         };
         let code_name = self.code_name(file.encoding);
         let mut doc = file.document.clone();
-        let Some(planned) = self.plan_replacements(&doc, paths, state, &code_name, &replace)?
-        else {
+        let Some(planned) = self.plan_replacements(&doc, paths, state, &code_name, replace)? else {
             return Ok(());
         };
         let Some((_, replaced)) = self.apply_plan(&mut doc, planned, paths.full) else {
@@ -253,11 +253,12 @@ impl Runner<'_> {
         state: &mut PathInfoState,
         code_name: &str,
     ) -> Result<(), Stopped> {
-        let Some(replace) = self.info.replace.clone() else {
+        let info = self.info;
+        let Some(replace) = info.replace.as_ref() else {
             return Ok(());
         };
         let mut doc = window.document.clone();
-        let Some(planned) = self.plan_replacements(&doc, paths, state, code_name, &replace)? else {
+        let Some(planned) = self.plan_replacements(&doc, paths, state, code_name, replace)? else {
             return Ok(());
         };
         if let Some((edits, replaced)) = self.apply_plan(&mut doc, planned, paths.full) {

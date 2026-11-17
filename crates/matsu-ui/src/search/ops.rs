@@ -658,7 +658,7 @@ fn end_after(start: Pos, text: &str, ext_eol: bool) -> Pos {
 
 /// Moves `p` (a position before all the edits) through the edits, each of which replaced text up
 /// to `old_ends[i]` and now ends at `edits[i].end`.
-fn shift_through(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
+pub(crate) fn shift_through(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
     let mut p = p;
     for (e, &old_end) in edits.iter().zip(old_ends) {
         p = if p < old_end {
