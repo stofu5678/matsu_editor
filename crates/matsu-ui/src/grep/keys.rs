@@ -102,6 +102,21 @@ impl GrepKeys {
         Ok(parsed)
     }
 
+    /// The absolute exclusions with their paths in the form `expand` gives (`GetLongFileName`: a
+    /// search folder is expanded, so an exclusion that spells it in the short form must be too).
+    /// A pattern with a wildcard has only the folder part expanded, and only if that has none.
+    pub fn expand_absolute(&mut self, expand: &dyn Fn(&str) -> Option<String>) {
+        for pattern in self
+            .except_abs_files
+            .iter_mut()
+            .chain(&mut self.except_abs_folders)
+        {
+            if let Some(expanded) = expanded_pattern(pattern, expand) {
+                *pattern = expanded;
+            }
+        }
+    }
+
     /// The excluded files of every kind, for the header of the result (`GetExcludeFiles`).
     pub fn exclude_files(&self) -> Vec<&str> {
         self.except_files
@@ -263,6 +278,28 @@ pub fn split_folders(folders: &str) -> Vec<String> {
         .collect()
 }
 
+fn has_wildcard(text: &str) -> bool {
+    text.contains(['*', '?'])
+}
+
+/// `pattern` with its path expanded by `expand`, or `None` to leave it.
+fn expanded_pattern(pattern: &str, expand: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    if !has_wildcard(pattern) {
+        return expand(pattern);
+    }
+    let split = pattern.rfind(['\\', '/'])?;
+    let (folder, name) = (&pattern[..split], &pattern[split + 1..]);
+    if has_wildcard(folder) {
+        return None;
+    }
+    let expanded = expand(folder)?;
+    Some(format!(
+        "{}{}{name}",
+        expanded.trim_end_matches(['\\', '/']),
+        &pattern[split..=split]
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,5 +440,28 @@ mod tests {
         assert!(is_relative("C:a.txt"));
         assert!(!is_relative(r"C:\a.txt"));
         assert!(!is_relative(r"\\host\share"));
+    }
+
+    #[test]
+    fn absolute_exclusions_are_expanded_like_the_folders() {
+        // a fake `GetLongFileName`: the short name of a folder becomes the long one
+        let expand = |path: &str| {
+            let long = path.replace("PROGRA~1", "Program Files");
+            (long != path).then_some(long)
+        };
+        let mut keys = GrepKeys::parse(
+            r"*.txt;!C:\PROGRA~1\app\a.txt;#C:\PROGRA~1\skip;!C:\PROGRA~1\*.log",
+            false,
+        )
+        .unwrap();
+        keys.expand_absolute(&expand);
+        assert_eq!(
+            keys.except_abs_files,
+            strings(&[r"C:\Program Files\app\a.txt", r"C:\Program Files\*.log"])
+        );
+        assert_eq!(
+            keys.except_abs_folders,
+            strings(&[r"C:\Program Files\skip"])
+        );
     }
 }

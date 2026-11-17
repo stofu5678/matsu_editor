@@ -476,11 +476,14 @@ pub fn run(
         folders: shown_folders,
     } = prepare(info)?;
 
+    // The exclusions are compared with the paths of the walk, which are in the long form.
+    let mut walk_keys = keys.clone();
+    walk_keys.expand_absolute(&matsu_platform::long_path::long_path);
     let mut runner = Runner {
         info,
         matcher,
         replacer,
-        walker: Walker::new(keys.clone(), regexes),
+        walker: Walker::new(walk_keys, regexes),
         cancel,
         sink,
         hits: 0,
