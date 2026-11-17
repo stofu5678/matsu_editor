@@ -10,6 +10,7 @@ use matsu_core::model::eol_text;
 
 use super::CommandContext;
 use crate::command::Result;
+use crate::layout::X;
 
 /// What counts as white space for `F_LTRIM` and `F_RTRIM`: a space, a tab, and the ideographic
 /// space. Sakura: `WCODE::IsBlank` in `sakura_core/charset/charcode.h`.
@@ -119,9 +120,12 @@ impl CommandContext<'_> {
     /// not move to the start of the box as Sakura's does (nothing can see the difference
     /// except a later extending move).
     ///
-    /// Difference: with a wrapping layout the columns count from the start of the line, but
-    /// `layout().pos_at_x` only looks at its first row, and the corners of the box go back to
-    /// the first row of their line (Sakura keeps the layout row numbers).
+    /// With a wrapping layout the box is made of rows of the screen, but the lines are sorted
+    /// whole: the key of a line is its text in the columns of the box counted from the start of
+    /// the line (`LineColumnToIndex( pcDocLine, nCF )` on the logical line; the columns of a box
+    /// are at most the wrap width, so they are in the first row of the line). The corners keep
+    /// their rows of the screen and their columns, as Sakura restores `sRangeA`, so a box that
+    /// was drawn over the later rows of a line stays there.
     fn sort_box_lines(&mut self, ascending: bool) -> Result<()> {
         let Some(((a, a_col), (c, c_col))) = self.box_corner_xs() else {
             return Ok(());
@@ -143,6 +147,9 @@ impl CommandContext<'_> {
         }
         self.refuse_in_view_mode()?;
         let new_line = eol_text(self.new_line());
+        // the rows of the corners: Sakura restores the layout rows after the sort
+        let a_row = self.layout.row_index(self.doc(), a)?;
+        let c_row = self.layout.row_index(self.doc(), c)?;
         // the key, the line with its ending, and the length of the ending
         let mut keyed: Vec<(Vec<u16>, String, usize)> = Vec::with_capacity(end - first);
         let mut lacked_eol = false;
@@ -198,12 +205,21 @@ impl CommandContext<'_> {
             // (Sakura inserts the sorted lines as separate `CDocLine`s, see `CSearchAgent::ReplaceData`,
             // `pInsData` loop, so it likely keeps the row count;
             // the saved bytes are the same.)
-            let last_line = self.doc().end_pos()?.line;
-            let anchor = self.box_corner_pos(Pos::new(a.line.min(last_line), 0), a_col)?;
-            let caret = self.box_corner_pos(Pos::new(c.line.min(last_line), 0), c_col)?;
+            let anchor = self.box_corner_in_row(a_row, a_col)?;
+            let caret = self.box_corner_in_row(c_row, c_col)?;
             self.set_box((anchor, a_col), (caret, c_col), lock);
         }
         Ok(())
+    }
+
+    /// The box corner at `x` of row `row` (counted from 0 over the document), or of the last row
+    /// if the document has fewer rows now.
+    fn box_corner_in_row(&self, row: usize, x: X) -> Result<Pos> {
+        let start = match self.layout.row_start_at(self.doc(), row)? {
+            Some(start) => start,
+            None => self.layout.row_start(self.doc(), self.doc().end_pos()?)?,
+        };
+        self.box_corner_pos(start, x)
     }
 
     /// `F_MERGE`: removes each line that is the same as the line before it, with its line

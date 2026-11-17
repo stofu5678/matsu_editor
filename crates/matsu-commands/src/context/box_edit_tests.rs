@@ -1201,3 +1201,25 @@ fn typing_in_a_box_runs_no_smart_indent() {
     typed(&mut e, '}');
     assert_eq!(text_of(&e), "{\n    }ab\n    }cd");
 }
+
+#[test]
+fn a_box_sort_in_wrapped_rows_sorts_whole_lines_and_keeps_the_rows_of_the_corners() {
+    // wrap width 3: rows "zzz" "aaa" | "yyy" "bbb" | "xxx" "ccc"; the box is over rows 1 to 5
+    let text = "zzzaaa\nyyybbb\nxxxccc\n";
+    let (sorted, _, cursor) = run_wrapped(text, (1, 0), (5, 2), "", "sort_asc", &[]);
+    // the key is the text in columns 0 to 2 of the line: "zz", "yy", "xx"
+    assert_eq!(sorted, "xxxccc\nyyybbb\nzzzaaa\n");
+    // the corners are still on rows 1 and 5, at the same columns
+    let ((a, a_col), (c, c_col)) = cursor.box_corners().expect("the box stays");
+    assert_eq!((a, a_col), (Pos::new(0, 3), 0));
+    assert_eq!((c, c_col), (Pos::new(2, 5), 2));
+    let (sorted, _, _) = run_wrapped(text, (1, 0), (5, 2), "", "sort_desc", &[]);
+    assert_eq!(sorted, "zzzaaa\nyyybbb\nxxxccc\n");
+}
+
+#[test]
+fn a_box_sort_in_wrapped_rows_compares_the_columns_of_the_box() {
+    // columns 1 to 2 of the first row of each line: "bz" and "ay"
+    let (sorted, _, _) = run_wrapped("abz1\ncay2\n", (0, 1), (2, 3), "", "sort_asc", &[]);
+    assert_eq!(sorted, "cay2\nabz1\n");
+}
