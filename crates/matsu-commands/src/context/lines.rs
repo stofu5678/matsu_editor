@@ -6,7 +6,6 @@
 //! `sakura_core/convert/CConvert_Trim.cpp`.
 
 use matsu_core::buffer::Pos;
-use matsu_core::cursor::char_left;
 use matsu_core::model::eol_text;
 
 use super::CommandContext;
@@ -148,12 +147,9 @@ impl CommandContext<'_> {
         }
         self.refuse_in_view_mode()?;
         let new_line = eol_text(self.new_line());
-        // The row of each corner inside its line, to put the corner on the same row of the same
-        // line after the sort. (Sakura restores the layout row numbers; after a very large edit the
-        // layout only estimates the rows of the new lines and cannot be asked for a row number, so
-        // the line is made exact and asked for its own rows.)
-        let a_k = self.row_in_line(a)?;
-        let c_k = self.row_in_line(c)?;
+        // The screen rows of the corners: Sakura restores them (`sRangeA`) after the sort.
+        let a_row = self.layout.row_index(self.doc(), a)?;
+        let c_row = self.layout.row_index(self.doc(), c)?;
         // the key, the line with its ending, and the length of the ending
         let mut keyed: Vec<(Vec<u16>, String, usize)> = Vec::with_capacity(end - first);
         let mut lacked_eol = false;
@@ -209,40 +205,40 @@ impl CommandContext<'_> {
             // (Sakura inserts the sorted lines as separate `CDocLine`s, see `CSearchAgent::ReplaceData`,
             // `pInsData` loop, so it likely keeps the row count;
             // the saved bytes are the same.)
-            let anchor = self.box_corner_in_line_row(a, a_k, a_col)?;
-            let caret = self.box_corner_in_line_row(c, c_k, c_col)?;
+            self.settle_rows(first, a_row.max(c_row))?;
+            let anchor = self.box_corner_in_row(a_row, a_col)?;
+            let caret = self.box_corner_in_row(c_row, c_col)?;
             self.set_box((anchor, a_col), (caret, c_col), lock);
         }
         Ok(())
     }
 
-    /// The number of the row of `pos` inside its line (0 for the first row).
-    fn row_in_line(&self, pos: Pos) -> Result<usize> {
-        let mut at = self.layout.row_start(self.doc(), pos)?;
-        let mut k = 0;
-        while at.col > 0
-            && let Some(before) = char_left(self.doc(), at)?
-            && before.line == pos.line
-        {
-            at = self.layout.row_start(self.doc(), before)?;
-            k += 1;
-        }
-        Ok(k)
-    }
-
-    /// The box corner at `x` of row `k` inside the line of `near` (the last line if there are fewer
-    /// now; the last row of the line if it has fewer rows now).
-    fn box_corner_in_line_row(&mut self, near: Pos, k: usize, x: X) -> Result<Pos> {
-        let line = near.line.min(self.doc().end_pos()?.line);
-        // after a sort of very many lines the layout only estimates their rows
-        self.layout.make_exact(self.model.doc(), line);
-        let mut start = self.layout.row_start(self.doc(), Pos::new(line, 0))?;
-        for _ in 0..k {
-            match self.layout.next_row_start(self.doc(), start)? {
-                Some(next) if next.line == line => start = next,
-                _ => break,
+    /// Makes the row counts exact for the lines from `first` to the one that holds screen row
+    /// `row`. After a sort of very many lines the layout only estimates the rows of the new lines
+    /// (one row each), so a row number would be read against a wrong index. The lines before
+    /// the one above `first` were exact before the sort.
+    fn settle_rows(&mut self, first: usize, row: usize) -> Result<()> {
+        let end = self.doc().line_count();
+        // (an edit makes the line before it inexact too: its ending can change)
+        for line in first.saturating_sub(1)..end {
+            self.layout.make_exact(self.model.doc(), line);
+            // every line up to this one is exact: the row is found right if it is in them
+            if let Some(start) = self.layout.row_start_at(self.doc(), row)?
+                && start.line <= line
+            {
+                break;
             }
         }
+        Ok(())
+    }
+
+    /// The box corner at `x` of screen row `row` (counted from 0 over the document), or of the
+    /// last row if the document has fewer rows now.
+    fn box_corner_in_row(&self, row: usize, x: X) -> Result<Pos> {
+        let start = match self.layout.row_start_at(self.doc(), row)? {
+            Some(start) => start,
+            None => self.layout.row_start(self.doc(), self.doc().end_pos()?)?,
+        };
         self.box_corner_pos(start, x)
     }
 

@@ -275,8 +275,8 @@ mod tests {
     }
 
     /// A box sort of more than 4096 wrapped lines is one big edit, after which the index of the
-    /// layout only estimates the rows of those lines: the corners go back to their lines and rows
-    /// all the same.
+    /// layout only estimates the rows of those lines: the corners go back to the same screen rows
+    /// all the same (here every line has two rows, so the rows are the same lines).
     #[test]
     fn a_box_sort_of_many_wrapped_lines_keeps_the_corners_on_their_lines() {
         use matsu_core::cursor::Cursor;

@@ -1223,3 +1223,16 @@ fn a_box_sort_in_wrapped_rows_compares_the_columns_of_the_box() {
     let (sorted, _, _) = run_wrapped("abz1\ncay2\n", (0, 1), (2, 3), "", "sort_asc", &[]);
     assert_eq!(sorted, "cay2\nabz1\n");
 }
+
+#[test]
+fn a_box_sort_that_changes_the_rows_of_the_lines_keeps_the_corners_on_their_screen_rows() {
+    // wrap width 3: "ab" has 1 row, "bbcde" 2, "cbcdefgh" 3. Descending puts the long line first.
+    // Sakura restores the layout rows and columns of the box (`sRangeA`), not the lines.
+    let text = "ab\nbbcde\ncbcdefgh\n";
+    let (sorted, _, cursor) = run_wrapped(text, (0, 0), (5, 2), "", "sort_desc", &[]);
+    assert_eq!(sorted, "cbcdefgh\nbbcde\nab\n");
+    // row 0 is "cbc" now, and row 5 is the only row of "ab"
+    let ((a, a_col), (c, c_col)) = cursor.box_corners().expect("the box stays");
+    assert_eq!((a, a_col), (Pos::new(0, 0), 0));
+    assert_eq!((c, c_col), (Pos::new(2, 2), 2));
+}
