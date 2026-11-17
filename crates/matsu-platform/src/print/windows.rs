@@ -32,7 +32,7 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
 
 use super::devnames;
 use super::draw::{cell_positions, font_spec};
-use super::{Error, PrintJob};
+use super::{Error, Outcome, PrintJob};
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -67,16 +67,16 @@ fn global_devnames(block: &[u16]) -> *mut core::ffi::c_void {
     }
 }
 
-/// The printer in a `DEVNAMES` the dialog returned.
-fn printer_of(hdevnames: *mut core::ffi::c_void) -> Printer {
+/// The printer in a `DEVNAMES` the dialog returned, if it names one.
+fn printer_of(hdevnames: *mut core::ffi::c_void) -> Option<Printer> {
     if hdevnames.is_null() {
-        return Printer::default();
+        return None;
     }
     unsafe {
         let size = GlobalSize(hdevnames) / 2;
         let ptr = GlobalLock(hdevnames).cast::<u16>();
         if ptr.is_null() {
-            return Printer::default();
+            return None;
         }
         let printer = devnames::parse(std::slice::from_raw_parts(ptr, size));
         GlobalUnlock(hdevnames);
@@ -89,8 +89,8 @@ fn printer_of(hdevnames: *mut core::ffi::c_void) -> Printer {
 /// remember in the setting as Sakura does (`CPrint::PrintDlg` copies the `DEVNAMES` into the
 /// setting), or `None` when the user cancels. It blocks until the dialog closes, so call it off
 /// the UI thread, as GPUI does for its own dialogs.
-pub fn print(owner: isize, job: &PrintJob) -> Result<Option<Printer>, Error> {
-    let block = devnames::build(&job.setting.printer);
+pub fn print(owner: isize, job: &PrintJob) -> Result<Outcome, Error> {
+    let block = job.setting.printer.as_ref().and_then(devnames::build);
     let (mut pd, mut ok) = show_dialog(owner, block.as_deref());
     if ok == 0 {
         let err = unsafe { CommDlgExtendedError() };
@@ -111,14 +111,14 @@ pub fn print(owner: isize, job: &PrintJob) -> Result<Option<Printer>, Error> {
     let result = print_dc(pd.hDC, job, None);
     unsafe { DeleteDC(pd.hDC) };
     free_handles(&pd);
-    result.map(|_| Some(printer)).map_err(Error)
+    result.map(|_| Outcome::Printed(printer)).map_err(Error)
 }
 
 /// What a failed (or cancelled, error 0) dialog is, after its handles are freed.
-fn finish_failed(pd: &PRINTDLGW, err: u32) -> Result<Option<Printer>, Error> {
+fn finish_failed(pd: &PRINTDLGW, err: u32) -> Result<Outcome, Error> {
     free_handles(pd);
     match err {
-        0 => Ok(None),
+        0 => Ok(Outcome::Cancelled),
         err => Err(Error(format!("印刷ダイアログのエラー {err:#x}"))),
     }
 }

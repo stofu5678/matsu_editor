@@ -91,6 +91,29 @@ impl PrintJob {
     }
 }
 
+/// What became of the print dialog of the OS.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The user cancelled.
+    Cancelled,
+    /// The pages went to the printer. The printer is what the dialog gave back, for the setting
+    /// to remember (Windows only: the print panel of macOS and the portal of Linux keep the
+    /// printer they were last used with themselves), or `None` when it named none.
+    Printed(Option<matsu_print::Printer>),
+}
+
+impl Outcome {
+    /// For the OS that only says whether it printed.
+    #[cfg(not(windows))]
+    pub fn from_printed(printed: bool) -> Self {
+        if printed {
+            Self::Printed(None)
+        } else {
+            Self::Cancelled
+        }
+    }
+}
+
 /// A print that did not happen, with the reason for the user.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error(pub String);

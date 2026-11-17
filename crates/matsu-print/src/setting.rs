@@ -66,8 +66,10 @@ impl HeaderFooterFont {
 /// The printer a print setting remembers: the three names of `MYDEVMODE`
 /// (`m_szPrinterDriverName`, `m_szPrinterDeviceName`, `m_szPrinterOutputName`), which the print
 /// dialog gives back as a `DEVNAMES` and `sakura.ini` keeps as `szDriver`, `szDevice` and
-/// `szOutput`. All empty means no printer is remembered: the print dialog starts on the default
-/// printer (`CPrintPreview::OnChangePrintSetting` takes the default printer then).
+/// `szOutput`. A setting holds `Option<Printer>`: `None` is no remembered printer, and the print
+/// dialog starts on the default printer (`CPrintPreview::OnChangePrintSetting` takes the default
+/// printer then). Sakura's empty-name convention is turned into the `Option` only where the names
+/// come in from outside ([`Printer::selected`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Printer {
     /// The driver, such as `winspool` (`wDriverOffset` of `DEVNAMES`).
@@ -79,10 +81,11 @@ pub struct Printer {
 }
 
 impl Printer {
-    /// Whether no printer is remembered (Sakura tests only the device name:
-    /// `m_szPrinterDeviceName[0] == L'\0'`).
-    pub fn is_none(&self) -> bool {
-        self.device.is_empty()
+    /// The printer these names stand for, or `None` when there is none: Sakura tests only the
+    /// device name (`m_szPrinterDeviceName[0] == L'\0'`), so a driver and a port without a name
+    /// pick nothing.
+    pub fn selected(self) -> Option<Self> {
+        (!self.device.is_empty()).then_some(self)
     }
 }
 
@@ -148,8 +151,8 @@ pub struct PrintSetting {
     pub header_font: Option<HeaderFooterFont>,
     /// The font of the footer, or none for the print font (`m_lfFooter`).
     pub footer_font: Option<HeaderFooterFont>,
-    /// The printer the setting remembers (`m_mdmDevMode`).
-    pub printer: Printer,
+    /// The printer the setting remembers (`m_mdmDevMode`), if any.
+    pub printer: Option<Printer>,
 }
 
 impl Default for PrintSetting {
@@ -181,7 +184,7 @@ impl Default for PrintSetting {
             footer_form: [String::new(), "- $p -".into(), String::new()],
             header_font: None,
             footer_font: None,
-            printer: Printer::default(),
+            printer: None,
         }
     }
 }

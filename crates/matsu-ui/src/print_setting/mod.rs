@@ -42,7 +42,7 @@ impl EditorView {
 
     /// The printer the setting `slot` remembers now, from the preferences (a preview's copy of the
     /// setting can be older: another window may have printed on another printer).
-    pub(crate) fn remembered_printer(slot: usize, cx: &gpui::App) -> matsu_print::Printer {
+    pub(crate) fn remembered_printer(slot: usize, cx: &gpui::App) -> Option<matsu_print::Printer> {
         prefs::settings(cx).get(slot).printer.clone()
     }
 

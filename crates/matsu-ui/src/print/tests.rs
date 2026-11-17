@@ -9,7 +9,7 @@ use matsu_core::model::DocumentModel;
 use matsu_platform::print::Error;
 use matsu_print::{LineSource, Printer};
 
-use super::{DocLines, Outcome};
+use super::{DocLines, Outcome, Phase};
 use crate::document::SharedDocument;
 use crate::ui_command::UiRegistry;
 use crate::view::EditorView;
@@ -188,7 +188,7 @@ fn printing_an_empty_document_says_so_and_does_not_ask_the_os(cx: &mut TestAppCo
         .unwrap();
     let notice = preview.read_with(cx, |p, _| p.notice.clone());
     assert_eq!(notice.as_deref(), Some("印刷するページがありません。"));
-    assert!(!view.read_with(cx, |v, _| v.print.printing));
+    assert!(!view.read_with(cx, |v, _| v.is_printing()));
 }
 
 #[gpui::test]
@@ -209,10 +209,10 @@ fn the_preview_closes_after_printing_and_stays_after_a_cancel(cx: &mut TestAppCo
         .unwrap();
 
     view.update_in(cx, |v, window, cx| {
-        v.print.printing = true;
+        v.print.phase = Phase::Printing { slot: 0 };
         v.finish_print(Ok(Outcome::Cancelled), window, cx);
     });
-    assert!(view.read_with(cx, |v, _| v.is_print_preview_open() && !v.print.printing));
+    assert!(view.read_with(cx, |v, _| v.is_print_preview_open() && !v.is_printing()));
     let notice = preview.read_with(cx, |p, _| p.notice.clone());
     assert_eq!(notice.as_deref(), Some("印刷を取り消しました"));
 
@@ -245,17 +245,19 @@ fn the_printer_the_dialog_gave_is_remembered_by_the_setting_the_window_prints_wi
     assert!(view.read_with(cx, |v, cx| v.current_print_setting(cx).printer.is_none()));
 
     view.update_in(cx, |v, window, cx| {
-        v.print.printing = true;
+        let slot = v.print_slot(cx);
+        v.print.phase = Phase::Printing { slot };
         v.finish_print(Ok(Outcome::Printed(Some(printer.clone()))), window, cx);
     });
+    assert!(!view.read_with(cx, |v, _| v.is_printing()));
     assert_eq!(
         view.read_with(cx, |v, cx| v.current_print_setting(cx).printer),
-        printer
+        Some(printer.clone())
     );
     // the print job of the next print starts the dialog on it
     assert_eq!(
         view.read_with(cx, |v, cx| v.print_job(cx).setting.printer),
-        printer
+        Some(printer.clone())
     );
 
     // an OS that does not say which printer leaves it as it was
@@ -264,8 +266,50 @@ fn the_printer_the_dialog_gave_is_remembered_by_the_setting_the_window_prints_wi
     });
     assert_eq!(
         view.read_with(cx, |v, cx| v.current_print_setting(cx).printer),
-        printer
+        Some(printer)
     );
+}
+
+/// The printer that comes back goes to the setting the print started with, even when another
+/// window selected another setting meanwhile; a result with no print running remembers nothing.
+#[gpui::test]
+fn the_printer_goes_to_the_setting_the_print_started_with(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc", None);
+    let printer = Printer {
+        driver: "winspool".into(),
+        device: "PDF".into(),
+        output: "FILE:".into(),
+    };
+    let current = view.read_with(cx, |v, cx| v.print_slot(cx));
+    let started_with = (current + 1) % 8;
+    view.update_in(cx, |v, window, cx| {
+        v.print.phase = Phase::Printing { slot: started_with };
+        v.finish_print(Ok(Outcome::Printed(Some(printer.clone()))), window, cx);
+    });
+    let (at_start, now) = cx.update(|_, cx| {
+        (
+            EditorView::remembered_printer(started_with, cx),
+            EditorView::remembered_printer(current, cx),
+        )
+    });
+    assert_eq!(at_start, Some(printer.clone()));
+    assert_eq!(now, None);
+    // no print runs: nothing is remembered
+    let other = Printer {
+        device: "Other".into(),
+        ..printer
+    };
+    view.update_in(cx, |v, window, cx| {
+        v.finish_print(Ok(Outcome::Printed(Some(other))), window, cx);
+    });
+    let (a, b) = cx.update(|_, cx| {
+        (
+            EditorView::remembered_printer(started_with, cx),
+            EditorView::remembered_printer(current, cx),
+        )
+    });
+    assert_eq!(a.unwrap().device, "PDF");
+    assert_eq!(b, None);
 }
 
 /// The variables that were empty (#138) come from the window, as `ExpandParameter` reads them.

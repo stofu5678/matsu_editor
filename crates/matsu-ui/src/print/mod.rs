@@ -11,8 +11,8 @@ mod styler;
 
 use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window};
 use matsu_core::buffer::Document;
-use matsu_platform::print::{Error, PrintJob};
-use matsu_print::{LineSource, Printer, TypeOptions};
+use matsu_platform::print::{Error, Outcome, PrintJob};
+use matsu_print::{LineSource, TypeOptions};
 
 pub use preview::{PreviewEvent, PrintPreview};
 
@@ -41,26 +41,17 @@ impl LineSource for DocLines {
     }
 }
 
-/// What became of the print dialog of the OS.
-pub(crate) enum Outcome {
-    /// The user cancelled.
-    Cancelled,
-    /// The pages went to the printer. The printer is what the dialog gave back, for the setting
-    /// to remember (Windows only: the print panel of macOS and the portal of Linux keep the
-    /// printer they were last used with themselves).
-    Printed(Option<Printer>),
-}
-
-impl Outcome {
-    /// For the OS that only says whether it printed.
-    #[cfg(not(windows))]
-    fn from_printed(printed: bool) -> Self {
-        if printed {
-            Self::Printed(None)
-        } else {
-            Self::Cancelled
-        }
-    }
+/// Where the print of a window is: one state, so that the print setting it started with belongs
+/// to the print that runs (`docs/ownership.md`, rule 1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Phase {
+    /// No print is running.
+    #[default]
+    Idle,
+    /// The print dialog of the OS is open. `slot` is the print setting (of the eight) the print
+    /// started with: the printer that comes back goes to it, whatever another window selects
+    /// meanwhile.
+    Printing { slot: usize },
 }
 
 /// What an [`EditorView`] knows about printing.
@@ -72,11 +63,8 @@ pub(crate) struct PrintState {
     /// The window title and the tab caption show the page (`$p`, `$P`), so the view redraws them
     /// when the preview changes.
     observation: Option<Subscription>,
-    /// The print dialog of the OS is open.
-    printing: bool,
-    /// The print setting the running print started with: the printer that comes back goes to it,
-    /// whatever another window selects meanwhile.
-    slot: Option<usize>,
+    /// Whether a print runs, and the setting it started with.
+    pub(crate) phase: Phase,
     /// The print setting dialog, while it is open (`crate::print_setting`).
     pub(crate) setup_dialog: Option<Entity<crate::print_setting::dialog::PrintSettingDialog>>,
 }
@@ -120,7 +108,7 @@ impl EditorView {
 
     /// Whether the print dialog of the OS is open (a macro waits for it).
     pub(crate) fn is_printing(&self) -> bool {
-        self.print.printing
+        self.print.phase != Phase::Idle
     }
 
     pub fn is_print_preview_open(&self) -> bool {
@@ -181,7 +169,7 @@ impl EditorView {
         let Some(preview) = self.print.preview.clone() else {
             return;
         };
-        if self.print.printing {
+        if self.print.phase != Phase::Idle {
             return;
         }
         let job = preview.read(cx).printable();
@@ -196,8 +184,7 @@ impl EditorView {
         // took (another window may have printed on another one since).
         let slot = self.print_slot(cx);
         job.setting.printer = Self::remembered_printer(slot, cx);
-        self.print.slot = Some(slot);
-        self.print.printing = true;
+        self.print.phase = Phase::Printing { slot };
         let outcome = os_print(job, window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = outcome.await;
@@ -214,12 +201,11 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.print.printing = false;
-        let slot = self.print.slot.take();
+        let phase = std::mem::take(&mut self.print.phase);
         let notice = match result {
             Ok(Outcome::Printed(printer)) => {
-                if let Some(printer) = printer {
-                    let slot = slot.unwrap_or_else(|| self.print_slot(cx));
+                // The printer goes to the setting the print started with.
+                if let (Phase::Printing { slot }, Some(printer)) = (phase, printer) {
                     Self::remember_printer(slot, printer, cx);
                 }
                 self.close_print_preview(window, cx);
@@ -263,13 +249,7 @@ fn os_print(
 ) -> impl Future<Output = Result<Outcome, Error>> + use<> {
     // A number rather than a handle, so that it can go to the thread that shows the dialog.
     let owner = raw_handle(window).map_or(0, matsu_platform::print::windows::owner);
-    cx.background_spawn(async move {
-        matsu_platform::print::windows::print(owner, &job).map(|printer| match printer {
-            // A dialog that gave no names leaves the remembered printer as it is.
-            Some(printer) => Outcome::Printed(Some(printer).filter(|p| !p.is_none())),
-            None => Outcome::Cancelled,
-        })
-    })
+    cx.background_spawn(async move { matsu_platform::print::windows::print(owner, &job) })
 }
 
 /// The print portal shows the dialog (`org.freedesktop.portal.Print`).

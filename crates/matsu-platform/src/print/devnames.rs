@@ -14,12 +14,8 @@ use matsu_print::Printer;
 const HEADER: usize = 4;
 
 /// The block for `printer`, as the `WORD`s of a `DEVNAMES` (`wDefault` is 0: the printer is
-/// asked for by name, not as the default). `None` for a printer that is not remembered, or one
-/// whose names do not fit the 16-bit offsets.
+/// asked for by name, not as the default). `None` for names that do not fit the 16-bit offsets.
 pub fn build(printer: &Printer) -> Option<Vec<u16>> {
-    if printer.is_none() {
-        return None;
-    }
     let mut block = vec![0u16; HEADER];
     let mut offsets = [0u16; 3];
     for (offset, text) in
@@ -43,9 +39,10 @@ pub fn retry_without_printer(error: u32, had_printer: bool) -> bool {
     had_printer && error != 0
 }
 
-/// The printer a `DEVNAMES` names (what the dialog returns). A block that is too short or has
-/// an offset outside it gives empty names for those it cannot read.
-pub fn parse(block: &[u16]) -> Printer {
+/// The printer a `DEVNAMES` names (what the dialog returns), or `None` when it names no device.
+/// A block that is too short or has an offset outside it gives empty names for those it cannot
+/// read.
+pub fn parse(block: &[u16]) -> Option<Printer> {
     let string_at = |index: usize| -> String {
         let Some(&offset) = block.get(index) else {
             return String::new();
@@ -61,6 +58,7 @@ pub fn parse(block: &[u16]) -> Printer {
         device: string_at(1),
         output: string_at(2),
     }
+    .selected()
 }
 
 #[cfg(test)]
@@ -91,18 +89,18 @@ mod tests {
             device: "複合機 (オフィス)".into(),
             ..printer()
         };
-        assert_eq!(parse(&build(&p).unwrap()), p);
+        assert_eq!(parse(&build(&p).unwrap()), Some(p));
     }
 
     #[test]
-    fn no_remembered_printer_gives_no_block() {
-        assert_eq!(build(&Printer::default()), None);
+    fn names_without_a_device_are_no_printer() {
         // a driver and a port without a name pick nothing
         let p = Printer {
             device: String::new(),
             ..printer()
         };
-        assert_eq!(build(&p), None);
+        assert_eq!(p.clone().selected(), None);
+        assert_eq!(parse(&build(&p).unwrap()), None);
     }
 
     #[test]
@@ -124,12 +122,12 @@ mod tests {
     }
 
     #[test]
-    fn a_broken_block_gives_empty_names() {
-        assert_eq!(parse(&[]), Printer::default());
+    fn a_broken_block_gives_no_printer() {
+        assert_eq!(parse(&[]), None);
         // an offset past the end
-        assert_eq!(parse(&[9, 9, 9, 0, b'a'.into()]), Printer::default());
+        assert_eq!(parse(&[9, 9, 9, 0, b'a'.into()]), None);
         // no NUL: the string runs to the end
-        let p = parse(&[4, 4, 4, 0, b'a'.into(), b'b'.into()]);
+        let p = parse(&[4, 4, 4, 0, b'a'.into(), b'b'.into()]).unwrap();
         assert_eq!(p.device, "ab");
     }
 }

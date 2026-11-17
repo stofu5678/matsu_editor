@@ -58,18 +58,18 @@ impl PrintPrefs {
     /// update of the file, so what another process saved meanwhile (margins, fonts, paper) stays;
     /// the settings are then what the file has.
     fn set_printer(&mut self, index: usize, printer: Printer) {
-        if self.settings.get(index).printer == printer {
-            return;
-        }
         let Some(path) = self.store.clone() else {
-            self.settings.get_mut(index).printer = printer;
+            self.settings.get_mut(index).printer = Some(printer);
             return;
         };
+        // Not compared with the printer this process has cached: another process may have saved
+        // another one since, and the last one used must win. The file is what is compared (the
+        // byte comparison below writes nothing when it is the same).
         let base = default_setting();
         let mut merged = None;
         let saved = update_profile(&path, |profile| {
             let before = profile.to_bytes();
-            print::write_printer(&printer, profile, index)
+            print::write_printer(Some(&printer), profile, index)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             merged = Some(PrintSettings::from_profile(&base, profile));
             Ok(profile.to_bytes() != before)
@@ -77,7 +77,7 @@ impl PrintPrefs {
         match (saved, merged) {
             (Ok(_), Some(now)) => self.settings = now,
             // A file that cannot be written leaves the printer for this session.
-            _ => self.settings.get_mut(index).printer = printer,
+            _ => self.settings.get_mut(index).printer = Some(printer),
         }
     }
 
@@ -244,9 +244,9 @@ mod tests {
         let mut new = original.clone();
         new.get_mut(0).print_margin_lx = 150;
         prefs.change(&new, &original, None);
-        assert_eq!(prefs.settings.get(0).printer, printer("PDF"));
+        assert_eq!(prefs.settings.get(0).printer, Some(printer("PDF")));
         assert_eq!(prefs.settings.get(0).print_margin_lx, 150);
-        assert_eq!(on_disk(&path).get(0).printer, printer("PDF"));
+        assert_eq!(on_disk(&path).get(0).printer, Some(printer("PDF")));
         assert_eq!(on_disk(&path).get(0).print_margin_lx, 150);
     }
 
@@ -269,9 +269,9 @@ mod tests {
         let now = on_disk(&path);
         assert_eq!(now.get(0).print_margin_lx, 330);
         assert_eq!(now.get(0).print_font_height, 40);
-        assert_eq!(now.get(0).printer, printer("PDF"));
+        assert_eq!(now.get(0).printer, Some(printer("PDF")));
         assert_eq!(prefs.settings.get(0).print_margin_lx, 330);
-        assert_eq!(prefs.settings.get(0).printer, printer("PDF"));
+        assert_eq!(prefs.settings.get(0).printer, Some(printer("PDF")));
     }
 
     /// A settings file that cannot be written: the session keeps the printer it remembered when an
@@ -287,7 +287,23 @@ mod tests {
         new.get_mut(0).print_margin_lx = 150;
         prefs.change(&new, &original, None);
         assert_eq!(prefs.settings.get(0).print_margin_lx, 150);
-        assert_eq!(prefs.settings.get(0).printer, printer("PDF"));
+        assert_eq!(prefs.settings.get(0).printer, Some(printer("PDF")));
+    }
+
+    /// Two processes share the file: both load printer A, one prints on B, then this one prints
+    /// on A. The last one used (A) is written, although this process had A cached.
+    #[test]
+    fn the_last_printer_used_is_written_although_this_process_had_it_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut mine, path) = prefs_with_file(&dir);
+        mine.set_printer(0, printer("A"));
+        let mut other = PrintPrefs::load(Some(&path), Some(path.clone()));
+        other.set_printer(0, printer("B"));
+        assert_eq!(on_disk(&path).get(0).printer, Some(printer("B")));
+        // this process still has A cached and prints on A again
+        mine.set_printer(0, printer("A"));
+        assert_eq!(on_disk(&path).get(0).printer, Some(printer("A")));
+        assert_eq!(mine.settings.get(0).printer, Some(printer("A")));
     }
 
     #[test]

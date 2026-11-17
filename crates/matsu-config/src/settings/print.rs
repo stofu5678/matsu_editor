@@ -220,10 +220,17 @@ fn read_slot(s: &mut PrintSetting, profile: &Profile, index: usize) {
     }
     read_font(&mut s.header_font, profile, index, "Header");
     read_font(&mut s.footer_font, profile, index, "Footer");
-    for (name, field) in printer_keys(&mut s.printer) {
+    // Sakura's empty device name is no printer: the names become an `Option` here.
+    let mut names = s.printer.clone().unwrap_or_default();
+    let mut any = false;
+    for (name, field) in printer_keys(&mut names) {
         if let Some(v) = get(name) {
             *field = clip(v, PRINTER_NAME_MAX);
+            any = true;
         }
+    }
+    if any {
+        s.printer = names.selected();
     }
     for (name, flag) in [
         ("bKinsokuHead", &mut s.print_kinsoku_head),
@@ -244,11 +251,13 @@ fn read_slot(s: &mut PrintSetting, profile: &Profile, index: usize) {
 /// Sakura always writes the three keys. A file that does not have them gets them only for a
 /// printer, so that choosing nothing leaves a file of an older version as it is.
 pub fn write_printer(
-    printer: &Printer,
+    printer: Option<&Printer>,
     profile: &mut Profile,
     index: usize,
 ) -> Result<(), ProfileError> {
-    for (name, value) in printer_values(printer) {
+    // No printer is Sakura's empty names.
+    let none = Printer::default();
+    for (name, value) in printer_values(printer.unwrap_or(&none)) {
         let key = key(index, name);
         if !value.is_empty() || profile.get(SECTION, &key).is_some() {
             profile.set_string(SECTION, &key, value)?;
@@ -350,7 +359,7 @@ fn write_slot(s: &PrintSetting, profile: &mut Profile, index: usize) -> Result<(
     }
     write_font(s.header_font.as_ref(), profile, index, "Header")?;
     write_font(s.footer_font.as_ref(), profile, index, "Footer")?;
-    write_printer(&s.printer, profile, index)?;
+    write_printer(s.printer.as_ref(), profile, index)?;
     for (name, flag) in [
         ("bKinsokuHead", s.print_kinsoku_head),
         ("bKinsokuTail", s.print_kinsoku_tail),
