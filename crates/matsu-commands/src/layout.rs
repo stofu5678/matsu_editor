@@ -195,6 +195,16 @@ impl PlainLayout {
 }
 
 impl Layout for PlainLayout {
+    // A row is a line: the row functions are direct (the defaults walk the rows from the start of
+    // the document, which makes a loop over many lines quadratic).
+    fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
+        Ok(doc.clamp_pos(pos)?.line)
+    }
+
+    fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
+        Ok((row <= Self::last_row(doc)?).then(|| Pos::new(row, 0)))
+    }
+
     fn tab_width(&self) -> usize {
         self.tab_width.max(1)
     }

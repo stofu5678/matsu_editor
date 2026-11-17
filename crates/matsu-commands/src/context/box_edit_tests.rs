@@ -1236,3 +1236,16 @@ fn a_box_sort_that_changes_the_rows_of_the_lines_keeps_the_corners_on_their_scre
     assert_eq!((a, a_col), (Pos::new(0, 0), 0));
     assert_eq!((c, c_col), (Pos::new(2, 2), 2));
 }
+
+#[test]
+fn a_box_sort_of_many_lines_does_not_walk_the_rows_from_the_start_for_each_line() {
+    // 40000 lines: a walk from the start of the document for each of them (the default
+    // `row_start_at`) would take about 800 million steps.
+    const LINES: usize = 40_000;
+    let text: String = (0..LINES).map(|i| format!("{:05}\n", LINES - i)).collect();
+    let mut e = boxed(&text, (0, 0), (LINES - 1, 2));
+    let started = std::time::Instant::now();
+    e.run("sort_asc");
+    assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    assert_eq!(text_of(&e).lines().next(), Some("00999"));
+}
