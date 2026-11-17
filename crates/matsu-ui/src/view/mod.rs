@@ -698,19 +698,25 @@ impl EditorView {
     /// What ADR-0013 section 4 wants after a command: the layout matches the text, the caret is
     /// in view, and the window repaints.
     fn after_command(&mut self, mut changes: Changes, cx: &mut Context<Self>) {
-        if changes.text_changed() {
+        // Before the edits move into the event of the document.
+        let text_changed = changes.text_changed();
+        if text_changed {
             // The context has already told the layout about every edit (`RowLayout`).
+            let version = self.document.read(cx).next_version();
+            self.colors_after_edit(&changes, version, cx);
             let entity_id = self.entity_id;
+            let edits = std::mem::take(&mut changes.edits);
+            let replaced_all = changes.replaced_all;
             self.layout_version = self.document.update(cx, |shared, cx| {
-                if changes.replaced_all {
+                if replaced_all {
                     shared.changed(cx)
                 } else {
-                    shared.edited(entity_id, &changes.edits, cx)
+                    shared.edited(entity_id, edits, cx)
                 }
             });
-            self.colors_after_edit(&changes, self.layout_version, cx);
+            debug_assert_eq!(self.layout_version, version);
         }
-        if changes.text_changed() || changes.caret_moved || changes.selection_changed {
+        if text_changed || changes.caret_moved || changes.selection_changed {
             self.marked = None;
             self.notice = None;
         }
@@ -722,7 +728,7 @@ impl EditorView {
         if let Some(text) = changes.message_box.take() {
             self.pending_message_boxes.push(text);
         }
-        self.completion_after_command(&changes, cx);
+        self.completion_after_command(text_changed, &changes, cx);
         if let Some(call) = changes.smart_indent_plugin {
             self.call_smart_indent_plugin(call, cx);
         }
@@ -731,7 +737,7 @@ impl EditorView {
         // (Sakura scrolls to the caret when the caret moves). Outside a macro every command
         // brings the caret into view, as before.
         if !self.macros.is_suspended()
-            || changes.text_changed()
+            || text_changed
             || changes.caret_moved
             || changes.selection_changed
         {

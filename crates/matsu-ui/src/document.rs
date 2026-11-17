@@ -860,15 +860,19 @@ impl SharedDocument {
         self.changed_with(None, cx)
     }
 
+    /// The version that the next [`changed`](Self::changed) or [`edited`](Self::edited) gives.
+    pub fn next_version(&self) -> u64 {
+        self.version + 1
+    }
+
     /// Like [`changed`](Self::changed), for the edits of a command of `view`, which the other
     /// views follow.
     pub fn edited(
         &mut self,
         view: gpui::EntityId,
-        edits: &[matsu_commands::context::TextChange],
+        edits: Vec<matsu_commands::context::TextChange>,
         cx: &mut Context<Self>,
     ) -> u64 {
-        let edits = edits.to_vec();
         self.changed_with(Some(EditedBy { view, edits }), cx)
     }
 
