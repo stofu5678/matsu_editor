@@ -48,6 +48,11 @@ impl Layout for RowLayout<'_> {
         self.0.config().width.width_of(c)
     }
 
+    fn make_exact(&mut self, doc: &Document, line: usize) {
+        let row = self.0.first_row_of_line(line);
+        let _ = self.0.layout_rows(doc, row, 1);
+    }
+
     fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
         Ok(self.0.pos_to_row(doc, pos)?.row)
     }
@@ -267,6 +272,40 @@ mod tests {
             // next line at once (`x_wrap + dx_default < GetMaxLineLayout()` is false)
             assert_eq!(right(1, 1), (Pos::new(2, 0), None));
         });
+    }
+
+    /// A box sort of more than 4096 wrapped lines is one big edit, after which the index of the
+    /// layout only estimates the rows of those lines: the corners go back to their lines and rows
+    /// all the same.
+    #[test]
+    fn a_box_sort_of_many_wrapped_lines_keeps_the_corners_on_their_lines() {
+        use matsu_core::cursor::Cursor;
+
+        const LINES: usize = 5000;
+        // each line has two rows: "dddd" and "ab"
+        let text: String = (0..LINES).map(|i| format!("{:04}ab\n", i)).collect();
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..scaled(1)
+        };
+        let mut model = DocumentModel::new(doc(&text));
+        let mut layout = laid_out(model.doc(), cfg);
+        layout.layout_all(model.doc()).unwrap();
+        // from the second row of line 100 to the second row of the last line, columns 0 to 2
+        let mut cursor = Cursor::new(Pos::new(100, 4));
+        cursor.begin_box(0, false);
+        cursor.move_box_to(Pos::new(LINES - 1, 4), 2);
+        {
+            let mut adapter = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut adapter, None);
+            Registry::global().run("sort_desc", &mut cx, &[]).unwrap();
+            cx.finish();
+        }
+        let ((a, a_col), (c, c_col)) = cursor.box_corners().expect("the box stays");
+        assert_eq!((a, a_col), (Pos::new(100, 4), 0));
+        assert_eq!((c, c_col), (Pos::new(LINES - 1, 6), 2));
+        // keys "49", "48", ...: line 100 has the first line of the key "49" now
+        assert_eq!(model.doc().line(100).unwrap().unwrap().text, "4900ab");
     }
 
     #[test]

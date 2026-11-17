@@ -33,6 +33,11 @@ pub trait Layout {
     /// known: lay out `doc` again.
     fn reset(&mut self, doc: &Document);
 
+    /// Makes the rows of line `line` exact. After an edit of very many lines at once a layout may
+    /// only estimate their rows (one row each) until it has laid them out; the row functions of
+    /// that line are not right before. A layout that always knows them has nothing to do.
+    fn make_exact(&mut self, _doc: &Document, _line: usize) {}
+
     /// The horizontal position of `pos` counted from the left edge of the screen, so the indent
     /// of a wrapped row is included (Sakura: the layout X of the caret).
     fn display_x(&self, doc: &Document, pos: Pos) -> Result<X>;
