@@ -391,15 +391,39 @@ fn line_replacement(
     if new == whole {
         return Ok(None);
     }
-    let start = Pos::new(index, 0);
-    let (end, new) = if eol.is_empty() {
-        (Pos::new(index, text.len()), new)
-    } else if let Some(kept) = new.strip_suffix(eol) {
-        (Pos::new(index, text.len()), kept.to_owned())
+    let (start, end, new) = if eol.is_empty() || new.ends_with(eol) {
+        // The break stays: only the text between what the old and the new line share is edited, so
+        // a caret in the rest of the line stays with its text.
+        let kept = new.strip_suffix(eol).unwrap_or(&new);
+        let (from, to, middle) = narrow(text, kept);
+        (
+            Pos::new(index, from),
+            Pos::new(index, to),
+            middle.to_owned(),
+        )
     } else {
-        (Pos::new(index + 1, 0), new)
+        (Pos::new(index, 0), Pos::new(index + 1, 0), new)
     };
     replacement_for(doc, &(start..end), &new, ReplaceTarget::Match).map(Some)
+}
+
+/// The part of `old` that differs from `new`, as the byte range in `old` and what `new` has there:
+/// what the two share at the start and at the end (whole characters) is left out.
+fn narrow<'a>(old: &str, new: &'a str) -> (usize, usize, &'a str) {
+    let start: usize = old
+        .chars()
+        .zip(new.chars())
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| a.len_utf8())
+        .sum();
+    let end: usize = old[start..]
+        .chars()
+        .rev()
+        .zip(new[start..].chars().rev())
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| a.len_utf8())
+        .sum();
+    (start, old.len() - end, &new[start..new.len() - end])
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is

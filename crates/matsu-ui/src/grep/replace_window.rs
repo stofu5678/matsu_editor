@@ -64,8 +64,11 @@ impl EditorView {
             // `move_caret` keeps it inside the document, which a shorter line or a removed line
             // break would otherwise leave.
             let caret = c.caret();
-            let made = apply_edits(c, edits)
-                .and_then(|ends| c.move_caret(shift_start(caret, edits, &ends), false));
+            // A box selection refuses edits: the selection goes first (the caret is put back below).
+            let made = c.move_caret(caret, false).and_then(|()| {
+                let ends = apply_edits(c, edits)?;
+                c.move_caret(shift_start(caret, edits, &ends), false)
+            });
             c.end_block();
             made
         })

@@ -235,7 +235,7 @@ fn a_replacement_of_a_window_plans_the_edits_and_counts_them() {
         sink.text
     );
     let inserted: Vec<_> = sink.edits.iter().map(|e| e.inserted.as_str()).collect();
-    assert_eq!(inserted, ["a miss", "miss miss"]);
+    assert_eq!(inserted, ["miss", "miss miss"]);
 }
 
 #[test]
@@ -629,7 +629,8 @@ fn replace_with_caret(
         .unwrap();
     });
     cx.run_until_parked();
-    let other = others(cx, &f.view).remove(0);
+    // the newest: a test may call this more than once, and the windows of the earlier calls stay
+    let other = others(cx, &f.view).pop().unwrap();
     other.update(cx, |v, cx| {
         v.run_with(cx, |c| c.move_caret(caret, false)).unwrap();
     });
@@ -685,6 +686,59 @@ fn a_caret_between_the_replacements_moves_only_with_the_earlier_ones(cx: &mut Te
     );
     assert_eq!(text, "n ab\nlong line\nn\n");
     assert_eq!(caret, Pos::new(1, 4));
+}
+
+#[gpui::test]
+fn a_caret_in_a_line_with_a_replacement_stays_with_its_text(cx: &mut TestAppContext) {
+    // before the match, inside the match's first character, and after the match, on the same line
+    for (col, want) in [(1, 1), (3, 3), (11, 6)] {
+        let (text, caret) =
+            replace_with_caret(cx, "ab needle zz\n", Pos::new(0, col), ("needle", "n", 5));
+        assert_eq!(text, "ab n zz\n");
+        assert_eq!(caret, Pos::new(0, want), "from column {col}");
+    }
+}
+
+#[gpui::test]
+fn a_box_selection_does_not_stop_the_replacement(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(b"a needle\nb needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let other = others(cx, &f.view).remove(0);
+    other.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(Pos::new(0, 0), false)?;
+            c.move_caret_selecting_box(Pos::new(1, 1))
+        })
+        .unwrap();
+    });
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let args = vec![
+        Arg::Text("needle".to_owned()),
+        Arg::Text("pin".to_owned()),
+        Arg::Text(window_token(id)),
+        Arg::Text(String::new()),
+        Arg::Int(5),
+    ];
+    f.run(cx, "F_GREP_REPLACE", &args);
+    assert_eq!(text_of(&other, cx), "a pin\nb pin\n");
+    let result: Vec<_> = others(cx, &f.view)
+        .into_iter()
+        .filter(|view| *view != other)
+        .collect();
+    assert!(
+        text_of(&result[0], cx).ends_with("2 個を置換しました。\r\n"),
+        "{}",
+        text_of(&result[0], cx)
+    );
 }
 
 /// A window of the application (the tag jump finds the windows of the application only) with
