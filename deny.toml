@@ -22,6 +22,10 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant: unmaintained, part of zbus 5 (GPUI, gpui-base, matsu-platform)" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names: unmaintained, part of zbus 5 (GPUI, gpui-base, matsu-platform)" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: unmaintained, part of zbus 5 (GPUI, gpui-base, matsu-platform)" },
+    # GPUI (gpui-pre, gpui-pre-scheduler, gpui-pre-zlog), gpui-base and gpui-component use chrono, so
+    # it stays in the tree whatever MATSU does. matsu-commands, matsu-platform and matsu-ui use it
+    # too (local time, dates of backups and file properties).
+    { id = "RUSTSEC-2026-0543", reason = "chrono: unmaintained, used by GPUI, gpui-base, gpui-component and matsu-commands, matsu-platform, matsu-ui" },
 ]
 
 [licenses]
