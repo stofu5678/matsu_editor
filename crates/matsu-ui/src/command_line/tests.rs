@@ -509,3 +509,12 @@ fn numbers_are_read_as_cs_atoi_does() {
     assert_eq!(atoi("-99999999999"), i32::MIN);
     assert_eq!(atoi("2147483648"), i32::MAX);
 }
+
+#[test]
+fn a_grep_goes_to_the_standard_output_only_without_the_dialog() {
+    // `CNormalProcess`: `bGrepStdout` counts for `-GREPMODE`; `-GREPDLG` keeps the dialog's own Grep
+    assert!(line(&["-GREPMODE", "-GOPT=U"]).greps_to_stdout());
+    assert!(!line(&["-GREPMODE", "-GREPDLG", "-GOPT=U"]).greps_to_stdout());
+    assert!(!line(&["-GREPMODE"]).greps_to_stdout());
+    assert!(!line(&["-GOPT=U"]).greps_to_stdout());
+}

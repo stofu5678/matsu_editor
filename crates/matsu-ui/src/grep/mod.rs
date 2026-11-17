@@ -23,6 +23,7 @@ pub mod format;
 pub mod keys;
 pub mod panel;
 pub mod settings;
+pub mod stdout;
 pub mod window;
 
 #[cfg(test)]

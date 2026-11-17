@@ -95,7 +95,7 @@ pub(crate) struct GrepArgs {
     pub whole_word: bool,
     /// `-GOPT=X`: do not move the current folder after the search.
     pub keep_current_folder: bool,
-    /// `-GOPT=U`: write the result to the standard output.
+    /// `-GOPT=U`: write the result to the standard output ([`CommandLine::greps_to_stdout`]).
     pub stdout: bool,
     /// `-GOPT=H` turns it off: the heading and the count.
     pub header: bool,
@@ -369,6 +369,12 @@ fn unescape_quotes(value: &str) -> String {
 }
 
 impl CommandLine {
+    /// `-GREPMODE` with `-GOPT=U` and without `-GREPDLG`: the Grep writes to the standard output
+    /// (`CNormalProcess`: the dialog's own Grep never does).
+    pub fn greps_to_stdout(&self) -> bool {
+        self.grep_mode && self.grep.stdout && !self.grep_dialog
+    }
+
     /// Reads `tokens` into this. Returns the response file that was named, if any.
     fn parse_tokens(&mut self, tokens: &[OsString], options_end: &mut bool) -> Option<OsString> {
         let mut response = None;

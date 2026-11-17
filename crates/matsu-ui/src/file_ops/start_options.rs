@@ -21,12 +21,13 @@
 //!   mode of the options (`SetDocumentTypeWhenCreate`): the encoding of the type if `-CODE=` is
 //!   the one the type has, else `-CODE=` with the default BOM and CR LF.
 //! * `-GREPMODE` opens a window for a Grep and runs it with the conditions of the options
-//!   (`CGrepAgent::DoGrep`); `-GREPDLG` opens the Grep dialog with them instead.
+//!   (`CGrepAgent::DoGrep`); `-GREPDLG` opens the Grep dialog with them instead. With `-GOPT=U` the
+//!   result goes to the standard output and the application ends ([`crate::grep::stdout`]).
 //!
 //! The options that have nothing to do in MATSU Editor are read and dropped: `-NOWIN` (MATSU Editor has
 //! no process in the tray: the launch opens its window as any launch does), `-GROUP=` (the groups
 //! of the tabs are not numbered), `-DEBUGMODE` (no output window for `OutputDebugString`),
-//! `-PROFMGR` (no profile manager), and from `-GOPT=` the letters `U` (the standard output), `H`
+//! `-PROFMGR` (no profile manager), and from `-GOPT=` the letters `H`
 //! (no heading; the engine always writes it) and `X` (MATSU Editor does not change its current
 //! folder).
 
@@ -413,14 +414,24 @@ impl LaunchOptions {
                 view.notice = Some(crate::grep::panel::NO_CLIPBOARD.to_owned());
                 cx.notify();
             });
+            if grep.args.stdout {
+                // The close that `CNormalProcess` posts comes all the same.
+                super::close::quit_at_once(cx);
+            }
             return;
         }
         let info = grep_info(&grep.args, &self.cwd, clipboard.as_deref());
+        let stdout = grep.args.stdout;
         handle
             .update(cx, |_, window, cx| {
                 view.update(cx, |view, cx| {
-                    // `DoGrep` is called directly: no `Command_GREP`, so no type change.
-                    view.start_grep_in(info, false, false, window, cx);
+                    if stdout {
+                        // `-GOPT=U`: no result in the window; the application ends after the search.
+                        view.start_grep_stdout(info, cx);
+                    } else {
+                        // `DoGrep` is called directly: no `Command_GREP`, so no type change.
+                        view.start_grep_in(info, false, false, window, cx);
+                    }
                 });
             })
             .ok();

@@ -407,7 +407,11 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     let folders = if info.window.is_some() || info.window_gone {
         Vec::new()
     } else {
+        // `CreateFolders`: each folder in its long form (`GetLongFileName`; only Windows has one).
         split_folders(&info.folder)
+            .into_iter()
+            .map(|folder| matsu_platform::long_path::long_path(&folder).unwrap_or(folder))
+            .collect()
     };
     if !folders.iter().all(|folder| Path::new(folder).is_dir()) {
         return Err(GrepError::FolderMissing);
