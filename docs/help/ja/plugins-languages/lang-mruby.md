@@ -11,7 +11,7 @@
 | 版 | mruby 4.0.0（上流のタグ `4.0.0`） |
 | 作り | C のソースと生成済みのファイルを、一緒にビルドしたもの（クレート `matsu-mruby-sys`） |
 | ライセンス | MIT |
-| プラグイン | 動かせません（動かせるのは QuickJS、Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript（macOS だけ）です） |
+| プラグイン | 動かせます。下の「プラグインとして動かすとき」 |
 
 mruby は、組み込み向けの小さな Ruby です。CRuby と同じではありません。CRuby にある標準ライブラリの多くが、ありません。
 
@@ -51,6 +51,17 @@ mruby は、組み込み向けの小さな Ruby です。CRuby と同じでは�
 
 受けなかった例外は、`名前:行: メッセージ (クラス名)` の形で、標準エラーに出ます。構文のエラーも、同じ形です。スクリプトは、終了コード 1 で終わります。
 
+## プラグインとして動かすとき
+
+拡張子が `.mruby` のハンドラを、同梱の mruby が動かします。`.rb` は、利用者が入れた Ruby が動かします（[Ruby](lang-ruby.md)）。
+
+- 待ち受けの繰り返しは、Ruby で書いたもの（`mruby_plugin.rb`）が持ちます。ハンドラの文面は、ファイルごとのオブジェクトの `instance_eval` で動かします。そのオブジェクトの、インスタンス変数とメソッドは、プロセスが残っている（`UseCache=1` か `Resident=1`）間、同じファイルの次の呼び出しに残ります。別のファイルのオブジェクトは、見えません。ローカル変数は、呼び出しごとに消えます。グローバル変数（`$x`）と定数は、すべてのファイルで共通です。
+- ハンドラの中の `return` は、そのハンドラを終えるだけです。
+- `Plugin`、`Outline`、`Complement`（と、`SmartIndent` のとき `Indent`）が、定数としてあります。`Plugin.id`、`Plugin.dir`、`Plugin.jack`、`Plugin.args`（呼び出しの引数のハッシュ。キーは文字列。無いときは `nil`）があります（[ハンドラの中で使えるもの](plugin-api.md)）。
+- 関数は、同じ綴りのメソッドです（`Plugin.GetOption('A', 'B')`）。引数の最後の `nil` は、省略として扱います。`Complement.AddList` は、引数を `to_s` にして渡します。
+- 例外が出ると、その呼び出しは失敗になります。メッセージは `名前:行: メッセージ (クラス名)` の形です。
+- 標準エラーへの出力（`$stderr.puts`）は、その呼び出しが終わる前に、エディターに届きます。
+
 ## 根拠
 
 - 版と作り: `crates/matsu-mruby-sys/Cargo.toml`、`crates/matsu-mruby-sys/vendor/mruby/include/mruby/version.h`、`vendor/mruby/README.md`
@@ -58,5 +69,6 @@ mruby は、組み込み向けの小さな Ruby です。CRuby と同じでは�
 - `puts` などの定義し直し、エラーの形: `crates/matsu-script/src/mruby_boot.rb`
 - 引数と BOM: `crates/matsu-script/src/mruby.rs`
 - ライセンス: `THIRD_PARTY_NOTICES.txt`
-- 試験: `crates/matsu-script/tests/mruby.rs`
+- プラグイン: `crates/matsu-script/src/mruby_plugin.rb`、`crates/matsu-script/src/plugin.rs`
+- 試験: `crates/matsu-script/tests/mruby.rs`、`crates/matsu-script/tests/plugin_engines.rs`
 - 設計: `docs/poc/json-rpc.md`（「同梱のスクリプトホスト」）

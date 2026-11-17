@@ -2,7 +2,7 @@
 
 ハンドラは、QuickJS の `.js`（[JavaScript（QuickJS）](lang-quickjs.md)）、Node.js の `.cjs`、`.mjs`、`.ts`（[JavaScript（Node.js）と TypeScript](lang-node.md)）、Python の `.py`（[Python](lang-python.md)）、Ruby の `.rb`（[Ruby](lang-ruby.md)）、PHP の `.php`（[PHP](lang-php.md)）、PowerShell の `.ps1`（[PowerShell](lang-powershell.md)）、Perl の `.pl`（[Perl](lang-perl.md)）のどれかで書きます。ハンドラには、マクロと同じ `Editor` と `EditorError` が、最初からあります（QuickJS と Node.js は `console` も）。そのほかに、プラグイン用のオブジェクトがあります。
 
-以降の「書き方の決まり」は QuickJS の `.js` のものです。Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript の動きは、それぞれの言語のページの「プラグインとして動かすとき」にあります。オブジェクトの名前と関数は、どの言語でも同じです（Python と Ruby では、`Plugin.GetOption('A', 'B')` のように、PHP では `Plugin::GetOption('A', 'B')` のように、PowerShell では `$Plugin.GetOption('A', 'B')` のように、Perl では `Plugin->GetOption('A', 'B')` のように、同じ綴りの関数です。Emacs Lisp では `(plugin-get-option "A" "B")`、AppleScript では `editorCall("Plugin.GetOption", {"A", "B"})` のように書きます。名前の対応は、それぞれの言語のページにあります）。
+以降の「書き方の決まり」は QuickJS の `.js` のものです。Lua、MicroPython、mruby、Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript の動きは、それぞれの言語のページの「プラグインとして動かすとき」にあります。オブジェクトの名前と関数は、どの言語でも同じです（Lua、MicroPython、mruby、Python、Ruby では、`Plugin.GetOption('A', 'B')` のように、PHP では `Plugin::GetOption('A', 'B')` のように、PowerShell では `$Plugin.GetOption('A', 'B')` のように、Perl では `Plugin->GetOption('A', 'B')` のように、同じ綴りの関数です。Emacs Lisp では `(plugin-get-option "A" "B")`、AppleScript では `editorCall("Plugin.GetOption", {"A", "B"})` のように書きます。名前の対応は、それぞれの言語のページにあります）。
 
 ## 書き方の決まり
 

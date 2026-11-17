@@ -31,7 +31,8 @@ use matsu_plugin::protocol::RpcError;
 use serde_json::{Number, Value};
 
 use crate::engine::Engine;
-use crate::rpc::{CallError, Editor, Initialize};
+use crate::plugin::{Refusal, Reserved};
+use crate::rpc::{CallError, Editor, Initialize, LinkEditor, PluginInit, PluginLink};
 
 pub struct MicroPython;
 
@@ -82,31 +83,62 @@ Editor = _install()
 del _install, _Editor, _matsu_setup
 "#;
 
+/// The loop that serves a plugin, run after `BOOT` in the same globals.
+const SERVE: &str = include_str!("micropython_plugin.py");
+
 impl Engine for MicroPython {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
-        let names: Vec<&str> = entries().iter().map(|func| func.name).collect();
-        let names_json = Value::from(names).to_string();
-        let info_json = init.info.to_string();
-        let mut bridge = Bridge { editor };
-        matsu_micropython_sys::run(
+        let mut bridge = Bridge {
+            editor,
+            reserved: None,
+        };
+        run_script(
             &mut bridge,
-            &names_json,
-            &info_json,
-            Source {
-                name: "<matsu-boot>",
-                text: BOOT,
-            },
+            &init.info,
             Source {
                 name: &init.script.name,
                 text: &init.script.source,
             },
         )
     }
+
+    /// A plugin: the one VM of the process runs the loop of `SERVE`, which keeps a namespace for
+    /// each handler file (ADR-0026).
+    fn serve(&self, init: &PluginInit, link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
+        let mut bridge = Bridge {
+            editor: Rc::new(RefCell::new(LinkEditor(link.clone()))),
+            reserved: Some(Reserved::new(link, &init.plugin)),
+        };
+        run_script(
+            &mut bridge,
+            &init.info,
+            Source {
+                name: "<matsu-plugin>",
+                text: SERVE,
+            },
+        )
+    }
+}
+
+fn run_script(bridge: &mut Bridge, info: &Value, script: Source<'_>) -> Result<(), String> {
+    let names: Vec<&str> = entries().iter().map(|func| func.name).collect();
+    matsu_micropython_sys::run(
+        bridge,
+        &Value::from(names).to_string(),
+        &info.to_string(),
+        Source {
+            name: "<matsu-boot>",
+            text: BOOT,
+        },
+        script,
+    )
 }
 
 /// The calls of the script, forwarded to the editor.
 struct Bridge {
     editor: Rc<RefCell<dyn Editor>>,
+    /// The calls for the connection, when the host serves a plugin.
+    reserved: Option<Reserved>,
 }
 
 impl Host for Bridge {
@@ -125,6 +157,18 @@ impl Host for Bridge {
             Ok(params) => params,
             Err(why) => return invalid(format!("{name}: {why}")),
         };
+        if let Some(reserved) = &self.reserved
+            && let Some(answer) = reserved.answer(name, &params)
+        {
+            return match answer {
+                Ok(result) => CallOutcome::Ok(result.to_string()),
+                Err(Refusal::Refused(error)) => CallOutcome::Error {
+                    code: error.code,
+                    message: error.message,
+                },
+                Err(Refusal::Closed(message)) => CallOutcome::Closed(message),
+            };
+        }
         let answer = self.editor.borrow_mut().call(name, params);
         match answer {
             Ok(Value::String(text)) => CallOutcome::Text(text),

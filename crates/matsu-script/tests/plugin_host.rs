@@ -1,123 +1,20 @@
-//! End-to-end tests of the plugin host (ADR-0026): the built `matsu-script` program serves a
-//! plugin under the editor's own host code (`matsu_plugin::plugin_host`), against a plain text
-//! model.
+//! End-to-end tests of the plugin host with the bundled QuickJS (ADR-0026): the built
+//! `matsu-script` program serves a plugin under the editor's own host code
+//! (`matsu_plugin::plugin_host`), against a plain text model. The other bundled engines are in
+//! `plugin_engines.rs`.
 
-use std::collections::BTreeMap;
+mod plugin_support;
+
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use matsu_plugin::api;
-use matsu_plugin::model::TextModel;
-use matsu_plugin::plugin_host::{
-    BeginError, HostSettings, MAX_FAILURES, Outcome, PluginApi, PluginHost, Progress, Report,
-    respond,
-};
-use matsu_plugin::protocol::RpcError;
-use matsu_plugin::session::{Engine, Language, Stream};
+use matsu_plugin::plugin_host::{BeginError, MAX_FAILURES, Outcome, PluginHost, Progress, respond};
+use matsu_plugin::session::Engine;
+use plugin_support::{PATIENT, World, host_of, plugin_dir, stdout};
 use serde_json::{Value, json};
 
-const PATIENT: Duration = Duration::from_secs(30);
-
-/// What the editor answers to the `Plugin` object in these tests.
-#[derive(Default)]
-struct Api {
-    options: BTreeMap<(String, String), String>,
-    calls: Vec<String>,
-    /// The candidates of `Complement.AddList`.
-    added: Vec<String>,
-}
-
-impl PluginApi for Api {
-    fn call(&mut self, name: &str, params: &[Value]) -> Result<Value, RpcError> {
-        self.calls.push(name.to_owned());
-        let text = |i: usize| {
-            params
-                .get(i)
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned()
-        };
-        match name {
-            "Plugin.GetPluginDir" => Ok(json!("/plugins/テスト")),
-            "Plugin.GetDef" => Ok(json!(format!("def:{}:{}", text(0), text(1)))),
-            "Plugin.GetOption" => Ok(json!(
-                self.options
-                    .get(&(text(0), text(1)))
-                    .cloned()
-                    .unwrap_or_default()
-            )),
-            "Plugin.SetOption" => {
-                self.options.insert((text(0), text(1)), text(2));
-                Ok(json!(true))
-            }
-            "Plugin.GetString" => Ok(json!(format!("string {}", params[0]))),
-            // The `Outline` object: the editor takes the calls as they are.
-            n if n.starts_with("Outline.") => Ok(json!(null)),
-            // Sakura's `AddKouhoUnique`: the size of the list, or -1 for a word it has.
-            "Complement.AddList" => {
-                let word = text(0);
-                if word.is_empty() {
-                    return Err(RpcError::invalid_params("empty"));
-                }
-                if self.added.contains(&word) {
-                    return Ok(json!(-1));
-                }
-                self.added.push(word);
-                Ok(json!(self.added.len()))
-            }
-            other => Err(RpcError::new(-32601, format!("no such call: {other}"))),
-        }
-    }
-}
-
-fn plugin_dir(files: &[(&str, &str)]) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
-    for (name, code) in files {
-        let path = dir.path().join(name);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, code).unwrap();
-    }
-    dir
-}
-
 fn host(dir: &Path, resident: bool) -> PluginHost {
-    let mut settings = HostSettings::new(
-        "jp.example.test",
-        dir,
-        Language::Bundled(Engine::QuickJs),
-        resident,
-    );
-    settings.interpreter = env!("CARGO_BIN_EXE_matsu-script").into();
-    PluginHost::new(settings)
-}
-
-struct World {
-    doc: TextModel,
-    api: Api,
-}
-
-impl World {
-    fn new(text: &str) -> Self {
-        Self {
-            doc: TextModel::new(text, Some("/work/テスト.txt".into())),
-            api: Api::default(),
-        }
-    }
-
-    fn call(&mut self, host: &mut PluginHost, handler: &str, timeout: Duration) -> Report {
-        let doc = &mut self.doc;
-        let api_state = &mut self.api;
-        host.run_blocking("Command", handler, &json!({"n": 1}), timeout, |text| {
-            respond(text, api_state, |method, params| {
-                api::call(doc, method, params)
-            })
-        })
-        .expect("the call begins")
-    }
-}
-
-fn stdout(report: &Report) -> Vec<&str> {
-    report.lines(Stream::Stdout)
+    host_of(Engine::QuickJs, dir, resident)
 }
 
 #[test]
@@ -406,18 +303,6 @@ fn a_japanese_plugin_folder_and_handler_name_work() {
     let report = world.call(&mut host, "日本語/スクリプト.js", PATIENT);
     assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
     assert_eq!(world.doc.text(), "名前");
-}
-
-#[test]
-fn a_language_that_cannot_serve_a_plugin_yet_says_so() {
-    let dir = plugin_dir(&[("a.lua", "print(1)")]);
-    let mut settings = HostSettings::new("p", dir.path(), Language::Bundled(Engine::Lua), false);
-    settings.interpreter = env!("CARGO_BIN_EXE_matsu-script").into();
-    let mut host = PluginHost::new(settings);
-    let error = host
-        .begin("Command", "a.lua", &Value::Null, PATIENT)
-        .unwrap_err();
-    assert!(error.to_string().contains("まだ動かせません"), "{error}");
 }
 
 #[test]

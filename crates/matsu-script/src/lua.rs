@@ -6,6 +6,7 @@
 //! value or into a thrown `EditorError`, because a Rust function cannot throw a table.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -15,7 +16,8 @@ use mlua::{Function, MultiValue, Table, Value as LuaValue, Variadic};
 use serde_json::{Number, Value};
 
 use crate::engine::Engine;
-use crate::rpc::{CallError, Editor, Initialize};
+use crate::plugin::{self, serve_each};
+use crate::rpc::{CallError, Editor, Initialize, Invoke, LinkEditor, PluginInit, PluginLink};
 
 pub struct Lua;
 
@@ -48,10 +50,78 @@ _G.Editor = Editor
 _G.EditorError = EditorError
 "#;
 
+/// Makes the objects of a plugin out of the Rust functions of `raw` (one for each full name,
+/// `Plugin.GetDef`), and returns `Plugin`; `members` lists the names of each object:
+///
+/// - `Plugin` has the calls the editor answers, and `id`, `dir`, `jack` and `args` (the handler's
+///   arguments, set before each call);
+/// - `Outline` has the calls of the jack `Outline`;
+/// - `Complement` has `GetCurrentWord` and `GetOption`, which read `Plugin.args`, and `AddList`.
+///
+/// Every function answers like those of `Editor` (see `BOOT`), so an error is an `EditorError`.
+const PLUGIN_BOOT: &str = r#"
+local EditorError, raw, members, identity = ...
+local function object(prefix)
+  local o = {}
+  for _, name in ipairs(members[prefix]) do
+    local call = raw[prefix .. "." .. name]
+    o[name] = function(...)
+      local ok, a, b, c = call(...)
+      if ok then
+        return a
+      end
+      error(setmetatable({code = a, message = b, where = c}, EditorError), 0)
+    end
+  end
+  return o
+end
+local Plugin = object("Plugin")
+Plugin.id = identity.id
+Plugin.dir = identity.dir
+Plugin.jack = ""
+local Outline = object("Outline")
+local Complement = object("Complement")
+-- 0x01: ignore the case of letters; 0x02: the words of the document are a source.
+function Complement.GetCurrentWord()
+  local args = Plugin.args
+  if type(args) == "table" and type(args.word) == "string" then
+    return args.word
+  end
+  return ""
+end
+function Complement.GetOption()
+  local args = Plugin.args
+  if type(args) == "table" and math.type(args.option) == "integer" then
+    return args.option
+  end
+  return 0
+end
+_G.Plugin = Plugin
+_G.Outline = Outline
+_G.Complement = Complement
+return Plugin
+"#;
+
 impl Engine for Lua {
+    /// A plugin: one Lua state for each handler file, for as long as the host lives, so that the
+    /// globals a handler leaves are there for the next call of the same file and no other file sees
+    /// them (ADR-0026).
+    fn serve(&self, init: &PluginInit, link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
+        let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(LinkEditor(link.clone())));
+        let mut states: HashMap<String, PluginState> = HashMap::new();
+        serve_each(&link, |invoke| {
+            if !states.contains_key(&invoke.name) {
+                let state = PluginState::new(init, &editor)
+                    .map_err(|e| format!("cannot set up Lua: {e}"))?;
+                states.insert(invoke.name.clone(), state);
+            }
+            states[&invoke.name].run(invoke).map_err(|e| e.to_string())
+        })
+    }
+
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
         let lua = mlua::Lua::new();
-        install(&lua, init, &editor).map_err(|e| format!("cannot set up Lua: {e}"))?;
+        install(&lua, &init.info, &editor).map_err(|e| format!("cannot set up Lua: {e}"))?;
         let main = lua
             .load(prepare_source(&init.script.source))
             .set_name(format!("@{}", init.script.name))
@@ -70,11 +140,91 @@ fn prepare_source(source: &str) -> String {
     }
 }
 
-fn install(
-    lua: &mlua::Lua,
-    init: &Initialize,
-    editor: &Rc<RefCell<dyn Editor>>,
-) -> mlua::Result<()> {
+/// The error that the handler's `os.exit` raises.
+#[derive(Debug)]
+struct HandlerExit;
+
+impl std::fmt::Display for HandlerExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("os.exit")
+    }
+}
+
+impl std::error::Error for HandlerExit {}
+
+/// The Lua state of one handler file of a plugin.
+struct PluginState {
+    lua: mlua::Lua,
+    /// The `Plugin` object: `jack` and `args` are set before each call.
+    plugin: Table,
+}
+
+impl PluginState {
+    fn new(init: &PluginInit, editor: &Rc<RefCell<dyn Editor>>) -> mlua::Result<Self> {
+        let lua = mlua::Lua::new();
+        install(&lua, &init.info, editor)?;
+        // `os.exit` would end the whole host (and the state of every plugin file with it): in a
+        // handler it ends the handler only, with no failure, as `sys.exit()` does in Python.
+        // It raises an error of its own type, which the end of the chunk recognizes (a handler may
+        // catch it with `pcall`, and then it simply goes on, as `except SystemExit` does).
+        let exit = lua.create_function(|_, _: Variadic<LuaValue>| -> mlua::Result<()> {
+            Err(mlua::Error::external(HandlerExit))
+        })?;
+        let os: Table = lua.globals().get("os")?;
+        os.set("exit", exit)?;
+        let raw = lua.create_table()?;
+        let members = lua.create_table()?;
+        for object in ["Plugin", "Outline", "Complement"] {
+            members.set(object, lua.create_table()?)?;
+        }
+        for name in plugin::object_calls() {
+            raw.set(name, bind(&lua, name, None, editor.clone())?)?;
+            let (object, member) = plugin::split(name);
+            let list: Table = members.get(object)?;
+            list.push(member)?;
+        }
+        let identity = json_to_lua(&lua, &init.plugin)?;
+        let error: LuaValue = lua.globals().get("EditorError")?;
+        let plugin = lua
+            .load(PLUGIN_BOOT)
+            .set_name("=matsu-script plugin boot")
+            .call((error, raw, members, identity))?;
+        Ok(Self { lua, plugin })
+    }
+
+    /// Runs the text of a handler in the globals of this state.
+    fn run(&self, invoke: &Invoke) -> mlua::Result<()> {
+        self.plugin.set("jack", invoke.jack.as_str())?;
+        self.plugin
+            .set("args", json_to_lua(&self.lua, &invoke.args)?)?;
+        // The `Indent` object of the jack `SmartIndent` (Sakura's `CSmartIndentIfObj`): `GetChar`
+        // answers the typed char.
+        let indent = if invoke.jack == "SmartIndent" {
+            let typed = plugin::typed_char(&invoke.args).to_owned();
+            let object = self.lua.create_table()?;
+            object.set(
+                "GetChar",
+                self.lua.create_function(move |_, ()| Ok(typed.clone()))?,
+            )?;
+            LuaValue::Table(object)
+        } else {
+            LuaValue::Nil
+        };
+        self.lua.globals().set("Indent", indent)?;
+        let result = self
+            .lua
+            .load(prepare_source(&invoke.source))
+            .set_name(format!("@{}", invoke.name))
+            .into_function()?
+            .call::<()>(());
+        match result {
+            Err(error) if error.downcast_ref::<HandlerExit>().is_some() => Ok(()),
+            other => other,
+        }
+    }
+}
+
+fn install(lua: &mlua::Lua, info: &Value, editor: &Rc<RefCell<dyn Editor>>) -> mlua::Result<()> {
     // The script's `io.write` goes to the C stdout, which must not hold text back: the
     // requests are written to the same pipe by Rust and have to stay in order with it.
     lua.load("io.stdout:setvbuf('no'); io.stderr:setvbuf('no')")
@@ -104,18 +254,20 @@ fn install(
     let mut names = Vec::with_capacity(entries().len());
     for func in entries() {
         names.push(func.name);
-        raw.set(func.name, bind(lua, func, editor.clone())?)?;
+        raw.set(func.name, bind(lua, func.name, Some(func), editor.clone())?)?;
     }
-    let info = json_to_lua(lua, &init.info)?;
+    let info = json_to_lua(lua, info)?;
     lua.load(BOOT)
         .set_name("=matsu-script boot")
         .call::<()>((raw, names, info))
 }
 
-/// One function of the macro API as a Rust function for Lua.
+/// One function of the macro API (or a call of a plugin object, which has no entry) as a Rust
+/// function for Lua.
 fn bind(
     lua: &mlua::Lua,
-    func: &'static Entry,
+    name: &'static str,
+    func: Option<&'static Entry>,
     editor: Rc<RefCell<dyn Editor>>,
 ) -> mlua::Result<Function> {
     lua.create_function(move |lua, args: Variadic<LuaValue>| {
@@ -134,21 +286,30 @@ fn bind(
         }
         let mut params = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
-            match lua_to_json(arg) {
+            // `Complement.AddList(2)` adds "2", as `String(word)` does in JavaScript.
+            let converted = match arg {
+                LuaValue::Integer(_) | LuaValue::Number(_) | LuaValue::Boolean(_)
+                    if name == "Complement.AddList" =>
+                {
+                    arg.to_string()
+                        .map(Value::String)
+                        .map_err(|e| e.to_string())
+                }
+                _ => lua_to_json(arg),
+            };
+            match converted {
                 Ok(value) => params.push(value),
                 Err(got) => {
-                    let (name, ty) = func
-                        .params
-                        .get(index)
+                    let (param, ty) = func
+                        .and_then(|func| func.params.get(index))
                         .map_or(("?", "a value"), |p| (p.name, p.ty.name()));
                     return failed(RpcError::invalid_params(format!(
-                        "{}: argument \"{name}\" must be {ty}, got {got}",
-                        func.name
+                        "{name}: argument \"{param}\" must be {ty}, got {got}"
                     )));
                 }
             }
         }
-        let answer = editor.borrow_mut().call(func.name, params);
+        let answer = editor.borrow_mut().call(name, params);
         match answer {
             Ok(result) => Ok(MultiValue::from_iter([
                 LuaValue::Boolean(true),

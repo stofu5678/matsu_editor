@@ -147,25 +147,6 @@ impl Language {
             .map(|(_, language)| *language)
     }
 
-    /// Whether a plugin can be served in this language (ADR-0026): the bundled QuickJS, Node.js
-    /// (`.cjs`, `.mjs` and, on a Node.js that strips types, `.ts`), Python, Ruby, PHP, PowerShell,
-    /// Perl, Emacs Lisp and AppleScript (macOS only). The other languages are not served yet.
-    pub fn serves_plugins(self) -> bool {
-        matches!(
-            self,
-            Self::Bundled(Engine::QuickJs)
-                | Self::JavaScript
-                | Self::TypeScript
-                | Self::Python
-                | Self::Ruby
-                | Self::Php
-                | Self::PowerShell
-                | Self::Perl
-                | Self::EmacsLisp
-                | Self::AppleScript
-        )
-    }
-
     /// Whether this OS can run the language. AppleScript runs only on macOS.
     pub fn runs_here(self) -> bool {
         self != Self::AppleScript || cfg!(target_os = "macos")
@@ -328,8 +309,8 @@ pub struct MacroConfig {
 pub const PLUGIN_LIFETIME: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 
 impl MacroConfig {
-    /// The configuration of a host for the plugin `plugin`, run by `language` (see
-    /// [`Language::serves_plugins`]).
+    /// The configuration of a host for the plugin `plugin`, run by `language`. Every language serves
+    /// plugins (ADR-0026).
     pub fn for_plugin(
         plugin: crate::protocol::PluginIdentity,
         language: Language,
@@ -375,10 +356,6 @@ pub enum StartError {
     NotSupportedHere {
         language: Language,
     },
-    /// The language cannot serve a plugin yet.
-    PluginNotSupported {
-        language: Language,
-    },
     /// The script could not be read (the bundled host gets its text from the editor).
     ReadScript {
         script: PathBuf,
@@ -402,11 +379,6 @@ impl std::fmt::Display for StartError {
             Self::NotSupportedHere { language } => write!(
                 f,
                 "{} のマクロは macOS でだけ動かせます (osascript が要ります)",
-                language.display_name()
-            ),
-            Self::PluginNotSupported { language } => write!(
-                f,
-                "{} のプラグインはまだ動かせません (今は .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ) だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -558,11 +530,6 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 pub fn start(config: &MacroConfig, sink: Sink) -> Result<Session, StartError> {
     if config.language == Language::AppleScript && !cfg!(target_os = "macos") {
         return Err(StartError::NotSupportedHere {
-            language: config.language,
-        });
-    }
-    if config.plugin.is_some() && !config.language.serves_plugins() {
-        return Err(StartError::PluginNotSupported {
             language: config.language,
         });
     }

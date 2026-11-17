@@ -33,6 +33,9 @@
 | 拡張子 | 動かすもの |
 |---|---|
 | `.js` | 同梱の QuickJS（[JavaScript（QuickJS）](lang-quickjs.md)） |
+| `.lua` | 同梱の Lua（[Lua](lang-lua.md)） |
+| `.upy` | 同梱の MicroPython（[MicroPython](lang-micropython.md)）。`.py` は、利用者が入れた Python です |
+| `.mruby` | 同梱の mruby（[mruby](lang-mruby.md)）。`.rb` は、利用者が入れた Ruby です |
 | `.cjs` | 利用者が入れた Node.js（[JavaScript（Node.js）と TypeScript](lang-node.md)）。`.mjs`（ES モジュール）と `.ts`（TypeScript）も動かせます |
 | `.py` | 利用者が入れた Python（[Python](lang-python.md)） |
 | `.rb` | 利用者が入れた Ruby（[Ruby](lang-ruby.md)） |
@@ -44,7 +47,7 @@
 
 1 つのプラグインに、言語の違うハンドラを混ぜることもできます。言語ごとに、別のプロセスで動きます。失敗の数は、言語に関わらず、プラグインで数えます。3 回続けて失敗すると、プラグインが止まります。
 
-Lua、MicroPython、mruby のハンドラを持つプラグインも、追加して有効にできます。ただし、そのハンドラを動かす場面が来ると、動かせません。コマンドを選んだときは、状態バーに「`<ハンドラ名>` は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ) のどれかにしてください」と出ます。イベントなど、自動で呼ぶ場面では、何も言わずに飛ばします。
+ハンドラの拡張子が、上の表にないとき（`.vbs` を除く）は、コマンドを選んだときに、状態バーに「`<ハンドラ名>` は動かせません。プラグインのハンドラは .js、.cjs、.mjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript (macOS だけ)、.lua、.mruby、.upy のどれかにしてください」と出ます。イベントなど、自動で呼ぶ場面では、何も言わずに飛ばします。
 
 次のプラグインは、一覧に「使えません」と出て、有効にできません。
 
@@ -67,7 +70,7 @@ Lua、MicroPython、mruby のハンドラを持つプラグインも、追加し
 - 設計: `docs/adr/0026-resident-plugins.md` の「決めたこと」と「追記（2026-11-03）」
 - ジャックの一覧: `crates/matsu-config/src/plugins/def.rs` の `Jack`
 - 使えないプラグイン: 同ファイルの `PluginDef::unsupported`、`is_vbscript`。一覧の言葉は `crates/matsu-ui/src/common_settings/pages/plugin/rows.rs` の `unsupported_text`
-- 動かせる言語: `crates/matsu-plugin/src/session.rs` の `Language::serves_plugins`、`start`（`PluginNotSupported`）。`crates/matsu-ui/src/macros/plugin_call.rs` の `prepare`（言語ごとのホスト）
+- 動かせる言語: `crates/matsu-plugin/src/session.rs` の `Language::FILE_EXTENSIONS`、`Language::of_file`。`crates/matsu-ui/src/macros/plugin_call.rs` の `prepare`（言語ごとのホスト）。同梱の言語の待ち受け: `crates/matsu-script/src/plugin.rs`
 - Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript の待ち受け: `crates/matsu-plugin/src/boot/boot.cjs`、`boot.py`、`boot.rb`、`boot.php`、`boot.ps1`、`boot.pl`、`boot.el`、`boot.applescript`（`servePlugin`、`_serve_plugin`、`MatsuPlugin.serve`、`nextInvoke`、`Start-MatsuPlugin`、`serve`、`plugin--serve`、`pluginServe`）
 - 自動で呼ぶ場面が何も言わず飛ばすこと: `prepare_event`（`.ok()` で失敗を捨てる）
 - コマンドやマクロの間はイベントを配らないこと: `crates/matsu-ui/src/plugin_events.rs` の冒頭の説明、`crates/matsu-ui/src/macros/plugin_call.rs` の `Turn::Taken`
