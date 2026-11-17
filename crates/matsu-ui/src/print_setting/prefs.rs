@@ -122,7 +122,12 @@ impl PrintPrefs {
         // A file that cannot be written leaves the settings for this session.
         self.settings = match (saved, merged) {
             (Ok(_), Some(now)) => now,
-            _ => new.clone(),
+            // The dialog's changes go over what this session has, which keeps its printer.
+            _ => {
+                let mut now = self.settings.clone();
+                replace_changed(&mut now, new, &before);
+                now
+            }
         };
     }
 }
@@ -266,6 +271,22 @@ mod tests {
         assert_eq!(now.get(0).print_font_height, 40);
         assert_eq!(now.get(0).printer, printer("PDF"));
         assert_eq!(prefs.settings.get(0).print_margin_lx, 330);
+        assert_eq!(prefs.settings.get(0).printer, printer("PDF"));
+    }
+
+    /// A settings file that cannot be written: the session keeps the printer it remembered when an
+    /// older dialog commits.
+    #[test]
+    fn the_dialog_does_not_put_an_old_printer_back_when_the_file_cannot_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory is not a file that can be written.
+        let mut prefs = PrintPrefs::load(None, Some(dir.path().to_owned()));
+        let original = prefs.settings.clone();
+        prefs.set_printer(0, printer("PDF"));
+        let mut new = original.clone();
+        new.get_mut(0).print_margin_lx = 150;
+        prefs.change(&new, &original, None);
+        assert_eq!(prefs.settings.get(0).print_margin_lx, 150);
         assert_eq!(prefs.settings.get(0).printer, printer("PDF"));
     }
 
