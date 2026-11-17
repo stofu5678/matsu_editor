@@ -262,6 +262,19 @@ pub fn chop_yen(folder: &str) -> String {
     folder.to_owned()
 }
 
+/// [`chop_yen`] for a folder that `GetLongFileName` made absolute: a drive root stays `C:\`.
+/// `C:` alone is the current folder of that drive, so the walk would canonicalize it to another
+/// folder (searching `..` from `C:\work` would skip the real `C:\work` as a cycle). A UNC root
+/// (`\\server\share\`) is the same path without its last separator, so it is chopped as usual.
+pub(super) fn chop_yen_keeping_root(folder: &str) -> String {
+    let chopped = chop_yen(folder);
+    let mut chars = chopped.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(drive), Some(':'), None) if drive.is_ascii_alphabetic() => format!("{chopped}\\"),
+        _ => chopped,
+    }
+}
+
 /// Stopped by the user.
 struct Stopped;
 
@@ -410,10 +423,15 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
         // `CreateFolders`: each folder in its long form (`GetLongFileName`; only Windows has one).
         split_folders(&info.folder)
             .into_iter()
-            .map(|folder| matsu_platform::long_path::long_path(&folder).unwrap_or(folder))
-            .collect()
+            .map(
+                |folder| match matsu_platform::long_path::long_path(&folder) {
+                    Some(long) => (long, true),
+                    None => (folder, false),
+                },
+            )
+            .collect::<Vec<_>>()
     };
-    if !folders.iter().all(|folder| Path::new(folder).is_dir()) {
+    if !folders.iter().all(|(folder, _)| Path::new(folder).is_dir()) {
         return Err(GrepError::FolderMissing);
     }
     Ok(Prepared {
@@ -421,7 +439,16 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
         replacer,
         keys,
         regexes,
-        folders: folders.iter().map(|f| chop_yen(f)).collect(),
+        folders: folders
+            .iter()
+            .map(|(folder, expanded)| {
+                if *expanded {
+                    chop_yen_keeping_root(folder)
+                } else {
+                    chop_yen(folder)
+                }
+            })
+            .collect(),
     })
 }
 
