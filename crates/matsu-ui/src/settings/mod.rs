@@ -341,6 +341,17 @@ impl UserSettings {
         }
     }
 
+    /// What a Grep needs to detect the encoding of each file with the settings of its type
+    /// ([`GrepInfo::type_detect`](crate::grep::engine::GrepInfo::type_detect)); `None` without a
+    /// settings file.
+    pub fn grep_type_detect(&self) -> Option<crate::grep::engine::TypeDetect> {
+        let profile = self.profile.as_ref()?;
+        Some(crate::grep::engine::TypeDetect::new(
+            self.shared_types(),
+            profile.clone(),
+        ))
+    }
+
     /// The encoding, BOM and line ending a document of type `index` gets.
     pub fn new_document_defaults_of_type(&self, index: usize) -> NewDocumentDefaults {
         match &self.profile {

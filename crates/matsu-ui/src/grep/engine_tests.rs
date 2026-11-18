@@ -83,6 +83,7 @@ impl Project {
             huge_file_len: None,
             window: None,
             window_gone: false,
+            type_detect: None,
         }
     }
 }
@@ -1049,4 +1050,65 @@ fn an_expanded_drive_root_keeps_its_separator() {
     // a UNC root is the same path without its last separator
     assert_eq!(chop("\\\\server\\share\\"), "\\\\server\\share");
     assert_eq!(chop("/"), "/");
+}
+
+/// The detection settings of the types: the type of `a.txt` prefers CESU-8, the type of `b.dat`
+/// (the basic type) does not (`CGrepAgent::DoGrepFile`: `CCodeMediator( type->m_encoding )`).
+fn cesu8_for_txt_only() -> super::engine::TypeDetect {
+    use std::sync::Arc;
+
+    use matsu_config::Profile;
+    use matsu_config::settings::DocumentTypes;
+
+    let types = DocumentTypes::builtin();
+    let txt = types.type_index_for_file_name("a.txt");
+    assert_ne!(txt, types.type_index_for_file_name("b.dat"));
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(format!("[Types({txt})]\r\nbPriorCesu8=1\r\n").as_bytes());
+    let profile = Profile::from_bytes(&bytes);
+    super::engine::TypeDetect::new(Arc::new(DocumentTypes::from_profile(&profile)), profile)
+}
+
+/// Japanese text with no surrogate pair: UTF-8 and CESU-8 read it the same, so only the
+/// preference of the type decides.
+const TIE: &str = "日本語のテキストです。検索の対象になります。\r\n";
+
+#[test]
+fn the_cesu8_preference_of_the_type_of_each_file_decides_the_encoding_of_a_hit() {
+    let p = Project::new();
+    p.write("a.txt", TIE.as_bytes())
+        .write("b.dat", TIE.as_bytes());
+    let mut info = p.info("テキスト");
+    info.type_detect = Some(cesu8_for_txt_only());
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2, "{text}");
+    assert!(
+        text.contains(&format!("{}(1,5)  [CESU-8]:", p.path("a.txt"))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{}(1,5)  [UTF-8]:", p.path("b.dat"))),
+        "{text}"
+    );
+    // without the types: the defaults, UTF-8 for both
+    let (text, _) = grep(&p.info("テキスト"));
+    assert!(!text.contains("CESU-8"), "{text}");
+}
+
+#[test]
+fn the_search_of_the_names_shows_the_encoding_the_type_detects() {
+    let p = Project::new();
+    p.write("a.txt", TIE.as_bytes())
+        .write("b.dat", TIE.as_bytes());
+    let mut info = p.info("");
+    info.type_detect = Some(cesu8_for_txt_only());
+    let (text, _) = grep(&info);
+    assert!(
+        text.contains(&format!("{}  [CESU-8]", p.path("a.txt"))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{}  [UTF-8]", p.path("b.dat"))),
+        "{text}"
+    );
 }

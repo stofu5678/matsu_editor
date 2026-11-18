@@ -5,6 +5,8 @@
 //! context ([`CommandContext::with_input_options`](crate::context::CommandContext::with_input_options)).
 //! The defaults are those of `InitTypeConfigDefault` (`sakura_core/types/CType.cpp`).
 
+use matsu_core::encoding::{DetectOptions, Encoding};
+
 /// `m_eSmartIndent`: the two kinds Sakura has built in, and the plug of a plugin, which Sakura
 /// stores as the function code of the plug (`CPlug::GetSmartIndentType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -105,6 +107,11 @@ pub struct InputOptions {
     /// `m_bIndentCppUndoSep` (`bIndentCppUndoSep`): the C/C++ smart indent is an undo step apart
     /// from the typed char. Off by default.
     pub cpp_undo_sep: bool,
+    /// `m_encoding` (`SEncodingConfig`) of the type, what the automatic detection reads:
+    /// `m_eDefaultCodetype` and `m_bPriorCesu8`. `F_CODECNV_AUTO2SJIS` hands it to its detection
+    /// (`CConversionFacade` gets `m_cDocType.GetDocumentAttribute().m_encoding`). UTF-8 and off by
+    /// default.
+    pub detect: DetectOptions,
 }
 
 /// The defaults, for a context that is given no options (it borrows this one).
@@ -117,6 +124,10 @@ pub static DEFAULT_INPUT_OPTIONS: InputOptions = InputOptions {
     cpp_string_ignore: true,
     cpp_comment_ignore: true,
     cpp_undo_sep: false,
+    detect: DetectOptions {
+        default_encoding: Encoding::Utf8,
+        prefer_cesu8: false,
+    },
 };
 
 impl Default for InputOptions {

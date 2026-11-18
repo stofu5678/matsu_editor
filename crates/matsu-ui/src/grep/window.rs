@@ -606,6 +606,7 @@ impl EditorView {
     pub(crate) fn begin_grep(&mut self, mut info: GrepInfo, cx: &mut Context<Self>) {
         let prefs = crate::file_ops::prefs::prefs(cx);
         info.mime_decode = prefs.auto_mime_decode;
+        info.type_detect = crate::doc_types::with_user(cx, |user| user.grep_type_detect());
         // A file as big as this is opened by ranges, so Grep reads it in order too (ADR-0020).
         info.huge_file_len = Some(prefs.huge_file_len());
         // The key is marked in the result (`m_strCurSearchKey`, `m_bCurSrchKeyMark`).
