@@ -452,6 +452,12 @@ pub(crate) async fn save(
         snapshot.write(&on_path, &to_write, progress)
     })
     .await;
+    // The document that was written is not the one in the window any more (a close that keeps the
+    // window, a close-and-open): nothing of the finish is for the replacement, whose lock and path
+    // are its own (it may be saving itself).
+    if !same_document(view, cx) {
+        return SaveOutcome::Cancelled;
+    }
     let written = view
         .update(cx, |view, cx| {
             view.finish_save_now(target, &options, write, cx)

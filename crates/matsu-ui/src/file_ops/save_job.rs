@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use gpui::{AsyncWindowContext, Entity, WeakEntity};
+use gpui::{AsyncWindowContext, WeakEntity};
 use matsu_core::file::{FileError, SaveSnapshot};
 
 use crate::document::SharedDocument;
@@ -144,7 +144,9 @@ pub(crate) async fn run<T: Send + 'static>(
             }
             Ok((snapshot, big, version, generation))
         });
-        (document, prepared)
+        // Only a weak hold goes across the awaits: the document must go when its last view is
+        // closed (that drops the job and raises the flag at once), not when this flow ends.
+        (document.downgrade(), prepared)
     });
     let Ok((document, prepared)) = prepared else {
         return Err(FileError::Cancelled);
@@ -173,8 +175,12 @@ pub(crate) async fn run<T: Send + 'static>(
     )
     .await;
     // The job is over, however it ended (or the document was replaced, which dropped it already).
-    cx.update(|_, app| document.update(app, |shared, _| shared.end_saving(&state)))
-        .ok();
+    cx.update(|_, app| {
+        if let Some(document) = document.upgrade() {
+            document.update(app, |shared, _| shared.end_saving(&state));
+        }
+    })
+    .ok();
     result
 }
 
@@ -183,7 +189,7 @@ pub(crate) async fn run<T: Send + 'static>(
 async fn wait_for<T: Send + 'static>(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
-    document: &Entity<SharedDocument>,
+    document: &WeakEntity<SharedDocument>,
     state: &Arc<JobState>,
     task: gpui::Task<Result<T, FileError>>,
     verb: &'static str,

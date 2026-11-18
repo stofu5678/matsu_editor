@@ -314,3 +314,46 @@ fn a_save_that_waited_at_a_question_is_refused_when_another_began_writing(cx: &m
     );
     assert!(state.report(0, 1).is_continue(), "and was not stopped");
 }
+
+/// The last view of a document is closed during a save: the document goes, and its job with it,
+/// at once (the flow holds the document only weakly), so the thread is told before it writes.
+#[gpui::test]
+fn dropping_the_last_hold_of_a_document_stops_its_job_at_once(cx: &mut TestAppContext) {
+    let shared = cx.new(|_| SharedDocument::empty());
+    let job = SaveJob::new();
+    let state = job.state();
+    shared.update(cx, |shared, _| shared.begin_saving(job));
+    let weak = shared.downgrade();
+    assert!(state.report(0, 1).is_continue());
+    drop(shared);
+    cx.run_until_parked();
+    assert!(weak.upgrade().is_none(), "the document is gone");
+    assert!(state.report(0, 1).is_break(), "and the thread is told");
+}
+
+/// The document is replaced while the thread writes: the old flow does not finish on the
+/// replacement (its path, its lock, its notice stay its own).
+#[gpui::test]
+fn a_flow_of_a_replaced_document_leaves_the_replacement_alone(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, 0);
+    open(&view, cx, &path);
+    cx.simulate_input("x");
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_FILESAVE")
+        .unwrap()
+        .code;
+    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    // the flow waits for its thread; the window gets another document meanwhile
+    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    settle(cx);
+    let (path_of_new, notice, saving) = view.read_with(cx, |view, app| {
+        let shared = view.document().read(app);
+        (shared.path().map(PathBuf::from), view.notice.clone(), shared.is_saving())
+    });
+    assert_eq!(path_of_new, None, "the replacement did not take the path of the file");
+    assert!(!notice.is_some_and(|n| n.contains("に保存した")));
+    assert!(!saving);
+}
