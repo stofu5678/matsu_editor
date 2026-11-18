@@ -994,6 +994,7 @@ fn a_key_macro_that_splits_sees_the_panes_after_the_split(cx: &mut TestAppContex
     // At most a page of the split pane (the panel of a macro that waits takes some of its height, so
     // it can be less), and nowhere near a page of the whole window.
     assert!(f.caret_of(cx, 0).line <= half, "{}", f.caret_of(cx, 0).line);
+}
 
 /// Undo and redo move the carets of the other panes like the edits they amount to, not only
 /// into the text: a caret after the undone edit goes back with the text.
