@@ -939,3 +939,59 @@ fn a_box_selection_of_another_pane_keeps_its_caret_and_columns_together(cx: &mut
         assert_eq!(cursor.selection(), Some((Pos::new(0, 1), Pos::new(1, 5))));
     });
 }
+
+/// Plays the key macro file `text` in pane 0 and lets its waits end.
+fn play_key_macro(f: &Fixture, cx: &mut VisualTestContext, text: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.mac");
+    std::fs::write(&path, text).unwrap();
+    f.pane(cx, 0).update_in(cx, |v, window, cx| {
+        v.run_function(
+            crate::macros::F_EXECEXTMACRO,
+            &[matsu_commands::command::Arg::Text(
+                path.to_string_lossy().into_owned(),
+            )],
+            window,
+            cx,
+        )
+    });
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+    }
+}
+
+/// A key macro that splits the window and then moves by a page: the page is the one of the split
+/// pane, not the one of the window before the split (#91). The split used to be done after the
+/// command ended, which for a key macro was after all its steps.
+#[gpui::test]
+fn a_key_macro_that_splits_sees_the_panes_after_the_split(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    let top = Pos { line: 0, col: 0 };
+    let page = "1PageDown();\n";
+
+    // A page down by a key macro, in the window that is not split and in a split one.
+    let pane = f.pane(cx, 0);
+    put_caret(cx, &pane, top);
+    play_key_macro(&f, cx, page);
+    let whole = f.caret_of(cx, 0).line;
+    f.run(cx, F_SPLIT_V);
+    assert_eq!(f.grid(cx), (2, 1));
+    let pane = f.pane(cx, 0);
+    put_caret(cx, &pane, top);
+    play_key_macro(&f, cx, page);
+    let half = f.caret_of(cx, 0).line;
+    assert!(half < whole, "{half} {whole}");
+    f.run(cx, F_SPLIT_V);
+    assert_eq!(f.grid(cx), (1, 1));
+
+    // The same page down after a split made by the macro itself moves by the page of the split pane.
+    let pane = f.pane(cx, 0);
+    put_caret(cx, &pane, top);
+    play_key_macro(&f, cx, &format!("SplitWinV();\n{page}"));
+    assert_eq!(f.grid(cx), (2, 1));
+    // At most a page of the split pane (the panel of a macro that waits takes some of its height, so
+    // it can be less), and nowhere near a page of the whole window.
+    assert!(f.caret_of(cx, 0).line <= half, "{}", f.caret_of(cx, 0).line);
+}
