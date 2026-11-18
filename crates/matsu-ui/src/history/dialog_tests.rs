@@ -395,7 +395,7 @@ fn the_list_of_excluded_paths_has_rows_without_favorites() {
 fn paths_go_to_the_front_of_the_excluded_list_without_repeats() {
     let mut h = sample();
     h.except = vec!["a".into(), "b".into()];
-    assert!(add_to_except(&mut h, &["c".into(), "b".into()]));
+    assert!(add_to_except(&mut h, vec!["c".into(), "b".into()]));
     // `AppendItemText` puts each at the front: a text that is there comes up.
     assert_eq!(h.except, ["b", "c", "a"]);
 }
@@ -406,7 +406,7 @@ fn a_full_excluded_list_takes_what_fits_and_says_so() {
     h.except = (0..matsu_config::history::MAX_EXCEPT_MRU - 1)
         .map(|i| format!("t{i}"))
         .collect();
-    assert!(!add_to_except(&mut h, &["x".into(), "y".into()]));
+    assert!(!add_to_except(&mut h, vec!["x".into(), "y".into()]));
     assert_eq!(h.except.len(), matsu_config::history::MAX_EXCEPT_MRU);
     assert_eq!(h.except[0], "x");
     assert!(!h.except.contains(&"y".to_owned()));

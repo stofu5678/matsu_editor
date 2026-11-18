@@ -214,17 +214,18 @@ pub(crate) fn delete_selected(history: &mut History, tab: Tab, indices: &BTreeSe
 
 /// 除外リストに追加 (`MENU_ADD_EXCEPT`): puts the paths in front of `ExceptMRU`, one by one
 /// (`AppendItemText`: a text that is there already comes to the front). The list takes
-/// `MAX_EXCEPT_MRU` texts; what does not fit is left out. Returns whether all of them went in.
-pub(crate) fn add_to_except(history: &mut History, paths: &[String]) -> bool {
+/// `MAX_EXCEPT_MRU` texts; what does not fit is left out. The texts move into the list. Returns
+/// whether all of them went in.
+pub(crate) fn add_to_except(history: &mut History, paths: Vec<String>) -> bool {
     let mut all = true;
     for path in paths {
-        if let Some(at) = history.except.iter().position(|t| t == path) {
+        if let Some(at) = history.except.iter().position(|t| *t == path) {
             history.except.remove(at);
         } else if history.except.len() >= matsu_config::history::MAX_EXCEPT_MRU {
             all = false;
             continue;
         }
-        history.except.insert(0, path.clone());
+        history.except.insert(0, path);
     }
     all
 }
@@ -304,6 +305,8 @@ pub(crate) struct FavoriteDialog {
     /// Where the window is, kept for the next dialog when this one is closed
     /// (`CDlgFavorite::OnDestroy`).
     rect: Rect,
+    /// The wait for the answer to the box that says the list of excluded paths is full.
+    notice_task: Option<gpui::Task<()>>,
 }
 
 /// The rectangle of the window as the dialog opens it: the restored one when it is maximized,
@@ -356,6 +359,7 @@ impl FavoriteDialog {
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             rect: window_rect(window),
+            notice_task: None,
         }
     }
 
@@ -550,23 +554,23 @@ impl FavoriteDialog {
         if !self.tab.is_path_list() || self.selected.is_empty() {
             return;
         }
-        let selected = self.selected.clone();
         let paths: Vec<String> = self
             .rows()
             .into_iter()
             .enumerate()
-            .filter(|(i, _)| selected.contains(i))
+            .filter(|(i, _)| self.selected.contains(i))
             .map(|(_, r)| r.text)
             .collect();
         let mut all = true;
-        self.change(cx, |h| all = add_to_except(h, &paths));
+        self.change(cx, |h| all = add_to_except(h, paths));
         if !all {
             let answer =
                 crate::boxes::prompt(window, PromptLevel::Warning, EXCEPT_FULL, None, &["OK"], cx);
-            cx.spawn_in(window, async move |_, _| {
+            // The dialog keeps the task that waits for the answer: it only has to see the box
+            // closed, and it ends with the dialog (and with the box, whose answer then fails).
+            self.notice_task = Some(cx.spawn_in(window, async move |_, _| {
                 answer.await.ok();
-            })
-            .detach();
+            }));
         }
     }
 

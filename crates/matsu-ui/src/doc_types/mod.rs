@@ -110,6 +110,14 @@ impl EditorView {
         self.apply_settings(settings, cx);
         self.document
             .update(cx, |shared, cx| shared.announce_type(index, cx));
+        // The type changed after the load took the tab width and the spaces of the file
+        // (`apply_loaded_indentation`): the settings reset them, so take them again, with the
+        // detection that this type asks for. The other panes follow, as in `load_document`.
+        self.apply_loaded_indentation(true, cx);
+        let this = cx.entity();
+        cx.defer(move |cx| {
+            this.update(cx, |view, cx| view.copy_indent_to_other_panes(cx));
+        });
         true
     }
 

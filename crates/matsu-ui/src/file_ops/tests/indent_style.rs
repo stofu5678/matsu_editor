@@ -126,3 +126,60 @@ fn the_settings_file_is_not_written(cx: &mut TestAppContext) {
     assert_eq!(widths(&f, cx).0, (2, true));
     assert_eq!(std::fs::read(&ini).unwrap(), before);
 }
+
+/// The history remembers `path` with the type of id `type_id`.
+fn remember_type(cx: &mut TestAppContext, path: &std::path::Path, type_id: i32) {
+    cx.update(|app| {
+        app.set_global(crate::history::HistoryState::in_memory(
+            crate::history::HistoryOptions::default(),
+        ));
+        crate::history::update(app, |h| {
+            let mut entry =
+                matsu_config::history::FileEntry::new(crate::history::view::path_text(path));
+            entry.type_id = type_id;
+            h.add_file(entry);
+        });
+    });
+}
+
+#[gpui::test]
+fn the_type_from_the_history_detects_the_indentation_it_asks_for(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", TWO_SPACES);
+    // Only the basic type (id 0) detects; the type of the name does not.
+    let mut text = String::from("[Other]\r\nnTypesCount=17\r\n");
+    for i in 0..17 {
+        text.push_str(&format!(
+            "[Types({i})]\r\nbDetectIndentationStyleOnFileLoad={}\r\n",
+            i32::from(i == 0)
+        ));
+    }
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(text.as_bytes());
+    cx.update(|app| {
+        app.set_global(UserSettings::from_profile(
+            matsu_config::Profile::from_bytes(&bytes),
+            None,
+        ))
+    });
+    remember_type(cx, &path, 0);
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(UTF8));
+    assert_eq!(f.view.read_with(cx, |v, _| v.type_index()), 0);
+    assert_eq!(widths(&f, cx).0, (2, true));
+}
+
+#[gpui::test]
+fn an_overwrite_keeps_the_type_the_history_gave(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\nb\n");
+    remember_type(cx, &path, 0);
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(UTF8));
+    assert_eq!(f.view.read_with(cx, |v, _| v.type_index()), 0);
+    f.view
+        .update(cx, |v, cx| v.run_command("indent_tab", &[], cx));
+    f.run(cx, "F_FILESAVE", &[]);
+    // `CSaveAgent::OnAfterSave`: no `OnChangeSetting` for an overwrite.
+    assert_eq!(f.view.read_with(cx, |v, _| v.type_index()), 0);
+}
