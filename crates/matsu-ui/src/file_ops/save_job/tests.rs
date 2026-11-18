@@ -644,7 +644,7 @@ fn the_wait_goes_on_when_the_view_that_started_the_save_is_gone(cx: &mut TestApp
                     )
                     .await;
                     seen.store(
-                        view.read_with(cx, |v, _| v.notice.is_none()).unwrap_or(false),
+                        view.read_with(cx, |v, _| v.notice.is_none()),
                         Ordering::Relaxed,
                     );
                     *result.borrow_mut() = Some(waited);
