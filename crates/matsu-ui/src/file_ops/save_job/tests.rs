@@ -393,6 +393,8 @@ fn the_watching_is_paused_while_the_worker_writes(cx: &mut TestAppContext) {
     view.update_in(cx, |view, window, cx| {
         view.run_function(code, &[], window, cx)
     });
+    // the flow runs until it waits for the timer of its thread (the clock is not moved)
+    cx.run_until_parked();
     assert!(pausing(&view, cx), "the flow waits for its thread");
     settle(cx);
     assert!(
@@ -437,6 +439,7 @@ fn an_old_job_leaves_the_notice_of_the_replacement_alone(cx: &mut TestAppContext
     view.update_in(cx, |view, window, cx| {
         view.run_function(code, &[], window, cx)
     });
+    cx.run_until_parked();
     view.update(cx, |view, cx| {
         view.load_document(SharedDocument::empty(), None, cx);
         view.notice = Some("the notice of the new document".to_owned());
