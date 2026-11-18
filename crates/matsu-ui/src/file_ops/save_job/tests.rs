@@ -274,7 +274,7 @@ fn a_save_that_waited_at_a_question_is_refused_when_another_began_writing(cx: &m
     let dir = TempDir::new();
     let path = dir.write("a.txt", "a\r\nb\nc\r\n");
     let (view, cx) = setup(cx, usize::MAX);
-    cx.update(|app| {
+    cx.update(|_, app| {
         app.set_global(FilePrefs {
             file_share_mode: 1,
             ..FilePrefs::default()
