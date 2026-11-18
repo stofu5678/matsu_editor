@@ -521,21 +521,19 @@ fn a_grep_goes_to_the_standard_output_only_without_the_dialog() {
 
 // ---- a name with blanks that was not quoted (`ParseCommandLine`, the start) ----
 
-fn folder(names: &[&str]) -> (PathBuf, PathBuf) {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static N: AtomicU32 = AtomicU32::new(0);
-    let n = N.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("matsu-ui-cmdline-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+/// A private folder with these files (a name that ends with `/` is a folder). It is removed when
+/// the value is dropped, also when the test panics.
+fn folder(names: &[&str]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
     for name in names {
-        let path = dir.join(name);
+        let path = dir.path().join(name);
         if name.ends_with('/') {
             std::fs::create_dir_all(path).unwrap();
         } else {
             std::fs::write(path, b"x").unwrap();
         }
     }
-    (dir.clone(), dir)
+    dir
 }
 
 fn in_folder(dir: &std::path::Path, args: &[&str]) -> CommandLine {
@@ -544,53 +542,49 @@ fn in_folder(dir: &std::path::Path, args: &[&str]) -> CommandLine {
 
 #[test]
 fn tokens_are_glued_until_a_file_that_exists() {
-    let (dir, _guard) = folder(&["my notes.txt", "my big new notes.txt"]);
-    let cl = in_folder(&dir, &["my", "notes.txt", "other.txt"]);
+    let dir = folder(&["my notes.txt", "my big new notes.txt"]);
+    let cl = in_folder(dir.path(), &["my", "notes.txt", "other.txt"]);
     assert_eq!(cl.files, paths(&["my notes.txt", "other.txt"]));
-    let cl = in_folder(&dir, &["my", "big", "new", "notes.txt"]);
+    let cl = in_folder(dir.path(), &["my", "big", "new", "notes.txt"]);
     assert_eq!(cl.files, paths(&["my big new notes.txt"]));
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
 fn the_options_after_the_glued_name_are_read() {
-    let (dir, _guard) = folder(&["my notes.txt"]);
-    let cl = in_folder(&dir, &["my", "notes.txt", "-X=3", "-R"]);
+    let dir = folder(&["my notes.txt"]);
+    let cl = in_folder(dir.path(), &["my", "notes.txt", "-X=3", "-R"]);
     assert_eq!(cl.files, paths(&["my notes.txt"]));
     assert_eq!(cl.caret_x, Some(2));
     assert!(cl.view_mode);
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
 fn a_folder_with_blanks_is_found_too() {
-    let (dir, _guard) = folder(&["my folder/"]);
-    let cl = in_folder(&dir, &["my", "folder"]);
+    let dir = folder(&["my folder/"]);
+    let cl = in_folder(dir.path(), &["my", "folder"]);
     assert_eq!(cl.files, paths(&["my folder"]));
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
 fn nothing_is_glued_when_nothing_exists_or_the_first_token_is_an_option() {
-    let (dir, _guard) = folder(&["my notes.txt"]);
+    let dir = folder(&["my notes.txt"]);
     // no file of that name: the tokens stay as they are
     assert_eq!(
-        in_folder(&dir, &["my", "other.txt"]).files,
+        in_folder(dir.path(), &["my", "other.txt"]).files,
         paths(&["my", "other.txt"])
     );
     // an option first: Sakura does not look for a name
-    let cl = in_folder(&dir, &["-R", "my", "notes.txt"]);
+    let cl = in_folder(dir.path(), &["-R", "my", "notes.txt"]);
     assert_eq!(cl.files, paths(&["my", "notes.txt"]));
     // a first token that is a file by itself is that file, whatever follows
-    std::fs::write(dir.join("my"), b"x").unwrap();
-    let cl = in_folder(&dir, &["my", "notes.txt"]);
+    std::fs::write(dir.path().join("my"), b"x").unwrap();
+    let cl = in_folder(dir.path(), &["my", "notes.txt"]);
     assert_eq!(cl.files, paths(&["my", "notes.txt"]));
     // no folder to look in: nothing is looked for
     assert_eq!(
         parse_in(&os(&["my", "notes.txt"]), None, false, &mut |_| None).files,
         paths(&["my", "notes.txt"])
     );
-    std::fs::remove_dir_all(dir).ok();
 }
 
 // ---- names that a file cannot have (`IsInvalidFilenameChars`) ----

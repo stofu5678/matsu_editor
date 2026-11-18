@@ -79,6 +79,10 @@ pub(crate) fn tell_invalid_names(cx: &mut gpui::App, names: &[String]) {
     };
     handle
         .update(cx, |_, window, cx| {
+            // Detached because nothing else could own it: the boxes belong to no document or view, and
+            // the launch that asked for them is over. The task is the window's (`Window::spawn`): it
+            // ends when the last box is answered, and a window that closes first ends it (its
+            // prompts and this task go with it).
             window
                 .spawn(cx, async move |cx| {
                     for message in messages {
