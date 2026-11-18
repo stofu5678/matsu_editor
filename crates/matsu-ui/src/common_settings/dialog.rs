@@ -1235,19 +1235,20 @@ impl CommonSettingsDialog {
                         div().id(SharedString::from(format!("cs-{id}-choice-{value}"))),
                         &name,
                         current == value,
+                        usable,
+                        cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)),
                     )
                     .border_1()
                     .border_color(gpui::transparent_black())
                     .rounded_md();
-                    match self.choice_focus.get(&(id, value)) {
+                    // A choice that cannot be used is no tab stop and takes no focus
+                    match self.choice_focus.get(&(id, value)).filter(|_| usable) {
                         Some(focus) => wrapper
                             .track_focus(focus)
                             .focus(|style| style.border_color(rgb(SELECTED_BG)))
                             // Space and Enter choose it, as they press the button
                             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
-                                if usable
-                                    && matches!(event.keystroke.key.as_str(), "space" | "enter")
-                                {
+                                if matches!(event.keystroke.key.as_str(), "space" | "enter") {
                                     this.set_int(id, value, cx);
                                     cx.stop_propagation();
                                 }

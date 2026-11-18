@@ -69,7 +69,20 @@ pub(super) fn named_group(
 /// element that has the focus (GPUI reports an element as the accessibility focus only when the
 /// focused element itself has an id and a role), so the role is here and the button inside it is
 /// presentational.
-pub(super) fn choice(element: Stateful<Div>, text: &str, checked: bool) -> Stateful<Div> {
+///
+/// While the choice can be used, a click on it chooses it (`on_click`: GPUI makes AccessKit's
+/// `Click` action of the click listener, so a screen reader can activate it); while it cannot, the
+/// node is disabled and has no click.
+pub(super) fn choice(
+    element: Stateful<Div>,
+    text: &str,
+    checked: bool,
+    usable: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> Stateful<Div> {
+    use crate::a11y::AriaDisabled as _;
+    use gpui::prelude::FluentBuilder as _;
+
     element
         .role(Role::RadioButton)
         .aria_label(text.to_owned())
@@ -78,6 +91,8 @@ pub(super) fn choice(element: Stateful<Div>, text: &str, checked: bool) -> State
         } else {
             gpui::Toggled::False
         })
+        .aria_disabled(!usable)
+        .when(usable, |element| element.on_click(on_click))
 }
 
 pub(super) fn list_box(element: Stateful<Div>, name: &str) -> Stateful<Div> {

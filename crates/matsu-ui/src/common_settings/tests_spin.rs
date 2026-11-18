@@ -212,22 +212,27 @@ fn the_focused_choice_is_the_element_that_is_drawn_and_space_chooses_it(cx: &mut
 
 #[test]
 fn a_choice_is_a_radio_button_named_by_its_text_on_the_element_that_has_the_focus() {
+    use gpui::accesskit::Action;
     use gpui::{InteractiveElement as _, Role, Toggled, div};
 
-    let chosen = crate::a11y::node_of(&super::semantics::choice(
-        div().id("c"),
-        "次の行に入れる",
-        true,
-    ))
-    .expect("an id and a role");
+    let node = |id: &'static str, checked: bool, usable: bool| {
+        crate::a11y::node_of(&super::semantics::choice(
+            div().id(id),
+            "次の行に入れる",
+            checked,
+            usable,
+            |_, _, _| {},
+        ))
+        .expect("an id and a role")
+    };
+    let chosen = node("c", true, true);
     assert_eq!(chosen.role(), Role::RadioButton);
     assert_eq!(chosen.label(), Some("次の行に入れる"));
     assert_eq!(chosen.toggled(), Some(Toggled::True));
-    let other = crate::a11y::node_of(&super::semantics::choice(
-        div().id("d"),
-        "置き換える",
-        false,
-    ))
-    .unwrap();
+    // a screen reader can activate it: the click listener makes the `Click` action
+    assert!(chosen.supports_action(Action::Click));
+    let other = node("d", false, true);
     assert_eq!(other.toggled(), Some(Toggled::False));
+    // a choice that cannot be used has no click
+    assert!(!node("e", false, false).supports_action(Action::Click));
 }
