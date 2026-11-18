@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.20.0](https://github.com/stofu5678/matsu_editor/compare/v0.19.0...v0.20.0) (2026-11-18)
+
+
+### Features
+
+* **history:** restore the type of a file from the history and add the excluded paths tab ([#514](https://github.com/stofu5678/matsu_editor/issues/514)) ([464c8b3](https://github.com/stofu5678/matsu_editor/commit/464c8b3ce88d639e11ebcb62dcdee4f17bd6fb34))
+* **settings:** make the switch to take the search of other views work ([#513](https://github.com/stofu5678/matsu_editor/issues/513)) ([e09ab02](https://github.com/stofu5678/matsu_editor/commit/e09ab02cf06b5f2b03befb405d62455746251d41))
+
+
+### Bug Fixes
+
+* **cli:** look for unquoted names with blanks, refuse invalid names, read the program name and -TYPE ([#521](https://github.com/stofu5678/matsu_editor/issues/521)) ([b89b911](https://github.com/stofu5678/matsu_editor/commit/b89b9111b4080897e46d3f08b397db143848f116))
+* **file:** check that a file can be read before loading it ([#512](https://github.com/stofu5678/matsu_editor/issues/512)) ([08300ee](https://github.com/stofu5678/matsu_editor/commit/08300eefc9084ff25d4e8d90c23dea20e408a9b3))
+* **grep:** send the plugins the close events when the stdout Grep ends ([#516](https://github.com/stofu5678/matsu_editor/issues/516)) ([e0cf26a](https://github.com/stofu5678/matsu_editor/commit/e0cf26a7e12d2f391f1932e0d6103c66e30de32b))
+* **macro:** do not make a macro wait for the print preview ([#515](https://github.com/stofu5678/matsu_editor/issues/515)) ([6cf4ff1](https://github.com/stofu5678/matsu_editor/commit/6cf4ff178069579812f8005c87759b49efde50b2))
+* **macro:** run the next call of a key macro after a split command ([#517](https://github.com/stofu5678/matsu_editor/issues/517)) ([8cc0201](https://github.com/stofu5678/matsu_editor/commit/8cc0201e9b778dc3e212fa5bd4bec002658e27bc))
+* **view:** move the carets of the other panes with undo and redo ([#518](https://github.com/stofu5678/matsu_editor/issues/518)) ([5e5df27](https://github.com/stofu5678/matsu_editor/commit/5e5df273107cca575269c9fd1796b92a8e8e99ac))
+
 ## [0.19.0](https://github.com/stofu5678/matsu_editor/compare/v0.18.0...v0.19.0) (2026-11-18)
 
 
