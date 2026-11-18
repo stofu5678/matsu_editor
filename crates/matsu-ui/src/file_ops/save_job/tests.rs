@@ -954,7 +954,7 @@ fn run_phase(
                 .spawn(cx, async move |cx| {
                     let mut hold = JobEnd::for_view(&weak, cx, &flag).expect("a hold");
                     let seen = called.clone();
-                    let said = run(&weak, cx, "検査", &path, &mut hold, move |_, _| {
+                    let said = super::run(&weak, cx, "検査", &path, &mut hold, move |_, _| {
                         seen.store(true, Ordering::Relaxed);
                         Ok(())
                     })
@@ -986,7 +986,10 @@ fn a_cancel_before_a_phase_stops_it_before_it_starts(cx: &mut TestAppContext) {
         let stopped = std::sync::Arc::new(AtomicBool::new(true));
         let (called, said) = run_phase(&view, cx, &path, &stopped);
         assert!(!called, "the work does not start (from {from})");
-        assert!(matches!(said, Some(Err(FileError::Cancelled))), "from {from}");
+        assert!(
+            matches!(said, Some(Err(FileError::Cancelled))),
+            "from {from}"
+        );
         assert!(!is_saving(&view, cx), "no job is left");
     }
 }
@@ -1006,10 +1009,15 @@ fn a_cancel_between_phases_ends_the_save_with_no_write_and_a_message(cx: &mut Te
         .find(|f| f.name == "F_FILESAVE")
         .unwrap()
         .code;
-    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[], window, cx)
+    });
     settle(cx);
     // the first phase (the mixed line endings) is over and the question is open: a gap
-    assert!(cx.has_pending_prompt(), "the question about the line endings");
+    assert!(
+        cx.has_pending_prompt(),
+        "the question about the line endings"
+    );
     assert!(
         view.read_with(cx, |view, app| view.document().read(app).is_in_save_flow()),
         "the flow is registered while it waits"
@@ -1019,7 +1027,11 @@ fn a_cancel_between_phases_ends_the_save_with_no_write_and_a_message(cx: &mut Te
     cx.simulate_prompt_answer("そのまま保存(N)");
     settle(cx);
     assert!(!cx.has_pending_prompt());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb\nc\r\n", "nothing was written");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "a\r\nb\nc\r\n",
+        "nothing was written"
+    );
     let names: Vec<_> = std::fs::read_dir(&dir.0)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -1027,7 +1039,11 @@ fn a_cancel_between_phases_ends_the_save_with_no_write_and_a_message(cx: &mut Te
     assert_eq!(names, ["a.txt"], "no temporary file");
     let (notice, modified, in_flow) = view.read_with(cx, |view, app| {
         let shared = view.document().read(app);
-        (view.notice.clone(), shared.model().is_modified(), shared.is_in_save_flow())
+        (
+            view.notice.clone(),
+            shared.model().is_modified(),
+            shared.is_in_save_flow(),
+        )
     });
     assert_eq!(notice.as_deref(), Some("保存を中止した"));
     assert!(modified, "the document is still unsaved");

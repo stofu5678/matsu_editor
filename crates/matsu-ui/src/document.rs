@@ -639,7 +639,10 @@ impl SharedDocument {
 
     /// A save flow begins on this document. `false` when another one runs already (one save at a
     /// time: the second is refused at its entry).
-    pub(crate) fn begin_save_flow(&mut self, flag: &std::sync::Arc<std::sync::atomic::AtomicBool>) -> bool {
+    pub(crate) fn begin_save_flow(
+        &mut self,
+        flag: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> bool {
         if self.save_flow.strong_count() > 0 {
             return false;
         }

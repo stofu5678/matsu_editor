@@ -193,8 +193,18 @@ impl JobEnd {
                 (document.downgrade(), document.read(app).generation())
             })
             .ok()?;
-        cx.update(|_, app| Self::new(app, document, generation))
-            .ok()
+        let mut hold = cx
+            .update(|_, app| Self::new(app, document, generation))
+            .ok()?;
+        hold.flow = Some(flow.clone());
+        Some(hold)
+    }
+
+    /// Whether the save flow was asked to stop (Esc), in any phase.
+    pub fn flow_cancelled(&self) -> bool {
+        self.flow
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
     }
 
     /// The save let go of the lock of the file and holds a pause of the watching, as the write

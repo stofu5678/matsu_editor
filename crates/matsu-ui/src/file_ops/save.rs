@@ -432,7 +432,8 @@ pub(crate) async fn save(
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok()
         != version;
-    if changed && let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request, &flow).await
+    if changed
+        && let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request, &flow).await
     {
         return outcome;
     }
