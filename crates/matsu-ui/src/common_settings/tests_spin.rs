@@ -209,3 +209,25 @@ fn the_focused_choice_is_the_element_that_is_drawn_and_space_chooses_it(cx: &mut
     cx.simulate_keystrokes(window, "space");
     assert_eq!(with_dialog(cx, |d, _, _| d.values().int("ai_output")), 1);
 }
+
+#[test]
+fn a_choice_is_a_radio_button_named_by_its_text_on_the_element_that_has_the_focus() {
+    use gpui::{Role, Toggled, div};
+
+    let chosen = crate::a11y::node_of(&super::semantics::choice(
+        div().id("c"),
+        "次の行に入れる",
+        true,
+    ))
+    .expect("an id and a role");
+    assert_eq!(chosen.role(), Role::RadioButton);
+    assert_eq!(chosen.label(), Some("次の行に入れる"));
+    assert_eq!(chosen.toggled(), Some(Toggled::True));
+    let other = crate::a11y::node_of(&super::semantics::choice(
+        div().id("d"),
+        "置き換える",
+        false,
+    ))
+    .unwrap();
+    assert_eq!(other.toggled(), Some(Toggled::False));
+}

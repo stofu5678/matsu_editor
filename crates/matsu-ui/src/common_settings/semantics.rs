@@ -65,6 +65,21 @@ pub(super) fn named_group(
     element.role(role).aria_label(name)
 }
 
+/// One choice of a choice list: a radio button named by its text, checked while chosen. It is the
+/// element that has the focus (GPUI reports an element as the accessibility focus only when the
+/// focused element itself has an id and a role), so the role is here and the button inside it is
+/// presentational.
+pub(super) fn choice(element: Stateful<Div>, text: &str, checked: bool) -> Stateful<Div> {
+    element
+        .role(Role::RadioButton)
+        .aria_label(text.to_owned())
+        .aria_toggled(if checked {
+            gpui::Toggled::True
+        } else {
+            gpui::Toggled::False
+        })
+}
+
 pub(super) fn list_box(element: Stateful<Div>, name: &str) -> Stateful<Div> {
     element.role(Role::ListBox).aria_label(name.to_owned())
 }

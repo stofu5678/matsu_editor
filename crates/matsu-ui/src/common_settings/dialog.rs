@@ -1217,24 +1217,28 @@ impl CommonSettingsDialog {
                     _ => Vec::new(),
                 };
                 let choices = options.into_iter().map(|(text, value)| {
+                    let name = text.clone();
                     let button = Button::new(Self::element_id(&Control {
                         kind: Kind::Radio { value },
                         ..*control
                     }))
                     .label(text)
                     .selected(current == value)
-                    // A choice is a radio button of the group (the chosen one is checked).
-                    .role(Role::RadioButton)
-                    .toggled(current == value)
+                    // The element around it is the radio button of the group for assistive
+                    // technology (`semantics::choice`).
+                    .role(gpui_component::RoleOverride::Presentational)
                     .disabled(!usable)
                     // The element around it is the tab stop and has the focus
                     .tab_stop(false)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)));
-                    let wrapper = div()
-                        .id(SharedString::from(format!("cs-{id}-choice-{value}")))
-                        .border_1()
-                        .border_color(gpui::transparent_black())
-                        .rounded_md();
+                    let wrapper = semantics::choice(
+                        div().id(SharedString::from(format!("cs-{id}-choice-{value}"))),
+                        &name,
+                        current == value,
+                    )
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .rounded_md();
                     match self.choice_focus.get(&(id, value)) {
                         Some(focus) => wrapper
                             .track_focus(focus)
