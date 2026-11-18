@@ -649,8 +649,13 @@ impl FavoriteDialog {
     /// Applies a change to the list of the tab that is shown, and shows the result. Returns
     /// whether the change was taken whole ([`apply_to_history`]).
     fn run(&mut self, cx: &mut Context<Self>, op: &Op) -> bool {
+        self.run_on(cx, self.tab, op)
+    }
+
+    /// [`run`](Self::run) on the list of `tab`, which is not the one shown when the answer to a
+    /// question arrives after the user went to another tab.
+    fn run_on(&mut self, cx: &mut Context<Self>, tab: Tab, op: &Op) -> bool {
         let before = self.paths();
-        let tab = self.tab;
         let taken = Cell::new(true);
         if tab.is_text_list() {
             texts::change(cx, tab, |list| taken.set(apply_to_list(list, tab, op)));
@@ -679,6 +684,13 @@ impl FavoriteDialog {
         let count = self.rows().len();
         self.selected.retain(|i| *i < count);
         self.focus_row = self.focus_row.min(count.saturating_sub(1));
+        // The row a range selection starts from goes with the rows: it must not point past the
+        // end, or at another item.
+        self.anchor = if same_rows {
+            self.anchor.min(count.saturating_sub(1))
+        } else {
+            self.focus_row
+        };
     }
 
     pub(crate) fn select_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
@@ -738,6 +750,7 @@ impl FavoriteDialog {
 
     /// Asks, and runs `op` on the list if the answer is yes.
     fn confirm_then(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>, op: Op) {
+        let tab = self.tab;
         let answer = crate::boxes::prompt(
             window,
             PromptLevel::Warning,
@@ -749,7 +762,8 @@ impl FavoriteDialog {
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(0) = answer.await {
                 this.update(cx, |this, cx| {
-                    this.run(cx, &op);
+                    // The list that was asked about, even if another tab is shown now.
+                    this.run_on(cx, tab, &op);
                 })
                 .ok();
             }
@@ -820,9 +834,12 @@ impl FavoriteDialog {
         // The list of excluded paths is another tab's list: it is changed here, not through the
         // tab that is shown.
         let mut all = true;
+        let before = self.paths();
         if let Some(history) = super::update(cx, |h| all = add_to_except(h, paths)) {
             self.history = history;
         }
+        let same_rows = before == self.paths();
+        self.keep_selection(same_rows);
         cx.notify();
         if !all {
             let answer =

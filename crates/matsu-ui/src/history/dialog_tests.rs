@@ -857,3 +857,41 @@ fn typing_in_the_panel_and_enter_adds_without_closing_the_dialog(cx: &mut TestAp
     cx.simulate_keystrokes("escape");
     assert_eq!(cx.windows().len(), windows - 1);
 }
+
+#[gpui::test]
+fn an_answer_that_comes_after_a_tab_change_still_deletes_the_list_that_was_asked_about(
+    cx: &mut TestAppContext,
+) {
+    let (dialog, cx) = setup(cx, sample());
+    fill(cx);
+    dialog.update(cx, |d, cx| d.reload(cx));
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
+    dialog.update_in(cx, |d, window, cx| d.ask_delete_all(window, cx));
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Replace, cx));
+    answer(cx, "はい(Y)");
+    assert!(lists(cx).keys.search.texts().is_empty());
+    assert_eq!(lists(cx).keys.replace.texts(), ["r1"]);
+    assert_eq!(texts(&dialog, cx), ["r1"]);
+}
+
+#[gpui::test]
+fn the_range_anchor_does_not_outlive_the_rows(cx: &mut TestAppContext) {
+    let (dialog, cx) = setup(cx, sample());
+    fill(cx);
+    dialog.update(cx, |d, cx| d.reload(cx));
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
+    dialog.update(cx, |d, cx| d.click_row(2, false, false, cx));
+    // Another window empties the list; the dialog follows.
+    cx.update(|_, app| {
+        crate::search::history::edit_keys(app, |k| k.search.clear_all());
+        crate::search::history::edit_keys(app, |k| {
+            k.search.append_text("only");
+        });
+    });
+    dialog.update(cx, |d, cx| d.reload(cx));
+    dialog.update(cx, |d, cx| d.click_row(0, false, true, cx));
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.selected().iter().copied().collect::<Vec<_>>()),
+        [0]
+    );
+}
