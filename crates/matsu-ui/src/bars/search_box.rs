@@ -187,7 +187,10 @@ impl SearchBox {
         cx.notify();
     }
 
-    /// Makes `text` the search key of `editor` (`AddToSearchKeyArr`, `m_strCurSearchKey`).
+    /// Makes `text` the search key of `editor` (`AddToSearchKeyArr`, `m_strCurSearchKey`). The
+    /// shared search options are not touched (`CMainToolBar::ProcSearchBox` and `CBN_KILLFOCUS`
+    /// do not write `m_sSearchOption`, unlike a macro or the incremental search), so another view
+    /// that inherits the key takes it with the options of the last search that published them.
     fn make_key(editor: &mut EditorView, text: &str, cx: &mut Context<EditorView>) {
         if text.encode_utf16().count() < MAX_PATH {
             let sequence = history::remember_search(cx, text);
