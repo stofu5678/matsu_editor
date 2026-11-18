@@ -321,17 +321,19 @@ fn same_except(a: &str, b: &str) -> bool {
 /// [`texts::allows_empty`]), when it is too long, or when the list has it already in any case (the
 /// old one does not move). A full list drops its oldest text (`AppendItem`; nothing is a
 /// favorite there).
-pub(crate) fn append_except(history: &mut History, text: &str) -> bool {
-    if text.is_empty()
-        || text.encode_utf16().count() >= EXCEPT_MAX_UNITS
-        || history.except.iter().any(|t| same_except(t, text))
+pub(crate) fn append_except(history: &mut History, text: impl AsRef<str> + Into<String>) -> bool {
+    // Checked by borrowing; an accepted text moves into the list (a `String` is not copied).
+    let shown = text.as_ref();
+    if shown.is_empty()
+        || shown.encode_utf16().count() >= EXCEPT_MAX_UNITS
+        || history.except.iter().any(|t| same_except(t, shown))
     {
         return false;
     }
     if history.except.len() >= matsu_config::history::MAX_EXCEPT_MRU {
         history.except.pop();
     }
-    history.except.insert(0, text.to_owned());
+    history.except.insert(0, text.into());
     true
 }
 
@@ -366,7 +368,7 @@ pub(crate) fn add_to_except(history: &mut History, paths: Vec<String>) -> bool {
         if history.except.len() >= matsu_config::history::MAX_EXCEPT_MRU {
             all = false;
         } else {
-            append_except(history, &path);
+            append_except(history, path);
         }
     }
     all
