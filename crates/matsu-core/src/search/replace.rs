@@ -38,6 +38,18 @@ pub struct Replacement {
     skip: usize,
 }
 
+impl Replacement {
+    /// The edit that puts `text` in place of `start..end`.
+    pub fn new(start: Pos, end: Pos, text: String) -> Self {
+        Self {
+            start,
+            end,
+            text,
+            skip: 0,
+        }
+    }
+}
+
 /// An edit that was made: enough to undo it with `replace(start, end, &removed)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppliedEdit {
@@ -125,6 +137,34 @@ pub fn apply_replacements(
         };
         applied.push(apply_one(&mut work, start, end, r)?);
         shift = Some((r.end, applied[applied.len() - 1].end));
+    }
+    *doc = work;
+    Ok(applied)
+}
+
+/// Makes the edits from the last to the first. The positions of the edits are in the document
+/// before any of them, and no edit can change how the position of an earlier one is read (deleting
+/// the `x` of `a\rx\nb` first would join the CR and the LF into one CR LF, and the position of
+/// the deletion of that LF would then take the CR with it). The edits must be in order and must
+/// not overlap, like the result of a plan. The result is in the order the edits were made, which
+/// is the order to make them again in another copy of the document. If one fails, none is made.
+pub fn apply_replacements_descending(
+    doc: &mut Document,
+    replacements: Vec<Replacement>,
+) -> Result<Vec<AppliedEdit>, BufferError> {
+    let mut work = doc.clone();
+    let mut applied = Vec::with_capacity(replacements.len());
+    for r in replacements.into_iter().rev() {
+        let removed = work.text_between(r.start, r.end)?;
+        let edit = work.replace(r.start, r.end, &r.text)?;
+        applied.push(AppliedEdit {
+            start: edit.start,
+            end: edit.end,
+            removed,
+            resume: Pos::new(edit.end.line, edit.end.col + r.skip),
+            // The text of the edit is given to the applied edit, not copied.
+            inserted: r.text,
+        });
     }
     *doc = work;
     Ok(applied)

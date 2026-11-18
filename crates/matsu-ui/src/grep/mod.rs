@@ -22,6 +22,7 @@ pub mod enumerate;
 pub mod format;
 pub mod keys;
 pub mod panel;
+mod replace_window;
 pub mod settings;
 pub mod stdout;
 pub mod window;

@@ -26,8 +26,9 @@ use gpui_component::checkbox::Checkbox;
 use matsu_commands::clipboard::{ClipKind, Clipboard};
 use matsu_commands::command::CommandError;
 use matsu_core::buffer::{Eol, Pos};
+use matsu_core::search::AppliedEdit;
 
-use super::engine::{self, GrepError, GrepInfo, Outcome, Sink, WindowSource};
+use super::engine::{self, GrepError, GrepInfo, Outcome, Sink, TextShift, WindowSource};
 use super::panel::GrepPanel;
 use super::settings::{DialogError, GrepSettings};
 use crate::clipboard::GpuiClipboard;
@@ -157,6 +158,12 @@ pub struct GrepWindow {
     /// Sakura writes it as it comes and only stops drawing; the text is the same when the search
     /// ends.
     held: String,
+    /// The document a Grep 置換 of a window's text replaces in: its id and the version that the
+    /// search read. Set when the search begins, taken when the edits come.
+    pub(super) replace_target: Option<(u64, u64)>,
+    /// The edits of a Grep 置換 of a window were not made (the document changed). Told when the search
+    /// ends: the text of the result that comes after would clear a notice set earlier.
+    pub(super) replace_refused: bool,
     /// The dialog, while it is open.
     pub(crate) panel: Option<Entity<GrepPanel>>,
 }
@@ -188,6 +195,10 @@ pub(super) enum Event {
     Text(String),
     /// The file being searched and the hits so far.
     Progress(String, usize),
+    /// The edits of a Grep 置換 of the text of a window, to make in the document that was read.
+    Replaced(Vec<AppliedEdit>, Vec<TextShift>),
+    /// The last line, with the number the engine counted.
+    Count(usize, bool),
     /// The end.
     Done(Result<Outcome, GrepError>),
 }
@@ -210,6 +221,14 @@ impl ChannelSink {
 impl Sink for ChannelSink {
     fn write(&mut self, text: &str) {
         self.send(Event::Text(text.to_owned()));
+    }
+
+    fn replaced(&mut self, edits: Vec<AppliedEdit>, shifts: Vec<TextShift>) {
+        self.send(Event::Replaced(edits, shifts));
+    }
+
+    fn count(&mut self, hits: usize, replace: bool) {
+        self.send(Event::Count(hits, replace));
     }
 
     fn progress(&mut self, file: &str, hits: usize) {
@@ -333,7 +352,15 @@ impl EditorView {
             self.grep_error_box(&error, window, cx);
             return false;
         }
-        if !new_window && self.grep_output_here(cx) {
+        // A Grep 置換 of the text of this very document cannot write its result here: the text the
+        // search read would change under it (and the edits would be refused). The result goes to a
+        // window of its own, as for a document with changes.
+        let replaces_here = info.replace.is_some()
+            && info
+                .window
+                .as_ref()
+                .is_some_and(|w| w.id == self.document.entity_id().as_u64());
+        if !new_window && !replaces_here && self.grep_output_here(cx) {
             if command
                 && self.use_grep_type(cx)
                 && self.run_auto_macro(crate::macros::Auto::TypeChanged, None, window, cx)
@@ -465,6 +492,8 @@ impl EditorView {
         // While the scan of a huge file runs, the document has only the scanned start of it.
         let scanning = shared.scan_index();
         Some(WindowSource {
+            id,
+            version: shared.version(),
             document: shared.doc().clone(),
             encoding: shared.file().encoding,
             folder,
@@ -600,6 +629,11 @@ impl EditorView {
             .end_pos()
             .map_or(0, |pos| pos.line);
         let cancel = Arc::new(AtomicBool::new(false));
+        self.grep.replace_target = info
+            .window
+            .as_ref()
+            .filter(|_| info.replace.is_some())
+            .map(|w| (w.id, w.version));
         self.grep.key = Some(info.key.clone());
         self.grep.running = Some(cancel.clone());
         self.grep.progress = None;
@@ -658,13 +692,32 @@ impl EditorView {
                 cx.notify();
                 false
             }
+            Event::Replaced(edits, shifts) => {
+                self.replace_in_window(&edits, &shifts, cx);
+                false
+            }
+            Event::Count(hits, replace) => {
+                // The edits of a window may have been refused: the count is of what was made.
+                let hits = if self.grep.replace_refused { 0 } else { hits };
+                let line = if replace {
+                    super::format::replace_count_line(hits)
+                } else {
+                    super::format::count_line(hits)
+                };
+                self.grep_event(Event::Text(line), cx)
+            }
             Event::Done(result) => {
                 // Whatever the search ended with (also a stop or an error), what it found is shown.
                 self.write_held_result(cx);
                 self.grep.running = None;
                 self.grep.progress = None;
                 match result {
-                    Ok(_) => self.finish_grep(cx),
+                    Ok(_) => {
+                        self.finish_grep(cx);
+                        if std::mem::take(&mut self.grep.replace_refused) {
+                            self.notice = Some(super::replace_window::CHANGED.to_owned());
+                        }
+                    }
                     Err(error) => {
                         self.notice = Some(error.message());
                     }

@@ -75,7 +75,7 @@ use matsu_core::file::{
 };
 use matsu_core::model::eol_text;
 use matsu_core::search::ReplaceTarget;
-use matsu_core::search::{Match, Matcher};
+use matsu_core::search::{AppliedEdit, Match, Matcher};
 use matsu_regex::{
     PatternError, RegexMatcher, RegexReplacer, RegexSearchOptions, ReplacementError,
 };
@@ -145,6 +145,11 @@ pub struct GrepInfo {
 /// The text of a window that a search of 「この編集中のテキスト」 reads (`CFileLoadOrWnd`).
 #[derive(Clone, Debug)]
 pub struct WindowSource {
+    /// The id of the document (the number in `:HWND:[id]`): the window that owns it makes the
+    /// edits of a Grep 置換.
+    pub id: u64,
+    /// The version of the document at the snapshot: edits are made only while it is the same.
+    pub version: u64,
     /// The document as it was when the search started (cloning is cheap: it shares the text).
     pub document: Document,
     /// The encoding of the document, for the name in front of a hit.
@@ -206,10 +211,9 @@ pub enum GrepError {
     NoPattern,
     /// The replacement of a regular expression is wrong (`SetPattern` of the replacement).
     Replacement(ReplacementError),
-    /// A Grep 置換 of the text of a window. The dialog does not offer it
-    /// (`CDlgGrepReplace::SetData` greys the check box out) and the search of a window never
-    /// replaces.
-    WindowReplace,
+    /// A Grep 置換 of the text of a window whose huge file is still being scanned: the snapshot
+    /// has only the start of the file.
+    WindowScanning,
 }
 
 impl GrepError {
@@ -224,8 +228,9 @@ impl GrepError {
             GrepError::FolderMissing => "検索対象フォルダーが正しくありません。".to_owned(),
             GrepError::NoPattern => "置換条件を指定してください。".to_owned(),
             GrepError::Replacement(e) => crate::search::state::regex_error_message(e),
-            GrepError::WindowReplace => {
-                "編集中のテキストを対象にしたGrep置換はできません。".to_owned()
+            GrepError::WindowScanning => {
+                "巨大なファイルを読み込み中の編集中のテキストは、まだGrep置換できません。"
+                    .to_owned()
             }
         }
     }
@@ -240,12 +245,35 @@ pub struct Outcome {
     pub stopped: bool,
 }
 
+/// What one match did to the text of a document, in bytes of the text of its lines and their
+/// breaks: the `old_len` bytes at `at` became `new_len`. A caret is moved through them by
+/// arithmetic, and then put back into the document that the edits made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextShift {
+    pub at: usize,
+    pub old_len: usize,
+    pub new_len: usize,
+}
+
 /// Where the result goes, and what shows the progress.
 pub trait Sink {
     /// A piece of the result, to be appended to the text.
     fn write(&mut self, text: &str);
     /// The file that is being searched and the hits so far (the cancel dialog of Sakura).
     fn progress(&mut self, _file: &str, _hits: usize) {}
+    /// The edits that a Grep 置換 of the text of a window makes, for the window that owns the
+    /// document to make (the engine only plans them, on a snapshot). It does not wait for the
+    /// answer: the window tells at the count (see [`Sink::count`]).
+    fn replaced(&mut self, _edits: Vec<AppliedEdit>, _shifts: Vec<TextShift>) {}
+    /// The last line: the number of hits, or of replacements. A sink whose window may have
+    /// refused the edits of [`Sink::replaced`] says what was really made.
+    fn count(&mut self, hits: usize, replace: bool) {
+        self.write(&if replace {
+            format::replace_count_line(hits)
+        } else {
+            format::count_line(hits)
+        });
+    }
 }
 
 /// `ChopYen`: the last backslash of a folder is taken off (`C:\a\` is `C:\a`). A slash is taken
@@ -402,8 +430,8 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     if info.replace.is_some() && built.is_none() {
         return Err(GrepError::NoPattern);
     }
-    if info.window.is_some() && info.replace.is_some() {
-        return Err(GrepError::WindowReplace);
+    if info.replace.is_some() && info.window.as_ref().is_some_and(|w| w.scanning.is_some()) {
+        return Err(GrepError::WindowScanning);
     }
     // A regular expression is replaced as bregonig does, with `$1` and the like; a paste, and
     // the other searches, put the text in as it is.
@@ -537,11 +565,7 @@ pub fn run(
     if stopped {
         runner.sink.write(format::SUSPENDED);
     }
-    runner.sink.write(&if info.replace.is_some() {
-        format::replace_count_line(runner.hits)
-    } else {
-        format::count_line(runner.hits)
-    });
+    runner.sink.count(runner.hits, info.replace.is_some());
     Ok(Outcome {
         hits: runner.hits,
         stopped,
@@ -742,6 +766,8 @@ impl Runner<'_> {
                 stream_chunk(),
             );
             self.search_stream(reader, &paths, &code_name, &mut state)
+        } else if self.info.replace.is_some() {
+            self.replace_window(window, &paths, &mut state, &code_name)
         } else {
             self.search_document(&window.document, &paths, &code_name, &mut state)
         };

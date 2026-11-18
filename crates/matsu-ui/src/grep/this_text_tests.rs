@@ -14,7 +14,7 @@ use matsu_core::buffer::{Document, Pos};
 use matsu_core::encoding::Encoding;
 use matsu_core::model::DocumentModel;
 
-use super::engine::{GrepError, GrepInfo, ReplaceInfo, Sink, WindowSource, check, run};
+use super::engine::{GrepInfo, ReplaceInfo, Sink, WindowSource, run};
 use super::enumerate::join_path;
 use super::format::Layout;
 use super::settings::GrepSettings;
@@ -36,6 +36,8 @@ impl Sink for Text {
 
 fn source(text: &str, folder: &str, name: &str, title: &str) -> WindowSource {
     WindowSource {
+        id: 0,
+        version: 0,
         document: Document::from_utf8(text.as_bytes().to_vec()).unwrap(),
         encoding: Encoding::Utf8,
         folder: folder.to_owned(),
@@ -187,20 +189,89 @@ fn a_window_that_is_gone_ends_the_heading_with_the_error() {
     );
 }
 
-#[test]
-fn a_replacement_of_a_window_is_refused() {
-    // The dialog greys the check box out; the search of a window never replaces, and Sakura
-    // would still say that it did.
-    let mut i = info("hit", source("a hit\n", "/proj", "x", "x"));
+/// A sink that keeps the edits of a Grep 置換 as well as the text.
+#[derive(Default)]
+struct Planning {
+    text: String,
+    edits: Vec<matsu_core::search::AppliedEdit>,
+}
+
+impl Sink for Planning {
+    fn write(&mut self, text: &str) {
+        self.text.push_str(text);
+    }
+
+    fn replaced(
+        &mut self,
+        edits: Vec<matsu_core::search::AppliedEdit>,
+        _shifts: Vec<super::engine::TextShift>,
+    ) {
+        self.edits.extend(edits);
+    }
+}
+
+fn replacing(key: &str, text: &str, new: &str) -> (Planning, usize) {
+    let mut i = info(key, source(text, "/proj", "x", "x"));
     i.replace = Some(ReplaceInfo {
-        text: "miss".to_owned(),
+        text: new.to_owned(),
         paste: false,
         backup: false,
     });
-    assert!(matches!(check(&i), Err(GrepError::WindowReplace)));
-    let mut sink = Text(String::new());
-    assert!(run(&i, &AtomicBool::new(false), &mut sink).is_err());
-    assert!(sink.0.is_empty());
+    let mut sink = Planning::default();
+    let outcome = run(&i, &AtomicBool::new(false), &mut sink).unwrap();
+    (sink, outcome.hits)
+}
+
+#[test]
+fn a_replacement_of_a_window_plans_the_edits_and_counts_them() {
+    // Sakura prints the count of a replacement here and changes nothing (`DoGrep` calls
+    // `DoGrepFile` for a window): MATSU plans the edits, which the window makes.
+    let (sink, hits) = replacing("hit", "a hit\nno\nhit hit\n", "miss");
+    assert_eq!(hits, 3);
+    assert!(
+        sink.text.ends_with("3 個を置換しました。\r\n"),
+        "{}",
+        sink.text
+    );
+    assert!(
+        sink.text.contains("(1,3)  [UTF-8]: a hit\r\n"),
+        "{}",
+        sink.text
+    );
+    let inserted: Vec<_> = sink.edits.iter().map(|e| e.inserted.as_str()).collect();
+    // made from the last to the first
+    assert_eq!(inserted, ["miss miss", "miss"]);
+}
+
+#[test]
+fn nothing_is_planned_without_a_hit() {
+    let (sink, hits) = replacing("zzz", "a hit\n", "miss");
+    assert_eq!(hits, 0);
+    assert!(sink.edits.is_empty());
+    assert!(
+        sink.text.ends_with("0 個を置換しました。\r\n"),
+        "{}",
+        sink.text
+    );
+}
+
+#[test]
+fn a_replacement_of_a_window_can_cover_the_line_break() {
+    // As for a file: the line is read with its break, so `\n` joins the lines
+    let mut i = info("\\n", source("a\nb\nc\n", "/proj", "x", "x"));
+    i.options.regex = true;
+    i.replace = Some(ReplaceInfo {
+        text: ",".to_owned(),
+        paste: false,
+        backup: false,
+    });
+    let mut sink = Planning::default();
+    let outcome = run(&i, &AtomicBool::new(false), &mut sink).unwrap();
+    assert_eq!(outcome.hits, 3);
+    // the lines that changed are one run, replaced as a whole
+    assert_eq!(sink.edits.len(), 1);
+    assert_eq!(sink.edits[0].removed, "a\nb\nc\n");
+    assert_eq!(sink.edits[0].inserted, "a,b,c,");
 }
 
 #[test]
@@ -455,10 +526,21 @@ fn a_window_that_is_gone_is_told_in_the_result(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_grep_replace_of_a_window_is_refused_in_a_box(cx: &mut TestAppContext) {
+fn a_grep_replace_of_a_window_replaces_in_one_undo_step(cx: &mut TestAppContext) {
+    // The window that runs the Grep is not the one that is replaced in
     let (f, cx) = setup(cx, "", None);
-    cx.simulate_input("a needle");
-    let id = f.id(cx);
+    let doc = Document::from_utf8(b"a needle\nneedle needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let other = others(cx, &f.view).remove(0);
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
     let args = vec![
         Arg::Text("needle".to_owned()),
         Arg::Text("pin".to_owned()),
@@ -467,12 +549,363 @@ fn a_grep_replace_of_a_window_is_refused_in_a_box(cx: &mut TestAppContext) {
         Arg::Int(5),
     ];
     f.run(cx, "F_GREP_REPLACE", &args);
-    assert!(cx.has_pending_prompt());
-    cx.simulate_prompt_answer("OK");
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(text_of(&other, cx), "a pin\npin pin\n");
+    let result: Vec<_> = others(cx, &f.view)
+        .into_iter()
+        .filter(|view| *view != other)
+        .collect();
+    assert_eq!(result.len(), 1);
+    let text = text_of(&result[0], cx);
+    assert!(text.contains(&format!(":HWND:[{id:016x}]")), "{text}");
+    assert!(text.ends_with("3 個を置換しました。\r\n"), "{text}");
+    // one undo step brings the text back
+    run_in_window(cx, &other, "F_UNDO");
+    assert_eq!(text_of(&other, cx), "a needle\nneedle needle\n");
+}
+
+#[gpui::test]
+fn a_grep_replace_of_a_window_that_changed_meanwhile_replaces_nothing(cx: &mut TestAppContext) {
+    // The edits were planned for the text that was read: the version tells it changed.
+    let (f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(b"a needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
     cx.run_until_parked();
-    assert!(others(cx, &f.view).is_empty());
-    // nothing was replaced
-    assert_eq!(text_of(&f.view, cx), "a needle");
+    let other = others(cx, &f.view).remove(0);
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let mut info = info("needle", source("a needle\n", "", "x", "x"));
+    info.file = window_token(id);
+    info.window = None;
+    info.replace = Some(ReplaceInfo {
+        text: "pin".to_owned(),
+        paste: false,
+        backup: false,
+    });
+    // the search starts at once; the text is changed before the window takes the edits
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep_in(info, true, false, window, cx);
+        other.update(cx, |view, cx| {
+            view.run_with(cx, |c| c.replace(Pos::new(0, 0), Pos::new(0, 0), "X"))
+                .unwrap();
+        });
+    });
+    settle(cx);
+    assert_eq!(text_of(&other, cx), "Xa needle\n");
+    // the finished result says so: text written after the failure does not clear the notice
+    let result: Vec<_> = others(cx, &f.view)
+        .into_iter()
+        .filter(|view| *view != other)
+        .collect();
+    assert_eq!(result.len(), 1);
+    assert!(
+        text_of(&result[0], cx).ends_with("0 個を置換しました。\r\n"),
+        "{}",
+        text_of(&result[0], cx)
+    );
+    assert_eq!(
+        result[0].read_with(cx, |v, _| v.notice.clone()),
+        Some(super::replace_window::CHANGED.to_owned())
+    );
+}
+
+/// Runs a Grep 置換 of the text of another window whose caret is at `caret` (flags 5, and 13 for a
+/// regular expression) and returns the text and the caret afterwards.
+fn replace_with_caret(
+    cx: &mut TestAppContext,
+    text: &str,
+    caret: Pos,
+    (key, new, flags): (&str, &str, i64),
+) -> (String, Pos) {
+    let (f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    // the newest: a test may call this more than once, and the windows of the earlier calls stay
+    let other = others(cx, &f.view).pop().unwrap();
+    other.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.move_caret(caret, false)).unwrap();
+    });
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let args = vec![
+        Arg::Text(key.to_owned()),
+        Arg::Text(new.to_owned()),
+        Arg::Text(window_token(id)),
+        Arg::Text(String::new()),
+        Arg::Int(flags),
+    ];
+    f.run(cx, "F_GREP_REPLACE", &args);
+    let at = other.read_with(cx, |v, _| v.cursor.caret());
+    (text_of(&other, cx), at)
+}
+
+#[gpui::test]
+fn the_caret_stays_in_the_text_when_a_line_gets_shorter(cx: &mut TestAppContext) {
+    // the caret is at the end of a line that gets shorter
+    let (text, caret) =
+        replace_with_caret(cx, "ab needle\nzz\n", Pos::new(0, 9), ("needle", "n", 5));
+    assert_eq!(text, "ab n\nzz\n");
+    assert_eq!(caret, Pos::new(0, 4));
+}
+
+#[gpui::test]
+fn the_caret_follows_the_text_when_a_line_break_is_removed(cx: &mut TestAppContext) {
+    let (text, caret) = replace_with_caret(cx, "a\nb\nc", Pos::new(2, 1), (r"\n", "", 13));
+    assert_eq!(text, "abc");
+    assert_eq!(caret, Pos::new(0, 3));
+}
+
+#[gpui::test]
+fn a_caret_before_the_replacements_stays_where_it_is(cx: &mut TestAppContext) {
+    let (text, caret) = replace_with_caret(
+        cx,
+        "start\nx needle\ny needle\n",
+        Pos::new(0, 2),
+        ("needle", "n", 5),
+    );
+    assert_eq!(text, "start\nx n\ny n\n");
+    assert_eq!(caret, Pos::new(0, 2));
+}
+
+#[gpui::test]
+fn a_caret_between_the_replacements_moves_only_with_the_earlier_ones(cx: &mut TestAppContext) {
+    // after the first replacement ("needle" to "n" on line 0) and before the second
+    let (text, caret) = replace_with_caret(
+        cx,
+        "needle ab\nlong line\nneedle\n",
+        Pos::new(1, 4),
+        ("needle", "n", 5),
+    );
+    assert_eq!(text, "n ab\nlong line\nn\n");
+    assert_eq!(caret, Pos::new(1, 4));
+}
+
+#[gpui::test]
+fn a_caret_in_a_line_with_a_replacement_stays_with_its_text(cx: &mut TestAppContext) {
+    // before the match, inside the match's first character, and after the match, on the same line
+    for (col, want) in [(1, 1), (3, 3), (11, 6)] {
+        let (text, caret) =
+            replace_with_caret(cx, "ab needle zz\n", Pos::new(0, col), ("needle", "n", 5));
+        assert_eq!(text, "ab n zz\n");
+        assert_eq!(caret, Pos::new(0, want), "from column {col}");
+    }
+}
+
+#[gpui::test]
+fn a_caret_between_two_matches_of_a_line_stays_with_its_text(cx: &mut TestAppContext) {
+    // the text between the matches is not part of an edit: the caret before `middle` follows it
+    let (text, caret) = replace_with_caret(cx, "hit middle hit\n", Pos::new(0, 4), ("hit", "x", 5));
+    assert_eq!(text, "x middle x\n");
+    assert_eq!(caret, Pos::new(0, 2));
+}
+
+#[gpui::test]
+fn a_replacement_of_the_text_of_the_window_that_would_show_the_result_goes_to_a_new_window(
+    cx: &mut TestAppContext,
+) {
+    // An untitled window without changes would take the result of a Grep; it is the target here
+    let (_f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(b"a needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let (handle, target) = cx
+        .update(|_, app| editors(app))
+        .into_iter()
+        .next_back()
+        .unwrap();
+    let id = target.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let settings = GrepSettings {
+        key: "needle".to_owned(),
+        replacement: "pin".to_owned(),
+        ..GrepSettings::default()
+    };
+    let info = settings.for_window(id).replace_info(None);
+    let started = {
+        let view = target.clone();
+        handle
+            .update(cx, |_, window, app| {
+                view.update(app, |view, cx| view.start_grep(info, false, window, cx))
+            })
+            .unwrap()
+    };
+    assert!(started);
+    settle(cx);
+    assert_eq!(text_of(&target, cx), "a pin\n");
+    let result = others(cx, &target);
+    let text = result
+        .iter()
+        .map(|view| text_of(view, cx))
+        .find(|text| text.contains("個を置換しました。"))
+        .expect("the result is in a window of its own");
+    assert!(text.ends_with("1 個を置換しました。\r\n"), "{text}");
+}
+
+#[gpui::test]
+fn a_caret_between_two_touching_matches_stays_between_them(cx: &mut TestAppContext) {
+    let (text, caret) = replace_with_caret(cx, "hithit\n", Pos::new(0, 3), ("hit", "x", 5));
+    assert_eq!(text, "xx\n");
+    assert_eq!(caret, Pos::new(0, 1));
+}
+
+#[gpui::test]
+fn deleting_a_match_does_not_move_the_deletion_of_a_break_in_mixed_endings(
+    cx: &mut TestAppContext,
+) {
+    let (text, _) = replace_with_caret(cx, "a\rx\nb", Pos::new(0, 0), (r"x|\n", "", 13));
+    assert_eq!(text, "a\rb");
+}
+
+#[gpui::test]
+fn deleting_the_cr_and_a_match_in_mixed_endings_leaves_the_lf(cx: &mut TestAppContext) {
+    let (text, _) = replace_with_caret(cx, "a\rx\nb", Pos::new(0, 0), (r"\r|x", "", 13));
+    assert_eq!(text, "a\nb");
+}
+
+/// A window of the application with `text`, and the Grep 置換 of `key` to `new` over its text (flags 5).
+fn open_target<'a>(
+    cx: &'a mut TestAppContext,
+    text: &str,
+) -> (Fixture, Entity<EditorView>, &'a mut VisualTestContext) {
+    let (f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let target = others(cx, &f.view).pop().unwrap();
+    (f, target, cx)
+}
+
+fn replace_in(
+    f: &Fixture,
+    target: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    (key, new): (&str, &str),
+) {
+    let id = target.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let args = vec![
+        Arg::Text(key.to_owned()),
+        Arg::Text(new.to_owned()),
+        Arg::Text(window_token(id)),
+        Arg::Text(String::new()),
+        Arg::Int(5),
+    ];
+    f.run(cx, "F_GREP_REPLACE", &args);
+}
+
+#[gpui::test]
+fn a_line_keeps_its_bookmark_when_its_break_is_not_changed(cx: &mut TestAppContext) {
+    let (f, target, cx) = open_target(cx, "a needle\nb\n");
+    target.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.set_bookmark_line(0, true));
+    });
+    replace_in(&f, &target, cx, ("needle", "pin"));
+    assert_eq!(text_of(&target, cx), "a pin\nb\n");
+    assert!(target.update(cx, |v, cx| v.run_with(cx, |c| c.is_bookmarked(0))));
+    // and one undo step brings the text back, with the bookmark
+    run_in_window(cx, &target, "F_UNDO");
+    assert_eq!(text_of(&target, cx), "a needle\nb\n");
+    assert!(target.update(cx, |v, cx| v.run_with(cx, |c| c.is_bookmarked(0))));
+}
+
+#[gpui::test]
+fn the_other_pane_of_the_document_keeps_its_caret_with_its_text(cx: &mut TestAppContext) {
+    // A replacement with a line break is made as a run of lines: the other pane does not see it
+    // match by match, and its caret is put back by the text.
+    let (f, target, cx) = open_target(cx, "ab needle zz\nnext\n");
+    let shared = target.read_with(cx, |v, _| v.document().clone());
+    let pane = cx.update(|_, app| app.new(|cx| EditorView::new(shared, cx)));
+    for (col, want) in [
+        (1, Pos::new(0, 1)),
+        (11, Pos::new(1, 3)),
+        (3, Pos::new(0, 3)),
+    ] {
+        pane.update(cx, |v, cx| {
+            v.run_with(cx, |c| c.move_caret(Pos::new(0, col), false))
+                .unwrap();
+        });
+        replace_in(&f, &target, cx, ("needle", "n\nm"));
+        assert_eq!(
+            text_of(&target, cx),
+            "ab n\nm zz\nnext\n",
+            "from column {col}"
+        );
+        assert_eq!(
+            pane.read_with(cx, |v, _| v.cursor.caret()),
+            want,
+            "from column {col}"
+        );
+        // back to the first text for the next column
+        run_in_window(cx, &target, "F_UNDO");
+        assert_eq!(text_of(&target, cx), "ab needle zz\nnext\n");
+    }
+}
+
+#[gpui::test]
+fn a_box_selection_does_not_stop_the_replacement(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "", None);
+    let doc = Document::from_utf8(b"a needle\nb needle\n".to_vec()).unwrap();
+    cx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(
+            app,
+            SharedDocument::new(DocumentModel::new(doc), None),
+            None,
+        )
+        .unwrap();
+    });
+    cx.run_until_parked();
+    let other = others(cx, &f.view).remove(0);
+    other.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(Pos::new(0, 0), false)?;
+            c.move_caret_selecting_box(Pos::new(1, 1))
+        })
+        .unwrap();
+    });
+    let id = other.read_with(cx, |v, _| v.document().entity_id().as_u64());
+    let args = vec![
+        Arg::Text("needle".to_owned()),
+        Arg::Text("pin".to_owned()),
+        Arg::Text(window_token(id)),
+        Arg::Text(String::new()),
+        Arg::Int(5),
+    ];
+    f.run(cx, "F_GREP_REPLACE", &args);
+    assert_eq!(text_of(&other, cx), "a pin\nb pin\n");
+    let result: Vec<_> = others(cx, &f.view)
+        .into_iter()
+        .filter(|view| *view != other)
+        .collect();
+    assert!(
+        text_of(&result[0], cx).ends_with("2 個を置換しました。\r\n"),
+        "{}",
+        text_of(&result[0], cx)
+    );
 }
 
 /// A window of the application (the tag jump finds the windows of the application only) with
