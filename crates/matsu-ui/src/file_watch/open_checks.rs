@@ -1,5 +1,7 @@
-//! The two warnings before a file is opened (`CLoadAgent::OnCheckLoad`,
-//! `sakura_core/agent/CLoadAgent.cpp`): the file is not there, and the file is big.
+//! The warnings before a file is opened (`CLoadAgent::OnCheckLoad`,
+//! `sakura_core/agent/CLoadAgent.cpp`): the file is not there, the file cannot be read, and the
+//! file is big (the check for reading needs the lock of the document, so `file_ops::load` runs it
+//! between the other two).
 
 use std::path::Path;
 
@@ -40,15 +42,27 @@ pub(crate) fn needs_warning(cx: &gpui::App, path: &Path) -> bool {
         || std::fs::metadata(path).is_ok_and(|meta| is_big(&prefs, meta.len()))
 }
 
-/// Runs the checks for `path`. `false` if the user said not to open the file.
-pub(crate) async fn allow_open(cx: &mut AsyncWindowContext, path: &Path) -> bool {
+/// `STR_LOADAGENT_ERR_OPEN`: the file is there but this program may not read it.
+pub(crate) fn unreadable_message(path: &Path) -> String {
+    format!(
+        "'{}'\nというファイルを開けません。\n読み込みアクセス権がありません。",
+        path.display()
+    )
+}
+
+/// The first warning, in the order of `CLoadAgent::OnCheckLoad`: 開こうとしたファイルが存在しないとき
+/// 警告する. A message only; the file is opened as a new one.
+pub(crate) async fn warn_if_missing(cx: &mut AsyncWindowContext, path: &Path) {
     let prefs = cx.update(|_, app| prefs(app)).unwrap_or_default();
-    let meta = std::fs::metadata(path);
-    // 開こうとしたファイルが存在しないとき警告する: a message only; the file is opened as a new one.
     if prefs.alert_if_file_not_exist && !path.exists() {
         tell(cx, PromptLevel::Info, &not_exist_message(path), None).await;
     }
-    if let Ok(meta) = meta
+}
+
+/// The last warning: a big file. `false` if the user said not to open it.
+pub(crate) async fn allow_size(cx: &mut AsyncWindowContext, path: &Path) -> bool {
+    let prefs = cx.update(|_, app| prefs(app)).unwrap_or_default();
+    if let Ok(meta) = std::fs::metadata(path)
         && is_big(&prefs, meta.len())
         && !confirm(
             cx,
@@ -91,5 +105,9 @@ mod tests {
         assert!(not_exist_message(Path::new("a.txt")).starts_with("a.txt\nというファイル"));
         let text = big_file_message(Path::new("a.txt"), 10);
         assert!(text.contains("10MB以上"));
+        assert_eq!(
+            unreadable_message(Path::new("a.txt")),
+            "'a.txt'\nというファイルを開けません。\n読み込みアクセス権がありません。"
+        );
     }
 }
