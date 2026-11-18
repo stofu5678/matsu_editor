@@ -151,7 +151,11 @@ fn add_new(before: &SearchKeys, after: &SearchKeys, file: &mut SearchKeys) {
     one(&before.search, &after.search, &mut file.search);
     one(&before.replace, &after.replace, &mut file.replace);
     one(&before.grep_file, &after.grep_file, &mut file.grep_file);
-    one(&before.grep_folder, &after.grep_folder, &mut file.grep_folder);
+    one(
+        &before.grep_folder,
+        &after.grep_folder,
+        &mut file.grep_folder,
+    );
 }
 
 /// The lists of the search, replace and Grep boxes as they are now.
