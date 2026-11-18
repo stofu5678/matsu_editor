@@ -771,6 +771,54 @@ fn the_macro_of_opening_sees_the_type_of_the_type_option(cx: &mut TestAppContext
     assert_eq!(all_text(&view, cx), "a b\n", "{output}");
 }
 
+/// `-TYPE=` also decides the encoding a file is read with: a text with nothing but ASCII in it is
+/// in the default encoding of the type (`CLoadAgent::OnLoad` sets `nType` before the read).
+#[gpui::test]
+fn the_type_option_gives_the_default_encoding_of_the_read(cx: &mut TestAppContext) {
+    init(cx);
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc\r\n");
+    // type 1 (the text) reads Shift_JIS by default, type 2 (C/C++) EUC-JP
+    let ini = "[Other]\r\nnTypesCount=17\r\n\
+               [Types(1)]\r\neDefaultCodetype=0\r\n\
+               [Types(2)]\r\neDefaultCodetype=2\r\n";
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ini.as_bytes());
+    let profile = matsu_config::Profile::from_bytes(&bytes);
+    cx.update(|app| {
+        app.set_global(crate::settings::UserSettings::from_profile(profile, None));
+    });
+    launch(cx, &dir, &["a.txt"]);
+    let view = view_of(cx, &path);
+    let plain = view.read_with(cx, |v, app| v.status(app).file_format());
+    assert!(plain.starts_with("SJIS"), "{plain}");
+    // a second window for the same file is not opened: close this one's file by another name
+    let other = dir.write("b.txt", b"abc\r\n");
+    launch(cx, &dir, &["-TYPE=cpp", "b.txt"]);
+    let view = view_of(cx, &other);
+    let typed = view.read_with(cx, |v, app| v.status(app).file_format());
+    assert!(typed.starts_with("EUC"), "{typed}");
+}
+
+#[gpui::test]
+fn a_refused_name_of_the_launch_is_told_in_the_window(cx: &mut TestAppContext) {
+    init(cx);
+    let dir = TempDir::new();
+    launch(cx, &dir, &[]);
+    cx.update(|app| {
+        crate::file_watch::open_checks::tell_invalid_names(app, &["a*b.txt".to_owned()])
+    });
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("OK");
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+    // nothing to say, nothing shown
+    cx.update(|app| crate::file_watch::open_checks::tell_invalid_names(app, &[]));
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+}
+
 #[gpui::test]
 fn the_macro_text_of_mtype_is_run(cx: &mut TestAppContext) {
     init(cx);

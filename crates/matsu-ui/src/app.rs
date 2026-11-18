@@ -277,6 +277,10 @@ pub(crate) fn run(
                     {
                         eprintln!("matsu: cannot open a window: {e}");
                     }
+                    crate::file_watch::open_checks::tell_invalid_names(
+                        cx,
+                        &request.options.rejected_names,
+                    );
                     // What the restore could not say (nothing came back, a file was rejected) is said in the window
                     // that opened.
                     if let Some(text) = pending_notice.take()

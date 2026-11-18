@@ -63,6 +63,33 @@ pub(crate) async fn allow_open(cx: &mut AsyncWindowContext, path: &Path) -> bool
     true
 }
 
+/// The box for each file name of a launch that Windows does not allow (`CCommandLine`,
+/// `STR_CMDLINE_PARSECMD1`), in the window that opened last. Sakura shows it while it reads the
+/// command line, before any window; here the window is the place a box can be.
+pub(crate) fn tell_invalid_names(cx: &mut gpui::App, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    let messages: Vec<String> = names
+        .iter()
+        .map(|name| crate::command_line::invalid_name_message(name))
+        .collect();
+    let Some((handle, _)) = crate::file_ops::windows::editors(cx).into_iter().last() else {
+        return;
+    };
+    handle
+        .update(cx, |_, window, cx| {
+            window
+                .spawn(cx, async move |cx| {
+                    for message in messages {
+                        tell(cx, PromptLevel::Info, &message, None).await;
+                    }
+                })
+                .detach();
+        })
+        .ok();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

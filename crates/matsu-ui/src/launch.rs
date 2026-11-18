@@ -47,10 +47,11 @@ impl OpenRequest {
     /// options are read (`command_line::parse_with`, with the response file `-@=` read from
     /// the working folder too).
     pub fn from_launch(request: &Request) -> OpenRequest {
-        let mut options = command_line::parse_with(&request.args, &mut |path| {
-            let bytes = std::fs::read(request.cwd.join(path)).ok()?;
-            Some(command_line::response_text(&bytes))
-        });
+        let mut options =
+            command_line::parse_with(&request.args, Some(&request.cwd), &mut |path| {
+                let bytes = std::fs::read(request.cwd.join(path)).ok()?;
+                Some(command_line::response_text(&bytes))
+            });
         let paths = std::mem::take(&mut options.files)
             .iter()
             .map(|file| request.cwd.join(file))
@@ -136,7 +137,16 @@ pub fn launch(args: Vec<OsString>) {
     )));
     let request = Request::from_current_process(args);
     let (tx, rx) = async_channel::unbounded();
-    let first = OpenRequest::from_launch(&request);
+    let mut first = OpenRequest::from_launch(&request);
+    // The digits in the name of this program choose the encoding (`ParseKanjiCodeFromFileName`).
+    // A launch that is handed to a running MATSU Editor has lost its program name: only this
+    // process reads it.
+    if let Some(program) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.file_name().map(|n| n.to_string_lossy().into_owned()))
+    {
+        first.options.default_code_from_program(&program);
+    }
     // A Grep to the standard output (`-GOPT=U`) writes to the standard output of this process: it is not
     // handed to the MATSU Editor that is running, whose output is somewhere else.
     let separate = separate || first.options.greps_to_stdout();

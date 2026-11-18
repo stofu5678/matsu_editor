@@ -434,7 +434,7 @@ fn a_response_file_adds_its_arguments_after_the_real_ones() {
         asked.push(path.to_owned());
         Some("c.txt -X=9  -R  d.txt".to_owned())
     };
-    let cl = parse_with(&os(&["a.txt", "-@=args.rsp", "b.txt"]), &mut read);
+    let cl = parse_with(&os(&["a.txt", "-@=args.rsp", "b.txt"]), None, &mut read);
     assert_eq!(asked, [PathBuf::from("args.rsp")]);
     assert_eq!(cl.files, paths(&["a.txt", "b.txt", "c.txt", "d.txt"]));
     assert_eq!(cl.caret_x, Some(8));
@@ -448,14 +448,14 @@ fn a_response_file_has_no_response_file() {
         calls += 1;
         Some("-@=again.rsp x.txt".to_owned())
     };
-    let cl = parse_with(&os(&["-@=args.rsp"]), &mut read);
+    let cl = parse_with(&os(&["-@=args.rsp"]), None, &mut read);
     assert_eq!(calls, 1);
     assert_eq!(cl.files, paths(&["x.txt"]));
 }
 
 #[test]
 fn a_response_file_that_cannot_be_read_is_nothing() {
-    let cl = parse_with(&os(&["-@=missing.rsp", "a.txt"]), &mut |_| None);
+    let cl = parse_with(&os(&["-@=missing.rsp", "a.txt"]), None, &mut |_| None);
     assert_eq!(cl.files, paths(&["a.txt"]));
     // and without a reader the option is only noted
     assert_eq!(line(&["-@=x"]), CommandLine::default());
@@ -468,7 +468,7 @@ fn the_last_response_file_counts() {
         asked.push(path.to_owned());
         None
     };
-    parse_with(&os(&["-@=one", "-@=two"]), &mut read);
+    parse_with(&os(&["-@=one", "-@=two"]), None, &mut read);
     assert_eq!(asked, [PathBuf::from("two")]);
 }
 
@@ -517,4 +517,181 @@ fn a_grep_goes_to_the_standard_output_only_without_the_dialog() {
     assert!(!line(&["-GREPMODE", "-GREPDLG", "-GOPT=U"]).greps_to_stdout());
     assert!(!line(&["-GREPMODE"]).greps_to_stdout());
     assert!(!line(&["-GOPT=U"]).greps_to_stdout());
+}
+
+// ---- a name with blanks that was not quoted (`ParseCommandLine`, the start) ----
+
+fn folder(names: &[&str]) -> (PathBuf, PathBuf) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static N: AtomicU32 = AtomicU32::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("matsu-ui-cmdline-{}-{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in names {
+        let path = dir.join(name);
+        if name.ends_with('/') {
+            std::fs::create_dir_all(path).unwrap();
+        } else {
+            std::fs::write(path, b"x").unwrap();
+        }
+    }
+    (dir.clone(), dir)
+}
+
+fn in_folder(dir: &std::path::Path, args: &[&str]) -> CommandLine {
+    parse_in(&os(args), Some(dir), false, &mut |_| None)
+}
+
+#[test]
+fn tokens_are_glued_until_a_file_that_exists() {
+    let (dir, _guard) = folder(&["my notes.txt", "my big new notes.txt"]);
+    let cl = in_folder(&dir, &["my", "notes.txt", "other.txt"]);
+    assert_eq!(cl.files, paths(&["my notes.txt", "other.txt"]));
+    let cl = in_folder(&dir, &["my", "big", "new", "notes.txt"]);
+    assert_eq!(cl.files, paths(&["my big new notes.txt"]));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn the_options_after_the_glued_name_are_read() {
+    let (dir, _guard) = folder(&["my notes.txt"]);
+    let cl = in_folder(&dir, &["my", "notes.txt", "-X=3", "-R"]);
+    assert_eq!(cl.files, paths(&["my notes.txt"]));
+    assert_eq!(cl.caret_x, Some(2));
+    assert!(cl.view_mode);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_folder_with_blanks_is_found_too() {
+    let (dir, _guard) = folder(&["my folder/"]);
+    let cl = in_folder(&dir, &["my", "folder"]);
+    assert_eq!(cl.files, paths(&["my folder"]));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn nothing_is_glued_when_nothing_exists_or_the_first_token_is_an_option() {
+    let (dir, _guard) = folder(&["my notes.txt"]);
+    // no file of that name: the tokens stay as they are
+    assert_eq!(
+        in_folder(&dir, &["my", "other.txt"]).files,
+        paths(&["my", "other.txt"])
+    );
+    // an option first: Sakura does not look for a name
+    let cl = in_folder(&dir, &["-R", "my", "notes.txt"]);
+    assert_eq!(cl.files, paths(&["my", "notes.txt"]));
+    // a first token that is a file by itself is that file, whatever follows
+    std::fs::write(dir.join("my"), b"x").unwrap();
+    let cl = in_folder(&dir, &["my", "notes.txt"]);
+    assert_eq!(cl.files, paths(&["my", "notes.txt"]));
+    // no folder to look in: nothing is looked for
+    assert_eq!(
+        parse_in(&os(&["my", "notes.txt"]), None, false, &mut |_| None).files,
+        paths(&["my", "notes.txt"])
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+// ---- names that a file cannot have (`IsInvalidFilenameChars`) ----
+
+#[test]
+fn only_the_last_part_of_the_path_is_checked_for_the_characters() {
+    for bad in ["a*b.txt", "dir/a?.txt", "c:\\w\\a\"b", "x<y", "x>y", "a|b"] {
+        assert!(has_invalid_filename_char(bad), "{bad}");
+    }
+    for good in [
+        "a.txt",
+        "dir/ok.txt",
+        "c:\\work\\ok.txt",
+        // `:` is left out for the names of streams
+        "a.txt:stream",
+        // the folders may have anything: the check is for the file name only
+        "we*ird/ok.txt",
+        // no file name at all
+        "dir/",
+        "we*ird\\",
+        "",
+    ] {
+        assert!(!has_invalid_filename_char(good), "{good}");
+    }
+}
+
+#[test]
+fn a_refused_name_is_kept_apart_and_the_others_stay() {
+    let cl = parse_in(
+        &os(&["a.txt", "b*c.txt", "-X=2", "\"d|e.txt\"", "dir/ok.txt"]),
+        None,
+        true,
+        &mut |_| None,
+    );
+    assert_eq!(cl.files, paths(&["a.txt", "dir/ok.txt"]));
+    assert_eq!(cl.rejected_names, ["b*c.txt", "d|e.txt"]);
+    assert_eq!(cl.caret_x, Some(1));
+}
+
+#[test]
+fn the_names_are_not_refused_where_they_are_fine() {
+    // macOS and Linux (and `parse`, which the tests of the options use)
+    let cl = parse_in(&os(&["b*c.txt"]), None, false, &mut |_| None);
+    assert_eq!(cl.files, paths(&["b*c.txt"]));
+    assert!(cl.rejected_names.is_empty());
+    assert_eq!(
+        parse_with(&os(&["b*c.txt"]), None, &mut |_| None)
+            .rejected_names
+            .len(),
+        usize::from(cfg!(windows))
+    );
+}
+
+#[test]
+fn the_box_says_what_sakuras_box_says() {
+    assert_eq!(
+        invalid_name_message("a*b.txt"),
+        "a*b.txt\r\n上記のファイル名は不正です。ファイル名に \\ / : * ? \" < > | の文字は使えません。 "
+    );
+}
+
+// ---- the encoding in the name of the program (`ParseKanjiCodeFromFileName`) ----
+
+#[test]
+fn the_digits_before_the_last_dot_are_the_encoding() {
+    assert_eq!(code_from_program_name("matsu932.exe"), Some(932));
+    assert_eq!(code_from_program_name("matsu65001.exe"), Some(65001));
+    assert_eq!(code_from_program_name("matsu4.exe"), Some(4));
+    // the digits just before the last dot, nothing else
+    assert_eq!(code_from_program_name("m3x932.exe"), Some(932));
+    assert_eq!(code_from_program_name("932.exe"), Some(932));
+    assert_eq!(code_from_program_name("v1.2.3.exe"), Some(3));
+    assert_eq!(code_from_program_name("a.b932.exe"), Some(932));
+}
+
+#[test]
+fn a_name_without_such_digits_gives_nothing() {
+    for name in [
+        "matsu.exe",
+        "matsu",
+        "matsu932",
+        "matsu932x.exe",
+        ".exe",
+        "",
+        // digits that are no encoding
+        "matsu99999.exe",
+        "matsu99999999999999.exe",
+    ] {
+        assert_eq!(code_from_program_name(name), None, "{name}");
+    }
+}
+
+#[test]
+fn the_option_code_wins_over_the_name_of_the_program() {
+    let mut cl = line(&["-CODE=5"]);
+    cl.default_code_from_program("matsu932.exe");
+    assert_eq!(cl.code, Some(5));
+    let mut cl = line(&["a.txt"]);
+    cl.default_code_from_program("matsu932.exe");
+    assert_eq!(cl.code, Some(932));
+    let mut cl = line(&["a.txt"]);
+    cl.default_code_from_program("matsu.exe");
+    assert_eq!(cl.code, None);
 }
