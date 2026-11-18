@@ -64,7 +64,7 @@ impl EditorView {
     #[cfg(any(windows, test))]
     pub(crate) fn remember_choice(
         slot: usize,
-        choice: &matsu_platform::print::devmode::PrinterChoice,
+        choice: matsu_platform::print::devmode::PrinterChoice,
         cx: &mut gpui::App,
     ) {
         prefs::remember_choice(cx, slot, choice);

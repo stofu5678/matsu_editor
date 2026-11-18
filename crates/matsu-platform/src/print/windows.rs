@@ -296,6 +296,10 @@ unsafe fn devmode_block(
         }
         if devmode.dmFields & DM_PAPERSIZE != 0 {
             devmode.Anonymous1.Anonymous1.dmPaperSize = setting.print_paper_size;
+            // The driver's own length and width would override the size.
+            devmode.dmFields = devmode::fields_for_standard_paper(devmode.dmFields);
+            devmode.Anonymous1.Anonymous1.dmPaperLength = 0;
+            devmode.Anonymous1.Anonymous1.dmPaperWidth = 0;
         }
         GlobalUnlock(block);
         block

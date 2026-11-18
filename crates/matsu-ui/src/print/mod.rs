@@ -73,6 +73,9 @@ pub(crate) struct PrintState {
     observation: Option<Subscription>,
     /// Whether a print runs, and the setting it started with.
     pub(crate) phase: Phase,
+    /// The wait for the printer dialog of the bar (Windows); replaced by the next one.
+    #[cfg(windows)]
+    selecting: Option<gpui::Task<()>>,
     /// The print setting dialog, while it is open (`crate::print_setting`).
     pub(crate) setup_dialog: Option<Entity<crate::print_setting::dialog::PrintSettingDialog>>,
 }
@@ -243,14 +246,16 @@ impl EditorView {
             let choice = cx.background_spawn(async move {
                 matsu_platform::print::windows::select_printer(owner, &setting)
             });
-            cx.spawn_in(window, async move |this, cx| {
+            // The view owns the wait: when the view goes, the wait ends. The native dialog itself
+            // is modal on its own thread and lives until the user closes it (it cannot be
+            // cancelled from here); its answer is then dropped (`docs/ownership.md`, section 6).
+            self.print.selecting = Some(cx.spawn_in(window, async move |this, cx| {
                 let result = choice.await;
                 this.update_in(cx, |this, window, cx| {
                     this.finish_select_printer(result, window, cx)
                 })
                 .ok();
-            })
-            .detach();
+            }));
         }
         #[cfg(not(windows))]
         {
@@ -271,7 +276,7 @@ impl EditorView {
         let phase = std::mem::take(&mut self.print.phase);
         match (result, phase) {
             (Ok(Some(choice)), Phase::SelectingPrinter { slot }) => {
-                Self::remember_choice(slot, &choice, cx);
+                Self::remember_choice(slot, choice, cx);
                 self.print_setting_changed_in_all_windows(cx);
             }
             (Err(err), _) => {

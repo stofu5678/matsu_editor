@@ -90,16 +90,21 @@ impl PrintPrefs {
     /// the three changed (inside the locked update, so what another process saved meanwhile
     /// stays), and the settings are then what the file has.
     #[cfg(any(windows, test))]
-    fn set_choice(&mut self, index: usize, choice: &PrinterChoice) {
-        let apply = |slot: &mut PrintSetting| {
-            slot.print_paper_size = choice.paper_size;
-            slot.print_paper_orientation = choice.orientation;
-            if let Some(printer) = &choice.printer {
-                slot.printer = Some(printer.clone());
+    fn set_choice(&mut self, index: usize, choice: PrinterChoice) {
+        let PrinterChoice {
+            printer,
+            paper_size,
+            orientation,
+        } = choice;
+        let apply = |slot: &mut PrintSetting, printer: Option<Printer>| {
+            slot.print_paper_size = paper_size;
+            slot.print_paper_orientation = orientation;
+            if printer.is_some() {
+                slot.printer = printer;
             }
         };
         let Some(path) = self.store.clone() else {
-            apply(self.settings.get_mut(index));
+            apply(self.settings.get_mut(index), printer);
             return;
         };
         let base = default_setting();
@@ -108,7 +113,8 @@ impl PrintPrefs {
             let before = profile.to_bytes();
             let on_disk = PrintSettings::from_profile(&base, profile);
             let mut now = on_disk.clone();
-            apply(now.get_mut(index));
+            // The one copy: the fallback below needs the printer if the file cannot be written.
+            apply(now.get_mut(index), printer.clone());
             now.write_changed(&on_disk, profile)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             merged = Some(now);
@@ -117,7 +123,7 @@ impl PrintPrefs {
         match (saved, merged) {
             (Ok(_), Some(now)) => self.settings = now,
             // A file that cannot be written leaves the choice for this session.
-            _ => apply(self.settings.get_mut(index)),
+            _ => apply(self.settings.get_mut(index), printer),
         }
     }
 
@@ -244,7 +250,7 @@ pub(crate) fn remember_printer(cx: &mut App, index: usize, printer: Printer) {
 /// Writes what the printer dialog of the preview bar gave into the setting `index` (see
 /// [`PrintPrefs::set_choice`]).
 #[cfg(any(windows, test))]
-pub(crate) fn remember_choice(cx: &mut App, index: usize, choice: &PrinterChoice) {
+pub(crate) fn remember_choice(cx: &mut App, index: usize, choice: PrinterChoice) {
     cx.default_global::<PrintPrefs>().set_choice(index, choice);
 }
 
@@ -381,7 +387,7 @@ mod tests {
 
         mine.set_choice(
             0,
-            &choice(
+            choice(
                 Some("PDF"),
                 matsu_print::DMPAPER_A3,
                 matsu_print::Orientation::Landscape,
@@ -404,7 +410,7 @@ mod tests {
         // a dialog that names no printer keeps the printer
         mine.set_choice(
             0,
-            &choice(
+            choice(
                 None,
                 matsu_print::DMPAPER_A4,
                 matsu_print::Orientation::Portrait,
@@ -425,7 +431,7 @@ mod tests {
         let mut prefs = PrintPrefs::load(None, Some(dir.path().to_owned()));
         prefs.set_choice(
             2,
-            &choice(
+            choice(
                 Some("PDF"),
                 matsu_print::DMPAPER_A3,
                 matsu_print::Orientation::Landscape,
@@ -440,7 +446,7 @@ mod tests {
         let mut prefs = PrintPrefs::default();
         prefs.set_choice(
             2,
-            &choice(
+            choice(
                 Some("PDF"),
                 matsu_print::DMPAPER_A3,
                 matsu_print::Orientation::Landscape,

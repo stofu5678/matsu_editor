@@ -13,6 +13,18 @@ pub const DM_ORIENTATION: u32 = 0x1;
 /// `DM_PAPERSIZE`: `dmPaperSize` of a `DEVMODE` has a value.
 pub const DM_PAPERSIZE: u32 = 0x2;
 
+/// `DM_PAPERLENGTH` and `DM_PAPERWIDTH`: the paper has its own size in `dmPaperLength` and
+/// `dmPaperWidth`, which then override `dmPaperSize`.
+pub const DM_PAPERLENGTH: u32 = 0x4;
+pub const DM_PAPERWIDTH: u32 = 0x8;
+
+/// `dmFields` for a `DEVMODE` that is given a standard paper size: the custom length and width are
+/// off, so that they do not override the size (Sakura clears them for the same reason,
+/// `CPrintPreview::OnChangePrintSetting`: 「用紙の長さ、幅は決まっていないので、ビットを下ろす」).
+pub fn fields_for_standard_paper(fields: u32) -> u32 {
+    fields & !(DM_PAPERLENGTH | DM_PAPERWIDTH)
+}
+
 /// `DMORIENT_PORTRAIT` and `DMORIENT_LANDSCAPE`.
 const DMORIENT_PORTRAIT: i16 = 1;
 const DMORIENT_LANDSCAPE: i16 = 2;
@@ -75,6 +87,16 @@ mod tests {
             print_paper_orientation: orientation,
             ..PrintSetting::default()
         }
+    }
+
+    #[test]
+    fn a_standard_paper_size_turns_the_custom_length_and_width_off() {
+        let all = DM_ORIENTATION | DM_PAPERSIZE | DM_PAPERLENGTH | DM_PAPERWIDTH | 0x100;
+        assert_eq!(
+            fields_for_standard_paper(all),
+            DM_ORIENTATION | DM_PAPERSIZE | 0x100
+        );
+        assert_eq!(fields_for_standard_paper(0), 0);
     }
 
     #[test]
