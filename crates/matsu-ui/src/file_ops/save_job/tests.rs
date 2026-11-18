@@ -669,3 +669,96 @@ fn the_wait_goes_on_when_the_view_that_started_the_save_is_gone(cx: &mut TestApp
     assert!(state.report(0, 1).is_continue(), "the job was not stopped");
     drop(job);
 }
+
+/// A guard for the job `state` of the document of `view`, as `run` takes it.
+fn guard_for(
+    view: &Entity<EditorView>,
+    state: &std::sync::Arc<JobState>,
+    cx: &mut VisualTestContext,
+) -> JobEnd {
+    let document = view.read_with(cx, |view, _| view.document().downgrade());
+    let state = state.clone();
+    cx.update(|_, app| JobEnd::new(app, document, state))
+}
+
+/// The flow that began a job is gone without ending it (a tab joined into another window removed
+/// its window; a question was declined): the guard ends the job on the document by itself, with
+/// the `App` and not the window, and the document is editable again.
+#[gpui::test]
+fn a_guard_that_is_dropped_ends_the_job_and_the_document_is_editable(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    open(&view, cx, &path);
+    let state = begin(&view, cx);
+    let guard = guard_for(&view, &state, cx);
+    assert!(is_saving(&view, cx));
+    drop(guard);
+    cx.run_until_parked();
+    assert!(!is_saving(&view, cx), "the job ended");
+    assert!(state.report(0, 1).is_break(), "and the thread was told to stop");
+    cx.simulate_input("x");
+    let text = view.read_with(cx, |view, app| view.document().read(app).doc().line(0));
+    assert_eq!(text.unwrap().unwrap().text, "xabc", "edits are accepted again");
+}
+
+/// A check ends without a write (the user cancels the question that follows) after the sharing
+/// setting changed during it: the lock that was deferred is back, with the setting of then.
+#[gpui::test]
+fn a_lock_deferred_during_a_check_is_taken_when_the_check_ends(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    cx.update(|_, app| {
+        app.set_global(FilePrefs {
+            file_share_mode: 1,
+            ..FilePrefs::default()
+        })
+    });
+    open(&view, cx, &path);
+    assert!(held(&view, cx).is_some());
+    let state = begin(&view, cx);
+    let guard = guard_for(&view, &state, cx);
+    // the setting changes to the mode that denies reading and writing during the check
+    cx.update(|_, app| {
+        app.set_global(FilePrefs {
+            file_share_mode: 2,
+            ..FilePrefs::default()
+        })
+    });
+    on_document(&view, cx, |shared| shared.relock_checking_writable(2));
+    assert!(held(&view, cx).is_none(), "deferred while the check runs");
+    // the check ends (declined, cancelled, failed): `finish_save_now` never runs
+    cx.update(|_, app| guard.end_in(app));
+    assert!(!is_saving(&view, cx));
+    assert_eq!(
+        held(&view, cx),
+        Some(matsu_platform::file_lock::ShareMode::DenyReadWrite),
+        "locked again with the setting of that moment"
+    );
+}
+
+/// The same when the guard is dropped, not ended with an `App` at hand.
+#[gpui::test]
+fn a_lock_deferred_during_a_save_is_taken_also_when_the_flow_is_gone(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    cx.update(|_, app| {
+        app.set_global(FilePrefs {
+            file_share_mode: 1,
+            ..FilePrefs::default()
+        })
+    });
+    open(&view, cx, &path);
+    let state = begin(&view, cx);
+    let guard = guard_for(&view, &state, cx);
+    on_document(&view, cx, |shared| shared.relock_checking_writable(1));
+    assert!(held(&view, cx).is_none());
+    drop(guard);
+    cx.run_until_parked();
+    assert_eq!(
+        held(&view, cx),
+        Some(matsu_platform::file_lock::ShareMode::DenyWrite)
+    );
+}

@@ -609,15 +609,24 @@ impl SharedDocument {
         self.saving = Some(job);
     }
 
-    /// The flow of the job `state` is over. A document that was replaced meanwhile, and maybe is
-    /// saving with another job now, is left alone.
-    pub(crate) fn end_saving(&mut self, state: &std::sync::Arc<JobState>) {
-        if self
+    /// The job `state` is over. A document that was replaced meanwhile, and maybe is saving with
+    /// another job now, is left alone (`false`).
+    pub(crate) fn end_saving(&mut self, state: &std::sync::Arc<JobState>) -> bool {
+        let ours = self
             .saving
             .as_ref()
-            .is_some_and(|job| std::sync::Arc::ptr_eq(&job.state(), state))
-        {
+            .is_some_and(|job| std::sync::Arc::ptr_eq(&job.state(), state));
+        if ours {
             self.saving = None;
+        }
+        ours
+    }
+
+    /// A lock that was asked for during the save and not taken (`FileLockState::defer`) is taken
+    /// now, with the setting of this moment.
+    pub(crate) fn take_deferred_lock(&mut self, mode: i32) {
+        if self.lock.take_deferred() {
+            self.lock_file(mode);
         }
     }
 

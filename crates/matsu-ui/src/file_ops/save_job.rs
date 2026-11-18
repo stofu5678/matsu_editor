@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use gpui::{AsyncWindowContext, WeakEntity};
+use gpui::{App, AsyncApp, AsyncWindowContext, ForegroundExecutor, WeakEntity};
 use matsu_core::file::{FileError, SaveSnapshot};
 
 use crate::document::SharedDocument;
@@ -110,6 +110,69 @@ pub(crate) fn progress_text(verb: &str, path: &Path, done: u64, total: u64) -> S
 /// What a piece of work gets: the copy of the text and how to report progress.
 pub(crate) type Progress<'a> = &'a mut dyn FnMut(u64, u64) -> ControlFlow<()>;
 
+/// Ends the job of a save on its document, on every path out of the flow that started it: the
+/// write is done, it failed, the user declined a question, the window is gone (a tab joined into
+/// another window removes the window that started the save while the document lives on).
+///
+/// The normal end is [`end_in`](Self::end_in), with an `App` at hand. A guard that is dropped
+/// without it does the same later, in a task of the foreground executor, with the `App` of the
+/// application and not a window: an update through the window of a flow that is gone fails, and
+/// `Drop` itself may run inside an update, where the `App` is borrowed already.
+pub(crate) struct JobEnd {
+    document: WeakEntity<SharedDocument>,
+    state: Arc<JobState>,
+    app: AsyncApp,
+    foreground: ForegroundExecutor,
+    armed: bool,
+}
+
+impl JobEnd {
+    pub fn new(app: &App, document: WeakEntity<SharedDocument>, state: Arc<JobState>) -> Self {
+        Self {
+            document,
+            state,
+            app: app.to_async(),
+            foreground: app.foreground_executor().clone(),
+            armed: true,
+        }
+    }
+
+    /// The end, now: the document is not saving any more and a lock that was asked for meanwhile is
+    /// taken with the settings of now.
+    pub fn end_in(mut self, app: &mut App) {
+        self.armed = false;
+        end_job(app, &self.document, &self.state);
+    }
+}
+
+impl Drop for JobEnd {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let (document, state, app) = (self.document.clone(), self.state.clone(), self.app.clone());
+        // Detached: nothing could own it (the flow it belonged to is gone), and it ends at once.
+        self.foreground
+            .spawn(async move {
+                let _ = app.update(|app| end_job(app, &document, &state));
+            })
+            .detach();
+    }
+}
+
+fn end_job(app: &mut App, document: &WeakEntity<SharedDocument>, state: &Arc<JobState>) {
+    // The job is stopped as well, if it still runs (the flow was dropped, not finished).
+    state.cancel();
+    let mode = super::prefs::prefs(app).file_share_mode;
+    if let Some(document) = document.upgrade() {
+        document.update(app, |shared, _| {
+            if shared.end_saving(state) {
+                shared.take_deferred_lock(mode);
+            }
+        });
+    }
+}
+
 /// Runs `work` on a copy of the text of the document of `view`. A big document (see
 /// [`BACKGROUND_FROM`]) is worked on by the background executor while the window shows `verb`
 /// ("検査", "保存") and its progress, with the edits refused; a small one is worked on here at once.
@@ -146,15 +209,19 @@ pub(crate) async fn run<T: Send + 'static>(
         });
         // Only a weak hold goes across the awaits: the document must go when its last view is
         // closed (that drops the job and raises the flag at once), not when this flow ends.
-        (document.downgrade(), prepared)
+        let weak = document.downgrade();
+        // The guard that ends the job on every path (taken in the same update that began it).
+        let guard = matches!(prepared, Ok((_, true, _, _)))
+            .then(|| JobEnd::new(cx, weak.clone(), state.clone()));
+        (weak, prepared, guard)
     });
-    let Ok((document, prepared)) = prepared else {
+    let Ok((document, prepared, guard)) = prepared else {
         return Err(FileError::Cancelled);
     };
     let (snapshot, big, version, generation) = prepared?;
-    if !big {
+    let Some(guard) = guard.filter(|_| big) else {
         return work(&snapshot, &mut |_, _| ControlFlow::Continue(()));
-    }
+    };
     let task = cx.background_executor().spawn({
         let state = state.clone();
         async move {
@@ -175,12 +242,8 @@ pub(crate) async fn run<T: Send + 'static>(
     )
     .await;
     // The job is over, however it ended (or the document was replaced, which dropped it already).
-    cx.update(|_, app| {
-        if let Some(document) = document.upgrade() {
-            document.update(app, |shared, _| shared.end_saving(&state));
-        }
-    })
-    .ok();
+    // If the window cannot be updated any more the guard does it when it is dropped.
+    cx.update(|_, app| guard.end_in(app)).ok();
     result
 }
 
