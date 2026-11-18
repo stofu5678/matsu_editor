@@ -119,6 +119,12 @@ impl EditorView {
         };
         let setting = self.current_print_setting(cx);
         preview.update(cx, |preview, cx| preview.set_setting(setting, cx));
+        // A print that waits for the layout goes on with the setting the preview has now: its
+        // printer is the one of that setting.
+        if let crate::print::Phase::WaitingForLayout { .. } = self.print.phase {
+            let slot = self.print_slot(cx);
+            self.print.phase = crate::print::Phase::WaitingForLayout { slot };
+        }
     }
 }
 

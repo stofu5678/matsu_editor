@@ -479,6 +479,32 @@ fn a_second_window_sees_the_settings_after_ok(cx: &mut TestAppContext) {
     assert!(preview.read_with(cx, |p, _| p.page_count()) > before);
 }
 
+/// A print that waits for the layout of a big document goes on with the setting the dialog
+/// selected meanwhile, not the one it was asked with.
+#[gpui::test]
+fn a_waiting_print_follows_the_setting_the_dialog_selects(cx: &mut TestAppContext) {
+    use crate::print::Phase;
+    const F_PRINT: u16 = 30150;
+    let (view, cx) = setup(cx, &many_lines(30_000));
+    run(&view, F_PRINT, cx);
+    let first = match view.read_with(cx, |v, _| v.print.phase) {
+        Phase::WaitingForLayout { slot } => slot,
+        other => panic!("not waiting: {other:?}"),
+    };
+    let other = (first + 3) % 8;
+    view.update_in(cx, |v, _, cx| {
+        let settings = prefs::settings(cx);
+        prefs::commit(cx, &settings, &settings, v.type_index(), other);
+        v.print_setting_changed(cx);
+    });
+    assert_eq!(
+        view.read_with(cx, |v, _| v.print.phase),
+        Phase::WaitingForLayout { slot: other }
+    );
+    // Closing the preview ends the layout thread before the test does.
+    view.update_in(cx, |v, window, cx| v.close_print_preview(window, cx));
+}
+
 #[gpui::test]
 fn a_dialog_with_old_settings_keeps_what_another_one_saved(cx: &mut TestAppContext) {
     // Two windows open the dialog before either presses OK.

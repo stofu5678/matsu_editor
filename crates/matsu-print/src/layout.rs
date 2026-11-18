@@ -120,6 +120,8 @@ pub enum PrintError {
     InvalidSetting(&'static str),
     /// The margins, the columns and the font leave no room for the text.
     NoPrintableArea,
+    /// The caller stopped the layout ([`LayoutControl::cancel`]).
+    Cancelled,
 }
 
 impl fmt::Display for PrintError {
@@ -130,11 +132,50 @@ impl fmt::Display for PrintError {
             PrintError::NoPrintableArea => {
                 f.write_str("印刷ページ設定エラー:印字可能領域がありません")
             }
+            PrintError::Cancelled => f.write_str("割り付けを中止しました"),
         }
     }
 }
 
 impl std::error::Error for PrintError {}
+
+/// How often the layout of a big document looks at the [`LayoutControl`]: every this many lines.
+const CONTROL_INTERVAL: usize = 4096;
+
+/// What a caller that lays a document out on another thread tells and asks of the layout
+/// ([`Layout::new_controlled`]): it stops the layout, and reads how far it has come. Both are
+/// atomics, so the thread that shows the progress needs no lock. Dropping the caller's handle to
+/// the layout stops it (see `PrintPreview` in `matsu-ui`).
+#[derive(Debug, Default)]
+pub struct LayoutControl {
+    cancelled: std::sync::atomic::AtomicBool,
+    lines: std::sync::atomic::AtomicUsize,
+}
+
+impl LayoutControl {
+    /// Stops the layout at the next look (within 4096 lines); it ends with
+    /// [`PrintError::Cancelled`].
+    pub fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Lines read in the pass that runs now. The layout reads the document again when the width
+    /// of the line numbers changes, so this can go back to 0.
+    pub fn lines_done(&self) -> usize {
+        self.lines.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Whether [`LayoutControl::cancel`] was called.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn set_lines(&self, lines: usize) {
+        self.lines
+            .store(lines, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 /// Where a page begins: the line and the row of that line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -179,6 +220,18 @@ impl Layout {
         paper: Paper,
         options: &TypeOptions,
     ) -> Result<Self, PrintError> {
+        Self::new_controlled(source, setting, paper, options, &LayoutControl::default())
+    }
+
+    /// [`Layout::new`] that `control` can stop and that reports how far it has come, for a big
+    /// document laid out on its own thread.
+    pub fn new_controlled<S: LineSource + ?Sized>(
+        source: &S,
+        setting: &PrintSetting,
+        paper: Paper,
+        options: &TypeOptions,
+        control: &LayoutControl,
+    ) -> Result<Self, PrintError> {
         let s = setting;
         if s.print_font_width <= 0 {
             return Err(PrintError::InvalidSetting("print_font_width"));
@@ -200,7 +253,7 @@ impl Layout {
         // The width of the line numbers depends on the rows (when the rows are numbered), and
         // the rows on that width: go on until they agree, as Sakura does by laying out again
         // (OnChangePrintSetting, "2014.07.23").
-        let tsv = tsv_stops(source, options);
+        let tsv = tsv_stops(source, options, control)?;
         let mut number_cells = if s.print_line_number {
             number_cells_for(options, line_count)
         } else {
@@ -214,7 +267,7 @@ impl Layout {
             }
             let config = layout_config(s, options, &tsv, cells as u32);
             let per_page = rows as usize * s.print_dansuu as usize;
-            let (row_count, starts) = scan(source, &config, per_page);
+            let (row_count, starts) = scan(source, &config, per_page, control)?;
             let wanted = if s.print_line_number {
                 let numbered = if options.line_number_is_crlf {
                     line_count
@@ -673,16 +726,34 @@ fn layout_config(
 
 /// The ends of the fields of the whole document in the mode of the type (`CalcTabLength`, which
 /// the print layout runs when `SetLayoutInfo` gives it the mode), read a line at a time.
-fn tsv_stops<S: LineSource + ?Sized>(source: &S, options: &TypeOptions) -> TsvStops {
+fn tsv_stops<S: LineSource + ?Sized>(
+    source: &S,
+    options: &TypeOptions,
+    control: &LayoutControl,
+) -> Result<TsvStops, PrintError> {
     if options.tsv_mode == TsvMode::None {
-        return TsvStops::none();
+        return Ok(TsvStops::none());
     }
-    let lines = (0..source.line_count()).map(|line| {
-        let mut text = String::new();
-        source.read_line(line, &mut text);
-        text
-    });
-    TsvStops::from_lines(options.tsv_mode, &Widths::grid(options.width), lines)
+    // This pass reads every line before the scan does: it looks at the control too, and stops
+    // feeding lines when the layout was cancelled.
+    let stopped = std::cell::Cell::new(false);
+    let lines = (0..source.line_count())
+        .take_while(|line| {
+            if line % CONTROL_INTERVAL == 0 && control.is_cancelled() {
+                stopped.set(true);
+            }
+            !stopped.get()
+        })
+        .map(|line| {
+            let mut text = String::new();
+            source.read_line(line, &mut text);
+            text
+        });
+    let stops = TsvStops::from_lines(options.tsv_mode, &Widths::grid(options.width), lines);
+    if stopped.get() {
+        return Err(PrintError::Cancelled);
+    }
+    Ok(stops)
 }
 
 /// The printed rows of a line. An empty last line without a line ending has none (Sakura keeps
@@ -700,12 +771,19 @@ fn scan<S: LineSource + ?Sized>(
     source: &S,
     config: &LayoutConfig,
     per_page: usize,
-) -> (usize, Vec<PageStart>) {
+    control: &LayoutControl,
+) -> Result<(usize, Vec<PageStart>), PrintError> {
     let mut starts = Vec::new();
     let mut total = 0usize;
     let mut text = String::new();
     let mut rows = Vec::new();
     for line in 0..source.line_count() {
+        if line % CONTROL_INTERVAL == 0 {
+            if control.is_cancelled() {
+                return Err(PrintError::Cancelled);
+            }
+            control.set_lines(line);
+        }
         let has_eol = source.read_line(line, &mut text);
         rows_of(&text, has_eol, config, &mut rows);
         // The first row of this line, if any, on which a page begins.
@@ -717,7 +795,7 @@ fn scan<S: LineSource + ?Sized>(
         }
         total += rows.len();
     }
-    (total, starts)
+    Ok((total, starts))
 }
 
 /// Where a piece of text goes on the grid: the left edge of the cells, the baseline, the width

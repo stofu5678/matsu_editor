@@ -312,6 +312,25 @@ fn the_printer_goes_to_the_setting_the_print_started_with(cx: &mut TestAppContex
     assert_eq!(b, None);
 }
 
+/// Printing a big document opens the preview, whose pages are laid out on a thread; the print
+/// dialog waits for them rather than failing, and closing the preview drops the wait.
+#[gpui::test]
+fn printing_a_big_document_waits_for_its_pages(cx: &mut TestAppContext) {
+    let text = "line\n".repeat(30_000);
+    let (view, cx) = setup(cx, &text, None);
+    run(&view, F_PRINT, cx);
+    view.read_with(cx, |v, cx| {
+        let preview = v.print_preview().unwrap().read(cx);
+        assert!(preview.is_laying_out());
+        // No dialog yet: the print waits, with the setting it was asked for.
+        assert!(matches!(v.print.phase, Phase::WaitingForLayout { .. }));
+    });
+    // A macro that waits for the print sees the queued one as printing.
+    assert!(view.read_with(cx, |v, _| v.is_printing()));
+    view.update_in(cx, |v, window, cx| v.close_print_preview(window, cx));
+    assert!(!view.read_with(cx, |v, _| v.is_printing()));
+}
+
 /// `$p` and `$P` of a macro or a plugin read the print preview of the window
 /// (`CSakuraEnvironment::ExpandParameter`: `m_pPrintPreview`).
 #[gpui::test]

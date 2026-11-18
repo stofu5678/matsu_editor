@@ -63,7 +63,9 @@ mod style;
 pub use header::{
     HeaderContext, PageInfo, WindowKind, WriteState, expand_parameter, expand_parameter_limited,
 };
-pub use layout::{LINENUMWIDTH_MIN, Layout, LineTerm, PrintError, TypeOptions, line_number_cells};
+pub use layout::{
+    LINENUMWIDTH_MIN, Layout, LayoutControl, LineTerm, PrintError, TypeOptions, line_number_cells,
+};
 pub use page::{FontKind, HAlign, Page, PlacedText, Rgb, Rule, TextStyle};
 pub use setting::{
     DMPAPER_A3, DMPAPER_A4, DMPAPER_A4SMALL, DMPAPER_A5, DMPAPER_B4, DMPAPER_B5, DMPAPER_EXECUTIVE,

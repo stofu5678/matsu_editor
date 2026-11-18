@@ -48,6 +48,10 @@ pub(crate) enum Phase {
     /// No print is running.
     #[default]
     Idle,
+    /// The user asked to print while the pages of a big document were being laid out: the print
+    /// dialog comes when they are there ([`PreviewEvent::Laid`]). `slot` is the print setting
+    /// the window printed with when it was asked.
+    WaitingForLayout { slot: usize },
     /// The print dialog of the OS is open. `slot` is the print setting (of the eight) the print
     /// started with: the printer that comes back goes to it, whatever another window selects
     /// meanwhile.
@@ -106,7 +110,8 @@ impl EditorView {
         }
     }
 
-    /// Whether the print dialog of the OS is open (a macro waits for it).
+    /// Whether the print dialog of the OS is open, or a print is queued until the pages of a big
+    /// document are laid out (a macro waits for it).
     pub(crate) fn is_printing(&self) -> bool {
         self.print.phase != Phase::Idle
     }
@@ -137,6 +142,12 @@ impl EditorView {
                     PreviewEvent::Print => this.print_from_preview(window, cx),
                     PreviewEvent::PageSetup => this.print_page_setup(window, cx),
                     PreviewEvent::Close => this.close_print_preview(window, cx),
+                    PreviewEvent::Laid => {
+                        if let Phase::WaitingForLayout { slot } = this.print.phase {
+                            this.print.phase = Phase::Idle;
+                            this.start_print(slot, window, cx);
+                        }
+                    }
                 }),
             );
         self.print.observation = Some(cx.observe(&preview, |_, _, cx| cx.notify()));
@@ -149,6 +160,9 @@ impl EditorView {
     /// Goes back to the text.
     pub fn close_print_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.print.preview.take().is_some() {
+            if matches!(self.print.phase, Phase::WaitingForLayout { .. }) {
+                self.print.phase = Phase::Idle;
+            }
             self.print.subscription = None;
             self.print.observation = None;
             window.focus(&self.focus_handle, cx);
@@ -172,6 +186,19 @@ impl EditorView {
         if self.print.phase != Phase::Idle {
             return;
         }
+        let slot = self.print_slot(cx);
+        if preview.read(cx).is_laying_out() {
+            self.print.phase = Phase::WaitingForLayout { slot };
+            return;
+        }
+        self.start_print(slot, window, cx);
+    }
+
+    /// Shows the print dialog of the OS for the preview, with the printer of the setting `slot`.
+    fn start_print(&mut self, slot: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(preview) = self.print.preview.clone() else {
+            return;
+        };
         let job = preview.read(cx).printable();
         preview.update(cx, |preview, cx| {
             preview.notice = job.as_ref().err().cloned();
@@ -182,7 +209,6 @@ impl EditorView {
         };
         // The dialog starts on the printer the preferences have now, not on the copy the preview
         // took (another window may have printed on another one since).
-        let slot = self.print_slot(cx);
         job.setting.printer = Self::remembered_printer(slot, cx);
         self.print.phase = Phase::Printing { slot };
         let outcome = os_print(job, window, cx);

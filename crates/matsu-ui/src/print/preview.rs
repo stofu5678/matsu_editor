@@ -7,19 +7,23 @@
 //! The preview owns a snapshot of the document ([`PrintJob`]), so the pages do not change under
 //! it. It does not print or close itself: it tells whoever shows it ([`PreviewEvent`]).
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use gpui::{
-    App, BorderStyle, Bounds, ContentMask, Context, Element, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, Font, FontFeatures, GlobalElementId, InspectorElementId, IntoElement,
-    KeyDownEvent, LayoutId, Pixels, Point, Render, ScrollWheelEvent, SharedString, Size, Style,
-    TextRun, Window, black, div, fill, font, outline, point, prelude::*, px, relative, rgb, size,
+    App, AppContext as _, BorderStyle, Bounds, ContentMask, Context, Element, ElementId, Entity,
+    EventEmitter, FocusHandle, Focusable, Font, FontFeatures, GlobalElementId, InspectorElementId,
+    IntoElement, KeyDownEvent, LayoutId, Pixels, Point, Render, ScrollWheelEvent, SharedString,
+    Size, Style, TextRun, Window, black, div, fill, font, outline, point, prelude::*, px, relative,
+    rgb, size,
 };
 use gpui_component::button::Button;
 use gpui_component::{Disableable as _, Sizable as _, h_flex};
 use matsu_platform::print::PrintJob;
 use matsu_platform::print::draw::{DrawOp, cell_positions, font_spec, on_grid, underline_of};
 use matsu_print::{
-    Layout, Orientation, Paper, PlacedText, PrintError, PrintSetting, Rgb, find_paper_info,
-    line_number_cells,
+    Layout, LayoutControl, Orientation, Paper, PlacedText, PrintError, PrintSetting, Rgb,
+    find_paper_info, line_number_cells,
 };
 
 /// What the preview asks of whoever shows it.
@@ -31,6 +35,8 @@ pub enum PreviewEvent {
     PageSetup,
     /// The user leaves the preview (the button, `Q`, Esc).
     Close,
+    /// The pages of a big document are laid out ([`PrintPreview::is_laying_out`] is false now).
+    Laid,
 }
 
 /// Logical pixels in an inch at 100 %: points on a Mac, and Windows' 96 elsewhere.
@@ -50,10 +56,57 @@ fn label(name: &str, key: char) -> String {
     }
 }
 
+/// A document of more lines than this is laid out on a thread of its own, with the progress on the
+/// bar and the preview usable meanwhile. A million lines of 100 characters (100 MB) take about a
+/// second in a release build (`timing_of_the_layout_of_a_100_mb_text` in `matsu-print`); below this
+/// the layout is under 30 ms, which no one sees, and it is made at once.
+const BACKGROUND_LINES: usize = 20_000;
+/// How often the bar shows the progress of the layout.
+const PROGRESS_TICK: Duration = Duration::from_millis(100);
+
+/// The layout running on its own thread. The preview owns it; dropping it (a new layout, or the
+/// preview closing) cancels the layout and the task that waits for it (ADR-0033: the owner of a
+/// long job ends it, as `ScanJob` does).
+struct LayoutJob {
+    control: Arc<LayoutControl>,
+    /// The number of lines being laid out, for the percentage.
+    lines: usize,
+    _task: gpui::Task<()>,
+}
+
+impl Drop for LayoutJob {
+    fn drop(&mut self) {
+        self.control.cancel();
+    }
+}
+
+impl LayoutJob {
+    /// How far the layout has come, in percent. Never 100: that is the layout being there.
+    fn percent(&self) -> usize {
+        (self.control.lines_done() * 100 / self.lines.max(1)).min(99)
+    }
+}
+
+/// The pages of the document: being laid out, or laid out.
+enum Pages {
+    Laying(LayoutJob),
+    /// The layout is boxed: it is far bigger than a running job.
+    Ready(Result<Box<Layout>, PrintError>),
+}
+
+impl Pages {
+    fn layout(&self) -> Option<&Layout> {
+        match self {
+            Self::Ready(Ok(layout)) => Some(&**layout),
+            _ => None,
+        }
+    }
+}
+
 pub struct PrintPreview {
     focus_handle: FocusHandle,
     job: PrintJob,
-    layout: Result<Layout, PrintError>,
+    layout: Pages,
     page: usize,
     zoom: i32,
     /// How far the paper is scrolled.
@@ -71,26 +124,69 @@ impl PrintPreview {
         let mut this = Self {
             focus_handle: cx.focus_handle(),
             job,
-            layout: Err(PrintError::NoPrintableArea),
+            layout: Pages::Ready(Err(PrintError::NoPrintableArea)),
             page: 0,
             zoom: 100,
             scroll: Point::default(),
             view: Size::default(),
             notice: None,
         };
-        this.relayout();
+        this.relayout(cx);
         this
     }
 
     /// Lays the document out again, as Sakura does when the setting changes
-    /// (`CPrintPreview::OnChangePrintSetting`).
-    fn relayout(&mut self) {
-        self.layout = self.job.layout(self.job.setting_paper());
-        self.page = self.page.min(self.page_count().saturating_sub(1));
+    /// (`CPrintPreview::OnChangePrintSetting`). A big document is laid out on its own thread
+    /// ([`BACKGROUND_LINES`]); the layout that was running is cancelled.
+    fn relayout(&mut self, cx: &mut Context<Self>) {
+        let paper = self.job.setting_paper();
+        if self.job.source.line_count() <= BACKGROUND_LINES {
+            self.layout = Pages::Ready(self.job.layout(paper).map(Box::new));
+            self.page = self.page.min(self.page_count().saturating_sub(1));
+            return;
+        }
+        let control = Arc::new(LayoutControl::default());
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let job = self.job.clone();
+        let worker = (control.clone(), done.clone());
+        let laying = cx.background_spawn(async move {
+            let (control, done) = worker;
+            let layout = job.layout_controlled(paper, &control);
+            done.store(true, std::sync::atomic::Ordering::Release);
+            layout
+        });
+        let flag = done;
+        let task = cx.spawn(async move |this, cx| {
+            while !flag.load(std::sync::atomic::Ordering::Acquire) {
+                cx.background_executor().timer(PROGRESS_TICK).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    return;
+                }
+            }
+            let layout = laying.await;
+            this.update(cx, |this, cx| {
+                this.layout = Pages::Ready(layout.map(Box::new));
+                this.page = this.page.min(this.page_count().saturating_sub(1));
+                cx.emit(PreviewEvent::Laid);
+                cx.notify();
+            })
+            .ok();
+        });
+        // The old value is dropped here, which cancels the layout it ran.
+        self.layout = Pages::Laying(LayoutJob {
+            control,
+            lines: self.job.source.line_count(),
+            _task: task,
+        });
+    }
+
+    /// Whether the pages are still being laid out.
+    pub fn is_laying_out(&self) -> bool {
+        matches!(self.layout, Pages::Laying(_))
     }
 
     pub fn page_count(&self) -> usize {
-        self.layout.as_ref().map_or(0, Layout::page_count)
+        self.layout.layout().map_or(0, Layout::page_count)
     }
 
     /// The page shown (from 0) and the zoom in percent.
@@ -105,10 +201,13 @@ impl PrintPreview {
     /// What printing needs, or why there is nothing to print.
     pub fn printable(&self) -> Result<PrintJob, SharedString> {
         match &self.layout {
-            Err(err) => Err(err.to_string().into()),
+            Pages::Laying(_) => Err("ページの割り付けが終わるまでお待ちください。".into()),
+            Pages::Ready(Err(err)) => Err(err.to_string().into()),
             // Sakura's STR_ERR_DLGPRNPRVW7.
-            Ok(layout) if layout.page_count() == 0 => Err("印刷するページがありません。".into()),
-            Ok(_) => Ok(self.job.clone()),
+            Pages::Ready(Ok(layout)) if layout.page_count() == 0 => {
+                Err("印刷するページがありません。".into())
+            }
+            Pages::Ready(Ok(_)) => Ok(self.job.clone()),
         }
     }
 
@@ -153,15 +252,15 @@ impl PrintPreview {
     /// out again with it.
     pub fn set_setting(&mut self, setting: PrintSetting, cx: &mut Context<Self>) {
         self.job.setting = setting;
-        self.relayout();
+        self.relayout(cx);
         cx.notify();
     }
 
     /// The width of the line numbers in characters, as the print setting dialog needs it
     /// (`DetectWidthOfLineNumberArea_calculate`), whether or not the setting prints them now.
     pub fn line_number_columns(&self) -> u32 {
-        match &self.layout {
-            Ok(layout) => {
+        match self.layout.layout() {
+            Some(layout) => {
                 let numbered = if self.job.options.line_number_is_crlf {
                     layout.line_count()
                 } else {
@@ -169,7 +268,8 @@ impl PrintPreview {
                 };
                 line_number_cells(&self.job.options, numbered)
             }
-            Err(_) => 3,
+            // The least, while the pages are not there.
+            None => 3,
         }
     }
 
@@ -254,8 +354,8 @@ impl PrintPreview {
 
     fn paper(&self) -> Paper {
         self.layout
-            .as_ref()
-            .map_or_else(|_| self.job.setting_paper(), Layout::paper)
+            .layout()
+            .map_or_else(|| self.job.setting_paper(), Layout::paper)
     }
 
     fn clamp_scroll(&mut self) {
@@ -286,8 +386,9 @@ impl Render for PrintPreview {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let pages = self.page_count();
         let status: SharedString = match &self.layout {
-            Err(err) => err.to_string().into(),
-            Ok(_) => self.notice.clone().unwrap_or_default(),
+            Pages::Laying(job) => format!("割り付け中... {} %", job.percent()).into(),
+            Pages::Ready(Err(err)) => err.to_string().into(),
+            Pages::Ready(Ok(_)) => self.notice.clone().unwrap_or_default(),
         };
         let button = |id: &'static str, text: String| {
             Button::new(id)
@@ -447,7 +548,7 @@ impl Element for PageView {
             let sheet = Bounds::new(origin, paper_size);
             window.paint_quad(fill(sheet, rgb(0xffffff)));
             window.paint_quad(outline(sheet, rgb(0x000000), BorderStyle::Solid));
-            let Ok(layout) = &preview.layout else {
+            let Some(layout) = preview.layout.layout() else {
                 return;
             };
             let s = layout.setting();
@@ -610,6 +711,78 @@ mod tests {
             }
             assert_eq!(p.state().0, pages - 1);
         });
+    }
+
+    /// Waits for the layout on its thread: the test executor does not run it, so look now and then.
+    fn wait_for_the_layout(preview: &Entity<PrintPreview>, cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
+        for _ in 0..1000 {
+            cx.run_until_parked();
+            if !preview.read_with(cx, |p, _| p.is_laying_out()) {
+                return;
+            }
+            // The test clock stands still until it is moved: the ticker waits on it.
+            cx.executor().advance_clock(PROGRESS_TICK);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the layout did not end");
+    }
+
+    #[gpui::test]
+    fn a_big_document_is_laid_out_on_its_own_thread_and_then_has_its_pages(
+        cx: &mut TestAppContext,
+    ) {
+        let lines = BACKGROUND_LINES + 1000;
+        let preview = cx.new(|cx| PrintPreview::new(job(lines), cx));
+        // The UI thread did not wait for it: there are no pages and nothing to print yet.
+        assert!(preview.read_with(cx, |p, _| p.is_laying_out()));
+        assert_eq!(preview.read_with(cx, |p, _| p.page_count()), 0);
+        let err = preview.read_with(cx, |p, _| p.printable().unwrap_err());
+        assert!(err.contains("割り付け"), "{err}");
+
+        wait_for_the_layout(&preview, cx);
+        let pages = preview.read_with(cx, |p, _| p.page_count());
+        // The same pages as the layout made at once.
+        let at_once = job(lines).layout(Paper::A4).unwrap().page_count();
+        assert_eq!(pages, at_once);
+        assert!(preview.read_with(cx, |p, _| p.printable().is_ok()));
+    }
+
+    #[gpui::test]
+    fn a_new_setting_cancels_the_layout_that_runs(cx: &mut TestAppContext) {
+        let lines = BACKGROUND_LINES + 1000;
+        let preview = cx.new(|cx| PrintPreview::new(job(lines), cx));
+        let one = preview.read_with(cx, |p, _| p.job().setting.clone());
+        let two = PrintSetting {
+            print_dansuu: 2,
+            ..one
+        };
+        let control = preview.read_with(cx, |p, _| match &p.layout {
+            Pages::Laying(job) => job.control.clone(),
+            Pages::Ready(_) => panic!("laid out at once"),
+        });
+        preview.update(cx, |p, cx| p.set_setting(two.clone(), cx));
+        // The first layout was stopped by the owner letting it go.
+        assert!(control.is_cancelled());
+        wait_for_the_layout(&preview, cx);
+        let pages = preview.read_with(cx, |p, _| p.page_count());
+        let mut expected = job(lines);
+        expected.setting = two;
+        assert_eq!(pages, expected.layout(Paper::A4).unwrap().page_count());
+    }
+
+    #[gpui::test]
+    fn closing_the_preview_cancels_the_layout(cx: &mut TestAppContext) {
+        let preview = cx.new(|cx| PrintPreview::new(job(BACKGROUND_LINES + 1000), cx));
+        let control = preview.read_with(cx, |p, _| match &p.layout {
+            Pages::Laying(job) => job.control.clone(),
+            Pages::Ready(_) => panic!("laid out at once"),
+        });
+        drop(preview);
+        // The entity is released when the app next settles its effects.
+        cx.update(|_| {});
+        cx.run_until_parked();
+        assert!(control.is_cancelled());
     }
 
     #[gpui::test]

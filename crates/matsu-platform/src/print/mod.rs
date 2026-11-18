@@ -59,6 +59,16 @@ impl PrintJob {
         Layout::new(&*self.source, &self.setting, paper, &self.options)
     }
 
+    /// Lays the document out like [`PrintJob::layout`] on the paper of the setting, so that
+    /// `control` can stop it and show how far it has come (a big document on its own thread).
+    pub fn layout_controlled(
+        &self,
+        paper: Paper,
+        control: &matsu_print::LayoutControl,
+    ) -> Result<Layout, PrintError> {
+        Layout::new_controlled(&*self.source, &self.setting, paper, &self.options, control)
+    }
+
     /// The pages `range` of `layout`, in color when the setting says so and the job has a styler.
     pub fn pages<'a>(
         &'a self,
