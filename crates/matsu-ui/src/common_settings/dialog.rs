@@ -88,6 +88,9 @@ pub(crate) struct CommonSettingsDialog {
     /// The selected row of each editable list.
     table_selected: HashMap<&'static str, Option<usize>>,
     opener: Option<AnyWindowHandle>,
+    /// The focus of the buttons of each choice list by control id and value: the access key of
+    /// the label of a list moves the focus to the chosen one.
+    choice_focus: std::cell::RefCell<HashMap<(&'static str, i32), FocusHandle>>,
     focus: FocusHandle,
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
@@ -304,6 +307,7 @@ impl CommonSettingsDialog {
             table_inputs,
             table_selected,
             opener,
+            choice_focus: std::cell::RefCell::default(),
             focus: cx.focus_handle(),
             focused: false,
             body_scroll: ScrollHandle::default(),
@@ -389,6 +393,15 @@ impl CommonSettingsDialog {
         self.inputs
             .get(id)
             .map(|input| input.read(cx).value().to_string())
+    }
+
+    /// Whether the button of choice `value` of the list `id` has the keyboard focus.
+    #[cfg(test)]
+    pub(crate) fn choice_has_focus(&self, id: &str, value: i32, window: &Window) -> bool {
+        self.choice_focus
+            .borrow()
+            .iter()
+            .any(|((i, v), handle)| *i == id && *v == value && handle.is_focused(window))
     }
 
     /// The selected row of an editable list.
@@ -946,19 +959,21 @@ impl CommonSettingsDialog {
                 self.set_bool(control.id, !on, cx);
             }
             Kind::Radio { value } => self.set_int(control.id, value, cx),
-            Kind::Choice { options } | Kind::List { options } => {
+            // The label of a drop-down list: the focus goes to the list and the choice stays
+            // (`IsDialogMessage` moves the focus to the next control; the list is not opened).
+            // MATSU's lists are rows of buttons: the focus goes to the chosen one.
+            Kind::Choice { .. } | Kind::Dynamic { .. } => {
+                let now = self.values.int(control.id);
+                let handle = self.choice_focus.borrow().get(&(control.id, now)).cloned();
+                if let Some(handle) = handle {
+                    window.focus(&handle, cx);
+                }
+            }
+            Kind::List { options } => {
                 let now = self.values.int(control.id);
                 let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
                 let next = options[(at + 1) % options.len()].1;
                 self.set_int(control.id, next, cx);
-            }
-            Kind::Dynamic { options } => {
-                let now = self.values.int(control.id);
-                let options = options(cx, now);
-                let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
-                if let Some((_, next)) = options.get((at + 1) % options.len().max(1)) {
-                    self.set_int(control.id, *next, cx);
-                }
             }
             Kind::Number { .. } | Kind::Text => {
                 if let Some(input) = self.inputs.get(control.id).cloned() {
@@ -1182,10 +1197,17 @@ impl CommonSettingsDialog {
                     _ => Vec::new(),
                 };
                 let choices = options.into_iter().map(|(text, value)| {
+                    let focus = self
+                        .choice_focus
+                        .borrow_mut()
+                        .entry((id, value))
+                        .or_insert_with(|| cx.focus_handle())
+                        .clone();
                     Button::new(Self::element_id(&Control {
                         kind: Kind::Radio { value },
                         ..*control
                     }))
+                    .track_focus(&focus)
                     .label(text)
                     .selected(current == value)
                     // A choice is a radio button of the group (the chosen one is checked).
@@ -1216,21 +1238,28 @@ impl CommonSettingsDialog {
                     return div().into_any_element();
                 };
                 let wide = matches!(control.kind, Kind::Text);
+                let field = div()
+                    .when(wide, |d| d.flex_1().min_w(px(160.)))
+                    .when(!wide, |d| d.w(px(80.)))
+                    .child(Input::new(input).aria_label(name.clone()).disabled(!usable));
+                // The up-down control of Sakura's number box (`IDC_SPIN_*`), with its Up and
+                // Down keys.
+                let field = match control.spin {
+                    Some(range) => crate::spin::spin_box(
+                        format!("cs-{id}-spin"),
+                        input,
+                        &name,
+                        range,
+                        usable,
+                        field,
+                    )
+                    .into_any_element(),
+                    None => field.into_any_element(),
+                };
                 v_flex()
                     .gap_1()
                     .when(!label.is_empty(), |this| this.child(label.clone()))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .when(wide, |d| d.flex_1().min_w(px(160.)))
-                                    .when(!wide, |d| d.w(px(80.)))
-                                    .child(Input::new(input).aria_label(name).disabled(!usable)),
-                            )
-                            .children(note),
-                    )
+                    .child(h_flex().gap_2().items_center().child(field).children(note))
                     .into_any_element()
             }
             Kind::Table { spec } => self.table_element(control, spec, usable, cx),

@@ -277,6 +277,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             width_min,
                             width_max,
                         )
+                        .spin()
                         .into(),
                     ],
                 ),
@@ -318,7 +319,9 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         Control::check(BG_SCROLL_X, "Scroll X", "", true).into(),
                         Control::check(BG_SCROLL_Y, "Scroll Y", "", true).into(),
                     ]),
-                    Control::number(BG_TRANSPARENCY, "透明度", "", 0, 0, 255).into(),
+                    Control::number(BG_TRANSPARENCY, "透明度", "", 0, 0, 255)
+                        .spin()
+                        .into(),
                 ],
             )],
         ]),

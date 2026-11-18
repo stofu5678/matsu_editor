@@ -216,6 +216,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             wrap_min,
                             wrap_max,
                         )
+                        .spin()
                         .into(),
                         Item::Row(vec![
                             Control::number(
@@ -226,6 +227,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 0,
                                 COLUMN_SPACE_MAX,
                             )
+                            .spin()
                             .into(),
                             Item::Label("ドット"),
                         ]),
@@ -238,10 +240,13 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 -LINE_SPACE_MAX,
                                 LINE_SPACE_MAX,
                             )
+                            .spin()
                             .into(),
                             Item::Label("ドット"),
                         ]),
-                        Control::number(TAB_SPACE, "TAB幅(&T)", "", 4, tab_min, tab_max).into(),
+                        Control::number(TAB_SPACE, "TAB幅(&T)", "", 4, tab_min, tab_max)
+                            .spin()
+                            .into(),
                         Item::Row(vec![
                             Control::choice(TAB_ARROW, "T&AB表示", "", 0, TAB_ARROWS).into(),
                             Control::text(TAB_VIEW_STRING, "", "", "^       ")

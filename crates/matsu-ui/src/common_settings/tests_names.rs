@@ -21,7 +21,7 @@ fn is_input(control: &Control) -> bool {
 }
 
 /// The controls the dialog draws (the hidden ones hold the state of a widget of the page).
-fn drawn(items: &[Item], out: &mut Vec<Control>) {
+pub(super) fn drawn(items: &[Item], out: &mut Vec<Control>) {
     for item in items {
         match item {
             Item::Control(c) => out.push(*c),

@@ -581,3 +581,37 @@ fn cancel_leaves_every_setting_as_it_was_after_editing_two(cx: &mut TestAppConte
 }
 
 mod access_keys;
+
+#[gpui::test]
+fn the_spin_buttons_and_the_arrow_keys_move_a_number(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    cx.run_until_parked();
+    // フォント高 is 24: the arrow ▲ makes it 25, ▼ twice 23
+    let click = |cx: &mut VisualTestContext, selector: &'static str| {
+        let bounds = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("no {selector}"));
+        cx.simulate_click(bounds.center(), gpui::Modifiers::none());
+        cx.run_until_parked();
+    };
+    click(cx, "print-setting-spin-0-up");
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "25");
+    click(cx, "print-setting-spin-0-down");
+    click(cx, "print-setting-spin-0-down");
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "23");
+    // the end of the range (7 to 200): no wrapping
+    type_number(&dialog, Number::FontHeight, "200", cx);
+    click(cx, "print-setting-spin-0-up");
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "200");
+    // the Up and Down keys in the box (the arrow click gave it the focus)
+    type_number(&dialog, Number::FontHeight, "7", cx);
+    click(cx, "print-setting-spin-0-up");
+    cx.simulate_keystrokes("up up");
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "10");
+    cx.simulate_keystrokes("down");
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "9");
+    // OK keeps the number
+    press_ok(&dialog, cx);
+    assert_eq!(saved(cx).get(0).print_font_height, 9);
+}

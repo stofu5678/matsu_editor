@@ -55,6 +55,21 @@ impl Number {
         }
     }
 
+    /// The range of the spin button of the field (`SetUpDownRange` in `CDlgPrintSetting::
+    /// SetData`, in the units the box shows: mm for the lengths). It is the range that
+    /// `DataCheckAndCorrect` keeps the setting in ([`PrintSetting::normalized`]).
+    pub(crate) fn range(self) -> (i32, i32) {
+        match self {
+            Number::FontHeight => (7, 200),
+            Number::LineSpacing => (0, 150),
+            Number::Dansuu => (1, 4),
+            Number::DanSpace => (0, 30),
+            Number::MarginTop | Number::MarginBottom | Number::MarginLeft | Number::MarginRight => {
+                (0, 50)
+            }
+        }
+    }
+
     /// The value of the field for `s` (`OnChangeSettingType`): the lengths the dialog shows in mm
     /// are the setting's in 1/10 mm divided by 10.
     pub(crate) fn of(self, s: &PrintSetting) -> i32 {
@@ -230,6 +245,21 @@ mod tests {
         assert_eq!(s.print_font_height, 200);
         assert_eq!(s.print_dansuu, 1);
         assert_eq!(s.print_line_spacing, 0);
+    }
+
+    #[test]
+    fn the_spin_ranges_are_the_ranges_the_values_are_corrected_into() {
+        // `SetUpDownRange` in `CDlgPrintSetting::SetData` and `DataCheckAndCorrect` (`sDataRange`)
+        for number in Number::ALL {
+            let (min, max) = number.range();
+            let mut s = PrintSetting::default();
+            number.put(&mut s, min - 1);
+            assert_eq!(number.of(&s.normalized()), min, "{number:?}");
+            number.put(&mut s, max + 1);
+            assert_eq!(number.of(&s.normalized()), max, "{number:?}");
+            number.put(&mut s, min);
+            assert_eq!(number.of(&s.normalized()), min, "{number:?}");
+        }
     }
 
     #[test]

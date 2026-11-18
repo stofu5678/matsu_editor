@@ -209,6 +209,10 @@ pub(crate) struct Control {
     /// draws its caption as a separate text (or as the title of a group box, or on the check box
     /// next to it). Empty: the name is made from the label ([`Control::accessible_name`]).
     pub name: &'static str,
+    /// The range of the spin button beside a number box ([`crate::spin`]): the range that Sakura
+    /// gives its up-down control (`SetUpDownRange`), which is not always the range that the
+    /// number is checked with. `None`: the box has no spin button in Sakura.
+    pub spin: Option<(i32, i32)>,
 }
 
 impl Control {
@@ -233,6 +237,7 @@ impl Control {
             key_default: 0,
             changed: unchanged,
             name: "",
+            spin: None,
         }
     }
 
@@ -384,6 +389,22 @@ impl Control {
         } else {
             self.name.to_owned()
         }
+    }
+
+    /// A spin button (up-down control) beside the number box, with the range of the number
+    /// (`SetUpDownRange(.., min, max)`).
+    pub(crate) const fn spin(mut self) -> Self {
+        if let Kind::Number { min, max } = self.kind {
+            self.spin = Some((min, max));
+        }
+        self
+    }
+
+    /// A spin button whose range is not the range of the number (Sakura sets the up-down control
+    /// and checks the number separately).
+    pub(crate) const fn spin_range(mut self, min: i32, max: i32) -> Self {
+        self.spin = Some((min, max));
+        self
     }
 
     /// The control can be used only while `enabled` says so.

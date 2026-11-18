@@ -89,6 +89,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             0,
                             i16::MAX as i32,
                         )
+                        .spin()
                         .when(watching)
                         .into(),
                     ]),
@@ -128,6 +129,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             1,
                             35791,
                         )
+                        .spin_range(1, i16::MAX as i32)
                         .when(auto_save_is_on)
                         .into(),
                         Item::Label("分ごと"),
@@ -194,6 +196,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         1,
                         99,
                     )
+                    .spin()
                     .when(drop_opens_many)
                     .into(),
                     Item::Label("個までとする"),
@@ -242,6 +245,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     )
                     .into(),
                     Control::number("alert_file_size", "", "nAlertFileSize", 10, 1, 2048)
+                        .spin()
                         .named("警告するファイルの大きさ（MB）")
                         .when(large_file_is_warned)
                         .into(),

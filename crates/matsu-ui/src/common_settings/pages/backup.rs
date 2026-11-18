@@ -128,6 +128,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 1,
                 99,
             )
+            .spin()
             .packed(0xffff, OPT2_DEFAULT)
             .when(generations_enabled)
             .into(),
