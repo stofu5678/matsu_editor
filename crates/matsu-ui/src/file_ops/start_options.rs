@@ -355,7 +355,8 @@ impl LaunchOptions {
         cx: &mut App,
     ) {
         let weak = view.downgrade();
-        // `-GOPT=U`: the window closes after the events (`CNormalProcess` posts the close after them).
+        // `-GOPT=U`: the window closes after the events (`CNormalProcess` posts the close after them),
+        // which sends the plugins `DocumentClose` and `EditorEnd` (`MYWM_CLOSE`).
         let quits = self.greps_to_stdout();
         handle
             .update(cx, |_, window, app| {
@@ -363,7 +364,7 @@ impl LaunchOptions {
                     .spawn(app, async move |cx| {
                         crate::plugin_events::start_after_grep(&weak, cx).await;
                         if quits {
-                            cx.update(|_, app| super::close::quit_at_once(app)).ok();
+                            super::close::quit_after_close_events(cx).await;
                         }
                     })
                     .detach();
