@@ -154,7 +154,7 @@ impl Drop for JobEnd {
         // Detached: nothing could own it (the flow it belonged to is gone), and it ends at once.
         self.foreground
             .spawn(async move {
-                let _ = app.update(|app| end_job(app, &document, &state));
+                app.update(|app| end_job(app, &document, &state));
             })
             .detach();
     }
