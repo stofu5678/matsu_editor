@@ -1039,7 +1039,11 @@ fn a_cancel_at_every_look_of_a_write_leaves_no_temporary_file() {
             .unwrap_err();
         assert!(matches!(error, FileError::Cancelled), "{stop_at}: {error}");
         assert_eq!(fs::read(&path).unwrap(), before, "{stop_at}");
-        assert_eq!(dir.names(), ["a.txt"], "no temporary file at look {stop_at}");
+        assert_eq!(
+            dir.names(),
+            ["a.txt"],
+            "no temporary file at look {stop_at}"
+        );
     }
 }
 
