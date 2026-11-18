@@ -156,6 +156,11 @@ impl JobEnd {
         }
     }
 
+    /// The generation of the document this guard was made for.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// A guard for the document of `view` as it is now. `None` if the view or its window is gone.
     pub fn for_view(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> Option<Self> {
         let (document, generation) = view

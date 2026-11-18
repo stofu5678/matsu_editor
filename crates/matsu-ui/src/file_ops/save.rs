@@ -572,11 +572,19 @@ pub(super) fn finishing_view(
     shared.live_views().into_iter().find(|v| shows(v))
 }
 
-/// The status bar says that the save was stopped (Esc in a check or in the write).
-fn said_cancelled(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> SaveOutcome {
+/// The status bar says that the save was stopped (Esc in a check or in the write), if the view still
+/// shows the document that was being saved: a replacement has its own messages.
+fn said_cancelled(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    hold: &super::save_job::JobEnd,
+) -> SaveOutcome {
+    let generation = hold.generation();
     view.update(cx, |view, cx| {
-        view.notice = Some("保存を中止した".to_owned());
-        cx.notify();
+        if view.document().read(cx).generation() == generation {
+            view.notice = Some("保存を中止した".to_owned());
+            cx.notify();
+        }
     })
     .ok();
     SaveOutcome::Cancelled
@@ -737,7 +745,7 @@ async fn confirm_content(
             }
             Ok(false) => {}
             Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
-            Err(None) => return Err(said_cancelled(view, cx)),
+            Err(None) => return Err(said_cancelled(view, cx, &hold)),
         }
     }
 
@@ -788,7 +796,7 @@ async fn confirm_content(
         }
         Ok(_) => {}
         Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
-        Err(None) => return Err(said_cancelled(view, cx)),
+        Err(None) => return Err(said_cancelled(view, cx, &hold)),
     }
     Ok(())
 }
