@@ -164,18 +164,15 @@ fn the_preview_takes_the_place_of_the_text_and_esc_goes_back(cx: &mut TestAppCon
 }
 
 #[gpui::test]
-fn opening_the_preview_twice_keeps_the_first(cx: &mut TestAppContext) {
+fn the_preview_function_turns_the_preview_on_and_off(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, "abc", None);
     run(&view, F_PRINT_PREVIEW, cx);
-    let first = view
-        .read_with(cx, |v, _| v.print_preview().cloned())
-        .unwrap();
-    // Opening again keeps the preview that is open.
+    assert!(view.read_with(cx, |v, _| v.is_print_preview_open()));
+    // Called again, it closes the preview (`CEditWnd::PrintPreviewModeONOFF`).
     run(&view, F_PRINT_PREVIEW, cx);
-    let second = view
-        .read_with(cx, |v, _| v.print_preview().cloned())
-        .unwrap();
-    assert_eq!(first, second);
+    assert!(!view.read_with(cx, |v, _| v.is_print_preview_open()));
+    run(&view, F_PRINT_PREVIEW, cx);
+    assert!(view.read_with(cx, |v, _| v.is_print_preview_open()));
 }
 
 #[gpui::test]

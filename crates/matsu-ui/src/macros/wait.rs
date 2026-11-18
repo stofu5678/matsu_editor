@@ -12,7 +12,8 @@
 //! * flows: the async flows that the call started with `file_ops::start` (an open dialog, a
 //!   question before closing, a read of a file) or that a command marked with [`track`];
 //! * panels and dialogs that were not open before the call and are open now (Grep, the type
-//!   list, the window list, DIFF, compare, the print preview, the favorites dialog and so on);
+//!   list, the window list, DIFF, compare, the favorites dialog and so on; not the print preview,
+//!   which Sakura's `PrintPreviewModeONOFF` does not wait for: the macro goes on while it is shown);
 //! * work in the window: a Grep that runs, a file that is read into it;
 //! * the other windows that the call opened: a file that is read into one, a Grep that runs in
 //!   one.
@@ -56,7 +57,6 @@ const ABOUT_DIALOG: u32 = 1 << 5;
 const DIFF_PANEL: u32 = 1 << 6;
 const COMPARE_PANEL: u32 = 1 << 7;
 const TYPE_LIST: u32 = 1 << 8;
-const PRINT_PREVIEW: u32 = 1 << 9;
 const FAVORITE_DIALOG: u32 = 1 << 10;
 const GREP_RUNNING: u32 = 1 << 11;
 const LOADING: u32 = 1 << 12;
@@ -186,7 +186,6 @@ impl EditorView {
             (self.diff.panel.is_some(), DIFF_PANEL),
             (self.diff.compare.is_some(), COMPARE_PANEL),
             (self.doc_type.list.is_some(), TYPE_LIST),
-            (self.print.preview.is_some(), PRINT_PREVIEW),
             (crate::history::dialog::is_open(cx), FAVORITE_DIALOG),
             (self.grep.is_running(), GREP_RUNNING),
             (loading(cx, &self.document), LOADING),
