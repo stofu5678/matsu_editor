@@ -482,7 +482,7 @@ fn apply_to_history(history: &mut History, tab: Tab, op: &Op) -> bool {
 fn apply_to_list(list: &mut dyn EditableList, tab: Tab, op: &Op) -> bool {
     match op {
         Op::DeleteAll => list.clear_all(),
-        Op::DeleteMissing => texts::delete_missing(list, path_exists),
+        Op::DeleteMissing => texts::delete_missing(list, path_exists, tab == Tab::GrepFolder),
         Op::DeleteRows(rows) => texts::delete_texts(list, rows),
         Op::Add(text) => return texts::add_text(list, tab, text),
         Op::Replace { from, to } => return texts::edit_text(list, tab, from, to),

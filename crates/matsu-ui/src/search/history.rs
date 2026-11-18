@@ -119,6 +119,11 @@ impl SearchHistory {
     pub(crate) fn edit(&mut self, change: impl Fn(&mut SearchKeys)) {
         let before = self.keys.clone();
         change(&mut self.keys);
+        // The file takes the change only when our own lists did: a change that was refused here
+        // (a duplicate, say) must not act on a file that differs from memory.
+        if self.keys == before {
+            return;
+        }
         let Some(path) = self.store.clone() else {
             return;
         };

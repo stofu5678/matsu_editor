@@ -602,29 +602,40 @@ fn the_text_lists_add_edit_and_delete_like_crecentimp() {
     // Delete by text, the last first.
     delete_texts(&mut keys.search, &["b".to_owned(), "B".to_owned()]);
     assert_eq!(keys.search.texts()[1..], ["日本語"]);
-    // 存在しない項目: a string of several folders stays while one of them is there.
+    // 存在しない項目 on カレントディレクトリ: each string is one literal path, `;` included.
     let mut dirs = matsu_config::settings::ExecHistory::default();
-    for d in ["/gone", "/here", "/here;/gone", "/gone;/gone2"] {
+    for d in ["/gone", "/here", "/a;b", "/here;/gone"] {
         dirs.cur_dirs.append_text(d);
     }
-    delete_missing(&mut dirs.cur_dirs, |p| p == "/here");
-    assert_eq!(dirs.cur_dirs.texts(), ["/here;/gone", "/here"]);
+    delete_missing(&mut dirs.cur_dirs, |p| p == "/here" || p == "/a;b", false);
+    assert_eq!(dirs.cur_dirs.texts(), ["/a;b", "/here"]);
+    // On GREPフォルダー a string of several folders stays while one of them is there.
+    let mut grep = SearchKeys::default();
+    for d in ["/gone", "/here", "/here;/gone", "/gone;/gone2"] {
+        grep.grep_folder.append_text(d);
+    }
+    delete_missing(&mut grep.grep_folder, |p| p == "/here", true);
+    assert_eq!(grep.grep_folder.texts(), ["/here;/gone", "/here"]);
     // The parts are split as the Grep engine does: a `;` inside quotation marks does not split,
     // and the marks are not part of the name.
-    let mut quoted = matsu_config::settings::ExecHistory::default();
+    let mut quoted = SearchKeys::default();
     for d in [
         "\"/a;b\";/missing",
         "\"/here\"",
         "\"/gone;/here\"",
         "\"/a;b",
     ] {
-        quoted.cur_dirs.append_text(d);
+        quoted.grep_folder.append_text(d);
     }
-    delete_missing(&mut quoted.cur_dirs, |p| p == "/a;b" || p == "/here");
+    delete_missing(
+        &mut quoted.grep_folder,
+        |p| p == "/a;b" || p == "/here",
+        true,
+    );
     // `"/gone;/here"` is one name in quotation marks that is not there; `"/a;b` (an unclosed mark)
     // is read as `/a;b`.
     assert_eq!(
-        quoted.cur_dirs.texts(),
+        quoted.grep_folder.texts(),
         ["\"/a;b", "\"/here\"", "\"/a;b\";/missing"]
     );
 }
@@ -957,6 +968,67 @@ fn editing_a_string_only_in_memory_into_a_savable_one_saves_the_result(cx: &mut 
     assert_eq!(exec.commands.texts()[0], "echo ab");
     // What the window shows is what the file has.
     assert_eq!(lists(cx).keys.search.texts(), keys.search.texts());
+}
+
+#[gpui::test]
+fn an_edit_the_dialog_refuses_does_not_touch_a_file_that_differs_from_memory(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new();
+    let path = dir.0.join("matsu.ini");
+    cx.update(|app| {
+        crate::search::history::install(
+            app,
+            crate::search::history::SearchHistory::load(None, Some(path.clone())),
+        );
+        crate::exec::install(app, crate::exec::ExecPrefs::load(None, Some(path.clone())));
+    });
+    let (dialog, cx) = setup(cx, sample());
+    cx.update(|_, app| {
+        crate::search::history::edit_keys(app, |k| {
+            k.search.append_text("a");
+            k.search.append_text("b");
+        });
+        crate::exec::edit_history(app, |h| {
+            h.commands.append_text("a");
+            h.commands.append_text("b");
+        });
+    });
+    // As after a failed save: memory has [b, a] and the file only [a].
+    matsu_config::history::update_profile(&path, |profile| {
+        let mut keys = matsu_config::settings::SearchKeys::default();
+        keys.search.add("a");
+        let mut exec = matsu_config::settings::ExecHistory::default();
+        exec.add_command("a");
+        keys.write_to(profile).unwrap();
+        exec.write_to(profile).unwrap();
+        Ok(true)
+    })
+    .unwrap();
+    dialog.update(cx, |d, cx| d.reload(cx));
+    for (tab, to) in [(Tab::Search, "b"), (Tab::Command, "b")] {
+        dialog.update(cx, |d, cx| d.select_tab(tab, cx));
+        dialog.update(cx, |d, cx| d.click_row(1, false, false, cx));
+        dialog.update_in(cx, |d, window, cx| d.begin_edit(window, cx));
+        dialog.update_in(cx, |d, window, cx| {
+            d.finish_edit(Some(to.into()), window, cx)
+        });
+    }
+    // Refused here as a duplicate: nothing changes in memory, and the file keeps `a`.
+    assert_eq!(lists(cx).keys.search.texts(), ["b", "a"]);
+    let profile = matsu_config::Profile::load(&path).unwrap();
+    assert_eq!(
+        matsu_config::settings::SearchKeys::from_profile(&profile)
+            .search
+            .texts(),
+        ["a"]
+    );
+    assert_eq!(
+        matsu_config::settings::ExecHistory::from_profile(&profile)
+            .commands
+            .texts(),
+        ["a"]
+    );
 }
 
 #[gpui::test]

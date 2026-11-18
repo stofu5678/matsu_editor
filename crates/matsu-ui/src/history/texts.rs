@@ -86,9 +86,13 @@ pub(crate) fn delete_texts(list: &mut dyn EditableList, texts: &[String]) {
 
 /// "存在しない項目" (`IDC_BUTTON_DELETE_NOTFOUND`): removes the strings that name a folder that is
 /// gone. `exists` says whether a path is there.
-pub(crate) fn delete_missing(list: &mut dyn EditableList, exists: impl Fn(&str) -> bool) {
+pub(crate) fn delete_missing(
+    list: &mut dyn EditableList,
+    exists: impl Fn(&str) -> bool,
+    folders: bool,
+) {
     for i in (0..list.texts().len()).rev() {
-        if !is_found(&list.texts()[i], &exists) {
+        if !is_found(&list.texts()[i], &exists, folders) {
             list.delete_at(i);
         }
     }
@@ -98,10 +102,12 @@ pub(crate) fn delete_missing(list: &mut dyn EditableList, exists: impl Fn(&str) 
 /// (`CutLastYenFromDirectoryPath`, `IsFileExists(path, false)`), which counts a GREPフォルダー
 /// string of several folders (`C:\a;C:\b`, which the Grep dialog takes) as gone even when they
 /// all are there. Here such a string stays when any of its folders is there, split as the Grep
-/// engine does (`split_folders`: `;` inside quotation marks does not split, and the marks go).
-fn is_found(text: &str, exists: &impl Fn(&str) -> bool) -> bool {
+/// engine does (`split_folders`: `;` inside quotation marks does not split, and the marks go). That
+/// is for the GREPフォルダー tab (`folders`); a current directory is one literal path.
+fn is_found(text: &str, exists: &impl Fn(&str) -> bool, folders: bool) -> bool {
     exists(text)
-        || (text.contains([';', '"'])
+        || (folders
+            && text.contains([';', '"'])
             && crate::grep::keys::split_folders(text)
                 .iter()
                 .any(|part| exists(part)))
