@@ -135,7 +135,7 @@ mod tests {
         use matsu_core::buffer::Pos;
         let mut e = Editor::new("a[bc|d");
         e.run("delete");
-        let edits = &e.changes().edits;
+        let edits = e.changes().edits();
         assert_eq!(edits.len(), 1);
         assert_eq!(
             (edits[0].start, edits[0].old_end, edits[0].new_end),

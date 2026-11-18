@@ -51,7 +51,7 @@ mod tests {
         e.run("go_file_top").assert_marked("|ab");
         // the caret comes back to where the undone command had it
         e.run("undo").assert_marked("abc|");
-        assert!(e.changes().replaced_all);
+        assert!(e.changes().replaced_all());
         assert!(e.changes().text_changed());
     }
 

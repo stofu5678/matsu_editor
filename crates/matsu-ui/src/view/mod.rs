@@ -52,7 +52,7 @@ use gpui::{
     StatefulInteractiveElement as _, Styled, Subscription, Window, actions, div, px,
 };
 use matsu_commands::command::{Arg, Registration};
-use matsu_commands::context::{Changes, CommandContext};
+use matsu_commands::context::{Changes, CommandContext, TextEdits};
 use matsu_commands::keymap::{Key, KeyMap, Lookup};
 use matsu_commands::registry::Registry;
 use matsu_commands::sakura::FUNCTIONS;
@@ -705,14 +705,13 @@ impl EditorView {
             let version = self.document.read(cx).next_version();
             self.colors_after_edit(&changes, version, cx);
             let entity_id = self.entity_id;
-            let edits = std::mem::take(&mut changes.edits);
-            let replaced_all = changes.replaced_all;
             // Undo and redo know the edits they amount to; the other panes move their carets with them.
-            let replacement = changes.replacement.take();
-            self.layout_version = self.document.update(cx, |shared, cx| match replacement {
-                Some(edits) if replaced_all => shared.edited(entity_id, edits, cx),
-                _ if replaced_all => shared.changed(cx),
-                _ => shared.edited(entity_id, edits, cx),
+            let text = std::mem::take(&mut changes.text);
+            self.layout_version = self.document.update(cx, |shared, cx| match text {
+                TextEdits::Edited(edits) | TextEdits::Replaced(edits) => {
+                    shared.edited(entity_id, edits, cx)
+                }
+                TextEdits::ReplacedUnknown => shared.changed(cx),
             });
             debug_assert_eq!(self.layout_version, version);
         }

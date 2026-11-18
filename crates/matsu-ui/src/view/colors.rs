@@ -206,9 +206,9 @@ impl EditorView {
         if self.color_version + 1 != version {
             // Something else changed the document too: start again.
             self.color_states.reset();
-        } else if changes.replaced_all {
+        } else if changes.replaced_all() {
             self.color_states.reset();
-        } else if let [edit] = changes.edits.as_slice() {
+        } else if let [edit] = changes.edits() {
             self.color_states.edited(
                 doc,
                 &rules,
@@ -219,7 +219,7 @@ impl EditorView {
                 },
                 COLORS_BUDGET,
             );
-        } else if let Some(first) = changes.edits.iter().map(|e| e.start.line).min() {
+        } else if let Some(first) = changes.edits().iter().map(|e| e.start.line).min() {
             // Several edits in one command: their lines are not of one document.
             self.color_states.invalidate_after(first);
         }
