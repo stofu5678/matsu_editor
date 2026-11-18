@@ -696,10 +696,17 @@ fn a_guard_that_is_dropped_ends_the_job_and_the_document_is_editable(cx: &mut Te
     drop(guard);
     cx.run_until_parked();
     assert!(!is_saving(&view, cx), "the job ended");
-    assert!(state.report(0, 1).is_break(), "and the thread was told to stop");
+    assert!(
+        state.report(0, 1).is_break(),
+        "and the thread was told to stop"
+    );
     cx.simulate_input("x");
     let text = view.read_with(cx, |view, app| view.document().read(app).doc().line(0));
-    assert_eq!(text.unwrap().unwrap().text, "xabc", "edits are accepted again");
+    assert_eq!(
+        text.unwrap().unwrap().text,
+        "xabc",
+        "edits are accepted again"
+    );
 }
 
 /// A check ends without a write (the user cancels the question that follows) after the sharing
