@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.19.0](https://github.com/stofu5678/matsu_editor/compare/v0.18.0...v0.19.0) (2026-11-18)
+
+
+### Features
+
+* **grep:** write the Grep result to the standard output with -GOPT=U ([#502](https://github.com/stofu5678/matsu_editor/issues/502)) ([26121a2](https://github.com/stofu5678/matsu_editor/commit/26121a2655f1c7429ee54665922f83c2614ac9d5))
+* **plugin:** run plugin handlers in the bundled Lua, MicroPython and mruby ([#499](https://github.com/stofu5678/matsu_editor/issues/499)) ([b1fcc82](https://github.com/stofu5678/matsu_editor/commit/b1fcc826f4cc6d15a540f05318d0af299dc4f769))
+* **print:** give macros and plugins the page of the open print preview ([#508](https://github.com/stofu5678/matsu_editor/issues/508)) ([526277b](https://github.com/stofu5678/matsu_editor/commit/526277b268ba5470792bad2ea76555b5574dd567))
+* **print:** lay out a big document off the UI thread in the preview ([#509](https://github.com/stofu5678/matsu_editor/issues/509)) ([19fb7a7](https://github.com/stofu5678/matsu_editor/commit/19fb7a75d1e138116e4e5c4e88ce7d92ac5acd07))
+* **print:** start the print dialog on the printer the setting remembers ([#507](https://github.com/stofu5678/matsu_editor/issues/507)) ([4b190d5](https://github.com/stofu5678/matsu_editor/commit/4b190d5c6d1c24714a5b80ca3f444803c6114f40))
+
+
+### Bug Fixes
+
+* **commands:** keep the rows of a box sort in a wrapped view ([#503](https://github.com/stofu5678/matsu_editor/issues/503)) ([a6eb53b](https://github.com/stofu5678/matsu_editor/commit/a6eb53ba2f2f0aa838605a5b908574ee4209776c))
+* **grep:** replace in the edited text for a Grep replace with :HWND: ([#504](https://github.com/stofu5678/matsu_editor/issues/504)) ([25b708e](https://github.com/stofu5678/matsu_editor/commit/25b708ecd4e5284ac6c893eb02fda554c1ccc768))
+* **view:** free cursor in a drag, and the width of a row as its right edge ([#505](https://github.com/stofu5678/matsu_editor/issues/505)) ([9d373a2](https://github.com/stofu5678/matsu_editor/commit/9d373a26180155c59fc15d3298218f6ac5b7636b))
+* **view:** move the carets of the other panes with an edit ([#506](https://github.com/stofu5678/matsu_editor/issues/506)) ([4a66055](https://github.com/stofu5678/matsu_editor/commit/4a66055feaf9366391b1e79ba6d7ef8f48eecf1e))
+
 ## [0.18.0](https://github.com/stofu5678/matsu_editor/compare/v0.17.0...v0.18.0) (2026-11-17)
 
 
