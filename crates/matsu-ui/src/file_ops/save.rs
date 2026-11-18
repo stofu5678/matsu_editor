@@ -374,7 +374,7 @@ pub(crate) async fn save(
             view.update(cx, |view, cx| {
                 let share_mode = super::prefs::prefs(cx).file_share_mode;
                 view.document()
-                    .update(cx, |shared, _| shared.relock_unless_saving(share_mode))
+                    .update(cx, |shared, _| shared.lock_file(share_mode))
             })
             .ok();
             super::lock::report_failure(view, cx).await;

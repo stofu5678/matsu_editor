@@ -541,3 +541,123 @@ fn an_old_job_leaves_the_notice_of_the_replacement_alone(cx: &mut TestAppContext
     let notice = view.read_with(cx, |view, _| view.notice.clone());
     assert_eq!(notice.as_deref(), Some("the notice of the new document"));
 }
+
+fn held(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> Option<matsu_platform::file_lock::ShareMode> {
+    view.read_with(cx, |view, app| view.document().read(app).held_lock_mode())
+}
+
+/// Every way to take the lock goes through one gate: while a save writes the file none of them
+/// takes it (the writer needs the file free), and the save's own end takes it.
+#[gpui::test]
+fn no_way_takes_the_lock_while_a_save_writes(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    cx.update(|_, app| {
+        app.set_global(FilePrefs {
+            file_share_mode: 1,
+            ..FilePrefs::default()
+        })
+    });
+    open(&view, cx, &path);
+    assert!(held(&view, cx).is_some(), "locked after the load");
+    // the flow lets go of the lock and starts its job
+    on_document(&view, cx, |shared| shared.unlock_file());
+    let state = begin(&view, cx);
+    // the setting changes to the mode that denies reading and writing (`lock::apply_setting`)
+    on_document(&view, cx, |shared| shared.relock_checking_writable(2));
+    assert!(held(&view, cx).is_none(), "not taken for the new setting");
+    assert_eq!(
+        view.read_with(cx, |view, app| view.document().read(app).lock_mode()),
+        2,
+        "but remembered as the one the document locks with"
+    );
+    // view mode on and off (`Command_VIEWMODE`)
+    run(&view, cx, "F_VIEWMODE");
+    run(&view, cx, "F_VIEWMODE");
+    assert!(held(&view, cx).is_none(), "not taken when view mode ends");
+    // a lock taken back after a check or a backup
+    on_document(&view, cx, |shared| shared.lock_file(1));
+    assert!(held(&view, cx).is_none());
+    // the save ends and takes the lock (`finish_save_now` does it with the setting of then)
+    on_document(&view, cx, |shared| shared.end_saving(&state));
+    on_document(&view, cx, |shared| shared.lock_file(2));
+    assert!(held(&view, cx).is_some(), "taken when the save is over");
+}
+
+/// The wait belongs to the document: the view that started the save is gone (a split pane that
+/// was removed) and another view still shows the document; the job goes on and its result is
+/// handed on.
+#[gpui::test]
+fn the_wait_goes_on_when_the_view_that_started_the_save_is_gone(cx: &mut TestAppContext) {
+    use std::sync::atomic::AtomicBool;
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    open(&view, cx, &path);
+    let shared = view.read_with(cx, |view, _| view.document().clone());
+    // another view over the document, which is the one that started the save
+    let initiator = cx.update(|_, app| {
+        let shared = shared.clone();
+        app.new(move |cx| EditorView::new(shared, cx))
+    });
+    let (version, generation) = cx.read(|app| {
+        let doc = shared.read(app);
+        (doc.version(), doc.generation())
+    });
+    let state: std::sync::Arc<JobState> = SaveJob::new().state();
+    let weak_initiator = initiator.downgrade();
+    drop(initiator);
+    cx.update(|_, _| {});
+    // the job's work ends after 350 ms of the clock the test moves
+    let task = {
+        let state = state.clone();
+        let executor = cx.executor();
+        let timer = executor.clone();
+        executor.spawn(async move {
+            timer.timer(Duration::from_millis(350)).await;
+            state.finished.store(true, Ordering::Release);
+            Ok::<_, FileError>(7)
+        })
+    };
+    let document = shared.downgrade();
+    let result = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let seen_notice = std::sync::Arc::new(AtomicBool::new(false));
+    {
+        let result = result.clone();
+        let seen = seen_notice.clone();
+        let view = view.clone();
+        let state = state.clone();
+        let path = path.clone();
+        view.clone().update_in(cx, move |_, window, cx| {
+            window
+                .spawn(cx, async move |cx| {
+                    let waited = wait_for(
+                        &weak_initiator,
+                        cx,
+                        &document,
+                        &state,
+                        task,
+                        "保存",
+                        &path,
+                        (version, generation),
+                    )
+                    .await;
+                    seen.store(
+                        view.read_with(cx, |v, _| v.notice.is_none()).unwrap_or(false),
+                        Ordering::Relaxed,
+                    );
+                    *result.borrow_mut() = Some(waited);
+                })
+                .detach();
+        });
+    }
+    settle(cx);
+    let waited = result.borrow_mut().take().expect("the wait ended");
+    assert!(matches!(waited, Ok(7)), "the result of the worker is handed on: {waited:?}");
+    assert!(
+        seen_notice.load(Ordering::Relaxed),
+        "the status text of the job is cleared in the view that showed it"
+    );
+    assert!(state.report(0, 1).is_continue(), "the job was not stopped");
+}

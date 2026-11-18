@@ -114,6 +114,15 @@ impl FileLockState {
         }
     }
 
+    /// A lock that is asked for while a save writes the file is not taken (the writer needs the
+    /// file free; on Windows a new handle without delete sharing would stop its final rename): the
+    /// setting is remembered as the one the document locks with, and the save's own end takes the
+    /// lock (`CDocLocker::OnAfterSave`).
+    pub fn defer(&mut self, number: i32) {
+        self.held = None;
+        self.mode = number;
+    }
+
     /// `CFile::IsFileLocking`.
     pub fn is_locked(&self) -> bool {
         self.held.is_some()

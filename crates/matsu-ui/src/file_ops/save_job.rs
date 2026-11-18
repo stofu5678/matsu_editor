@@ -197,8 +197,9 @@ async fn wait_for<T: Send + 'static>(
     (version, generation): (u64, u64),
 ) -> Result<T, FileError> {
     let timer = cx.background_executor().clone();
-    // The status text this job last wrote, so that it clears only its own.
-    let mut own_notice: Option<String> = None;
+    // The status text this job last wrote, and the view it wrote it in, so that it clears only its
+    // own.
+    let mut own_notice: Option<(WeakEntity<EditorView>, String)> = None;
     while !state.finished.load(Ordering::Acquire) {
         timer.timer(Duration::from_millis(100)).await;
         let text = progress_text(
@@ -207,25 +208,24 @@ async fn wait_for<T: Send + 'static>(
             state.done.load(Ordering::Relaxed),
             state.total.load(Ordering::Relaxed),
         );
-        let shown = view.update(cx, |view, cx| {
-            // Only while the view still shows the document this job saves: the replacement may
-            // have a job of its own, whose progress is not for this one to write over.
-            if view.document().read(cx).generation() == generation {
-                view.notice = Some(text.clone());
-                cx.notify();
-                Some(text)
-            } else {
-                None
-            }
+        // The wait belongs to the document, not to the view that started the save: each tick finds
+        // a view that shows the document (a split pane may have been removed) for the progress.
+        // Only a document that is gone or replaced stops the job (a window that is gone cannot go
+        // on either).
+        let current = cx
+            .update(|_, app| super::save::finishing_view(view, document, Some(generation), app))
+            .ok()
+            .flatten();
+        let Some(current) = current else {
+            state.cancel();
+            return Err(FileError::Cancelled);
+        };
+        let shown = current.update(cx, |view, cx| {
+            view.notice = Some(text.clone());
+            cx.notify();
         });
-        match shown {
-            Ok(Some(text)) => own_notice = Some(text),
-            Ok(None) => {}
-            Err(_) => {
-                // The window is gone: nothing is to be written for it.
-                state.cancel();
-                return Err(FileError::Cancelled);
-            }
+        if shown.is_ok() {
+            own_notice = Some((current, text));
         }
     }
     let result = task.await;
@@ -246,16 +246,16 @@ async fn wait_for<T: Send + 'static>(
             })
         })
         .unwrap_or((false, false));
-    view.update(cx, |view, cx| {
-        if view.document().read(cx).generation() == generation
-            && own_notice.is_some()
-            && view.notice == own_notice
-        {
-            view.notice = None;
-            cx.notify();
-        }
-    })
-    .ok();
+    if let Some((shown_in, text)) = own_notice {
+        shown_in
+            .update(cx, |view, cx| {
+                if view.notice.as_ref() == Some(&text) {
+                    view.notice = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+    }
     match (result, same) {
         (Ok(_), (false, _)) => Err(FileError::Cancelled),
         (Ok(_), (true, false)) => Err(FileError::Io(std::io::Error::other(

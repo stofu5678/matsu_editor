@@ -621,14 +621,6 @@ impl SharedDocument {
         }
     }
 
-    /// Takes the lock of the file back after a step that let go of it, unless a save is writing
-    /// the file now (its write needs the file free; the save's own end takes the lock again).
-    pub(crate) fn relock_unless_saving(&mut self, mode: i32) {
-        if !self.is_saving() {
-            self.lock_file(mode);
-        }
-    }
-
     /// Esc: stops the job that runs, if one does.
     pub(crate) fn cancel_saving(&self) {
         if let Some(job) = &self.saving {
@@ -722,6 +714,12 @@ impl SharedDocument {
         // A file read by ranges is open behind the document, and on Windows a lock that denies
         // reading cannot be taken while it is: the file is locked against writing only.
         let mode = if self.ranged && mode == 2 { 1 } else { mode };
+        // The one gate of every way to take the lock (the setting changed, view mode toggled, a
+        // lock taken back after a check or a backup): not while a save writes the file.
+        if self.is_saving() {
+            self.lock.defer(mode);
+            return;
+        }
         self.lock.lock(path.as_deref(), mode);
     }
 
@@ -763,7 +761,7 @@ impl SharedDocument {
     /// Takes the lock back after [`release_lock_for`](Self::release_lock_for) said it let go.
     pub(crate) fn restore_lock(&mut self, released: bool) {
         if released {
-            self.relock_unless_saving(self.lock.mode());
+            self.lock_file(self.lock.mode());
         }
     }
 
