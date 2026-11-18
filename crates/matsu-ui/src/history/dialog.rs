@@ -5,11 +5,13 @@
 //! "すべて", "お気に入り以外", "存在しない項目", "選択項目" (delete) and "閉じる". An item beyond the
 //! number that is shown in the menu is marked "(非表示)".
 //!
-//! Only the file and the folder history exist in this program (the search, replace, Grep,
-//! command and current folder histories, and the editable list of excluded paths, are not
-//! built), so there are two tabs. A change is written to the history at once; Sakura keeps the
-//! check boxes in the dialog and applies them when it is closed or before a delete, which comes
-//! to the same.
+//! Only the file and the folder history and the list of excluded paths (`ExceptMRU`) are in this
+//! window (the search, replace, Grep, command and current folder histories are not built), so
+//! there are three tabs. The list of excluded paths has no favorites; the selected files and
+//! folders go into it with 除外リストに追加 (the menu item of Sakura's list), and it is the one
+//! list whose items can be deleted but not checked. A change is written to the history at once;
+//! Sakura keeps the check boxes in the dialog and applies them when it is closed or before a
+//! delete, which comes to the same.
 //!
 //! The dialog is a window of its own, as in Sakura, with the window of the editor behind it. Its
 //! place and size are kept when it is closed and used by the next one (`rcFavoriteDialog`,
@@ -19,6 +21,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, Global, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PromptLevel,
@@ -39,14 +42,40 @@ use crate::saved_state::dialog_rect::{
 pub(crate) enum Tab {
     Files,
     Folders,
+    /// `STR_DLGFAV_FF_EXCLUDE`: `ExceptMRU`, the texts that keep a path out of the history.
+    Except,
 }
 
 impl Tab {
+    /// The tabs in the order of the dialog.
+    pub(crate) const ALL: [Tab; 3] = [Tab::Files, Tab::Folders, Tab::Except];
+
+    /// The next tab, going round (Ctrl+Tab in Sakura; here Tab).
+    fn next(self) -> Tab {
+        match self {
+            Tab::Files => Tab::Folders,
+            Tab::Folders => Tab::Except,
+            Tab::Except => Tab::Files,
+        }
+    }
+
+    /// Whether the items can be made favorites (`m_bHaveFavorite`).
+    pub(crate) fn has_favorites(self) -> bool {
+        self != Tab::Except
+    }
+
+    /// Whether the items are paths of files and folders (`m_bFilePath`): only those can be
+    /// searched for what is gone, and put in the list of excluded paths (`m_bAddExcept`).
+    pub(crate) fn is_path_list(self) -> bool {
+        self != Tab::Except
+    }
+
     /// The caption of the tab (`STR_DLGFAV_FILE`, `STR_DLGFAV_FOLDER`).
     pub(crate) fn caption(self) -> &'static str {
         match self {
             Tab::Files => "ファイル",
             Tab::Folders => "フォルダー",
+            Tab::Except => "ファイル・フォルダー除外",
         }
     }
 }
@@ -86,6 +115,15 @@ pub(crate) fn rows(history: &History, tab: Tab) -> Vec<Row> {
     match tab {
         Tab::Files => make(&history.files),
         Tab::Folders => make(&history.folders),
+        Tab::Except => history
+            .except
+            .iter()
+            .map(|text| Row {
+                key: String::new(),
+                favorite: false,
+                text: text.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -98,6 +136,8 @@ pub(crate) fn set_favorite(history: &mut History, tab: Tab, index: usize, favori
     match tab {
         Tab::Files => history.files.set_favorite(index, favorite),
         Tab::Folders => history.folders.set_favorite(index, favorite),
+        // No favorites in the list of excluded paths.
+        Tab::Except => false,
     };
     // A favorite comes into the part the menu shows (`UpdateView`).
     let (files, folders) = (history.files.view_count(), history.folders.view_count());
@@ -111,6 +151,7 @@ fn index_of(history: &History, tab: Tab, path: &str) -> Option<usize> {
     match tab {
         Tab::Files => history.files.find(path),
         Tab::Folders => history.folders.find(path),
+        Tab::Except => history.except.iter().position(|text| text == path),
     }
 }
 
@@ -119,6 +160,7 @@ pub(crate) fn delete_all(history: &mut History, tab: Tab) {
     match tab {
         Tab::Files => history.files.clear(),
         Tab::Folders => history.folders.clear(),
+        Tab::Except => history.except.clear(),
     }
 }
 
@@ -127,6 +169,8 @@ pub(crate) fn delete_non_favorites(history: &mut History, tab: Tab) {
     match tab {
         Tab::Files => history.files.delete_non_favorites(),
         Tab::Folders => history.folders.delete_non_favorites(),
+        // Nothing is a favorite there, and the button is not there either (`m_bHaveFavorite`).
+        Tab::Except => false,
     };
 }
 
@@ -145,6 +189,8 @@ pub(crate) fn delete_missing(history: &mut History, tab: Tab, exists: impl Fn(&s
     match tab {
         Tab::Files => history.files.delete_where(|f| !exists(&f.path)),
         Tab::Folders => history.folders.delete_where(|f| !exists(&f.path)),
+        // Not paths (`m_bFilePath` is off): `ExceptMRU` is text that a path has in it.
+        Tab::Except => false,
     };
 }
 
@@ -155,8 +201,32 @@ pub(crate) fn delete_selected(history: &mut History, tab: Tab, indices: &BTreeSe
         match tab {
             Tab::Files => history.files.delete(i),
             Tab::Folders => history.folders.delete(i),
+            Tab::Except => {
+                let found = i < history.except.len();
+                if found {
+                    history.except.remove(i);
+                }
+                found
+            }
         };
     }
+}
+
+/// 除外リストに追加 (`MENU_ADD_EXCEPT`): puts the paths in front of `ExceptMRU`, one by one
+/// (`AppendItemText`: a text that is there already comes to the front). The list takes
+/// `MAX_EXCEPT_MRU` texts; what does not fit is left out. Returns whether all of them went in.
+pub(crate) fn add_to_except(history: &mut History, paths: &[String]) -> bool {
+    let mut all = true;
+    for path in paths {
+        if let Some(at) = history.except.iter().position(|t| t == path) {
+            history.except.remove(at);
+        } else if history.except.len() >= matsu_config::history::MAX_EXCEPT_MRU {
+            all = false;
+            continue;
+        }
+        history.except.insert(0, path.clone());
+    }
+    all
 }
 
 /// The message before "すべて" (`STR_DLGFAV_CONF_DEL_FAV`).
@@ -166,6 +236,9 @@ fn confirm_all(tab: Tab) -> String {
         tab.caption()
     )
 }
+
+/// `STR_DLGFAV_LIST_LIMIT_OVER`.
+const EXCEPT_FULL: &str = "除外リストがいっぱいで追加できませんでした。";
 
 /// The message before "お気に入り以外" (`STR_DLGFAV_CONF_DEL_NOTFAV`).
 fn confirm_non_favorites(tab: Tab) -> String {
@@ -190,6 +263,7 @@ mod labels {
     pub(super) const NON_FAVORITES: &str = "お気に入り以外(F)";
     pub(super) const MISSING: &str = "存在しない項目(N)";
     pub(super) const SELECTED: &str = "選択項目(D)";
+    pub(super) const ADD_EXCEPT: &str = "除外リストに追加(X)";
     pub(super) const CLOSE: &str = "閉じる(C)";
 }
 
@@ -200,6 +274,7 @@ enum Use {
     NonFavorites,
     Missing,
     Selected,
+    AddExcept,
     Close,
 }
 
@@ -422,7 +497,7 @@ impl FavoriteDialog {
     /// "お気に入り以外".
     pub(crate) fn ask_delete_non_favorites(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tab = self.tab;
-        if !self.rows().is_empty() {
+        if tab.has_favorites() && !self.rows().is_empty() {
             self.confirm_then(&confirm_non_favorites(tab), window, cx, move |h| {
                 delete_non_favorites(h, tab);
             });
@@ -432,7 +507,7 @@ impl FavoriteDialog {
     /// "存在しない項目".
     pub(crate) fn ask_delete_missing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tab = self.tab;
-        if !self.rows().is_empty() {
+        if tab.is_path_list() && !self.rows().is_empty() {
             self.confirm_then(&confirm_missing(tab), window, cx, move |h| {
                 delete_missing(h, tab, path_exists);
             });
@@ -469,6 +544,32 @@ impl FavoriteDialog {
         cx.notify();
     }
 
+    /// 除外リストに追加: the selected files or folders go into the list of excluded paths. A list
+    /// that is full says so and takes what fits.
+    pub(crate) fn add_selected_to_except(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.tab.is_path_list() || self.selected.is_empty() {
+            return;
+        }
+        let selected = self.selected.clone();
+        let paths: Vec<String> = self
+            .rows()
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| selected.contains(i))
+            .map(|(_, r)| r.text)
+            .collect();
+        let mut all = true;
+        self.change(cx, |h| all = add_to_except(h, &paths));
+        if !all {
+            let answer =
+                crate::boxes::prompt(window, PromptLevel::Warning, EXCEPT_FULL, None, &["OK"], cx);
+            cx.spawn_in(window, async move |_, _| {
+                answer.await.ok();
+            })
+            .detach();
+        }
+    }
+
     /// Alt with the access key of a button (`IsDialogMessage`): presses it. Returns whether the
     /// letter was one of the dialog's.
     pub(crate) fn use_access_key(
@@ -479,9 +580,14 @@ impl FavoriteDialog {
     ) -> bool {
         let entries = [
             Entry::labelled(labels::ALL, true, Use::All),
-            Entry::labelled(labels::NON_FAVORITES, true, Use::NonFavorites),
-            Entry::labelled(labels::MISSING, true, Use::Missing),
+            Entry::labelled(
+                labels::NON_FAVORITES,
+                self.tab.has_favorites(),
+                Use::NonFavorites,
+            ),
+            Entry::labelled(labels::MISSING, self.tab.is_path_list(), Use::Missing),
             Entry::labelled(labels::SELECTED, true, Use::Selected),
+            Entry::labelled(labels::ADD_EXCEPT, self.tab.is_path_list(), Use::AddExcept),
             Entry::labelled(labels::CLOSE, true, Use::Close),
         ];
         match pick(letter, &entries) {
@@ -491,6 +597,7 @@ impl FavoriteDialog {
             Found::One(Use::NonFavorites) => self.ask_delete_non_favorites(window, cx),
             Found::One(Use::Missing) => self.ask_delete_missing(window, cx),
             Found::One(Use::Selected) => self.delete_selected_rows(cx),
+            Found::One(Use::AddExcept) => self.add_selected_to_except(window, cx),
             Found::One(Use::Close) => self.close(window),
         }
         true
@@ -515,7 +622,7 @@ impl FavoriteDialog {
                 return;
             }
             "space" => {
-                if count > 0 {
+                if count > 0 && self.tab.has_favorites() {
                     self.toggle_favorite(self.focus_row, cx);
                 }
                 cx.stop_propagation();
@@ -528,12 +635,7 @@ impl FavoriteDialog {
                 return;
             }
             "tab" => {
-                let tab = if self.tab == Tab::Files {
-                    Tab::Folders
-                } else {
-                    Tab::Files
-                };
-                self.select_tab(tab, cx);
+                self.select_tab(self.tab.next(), cx);
                 cx.stop_propagation();
                 return;
             }
@@ -584,32 +686,37 @@ impl Render for FavoriteDialog {
                 if selected {
                     item = item.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
                 }
-                item.child(
-                    div()
-                        .id(("favorite", i))
-                        .role(gpui::Role::CheckBox)
-                        .aria_label(format!("お気に入り: {}", row.text))
-                        .aria_toggled(if row.favorite {
-                            gpui::Toggled::True
-                        } else {
-                            gpui::Toggled::False
-                        })
-                        .w(px(16.))
-                        .h(px(16.))
-                        .border_1()
-                        .border_color(rgb(0x666666))
-                        .bg(rgb(0xffffff))
-                        .text_color(rgb(TEXT))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(if row.favorite { "✓" } else { "" })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.toggle_favorite(i, cx);
-                            cx.stop_propagation();
-                        })),
-                )
-                .child(div().w(px(80.)).child(row.key.clone()))
+                let has_favorites = self.tab.has_favorites();
+                item.when(has_favorites, |item| {
+                    item.child(
+                        div()
+                            .id(("favorite", i))
+                            .role(gpui::Role::CheckBox)
+                            .aria_label(format!("お気に入り: {}", row.text))
+                            .aria_toggled(if row.favorite {
+                                gpui::Toggled::True
+                            } else {
+                                gpui::Toggled::False
+                            })
+                            .w(px(16.))
+                            .h(px(16.))
+                            .border_1()
+                            .border_color(rgb(0x666666))
+                            .bg(rgb(0xffffff))
+                            .text_color(rgb(TEXT))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(if row.favorite { "✓" } else { "" })
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.toggle_favorite(i, cx);
+                                cx.stop_propagation();
+                            })),
+                    )
+                })
+                .when(has_favorites, |item| {
+                    item.child(div().w(px(80.)).child(row.key.clone()))
+                })
                 .child(div().flex_1().child(row.text.clone()))
                 .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                     let modifiers = event.modifiers();
@@ -682,8 +789,7 @@ impl Render for FavoriteDialog {
                     .aria_label("対象")
                     .flex()
                     .gap_1()
-                    .child(tab_button(Tab::Files, self.tab == Tab::Files))
-                    .child(tab_button(Tab::Folders, self.tab == Tab::Folders)),
+                    .children(Tab::ALL.map(|tab| tab_button(tab, self.tab == tab))),
             )
             .child(
                 div()
@@ -707,21 +813,36 @@ impl Render for FavoriteDialog {
                     .child(button("delete-all", labels::ALL).on_click(cx.listener(
                         |this, _: &ClickEvent, window, cx| this.ask_delete_all(window, cx),
                     )))
-                    .child(
-                        button("delete-non-favorites", labels::NON_FAVORITES).on_click(
-                            cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.ask_delete_non_favorites(window, cx);
-                            }),
-                        ),
-                    )
-                    .child(
-                        button("delete-missing", labels::MISSING).on_click(cx.listener(
-                            |this, _: &ClickEvent, window, cx| this.ask_delete_missing(window, cx),
-                        )),
-                    )
+                    .when(self.tab.has_favorites(), |row| {
+                        row.child(
+                            button("delete-non-favorites", labels::NON_FAVORITES).on_click(
+                                cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.ask_delete_non_favorites(window, cx);
+                                }),
+                            ),
+                        )
+                    })
+                    .when(self.tab.is_path_list(), |row| {
+                        row.child(
+                            button("delete-missing", labels::MISSING).on_click(cx.listener(
+                                |this, _: &ClickEvent, window, cx| {
+                                    this.ask_delete_missing(window, cx);
+                                },
+                            )),
+                        )
+                    })
                     .child(button("delete-selected", labels::SELECTED).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| this.delete_selected_rows(cx)),
                     ))
+                    .when(self.tab.is_path_list(), |row| {
+                        row.child(
+                            button("add-except", labels::ADD_EXCEPT).on_click(cx.listener(
+                                |this, _: &ClickEvent, window, cx| {
+                                    this.add_selected_to_except(window, cx);
+                                },
+                            )),
+                        )
+                    })
                     .child(div().flex_1())
                     .child(button("close", labels::CLOSE).on_click(
                         cx.listener(|this, _: &ClickEvent, window, _| this.close(window)),

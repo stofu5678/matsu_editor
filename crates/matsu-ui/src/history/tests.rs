@@ -351,6 +351,59 @@ fn the_encoding_is_remembered_with_the_file(cx: &mut TestAppContext) {
     assert_eq!(encoding_of(&entry), Some(Encoding::Utf8));
 }
 
+/// The index of the type of the document in the window.
+fn type_index(f: &Fixture, cx: &mut VisualTestContext) -> usize {
+    f.view.read_with(cx, |v, _| v.type_index())
+}
+
+#[gpui::test]
+fn the_type_of_the_file_is_remembered_with_it(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", THREE_LINES);
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, None);
+    let index = type_index(&f, cx);
+    let id = cx.update(|_, app| {
+        crate::doc_types::with_user(app, |user| user.document_types().get(index).unwrap().id)
+    });
+    let entry = history(cx).file(&path_text(&path)).cloned().unwrap();
+    assert_eq!(entry.type_id, id, "`m_nTypeId` of `GetEditInfo`");
+}
+
+/// Opens `a.txt` in a window whose history already remembers it with type `type_id`; returns the
+/// index of the type the window has and the one a name gives.
+fn open_with_remembered_type(cx: &mut TestAppContext, type_id: i32) -> (usize, usize) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", THREE_LINES);
+    let (f, cx) = setup(cx);
+    set_history(cx, |h| {
+        let mut entry = FileEntry::new(path_text(&path));
+        entry.type_id = type_id;
+        h.add_file(entry);
+    });
+    f.open(cx, &path, None);
+    let by_name = cx.update(|_, app| {
+        crate::doc_types::with_user(app, |user| user.type_index_for(Some("a.txt")))
+    });
+    (type_index(&f, cx), by_name)
+}
+
+#[gpui::test]
+fn a_file_opens_with_the_type_the_history_remembers(cx: &mut TestAppContext) {
+    // Last time the file was the basic type (id 0).
+    let (now, by_name) = open_with_remembered_type(cx, 0);
+    assert_ne!(by_name, 0, "a .txt file has a type of its own");
+    assert_eq!(now, 0, "`GetDocumentTypeOfId` before the name");
+}
+
+#[gpui::test]
+fn an_id_that_is_no_type_gives_the_type_of_the_name(cx: &mut TestAppContext) {
+    let (now, by_name) = open_with_remembered_type(cx, 9999);
+    assert_eq!(now, by_name);
+    let (now, by_name) = open_with_remembered_type(cx, -1);
+    assert_eq!(now, by_name);
+}
+
 #[gpui::test]
 fn reopen_keeps_the_caret_and_does_not_ask(cx: &mut TestAppContext) {
     let dir = TempDir::new();

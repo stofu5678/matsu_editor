@@ -80,10 +80,17 @@ impl EditorView {
         entry.view_top = self.top_row() as i32;
         entry.view_left = (self.scroll_x / self.metrics.cell_width).round().max(0.0) as i32;
         entry.marks = encode_marks(shared.model().bookmarks().iter());
-        // The id of the document type is not known here: what the history had stays.
-        if let Some(old) = super::current(cx).and_then(|h| h.file(&entry.path).cloned()) {
-            entry.type_id = old.type_id;
-        }
+        // `pfi->m_nTypeId = GetDocumentAttribute().m_id` (`CEditDoc::GetEditInfo`). A type that
+        // is gone from the list leaves what the history had.
+        let type_index = self.type_index();
+        let id = crate::doc_types::with_user(cx, |user| {
+            user.document_types().get(type_index).map(|t| t.id)
+        });
+        entry.type_id = id.unwrap_or_else(|| {
+            super::current(cx)
+                .and_then(|h| h.file(&entry.path).map(|old| old.type_id))
+                .unwrap_or(-1)
+        });
         Some(entry)
     }
 

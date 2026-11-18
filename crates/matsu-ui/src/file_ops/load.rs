@@ -277,6 +277,9 @@ async fn load_here_inner(
                 // `-TYPE=` decides the type before the macro of オープン後 runs.
                 if let Some(ext) = super::start_options::expected_type(cx, path) {
                     view.apply_launch_type(&ext, cx);
+                } else if let Some(entry) = &previous {
+                    // The type the file had when it was closed (`CMruListener::OnBeforeLoad`).
+                    view.apply_remembered_type(entry.type_id, cx);
                 }
                 let history = previous
                     .clone()
