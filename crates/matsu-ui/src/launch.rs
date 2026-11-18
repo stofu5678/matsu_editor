@@ -47,11 +47,10 @@ impl OpenRequest {
     /// options are read (`command_line::parse_with`, with the response file `-@=` read from
     /// the working folder too).
     pub fn from_launch(request: &Request) -> OpenRequest {
-        let mut options =
-            command_line::parse_with(&request.args, Some(&request.cwd), &mut |path| {
-                let bytes = std::fs::read(request.cwd.join(path)).ok()?;
-                Some(command_line::response_text(&bytes))
-            });
+        let mut options = command_line::parse_with(&request.args, &mut |path| {
+            let bytes = std::fs::read(request.cwd.join(path)).ok()?;
+            Some(command_line::response_text(&bytes))
+        });
         let paths = std::mem::take(&mut options.files)
             .iter()
             .map(|file| request.cwd.join(file))
@@ -268,6 +267,30 @@ mod tests {
                 Path::new(cwd).join("日本語.txt"),
             ]
         );
+    }
+
+    /// The real path of a launch: the sender (`Request::from_launch_in`, which `launch` calls with the
+    /// working folder) glues the arguments of a name with blanks that was not quoted and makes them
+    /// absolute, and `from_launch` reads the result. The folder has a blank in its own name, as the
+    /// one that failed on Windows (`C:\tmp\my dir`).
+    #[test]
+    fn an_unquoted_name_with_blanks_opens_one_file_through_the_whole_path() {
+        let dir = tempfile::Builder::new().prefix("my dir ").tempdir().unwrap();
+        std::fs::write(dir.path().join("my notes.txt"), b"x").unwrap();
+        std::fs::write(dir.path().join("b.txt"), b"x").unwrap();
+        let request = Request::from_launch_in(
+            dir.path().to_owned(),
+            os(&["my", "notes.txt", "-X=3", "b.txt"]),
+        );
+        let open = OpenRequest::from_launch(&request);
+        assert_eq!(
+            open.paths,
+            [dir.path().join("my notes.txt"), dir.path().join("b.txt")]
+        );
+        assert_eq!(open.options.caret_x, Some(2));
+        // a launch handed to a running MATSU Editor travels as bytes and is read the same way
+        let sent = Request::decode(&request.encode()[4..]).unwrap();
+        assert_eq!(OpenRequest::from_launch(&sent).paths, open.paths);
     }
 
     #[test]

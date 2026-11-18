@@ -70,6 +70,25 @@ impl Request {
     /// absolute against the working folder).
     pub fn from_current_process(args: impl IntoIterator<Item = OsString>) -> Request {
         let cwd = std::env::current_dir().unwrap_or_default();
+        Request::from_launch_in(cwd, args)
+    }
+
+    /// [`from_current_process`](Self::from_current_process) for the working folder `cwd`.
+    ///
+    /// A name with blanks that was not quoted arrives as several arguments. As Sakura does
+    /// (`CCommandLine::ParseCommandLine`, the start), when the first argument is no option and no
+    /// file of itself, the first arguments are glued with blanks until the result is a file or a
+    /// folder that exists in `cwd`: they become one argument, the first file. This is done here,
+    /// before the arguments are made absolute, because a glued name is made of the arguments as
+    /// they were typed, and the receiver of a handed-over launch gets it in one piece.
+    pub fn from_launch_in(
+        cwd: PathBuf,
+        args: impl IntoIterator<Item = OsString>,
+    ) -> Request {
+        let mut args: Vec<OsString> = args.into_iter().collect();
+        if let Some((name, used)) = unquoted_name(&args, &cwd) {
+            args.splice(..used, [name]);
+        }
         let mut options_end = false;
         let args = args
             .into_iter()
@@ -132,16 +151,52 @@ fn is_option(arg: &OsString) -> bool {
         .is_some_and(|text| text.starts_with('-') || text.starts_with("\"-"))
 }
 
+/// The longest name that is looked for among the arguments glued with blanks (`PATH_MAX` of
+/// Linux; a longer name is no file anywhere).
+const LONGEST_UNQUOTED_NAME: usize = 4096;
+
+/// Sakura's search for a file name that has blanks and was not quoted: if the first argument does
+/// not start with `-` and is no file by itself, the arguments from the first are glued with blanks
+/// one by one, and the first result that exists in `cwd` (a file or a folder: `fexist`) is the
+/// name. Returns it with the number of arguments it took.
+fn unquoted_name(args: &[OsString], cwd: &std::path::Path) -> Option<(OsString, usize)> {
+    let first = args.first()?;
+    if first.to_str().is_some_and(|text| text.starts_with('-')) || cwd.join(first).exists() {
+        return None;
+    }
+    let mut glued = first.clone();
+    for (index, token) in args.iter().enumerate().skip(1) {
+        glued.push(" ");
+        glued.push(token);
+        if glued.len() > LONGEST_UNQUOTED_NAME {
+            return None;
+        }
+        if cwd.join(&glued).exists() {
+            return Some((glued, index + 1));
+        }
+    }
+    None
+}
+
 /// A file as the sender passes it on: made absolute against `cwd` unless it is empty.
 fn absolute_arg(cwd: &std::path::Path, arg: OsString) -> OsString {
     if arg.is_empty() {
         return arg;
     }
-    // `absolute` also resolves what `join` cannot: on Windows, `C:foo.txt` is relative to the
-    // current folder of drive C, which is not always the working folder.
-    std::path::absolute(&arg)
-        .unwrap_or_else(|_| cwd.join(&arg))
-        .into_os_string()
+    let path = std::path::Path::new(&arg);
+    // On Windows, `C:foo.txt` is relative to the current folder of drive C, which is not always
+    // the working folder: only the OS can resolve it. (Never true elsewhere.)
+    if !path.has_root()
+        && matches!(
+            path.components().next(),
+            Some(std::path::Component::Prefix(_))
+        )
+    {
+        return std::path::absolute(path)
+            .unwrap_or_else(|_| cwd.join(path))
+            .into_os_string();
+    }
+    cwd.join(path).into_os_string()
 }
 
 fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
@@ -288,6 +343,75 @@ mod tests {
         assert_eq!(request.args[0], request.cwd.join("a.txt").into_os_string());
         assert!(request.args[1].is_empty());
         assert!(request.cwd.is_absolute());
+    }
+
+    fn folder(names: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for name in names {
+            let path = dir.path().join(name);
+            if name.ends_with('/') {
+                std::fs::create_dir_all(path).unwrap();
+            } else {
+                std::fs::write(path, b"x").unwrap();
+            }
+        }
+        dir
+    }
+
+    fn launch(dir: &tempfile::TempDir, args: &[&str]) -> Request {
+        Request::from_launch_in(dir.path().to_owned(), args.iter().map(OsString::from))
+    }
+
+    fn strings(request: &Request) -> Vec<String> {
+        request
+            .args
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_arguments_of_a_name_with_blanks_become_one_absolute_name() {
+        let dir = folder(&["my notes.txt", "my big new notes.txt"]);
+        let path = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
+        let request = launch(&dir, &["my", "notes.txt", "other.txt"]);
+        assert_eq!(strings(&request), [path("my notes.txt"), path("other.txt")]);
+        let request = launch(&dir, &["my", "big", "new", "notes.txt"]);
+        assert_eq!(strings(&request), [path("my big new notes.txt")]);
+        // the options after the name stay options
+        let request = launch(&dir, &["my", "notes.txt", "-X=3"]);
+        assert_eq!(strings(&request), [path("my notes.txt"), "-X=3".to_owned()]);
+        // a folder with blanks is found too
+        let folders = folder(&["my folder/"]);
+        let request = launch(&folders, &["my", "folder"]);
+        assert_eq!(
+            strings(&request),
+            [folders.path().join("my folder").to_string_lossy().into_owned()]
+        );
+    }
+
+    #[test]
+    fn nothing_is_glued_unless_the_first_argument_is_no_file_and_no_option() {
+        let dir = folder(&["my notes.txt"]);
+        let path = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
+        // no file of that name: the arguments stay as they are
+        let request = launch(&dir, &["my", "other.txt"]);
+        assert_eq!(strings(&request), [path("my"), path("other.txt")]);
+        // an option first: Sakura does not look for a name
+        let request = launch(&dir, &["-R", "my", "notes.txt"]);
+        assert_eq!(strings(&request), ["-R".to_owned(), path("my"), path("notes.txt")]);
+        // a first argument that is a file by itself is that file
+        std::fs::write(dir.path().join("my"), b"x").unwrap();
+        let request = launch(&dir, &["my", "notes.txt"]);
+        assert_eq!(strings(&request), [path("my"), path("notes.txt")]);
+    }
+
+    #[test]
+    fn a_name_that_is_absolute_already_is_kept() {
+        let dir = folder(&["a.txt"]);
+        let absolute = dir.path().join("a.txt");
+        let request = launch(&dir, &[absolute.to_str().unwrap()]);
+        assert_eq!(request.args, [absolute.into_os_string()]);
     }
 
     #[test]

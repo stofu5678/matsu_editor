@@ -434,7 +434,7 @@ fn a_response_file_adds_its_arguments_after_the_real_ones() {
         asked.push(path.to_owned());
         Some("c.txt -X=9  -R  d.txt".to_owned())
     };
-    let cl = parse_with(&os(&["a.txt", "-@=args.rsp", "b.txt"]), None, &mut read);
+    let cl = parse_with(&os(&["a.txt", "-@=args.rsp", "b.txt"]), &mut read);
     assert_eq!(asked, [PathBuf::from("args.rsp")]);
     assert_eq!(cl.files, paths(&["a.txt", "b.txt", "c.txt", "d.txt"]));
     assert_eq!(cl.caret_x, Some(8));
@@ -448,14 +448,14 @@ fn a_response_file_has_no_response_file() {
         calls += 1;
         Some("-@=again.rsp x.txt".to_owned())
     };
-    let cl = parse_with(&os(&["-@=args.rsp"]), None, &mut read);
+    let cl = parse_with(&os(&["-@=args.rsp"]), &mut read);
     assert_eq!(calls, 1);
     assert_eq!(cl.files, paths(&["x.txt"]));
 }
 
 #[test]
 fn a_response_file_that_cannot_be_read_is_nothing() {
-    let cl = parse_with(&os(&["-@=missing.rsp", "a.txt"]), None, &mut |_| None);
+    let cl = parse_with(&os(&["-@=missing.rsp", "a.txt"]), &mut |_| None);
     assert_eq!(cl.files, paths(&["a.txt"]));
     // and without a reader the option is only noted
     assert_eq!(line(&["-@=x"]), CommandLine::default());
@@ -468,7 +468,7 @@ fn the_last_response_file_counts() {
         asked.push(path.to_owned());
         None
     };
-    parse_with(&os(&["-@=one", "-@=two"]), None, &mut read);
+    parse_with(&os(&["-@=one", "-@=two"]), &mut read);
     assert_eq!(asked, [PathBuf::from("two")]);
 }
 
@@ -519,74 +519,6 @@ fn a_grep_goes_to_the_standard_output_only_without_the_dialog() {
     assert!(!line(&["-GOPT=U"]).greps_to_stdout());
 }
 
-// ---- a name with blanks that was not quoted (`ParseCommandLine`, the start) ----
-
-/// A private folder with these files (a name that ends with `/` is a folder). It is removed when
-/// the value is dropped, also when the test panics.
-fn folder(names: &[&str]) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
-    for name in names {
-        let path = dir.path().join(name);
-        if name.ends_with('/') {
-            std::fs::create_dir_all(path).unwrap();
-        } else {
-            std::fs::write(path, b"x").unwrap();
-        }
-    }
-    dir
-}
-
-fn in_folder(dir: &std::path::Path, args: &[&str]) -> CommandLine {
-    parse_in(&os(args), Some(dir), false, &mut |_| None)
-}
-
-#[test]
-fn tokens_are_glued_until_a_file_that_exists() {
-    let dir = folder(&["my notes.txt", "my big new notes.txt"]);
-    let cl = in_folder(dir.path(), &["my", "notes.txt", "other.txt"]);
-    assert_eq!(cl.files, paths(&["my notes.txt", "other.txt"]));
-    let cl = in_folder(dir.path(), &["my", "big", "new", "notes.txt"]);
-    assert_eq!(cl.files, paths(&["my big new notes.txt"]));
-}
-
-#[test]
-fn the_options_after_the_glued_name_are_read() {
-    let dir = folder(&["my notes.txt"]);
-    let cl = in_folder(dir.path(), &["my", "notes.txt", "-X=3", "-R"]);
-    assert_eq!(cl.files, paths(&["my notes.txt"]));
-    assert_eq!(cl.caret_x, Some(2));
-    assert!(cl.view_mode);
-}
-
-#[test]
-fn a_folder_with_blanks_is_found_too() {
-    let dir = folder(&["my folder/"]);
-    let cl = in_folder(dir.path(), &["my", "folder"]);
-    assert_eq!(cl.files, paths(&["my folder"]));
-}
-
-#[test]
-fn nothing_is_glued_when_nothing_exists_or_the_first_token_is_an_option() {
-    let dir = folder(&["my notes.txt"]);
-    // no file of that name: the tokens stay as they are
-    assert_eq!(
-        in_folder(dir.path(), &["my", "other.txt"]).files,
-        paths(&["my", "other.txt"])
-    );
-    // an option first: Sakura does not look for a name
-    let cl = in_folder(dir.path(), &["-R", "my", "notes.txt"]);
-    assert_eq!(cl.files, paths(&["my", "notes.txt"]));
-    // a first token that is a file by itself is that file, whatever follows
-    std::fs::write(dir.path().join("my"), b"x").unwrap();
-    let cl = in_folder(dir.path(), &["my", "notes.txt"]);
-    assert_eq!(cl.files, paths(&["my", "notes.txt"]));
-    // no folder to look in: nothing is looked for
-    assert_eq!(
-        parse_in(&os(&["my", "notes.txt"]), None, false, &mut |_| None).files,
-        paths(&["my", "notes.txt"])
-    );
-}
-
 // ---- names that a file cannot have (`IsInvalidFilenameChars`) ----
 
 #[test]
@@ -615,7 +547,6 @@ fn only_the_last_part_of_the_path_is_checked_for_the_characters() {
 fn a_refused_name_is_kept_apart_and_the_others_stay() {
     let cl = parse_in(
         &os(&["a.txt", "b*c.txt", "-X=2", "\"d|e.txt\"", "dir/ok.txt"]),
-        None,
         true,
         &mut |_| None,
     );
@@ -627,11 +558,11 @@ fn a_refused_name_is_kept_apart_and_the_others_stay() {
 #[test]
 fn the_names_are_not_refused_where_they_are_fine() {
     // macOS and Linux (and `parse`, which the tests of the options use)
-    let cl = parse_in(&os(&["b*c.txt"]), None, false, &mut |_| None);
+    let cl = parse_in(&os(&["b*c.txt"]), false, &mut |_| None);
     assert_eq!(cl.files, paths(&["b*c.txt"]));
     assert!(cl.rejected_names.is_empty());
     assert_eq!(
-        parse_with(&os(&["b*c.txt"]), None, &mut |_| None)
+        parse_with(&os(&["b*c.txt"]), &mut |_| None)
             .rejected_names
             .len(),
         usize::from(cfg!(windows))

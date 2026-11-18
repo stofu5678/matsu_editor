@@ -58,10 +58,8 @@
 //!
 //! Also done, as `CCommandLine::ParseCommandLine` does:
 //!
-//! * a name with blanks that was not quoted: when the first token does not start with `-`, the
-//!   first tokens are glued with blanks until the result is a file that exists (the folder of the
-//!   launch is the place to look in), and the tokens after them are read as usual
-//!   ([`parse_with`]'s `base`);
+//! * a name with blanks that was not quoted is glued before this, by the sender of the launch
+//!   (`matsu_platform::instance::Request::from_launch_in`), which makes the arguments absolute;
 //! * the file name of a launch must not have `* ? " < > |` in it. Windows does not allow them, so
 //!   there the name is refused with a box (`STR_CMDLINE_PARSECMD1`; [`CommandLine::rejected_names`]
 //!   and [`invalid_name_message`]). On macOS and Linux every one of them is a good character of a
@@ -220,7 +218,7 @@ pub(crate) struct CommandLine {
 /// quoted is not looked for.
 #[cfg(test)]
 pub(crate) fn parse(args: &[OsString]) -> CommandLine {
-    parse_in(args, None, false, &mut |_| None)
+    parse_in(args, false, &mut |_| None)
 }
 
 /// Reads the arguments. A response file (`-@=file`, the last one counts) is read with `read`,
@@ -228,33 +226,22 @@ pub(crate) fn parse(args: &[OsString]) -> CommandLine {
 /// blanks (`my_strtok` with a blank) and read as more arguments of the same launch, after the
 /// real ones (`ParseCommandLine` calls itself with `bResponse` off).
 ///
-/// `base` is the working folder of the launch, where a name with blanks that was not quoted is
-/// looked for (see the module documentation); `None` looks for nothing.
 pub(crate) fn parse_with(
     args: &[OsString],
-    base: Option<&Path>,
     read: &mut dyn FnMut(&Path) -> Option<String>,
 ) -> CommandLine {
-    parse_in(args, base, cfg!(windows), read)
+    parse_in(args, cfg!(windows), read)
 }
 
 /// [`parse_with`], with the refusal of the characters that a file name cannot have on or off (it
 /// is on for Windows).
 fn parse_in(
     args: &[OsString],
-    base: Option<&Path>,
     check_names: bool,
     read: &mut dyn FnMut(&Path) -> Option<String>,
 ) -> CommandLine {
     let mut line = CommandLine::default();
     let mut options_end = false;
-    let mut args = args;
-    if let Some(base) = base
-        && let Some((name, used)) = unquoted_name(args, base)
-    {
-        line.files.push(name);
-        args = &args[used..];
-    }
     let response = line.parse_tokens(args, &mut options_end, check_names);
     if let Some(path) = response
         && let Some(text) = read(Path::new(&path))
@@ -269,34 +256,6 @@ fn parse_in(
         line.parse_tokens(&tokens, &mut options_end, check_names);
     }
     line
-}
-
-/// The longest name that is looked for among the tokens glued with blanks (`PATH_MAX` of Linux; a
-/// longer name is no file anywhere).
-const LONGEST_UNQUOTED_NAME: usize = 4096;
-
-/// Sakura's search for a file name that has blanks and was not quoted (the start of
-/// `CCommandLine::ParseCommandLine`): if the first token does not start with `-`, the tokens from
-/// the first are glued with blanks one by one, and the first result that is a file or a folder
-/// that exists (`fexist`) is the first file of the launch. Returns it with the number of tokens
-/// it took. A first token that exists alone is not this case (it is read as any file name is).
-fn unquoted_name(args: &[OsString], base: &Path) -> Option<(PathBuf, usize)> {
-    let first = args.first()?;
-    if first.to_str().is_some_and(|text| text.starts_with('-')) || base.join(first).exists() {
-        return None;
-    }
-    let mut glued = first.clone();
-    for (index, token) in args.iter().enumerate().skip(1) {
-        glued.push(" ");
-        glued.push(token);
-        if glued.len() > LONGEST_UNQUOTED_NAME {
-            return None;
-        }
-        if base.join(&glued).exists() {
-            return Some((PathBuf::from(glued), index + 1));
-        }
-    }
-    None
 }
 
 /// What an option is (the `CMDLINEOPT_*` values).
