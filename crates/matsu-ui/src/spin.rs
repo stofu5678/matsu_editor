@@ -125,7 +125,7 @@ pub(crate) fn spin_box(
             div().id(ElementId::from(SharedString::from(arrow_id.clone()))),
             &label,
         )
-        .debug_selector(move || arrow_id.clone())
+        .debug_selector(move || arrow_id)
         .w(px(ARROW_WIDTH))
         .flex_1()
         .min_h_0()
