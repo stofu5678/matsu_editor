@@ -12,7 +12,6 @@
 //! carry it; the other views of the document see a newer version and lay out again.
 
 use std::path::{Path, PathBuf};
-use std::sync::Weak;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui::{Context, EventEmitter};
@@ -26,7 +25,7 @@ use matsu_core::file::{
 use matsu_core::model::DocumentModel;
 
 use crate::file_ops::lock::{FileLockState, LockFailure};
-use crate::file_ops::save_job::JobState;
+use crate::file_ops::save_job::{JobState, SaveJob};
 use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
 
@@ -139,9 +138,9 @@ pub struct SharedDocument {
     /// (`crate::file_ops::lock`).
     lock: FileLockState,
     /// The job (a check or the write of a save) that runs on another thread, while it runs: the
-    /// document is "saving" and refuses edits (`crate::file_ops::save_job`). The flow that started
-    /// the job owns it; this only watches, so a job that ended or was dropped is gone from here.
-    saving: Weak<JobState>,
+    /// document is "saving" and refuses edits (`crate::file_ops::save_job`). The document owns it,
+    /// so replacing or dropping the document stops the thread.
+    saving: Option<SaveJob>,
     /// The number of an untitled document (`EditNode::m_nId`), shown as `(無題)2` in the lists
     /// and as `$n` in the titles. See [`number_untitled`](Self::number_untitled).
     untitled_number: Option<u32>,
@@ -239,7 +238,7 @@ impl SharedDocument {
             file,
             disk: DiskState::default(),
             lock: FileLockState::default(),
-            saving: Weak::new(),
+            saving: None,
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -390,7 +389,7 @@ impl SharedDocument {
             file,
             disk,
             lock: FileLockState::default(),
-            saving: Weak::new(),
+            saving: None,
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -601,18 +600,39 @@ impl SharedDocument {
 
     /// Whether a job of a save runs on another thread: edits are refused.
     pub(crate) fn is_saving(&self) -> bool {
-        self.saving.strong_count() > 0
+        self.saving.is_some()
     }
 
-    /// A job of a save began; the document is saving while the job lives.
-    pub(crate) fn begin_saving(&mut self, job: Weak<JobState>) {
-        self.saving = job;
+    /// A job of a save began; the document owns it, and is saving until it ends
+    /// ([`end_saving`](Self::end_saving)) or the document is replaced.
+    pub(crate) fn begin_saving(&mut self, job: SaveJob) {
+        self.saving = Some(job);
+    }
+
+    /// The flow of the job `state` is over. A document that was replaced meanwhile, and maybe is
+    /// saving with another job now, is left alone.
+    pub(crate) fn end_saving(&mut self, state: &std::sync::Arc<JobState>) {
+        if self
+            .saving
+            .as_ref()
+            .is_some_and(|job| std::sync::Arc::ptr_eq(&job.state(), state))
+        {
+            self.saving = None;
+        }
+    }
+
+    /// Takes the lock of the file back after a step that let go of it, unless a save is writing
+    /// the file now (its write needs the file free; the save's own end takes the lock again).
+    pub(crate) fn relock_unless_saving(&mut self, mode: i32) {
+        if !self.is_saving() {
+            self.lock_file(mode);
+        }
     }
 
     /// Esc: stops the job that runs, if one does.
     pub(crate) fn cancel_saving(&self) {
-        if let Some(job) = self.saving.upgrade() {
-            job.cancel();
+        if let Some(job) = &self.saving {
+            job.state().cancel();
         }
     }
 
@@ -719,7 +739,7 @@ impl SharedDocument {
     /// Takes the lock back after [`release_lock_for`](Self::release_lock_for) said it let go.
     pub(crate) fn restore_lock(&mut self, released: bool) {
         if released {
-            self.lock_file(self.lock.mode());
+            self.relock_unless_saving(self.lock.mode());
         }
     }
 

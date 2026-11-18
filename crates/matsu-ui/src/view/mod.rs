@@ -249,10 +249,6 @@ pub struct EditorView {
     /// The auto scroll of the middle button (`view/autoscroll.rs`).
     pub(crate) autoscroll: autoscroll::AutoScroll,
     pub(crate) notice: Option<String>,
-    /// The owner of the save job that runs for this view's document (`file_ops::save_job`):
-    /// dropping the view (the tab or the window is closed) drops the job, which stops the thread
-    /// before it replaces the file.
-    pub(crate) save_job: Option<crate::file_ops::save_job::SaveJob>,
     /// Message boxes that commands asked for (`Changes::message_box`), shown by the next paint,
     /// which has the window.
     pending_message_boxes: Vec<String>,
@@ -389,7 +385,6 @@ impl EditorView {
             click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
-            save_job: None,
             pending_message_boxes: Vec::new(),
             pending_scan_jump: None,
             refused_edit: false,

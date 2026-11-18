@@ -11,25 +11,27 @@
 //!
 //! Who owns what:
 //!
-//! * [`SaveJob`] is the owner of a running job and lives in the view that started it
-//!   (`EditorView::save_job`). Dropping it (the job ends, or the tab or the window is closed, which
-//!   drops the view) stops the thread at its next report of progress, which removes the temporary
-//!   file; the thread asks before it replaces the file, so a document that was closed without
-//!   saving does not get its file written afterwards.
-//! * The document holds only a `Weak` of the job's state ([`JobState`]): while the job lives the
-//!   document is "saving" and edits are refused, because the file gets the text the job started
-//!   with. A document that is not saving never looks at the state.
+//! * [`SaveJob`] is the owner of a running job and lives in the document it saves
+//!   (`SharedDocument::begin_saving`). Dropping it stops the thread at its next report of
+//!   progress, which removes the temporary file; the thread asks before it replaces the file. The
+//!   document drops it when the document is replaced (a close that keeps an empty window, a
+//!   close-and-open: `replace_with` makes a new `SharedDocument` over the old one) and when the
+//!   document itself goes, so a document that was closed without saving does not get its file
+//!   written afterwards. The flow that started the job ends it ([`SharedDocument::end_saving`]).
+//! * While the job lives the document is "saving" and edits are refused, because the file gets the
+//!   text the job started with.
 //! * Smaller documents run the same work on the UI thread at once, as before.
 
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
-use gpui::{AsyncWindowContext, WeakEntity};
+use gpui::{AsyncWindowContext, Entity, WeakEntity};
 use matsu_core::file::{FileError, SaveSnapshot};
 
+use crate::document::SharedDocument;
 use crate::view::EditorView;
 
 /// The size of the text (`Document::raw_len`) from which the work goes to another thread. Below it
@@ -79,14 +81,10 @@ impl SaveJob {
     }
 
     /// The state the thread and the window share.
-    fn state(&self) -> Arc<JobState> {
+    pub fn state(&self) -> Arc<JobState> {
         self.0.clone()
     }
 
-    /// What the document keeps to know it is saving.
-    pub fn watch(&self) -> Weak<JobState> {
-        Arc::downgrade(&self.0)
-    }
 }
 
 impl Drop for SaveJob {
@@ -132,34 +130,29 @@ pub(crate) async fn run<T: Send + 'static>(
         })
         .unwrap_or(BACKGROUND_FROM);
     let job = SaveJob::new();
+    let state = job.state();
     let prepared = view.update(cx, |view, cx| {
-        view.document().update(cx, |shared, _| {
+        let document = view.document().clone();
+        let prepared = document.update(cx, |shared, _| {
             if shared.is_saving() {
                 return Err(FileError::Cancelled);
             }
             let snapshot = shared.save_snapshot()?;
             let big = shared.raw_len() >= from;
+            let (version, generation) = (shared.version(), shared.generation());
             if big {
-                shared.begin_saving(job.watch());
+                shared.begin_saving(job);
             }
-            Ok((snapshot, big, shared.version()))
-        })
+            Ok((snapshot, big, version, generation))
+        });
+        (document, prepared)
     });
-    let (snapshot, big, version) = match prepared {
-        Ok(prepared) => prepared?,
-        Err(_) => return Err(FileError::Cancelled),
+    let Ok((document, prepared)) = prepared else {
+        return Err(FileError::Cancelled);
     };
+    let (snapshot, big, version, generation) = prepared?;
     if !big {
         return work(&snapshot, &mut |_, _| ControlFlow::Continue(()));
-    }
-    let state = job.state();
-    // The view owns the job from here: when the view is gone the job is dropped and the thread
-    // stops. (The state is shared with this flow for the progress.)
-    if view
-        .update(cx, |view, _| view.save_job = Some(job))
-        .is_err()
-    {
-        return Err(FileError::Cancelled);
     }
     let task = cx.background_executor().spawn({
         let state = state.clone();
@@ -169,6 +162,25 @@ pub(crate) async fn run<T: Send + 'static>(
             result
         }
     });
+    let result = wait_for(view, cx, &document, &state, task, verb, path, (version, generation)).await;
+    // The job is over, however it ended (or the document was replaced, which dropped it already).
+    cx.update(|_, app| document.update(app, |shared, _| shared.end_saving(&state)))
+        .ok();
+    result
+}
+
+/// The waiting of [`run`]: shows the progress until the thread is done, then judges the result.
+#[allow(clippy::too_many_arguments)]
+async fn wait_for<T: Send + 'static>(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    document: &Entity<SharedDocument>,
+    state: &Arc<JobState>,
+    task: gpui::Task<Result<T, FileError>>,
+    verb: &'static str,
+    path: &Path,
+    (version, generation): (u64, u64),
+) -> Result<T, FileError> {
     let timer = cx.background_executor().clone();
     while !state.finished.load(Ordering::Acquire) {
         timer.timer(Duration::from_millis(100)).await;
@@ -183,31 +195,34 @@ pub(crate) async fn run<T: Send + 'static>(
             cx.notify();
         });
         if shown.is_err() {
-            // The view is gone: its job was dropped with it, which asked the thread to stop.
+            // The window is gone: nothing is to be written for it.
             state.cancel();
             return Err(FileError::Cancelled);
         }
     }
     let result = task.await;
-    // The edits were refused meanwhile; if the text changed anyway (a way in that does not ask), the
-    // file does not have it, and whoever goes on must not take the document for what was written.
-    let Ok(changed) = view.read_with(cx, |view, app| {
-        view.document().read(app).version() != version
-    }) else {
-        return Err(FileError::Cancelled);
-    };
+    // The document that was saved is the one that is here: it was not replaced (that drops the job
+    // and stops the thread, but the write may have been past its last look), and the text did not
+    // change either (the edits were refused; if it changed anyway, a way in that does not ask, the
+    // file does not have the text, and whoever goes on must not take the document for what was
+    // written).
+    let same = cx
+        .update(|_, app| {
+            let shared = document.read(app);
+            (shared.generation() == generation, shared.version() == version)
+        })
+        .unwrap_or((false, false));
     view.update(cx, |view, cx| {
-        // The job is over: the view lets go of it, and the document is not saving any more.
-        view.save_job = None;
         view.notice = None;
         cx.notify();
     })
     .ok();
-    match result {
-        Ok(_) if changed => Err(FileError::Io(std::io::Error::other(
+    match (result, same) {
+        (Ok(_), (false, _)) => Err(FileError::Cancelled),
+        (Ok(_), (true, false)) => Err(FileError::Io(std::io::Error::other(
             "the text changed while the file was written",
         ))),
-        other => other,
+        (other, _) => other,
     }
 }
 

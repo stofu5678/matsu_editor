@@ -107,26 +107,36 @@ fn the_status_text_names_the_file_and_the_way_to_stop() {
     assert!(progress_text("検査", Path::new("a.txt"), 5, 0).contains("0%"));
 }
 
+/// Gives the document of `view` a job, as the flow of a save does; returns its state.
+fn begin(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> std::sync::Arc<JobState> {
+    let job = SaveJob::new();
+    let state = job.state();
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.begin_saving(job))
+    });
+    state
+}
+
 #[gpui::test]
 fn the_document_is_saving_while_its_job_lives_and_refuses_edits(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let path = dir.write("a.txt", "abc");
     let (view, cx) = setup(cx, usize::MAX);
     open(&view, cx, &path);
-    let job = SaveJob::new();
-    view.update(cx, |view, cx| {
-        view.document()
-            .update(cx, |shared, _| shared.begin_saving(job.watch()))
-    });
+    let state = begin(&view, cx);
     assert!(is_saving(&view, cx));
     cx.simulate_input("x");
     let text = view.read_with(cx, |view, app| view.document().read(app).doc().line(0));
     assert_eq!(text.unwrap().unwrap().text, "abc", "the typing was refused");
     // Esc asks the job to stop.
     view.update(cx, |view, cx| view.document().read(cx).cancel_saving());
-    assert!(job.0.report(0, 1).is_break());
-    drop(job);
-    assert!(!is_saving(&view, cx), "the job is gone");
+    assert!(state.report(0, 1).is_break());
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.end_saving(&state))
+    });
+    assert!(!is_saving(&view, cx), "the flow ended the job");
     cx.simulate_input("x");
     let text = view.read_with(cx, |view, app| view.document().read(app).doc().line(0));
     assert_eq!(text.unwrap().unwrap().text, "xabc");
@@ -144,10 +154,6 @@ fn a_save_that_runs_on_another_thread_writes_the_file(cx: &mut TestAppContext) {
     assert!(!cx.has_pending_prompt());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc\r\ndef\r\n");
     assert!(!is_saving(&view, cx));
-    assert!(
-        view.read_with(cx, |view, _| view.save_job.is_none()),
-        "the view lets go of the job when it is over"
-    );
     let (modified, notice) = view.read_with(cx, |view, app| {
         (
             view.document().read(app).model().is_modified(),
@@ -189,21 +195,43 @@ fn the_check_before_the_save_runs_on_another_thread_too(cx: &mut TestAppContext)
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc");
 }
 
+/// A close that keeps an empty window, and a close-and-open, give the view another document
+/// (`load_document`, `replace_with`): the job of the old one must stop before it replaces a file
+/// that nobody wants written any more.
 #[gpui::test]
-fn the_view_owns_the_job_and_closing_it_stops_the_thread(cx: &mut TestAppContext) {
-    // A tab or a window that is closed drops its view, and the view its job: the thread must stop
-    // before it replaces the file (the file of a document that was closed without saving).
+fn replacing_the_document_stops_the_job_of_the_old_one(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let path = dir.write("a.txt", "abc");
     let (view, cx) = setup(cx, usize::MAX);
     open(&view, cx, &path);
-    let job = SaveJob::new();
-    let state = job.state();
-    view.update(cx, |view, _| view.save_job = Some(job));
+    let state = begin(&view, cx);
     assert!(state.report(0, 1).is_continue());
-    // dropping the view's hold on the job is what dropping the view does
-    view.update(cx, |view, _| view.save_job = None);
-    assert!(state.report(0, 1).is_break());
+    // what the close does with the window it keeps
+    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    assert!(state.report(0, 1).is_break(), "the thread is told to stop");
+    assert!(!is_saving(&view, cx), "the new document is not saving");
+    cx.simulate_input("y");
+    let text = view.read_with(cx, |view, app| view.document().read(app).doc().line(0));
+    assert_eq!(text.unwrap().unwrap().text, "y");
+}
+
+/// The flow that began a job does not end the job of a document that was replaced and began
+/// another one meanwhile.
+#[gpui::test]
+fn the_end_of_an_old_flow_leaves_the_job_of_the_new_document_alone(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    open(&view, cx, &path);
+    let old = begin(&view, cx);
+    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    let new = begin(&view, cx);
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.end_saving(&old))
+    });
+    assert!(is_saving(&view, cx));
+    assert!(new.report(0, 1).is_continue());
 }
 
 #[gpui::test]
@@ -213,24 +241,54 @@ fn a_second_save_while_one_runs_is_refused_before_anything_is_touched(cx: &mut T
     let (view, cx) = setup(cx, usize::MAX);
     open(&view, cx, &path);
     cx.simulate_input("x");
-    let job = SaveJob::new();
-    view.update(cx, |view, cx| {
-        view.document()
-            .update(cx, |shared, _| shared.begin_saving(job.watch()))
-    });
+    let state = begin(&view, cx);
     run(&view, cx, "F_FILESAVE");
     assert!(!cx.has_pending_prompt());
-    assert_eq!(
-        std::fs::read_to_string(&path).unwrap(),
-        "abc",
-        "not written"
-    );
-    let modified = view.read_with(cx, |view, app| {
-        view.document().read(app).model().is_modified()
-    });
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc", "not written");
+    let modified = view.read_with(cx, |view, app| view.document().read(app).model().is_modified());
     assert!(modified);
-    drop(job);
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.end_saving(&state))
+    });
     // and when the first is over, a save works
     run(&view, cx, "F_FILESAVE");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc");
+}
+
+/// Two saves start; the first begins writing while the second waits at a question. The second
+/// is refused when it gets to the write, and it does not touch the lock of the file (on Windows a
+/// lock taken again while the first writes can stop its rename).
+#[gpui::test]
+fn a_save_that_waited_at_a_question_is_refused_when_another_began_writing(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "a\r\nb\nc\r\n");
+    let (view, cx) = setup(cx, usize::MAX);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            file_share_mode: 1,
+            ..FilePrefs::default()
+        })
+    });
+    open(&view, cx, &path);
+    let held_before = view.read_with(cx, |view, app| view.document().read(app).held_lock_mode());
+    assert!(held_before.is_some(), "the file is locked");
+    cx.simulate_input("x");
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_FILESAVE")
+        .unwrap()
+        .code;
+    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    settle(cx);
+    assert!(cx.has_pending_prompt(), "the question about the mixed line endings");
+    // the other save begins writing now
+    let state = begin(&view, cx);
+    cx.simulate_prompt_answer("そのまま保存(N)");
+    settle(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb\nc\r\n", "not written");
+    let held = view.read_with(cx, |view, app| view.document().read(app).held_lock_mode());
+    assert_eq!(held, held_before, "the lock was not touched");
+    assert!(is_saving(&view, cx), "the other save is still the one that runs");
+    assert!(state.report(0, 1).is_continue(), "and was not stopped");
 }

@@ -374,7 +374,7 @@ pub(crate) async fn save(
             view.update(cx, |view, cx| {
                 let share_mode = super::prefs::prefs(cx).file_share_mode;
                 view.document()
-                    .update(cx, |shared, _| shared.lock_file(share_mode))
+                    .update(cx, |shared, _| shared.relock_unless_saving(share_mode))
             })
             .ok();
             super::lock::report_failure(view, cx).await;
@@ -429,10 +429,23 @@ pub(crate) async fn save(
     // The lock is let go of while the file is written (`CDocLocker::OnBeforeSave`): the save
     // replaces the file, which a lock would refuse (Windows) or lose (the lock belongs to the old
     // file). `finish_save_now` takes it again, also after a failure.
-    view.update(cx, |view, cx| {
-        view.document().update(cx, |shared, _| shared.unlock_file())
-    })
-    .ok();
+    // A save that began writing since the entry of this one (the hooks above can wait) is the only
+    // one: this one is refused here, before the lock is touched, and nothing runs for it after. No
+    // `await` lies between this look and the start of the job in `run`.
+    let busy = view
+        .update(cx, |view, cx| {
+            view.document().update(cx, |shared, _| {
+                let busy = shared.is_saving();
+                if !busy {
+                    shared.unlock_file();
+                }
+                busy
+            })
+        })
+        .unwrap_or(true);
+    if busy {
+        return SaveOutcome::Cancelled;
+    }
     let to_write = options.clone();
     let on_path = path.clone();
     let write = super::save_job::run(view, cx, "保存", &path, move |snapshot, progress| {
