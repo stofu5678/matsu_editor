@@ -26,6 +26,10 @@ use crate::dialog_focus::tab_inside;
 use crate::outline::file_tree::source::SettingFrom;
 use crate::support::help::OnHelpKey as _;
 
+/// The name of the "..." button of the box 「デフォルト設定ファイル名」 (`IDC_BUTTON_REF1`) for a
+/// screen reader.
+const DEFAULT_INI_BROWSE_NAME: &str = "デフォルト設定ファイル名を参照";
+
 /// The name of the "..." button of the path box (`IDC_BUTTON_REF2`) for a screen reader.
 const PATH_BROWSE_NAME: &str = "パスを参照";
 
@@ -224,9 +228,10 @@ impl FileTreeDialog {
                                         .aria_label(label_name("デフォルト設定ファイル名(&J)")),
                                 ),
                             )
-                            .child(self.button(
+                            .child(self.button_named(
                                 "ft-ref1",
                                 "...(&1)",
+                                DEFAULT_INI_BROWSE_NAME,
                                 true,
                                 cx,
                                 |this, window, cx| {
