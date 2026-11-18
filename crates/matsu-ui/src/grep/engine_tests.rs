@@ -54,7 +54,7 @@ impl Project {
     }
 
     fn root(&self) -> String {
-        self.dir.path().to_string_lossy().into_owned()
+        super::long_temp_path(self.dir.path())
     }
 
     /// The full path the result shows for `name` (written with `/`).

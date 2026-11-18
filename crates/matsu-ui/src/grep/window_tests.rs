@@ -120,7 +120,7 @@ impl Project {
     }
 
     fn root(&self) -> String {
-        self.dir.path().to_string_lossy().into_owned()
+        super::long_temp_path(self.dir.path())
     }
 
     fn settings(&self, key: &str) -> GrepSettings {
@@ -132,7 +132,7 @@ impl Project {
     }
 
     fn file(&self, name: &str) -> String {
-        self.dir.path().join(name).to_string_lossy().into_owned()
+        super::long_temp_path(&self.dir.path().join(name))
     }
 }
 
