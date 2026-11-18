@@ -13,16 +13,20 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Weak;
 
 use gpui::{Context, EventEmitter};
 use matsu_core::bookmarks::TextBreaks;
 use matsu_core::buffer::{Document, Eol, Pos};
 use matsu_core::cursor::Cursor;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
+use matsu_core::file::{
+    Progress, SaveOptions, SaveReport, SaveSnapshot, TextFile, UnmappableReport, Written,
+};
 use matsu_core::model::DocumentModel;
 
 use crate::file_ops::lock::{FileLockState, LockFailure};
+use crate::file_ops::save_job::JobState;
 use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
 
@@ -134,6 +138,10 @@ pub struct SharedDocument {
     /// The lock that keeps other programs from writing (or reading) the file while it is open
     /// (`crate::file_ops::lock`).
     lock: FileLockState,
+    /// The job (a check or the write of a save) that runs on another thread, while it runs: the
+    /// document is "saving" and refuses edits (`crate::file_ops::save_job`). The flow that started
+    /// the job owns it; this only watches, so a job that ended or was dropped is gone from here.
+    saving: Weak<JobState>,
     /// The number of an untitled document (`EditNode::m_nId`), shown as `(無題)2` in the lists
     /// and as `$n` in the titles. See [`number_untitled`](Self::number_untitled).
     untitled_number: Option<u32>,
@@ -231,6 +239,7 @@ impl SharedDocument {
             file,
             disk: DiskState::default(),
             lock: FileLockState::default(),
+            saving: Weak::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -381,6 +390,7 @@ impl SharedDocument {
             file,
             disk,
             lock: FileLockState::default(),
+            saving: Weak::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -545,11 +555,28 @@ impl SharedDocument {
         options: &SaveOptions,
         progress: Progress<'_>,
     ) -> matsu_core::file::Result<SaveReport> {
+        let written = self.save_snapshot()?.write(&path, options, progress)?;
+        Ok(self.finish_save_as(path, options, written))
+    }
+
+    /// A copy of the text for the work of a save that runs elsewhere ([`TextFile::save_snapshot`]).
+    pub(crate) fn save_snapshot(&mut self) -> matsu_core::file::Result<SaveSnapshot> {
+        self.with_file(|file| file.save_snapshot())
+    }
+
+    /// The document takes what [`SaveSnapshot::write`] did ([`save_as`](Self::save_as) after the
+    /// write).
+    pub(crate) fn finish_save_as(
+        &mut self,
+        path: PathBuf,
+        options: &SaveOptions,
+        written: Written,
+    ) -> SaveReport {
         let before = self.path.clone();
         let (report, rebased) = self.with_file(|file| {
-            let report = file.save_as(path, options, progress)?;
-            Ok::<_, matsu_core::file::FileError>((report, file.take_rebased()))
-        })?;
+            let report = file.finish_save_as(path, options, written);
+            (report, file.take_rebased())
+        });
         // A file read by ranges now reads the file that was written (ADR-0020, chapter 4).
         if let Some(doc) = rebased {
             if report.reloaded {
@@ -564,7 +591,29 @@ impl SharedDocument {
         if let Some(eol) = options.eol {
             self.model.set_new_line(eol);
         }
-        Ok(report)
+        report
+    }
+
+    /// The size of the text, to tell a big document from a small one.
+    pub(crate) fn raw_len(&self) -> usize {
+        self.model.doc().raw_len()
+    }
+
+    /// Whether a job of a save runs on another thread: edits are refused.
+    pub(crate) fn is_saving(&self) -> bool {
+        self.saving.strong_count() > 0
+    }
+
+    /// A job of a save began; the document is saving while the job lives.
+    pub(crate) fn begin_saving(&mut self, job: Weak<JobState>) {
+        self.saving = job;
+    }
+
+    /// Esc: stops the job that runs, if one does.
+    pub(crate) fn cancel_saving(&self) {
+        if let Some(job) = self.saving.upgrade() {
+            job.cancel();
+        }
     }
 
     /// `CDocVisitor::SetAllEol` (`sakura_core/doc/CDocVisitor.cpp`), which `CSaveAgent::OnBeforeSave`

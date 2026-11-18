@@ -499,7 +499,9 @@ impl EditorView {
             // A document that shows only the scanned start of its file is read-only too.
             let view_mode = shared.view_mode()
                 || shared.locked_by_unwritable(uneditable)
-                || shared.is_partial();
+                || shared.is_partial()
+                // The file gets the text a save began with (`file_ops::save_job`).
+                || shared.is_saving();
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
             let quote = cx
@@ -1058,6 +1060,12 @@ impl EditorView {
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.autoscroll_key_pressed(&event.keystroke);
         self.key_help_restart(window, cx);
+        // Esc stops a save that runs on another thread (`file_ops::save_job`).
+        if event.keystroke.key == "escape" && self.document.read(cx).is_saving() {
+            self.document.read(cx).cancel_saving();
+            cx.stop_propagation();
+            return;
+        }
         // The completion list takes its keys first (Sakura: `CHokanMgr::KeyProc`).
         if self.completion_key(event, cx) {
             cx.stop_propagation();

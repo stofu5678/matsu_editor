@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use gpui::{AsyncWindowContext, PromptLevel, WeakEntity};
 use matsu_core::buffer::Eol;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{SaveOptions, no_progress};
+use matsu_core::file::{FileError, SaveOptions};
 
 use super::ask::{
     Answer, ask, save_error_message, tell, unify_line_endings_message, unmappable_message,
@@ -417,10 +417,32 @@ pub(crate) async fn save(
 
     // 5. Write.
     let target = path.clone();
+    // The lock is let go of while the file is written (`CDocLocker::OnBeforeSave`): the save
+    // replaces the file, which a lock would refuse (Windows) or lose (the lock belongs to the old
+    // file). `finish_save_now` takes it again, also after a failure.
+    view.update(cx, |view, cx| {
+        view.document().update(cx, |shared, _| shared.unlock_file())
+    })
+    .ok();
+    let to_write = options.clone();
+    let on_path = path.clone();
+    let write = super::save_job::run(view, cx, "保存", &path, move |snapshot, progress| {
+        snapshot.write(&on_path, &to_write, progress)
+    })
+    .await;
     let written = view
-        .update(cx, |view, cx| view.save_now(target, &options, cx))
+        .update(cx, |view, cx| view.finish_save_now(target, &options, write, cx))
         .ok();
     match written {
+        Some(Err(FileError::Cancelled)) => {
+            super::lock::report_failure(view, cx).await;
+            view.update(cx, |view, cx| {
+                view.notice = Some("保存を中止した".to_owned());
+                cx.notify();
+            })
+            .ok();
+            SaveOutcome::Cancelled
+        }
         Some(Ok(report)) => {
             super::lock::report_failure(view, cx).await;
             let mut notice = format!("{} に保存した", path.display());
@@ -585,14 +607,12 @@ async fn confirm_content(
         .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
         .unwrap_or(true);
     if request.ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
-        let mixed = view
-            .update(cx, |view, cx| {
-                view.document()
-                    .update(cx, |shared, _| shared.has_mixed_line_endings())
-            })
-            .ok();
-        match mixed {
-            Some(Ok(true)) => {
+        let mixed = super::save_job::run(view, cx, "検査", path, |snapshot, _| {
+            snapshot.has_mixed_line_endings()
+        })
+        .await;
+        match mixed.map_err(|e| (!matches!(e, FileError::Cancelled)).then_some(e)) {
+            Ok(true) => {
                 let name = view
                     .read_with(cx, |view, app| {
                         crate::status::eol_name(view.document().read(app).new_line()).to_owned()
@@ -617,9 +637,9 @@ async fn confirm_content(
                     Answer::Cancel => return Err(SaveOutcome::Cancelled),
                 }
             }
-            Some(Ok(false)) => {}
-            Some(Err(error)) => return Err(fail(view, cx, path, &error).await),
-            None => return Err(SaveOutcome::Cancelled),
+            Ok(false) => {}
+            Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
+            Err(None) => return Err(SaveOutcome::Cancelled),
         }
     }
 
@@ -631,15 +651,13 @@ async fn confirm_content(
         options.allow_unmappable = true;
         return Ok(());
     }
-    let checked = view
-        .update(cx, |view, cx| {
-            let options = &*options;
-            view.document()
-                .update(cx, |shared, _| shared.check_save(options, &mut no_progress))
-        })
-        .ok();
-    match checked {
-        Some(Ok(report)) if report.total > 0 => {
+    let for_check = options.clone();
+    let checked = super::save_job::run(view, cx, "検査", path, move |snapshot, progress| {
+        snapshot.check_save(&for_check, progress)
+    })
+    .await;
+    match checked.map_err(|e| (!matches!(e, FileError::Cancelled)).then_some(e)) {
+        Ok(report) if report.total > 0 => {
             let (message, detail) =
                 unmappable_message(options.encoding, report.first.first(), report.total);
             match ask(
@@ -662,9 +680,9 @@ async fn confirm_content(
                 }
             }
         }
-        Some(Ok(_)) => {}
-        Some(Err(error)) => return Err(fail(view, cx, path, &error).await),
-        None => return Err(SaveOutcome::Cancelled),
+        Ok(_) => {}
+        Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
+        Err(None) => return Err(SaveOutcome::Cancelled),
     }
     Ok(())
 }

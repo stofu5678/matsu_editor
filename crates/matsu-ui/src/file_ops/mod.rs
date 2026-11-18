@@ -36,6 +36,7 @@ pub(crate) mod property;
 pub(crate) mod save;
 pub(crate) mod save_as_dialog;
 pub(crate) mod save_decoded;
+pub(crate) mod save_job;
 pub(crate) mod start_options;
 pub(crate) mod tag_jump;
 mod view_ext;

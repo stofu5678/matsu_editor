@@ -59,7 +59,8 @@ pub use ranged::{
     RangedOptions, is_changed_outside,
 };
 pub use save::{
-    MAX_REPORTED, Preserve, SaveOptions, SaveReport, UnmappableChar, UnmappableReport, write_bytes,
+    MAX_REPORTED, Preserve, SaveOptions, SaveReport, SaveSnapshot, UnmappableChar, UnmappableReport,
+    Written, write_bytes,
 };
 pub use space::{FreeSpaceProbe, set_default_free_space_probe};
 pub use sync::sync_file;

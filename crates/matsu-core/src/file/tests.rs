@@ -1000,12 +1000,65 @@ fn progress_is_reported_while_saving() {
     );
 }
 
+// ---- a save in two steps (the write can run on another thread) ----
+
+#[test]
+fn a_snapshot_writes_on_another_thread_and_the_file_takes_the_result() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc\r\ndef\r\n");
+    let mut file = open_file(&path, &OpenOptions::default()).unwrap();
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    let options = SaveOptions::keep(&file);
+    let snapshot = file.save_snapshot().unwrap();
+    let target = path.clone();
+    let for_thread = options.clone();
+    let written = std::thread::spawn(move || {
+        assert_eq!(
+            snapshot
+                .check_save(&for_thread, &mut no_progress)
+                .unwrap()
+                .total,
+            0
+        );
+        snapshot.write(&target, &for_thread, &mut no_progress)
+    })
+    .join()
+    .unwrap()
+    .unwrap();
+    let report = file.finish_save_as(path.clone(), &options, written);
+    assert!(report.bytes_written > 0);
+    assert_eq!(fs::read(&path).unwrap(), b"xabc\r\ndef\r\n");
+    assert_eq!(file.path.as_deref(), Some(path.as_path()));
+}
+
+#[test]
+fn a_write_that_is_stopped_leaves_the_target_and_the_folder_as_they_were() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc\n");
+    let mut file = open_file(&path, &OpenOptions::default()).unwrap();
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    let options = SaveOptions::keep(&file);
+    let snapshot = file.save_snapshot().unwrap();
+    let error = snapshot
+        .write(&path, &options, &mut |_, _| ControlFlow::Break(()))
+        .unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
+    assert_eq!(fs::read(&path).unwrap(), b"abc\n");
+    assert_eq!(dir.names(), ["a.txt"], "no temporary file");
+}
+
 // ---- speed ----
 
 /// Run with `cargo test -p matsu-core --release -- --ignored --nocapture file::tests::large`.
 #[test]
 #[ignore = "slow in debug builds; run with --release --ignored --nocapture to see the numbers"]
 fn large_file_open_and_save_times() {
+    // `MATSU_SAVE_MIB` sets the size (500 by default); 100 is the size of the ledger's question
+    // whether a save keeps the window waiting.
+    let mib = std::env::var("MATSU_SAVE_MIB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(500);
     for (encoding, line) in [
         (
             Encoding::Utf8,
@@ -1018,7 +1071,7 @@ fn large_file_open_and_save_times() {
     ] {
         let dir = TempDir::new();
         let unit = encode(encoding, line);
-        let count = (500 * 1024 * 1024) / unit.len();
+        let count = (mib * 1024 * 1024) / unit.len();
         let mut bytes = Vec::with_capacity(count * unit.len());
         for _ in 0..count {
             bytes.extend_from_slice(&unit);
@@ -1038,6 +1091,10 @@ fn large_file_open_and_save_times() {
 
         let t = Instant::now();
         let options = SaveOptions::keep(&file);
+        file.check_save(&options, &mut no_progress).unwrap();
+        println!("{encoding:?}: check before saving {:?}", t.elapsed());
+
+        let t = Instant::now();
         file.save(&options, &mut no_progress).unwrap();
         println!("{encoding:?}: unedited save {:?}", t.elapsed());
 
