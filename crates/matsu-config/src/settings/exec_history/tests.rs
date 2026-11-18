@@ -127,3 +127,26 @@ fn what_the_file_has_goes_on_top_when_it_is_merged() {
     empty.merge_from(&file);
     assert_eq!(empty.flags, Some(1));
 }
+
+#[test]
+fn a_command_is_edited_by_hand_like_crecentimp() {
+    use crate::settings::EditableList;
+    let mut h = ExecHistory::default();
+    for c in ["a", "b", "c"] {
+        h.add_command(c);
+    }
+    assert!(!h.commands.append_text("b"));
+    assert_eq!(h.commands.items(), ["c", "b", "a"]);
+    assert!(h.commands.append_text("d"));
+    assert!(h.commands.edit_text(1, "C"));
+    assert!(!h.commands.edit_text(1, "b"));
+    // An empty string and a too long one are refused (`fits`).
+    assert!(!h.commands.edit_text(1, ""));
+    assert!(!h.commands.append_text(&"x".repeat(1024)));
+    assert!(h.commands.append_text(&"x".repeat(1023)));
+    // [x, d, C, b, a]: the second one goes.
+    assert!(h.commands.delete_at(1));
+    assert_eq!(h.commands.items()[1..], ["C", "b", "a"]);
+    h.commands.clear_all();
+    assert!(h.commands.items().is_empty());
+}

@@ -106,6 +106,48 @@ impl SearchHistory {
     }
 }
 
+impl SearchHistory {
+    /// Changes the lists by hand (the history management dialog: delete, add, edit), here and
+    /// in the file.
+    ///
+    /// Unlike [`persist`](Self::persist) this does not merge our strings into the file's: a string the
+    /// user deleted must not come back from the file. Under the lock of the file `change` is
+    /// applied to the lists the file has *now*, and the result is both written and kept. Without a
+    /// file, or when it cannot be read or written, the change is applied to our own lists. The
+    /// sequence numbers do not move: Sakura counts additions only (`AddToSearchKeyArr`).
+    pub(crate) fn edit(&mut self, change: impl Fn(&mut SearchKeys)) {
+        let Some(path) = self.store.clone() else {
+            change(&mut self.keys);
+            return;
+        };
+        let mut edited = None;
+        let saved = update_profile(&path, |profile| {
+            let mut keys = SearchKeys::from_profile(profile);
+            change(&mut keys);
+            let before = profile.to_bytes();
+            let written = keys.write_to(profile).is_ok() && profile.to_bytes() != before;
+            edited = Some(keys);
+            Ok(written)
+        });
+        match (saved, edited) {
+            (Ok(()), Some(keys)) => self.keys = keys,
+            _ => change(&mut self.keys),
+        }
+    }
+}
+
+/// The lists of the search, replace and Grep boxes as they are now.
+pub(crate) fn snapshot(cx: &App) -> SearchKeys {
+    cx.try_global::<SearchHistory>()
+        .map(|h| h.keys.clone())
+        .unwrap_or_default()
+}
+
+/// Changes the lists by hand ([`SearchHistory::edit`]) and tells the observers.
+pub(crate) fn edit_keys(cx: &mut App, change: impl Fn(&mut SearchKeys)) {
+    cx.update_default_global(|history: &mut SearchHistory, _| history.edit(change));
+}
+
 /// Makes the history of the application. Called once at startup.
 pub fn install(cx: &mut App, history: SearchHistory) {
     cx.set_global(history);

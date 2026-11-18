@@ -85,6 +85,39 @@ impl ExecPrefs {
     }
 }
 
+impl ExecPrefs {
+    /// Changes the lists by hand (the history management dialog), here and in the file. Unlike
+    /// [`change`](Self::change) it does not merge our strings into the file's, so that a string
+    /// the user deleted does not come back: `change` is applied to what the file has now, under
+    /// the lock. Without a file, or when it cannot be read or written, it is applied to our own.
+    fn edit(&mut self, change: impl Fn(&mut ExecHistory)) {
+        let Some(path) = self.store.clone() else {
+            change(&mut self.history);
+            return;
+        };
+        let local_flags = self.history.flags;
+        let mut edited = None;
+        let saved = update_profile(&path, |profile| {
+            let mut history = ExecHistory::from_profile(profile);
+            history.flags = history.flags.or(local_flags);
+            change(&mut history);
+            let before = profile.to_bytes();
+            let written = history.write_to(profile).is_ok() && profile.to_bytes() != before;
+            edited = Some(history);
+            Ok(written)
+        });
+        match (saved, edited) {
+            (Ok(()), Some(history)) => self.history = history,
+            _ => change(&mut self.history),
+        }
+    }
+}
+
+/// Changes the commands and folders by hand ([`ExecPrefs::edit`]).
+pub(crate) fn edit_history(cx: &mut App, change: impl Fn(&mut ExecHistory)) {
+    cx.default_global::<ExecPrefs>().edit(change);
+}
+
 /// Makes the history of the application. Called once at startup.
 pub fn install(cx: &mut App, prefs: ExecPrefs) {
     cx.set_global(prefs);

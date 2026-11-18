@@ -149,6 +149,53 @@ impl KeyList {
     }
 }
 
+impl crate::settings::EditableList for KeyList {
+    fn texts(&self) -> &[String] {
+        &self.items
+    }
+
+    fn max_units(&self) -> usize {
+        self.max_units
+    }
+
+    fn append_text(&mut self, text: &str) -> bool {
+        // `AppendItemText` does nothing for a string that is in the list already.
+        if !self.accepts(text) || self.items.iter().any(|s| self.same(s, text)) {
+            return false;
+        }
+        self.add(text)
+    }
+
+    fn edit_text(&mut self, index: usize, text: &str) -> bool {
+        if index >= self.items.len() || !self.accepts(text) {
+            return false;
+        }
+        // The same string at the same place may differ in case (`EditItemText`).
+        if self
+            .items
+            .iter()
+            .enumerate()
+            .any(|(i, s)| i != index && self.same(s, text))
+        {
+            return false;
+        }
+        self.items[index] = text.to_owned();
+        true
+    }
+
+    fn delete_at(&mut self, index: usize) -> bool {
+        let found = index < self.items.len();
+        if found {
+            self.items.remove(index);
+        }
+        found
+    }
+
+    fn clear_all(&mut self) {
+        self.items.clear();
+    }
+}
+
 /// The search strings and the replace strings, and the strings of the other combo boxes that
 /// Sakura keeps in the same shared data.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -641,5 +688,40 @@ mod tests {
         ours.merge_from(&theirs);
         assert_eq!(ours.grep_folder.items(), ["B", "a"]);
         assert_eq!(ours.tag_keyword.items(), ["remote", "local"]);
+    }
+
+    #[test]
+    fn a_list_is_edited_by_hand_like_crecentimp() {
+        use crate::settings::EditableList;
+        let mut l = list(30, &["c", "b", "a"]);
+        // `AppendItemText`: a string that is there is refused and does not move.
+        assert!(!l.append_text("a"));
+        assert_eq!(l.items(), ["c", "b", "a"]);
+        assert!(l.append_text("d"));
+        assert_eq!(l.items(), ["d", "c", "b", "a"]);
+        // `EditItemText`: in place, and never onto another string.
+        assert!(l.edit_text(2, "B"));
+        assert_eq!(l.items(), ["d", "c", "B", "a"]);
+        assert!(!l.edit_text(2, "a"));
+        assert!(!l.edit_text(9, "x"));
+        assert!(!l.edit_text(0, &"x".repeat(260)));
+        // `DeleteItem` closes the gap; `DeleteAllItem` empties.
+        assert!(l.delete_at(1));
+        assert!(!l.delete_at(9));
+        assert_eq!(l.items(), ["d", "B", "a"]);
+        l.clear_all();
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn the_grep_lists_tell_strings_apart_without_case_when_editing() {
+        use crate::settings::EditableList;
+        let mut keys = SearchKeys::default();
+        assert!(keys.grep_file.append_text("*.rs"));
+        assert!(!keys.grep_file.append_text("*.RS"));
+        assert!(keys.grep_file.append_text("*.md"));
+        // The item itself may change its case; another item's text may not be taken.
+        assert!(keys.grep_file.edit_text(0, "*.MD"));
+        assert!(!keys.grep_file.edit_text(0, "*.rs"));
     }
 }

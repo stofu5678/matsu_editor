@@ -21,6 +21,7 @@
 
 pub(crate) mod dialog;
 pub(crate) mod menu;
+pub(crate) mod texts;
 pub(crate) mod view;
 
 use gpui::{App, BorrowAppContext as _, Global};

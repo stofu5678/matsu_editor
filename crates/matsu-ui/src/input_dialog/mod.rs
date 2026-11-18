@@ -191,7 +191,7 @@ impl Focusable for InputDialog {
 /// from the common start and end of the two texts. When a selection is replaced by a text that
 /// begins or ends with the selected text itself, the old text is taken as untouched and the
 /// replacement is refused; the text that was there is never lost.
-fn limit_edit(before: &str, after: &str, max: usize) -> Option<(String, usize)> {
+pub(crate) fn limit_edit(before: &str, after: &str, max: usize) -> Option<(String, usize)> {
     if after.encode_utf16().count() <= max {
         return None;
     }
