@@ -82,6 +82,13 @@ pub(crate) fn label_name(label: &str) -> String {
     without_key_hint(&plain_name(label))
 }
 
+/// Whether a name says nothing alone: empty, or only dots and spaces (the name of a "..." browse
+/// button, which does not tell which box it browses for).
+pub(crate) fn says_nothing(name: &str) -> bool {
+    name.chars()
+        .all(|c| c == '.' || c == '\u{2026}' || c.is_whitespace())
+}
+
 /// A hand-drawn button (a `div` with a click handler): without a role it is not in the tree, so a
 /// screen reader cannot reach it. `label` is its visible text; the name has no access key mark.
 pub(crate) fn button(element: Stateful<Div>, label: &str) -> Stateful<Div> {
@@ -427,6 +434,18 @@ mod tests {
         assert_eq!(plain_name("(&A)と(&B)"), "と");
         assert_eq!(plain_name("plain"), "plain");
         assert_eq!(plain_name(""), "");
+    }
+
+    #[test]
+    fn a_name_of_only_dots_says_nothing() {
+        for name in ["", "...", "\u{2026}", " . "] {
+            assert!(says_nothing(name), "{name:?}");
+        }
+        // the key mark goes before the check: `&...` is `...`
+        assert!(says_nothing(&label_name("&...")));
+        assert!(says_nothing(&label_name("(&1)...")));
+        assert!(!says_nothing("パスを参照"));
+        assert!(!says_nothing(&label_name("ファイル挿入(&C)...")));
     }
 
     #[test]

@@ -70,11 +70,7 @@ fn a_name_given_by_the_page_wins_over_the_label() {
     assert_eq!(plain.named("別名").accessible_name(), "別名");
 }
 
-/// A name that says nothing alone: empty, or only dots (a "..." browse button).
-fn says_nothing(name: &str) -> bool {
-    name.chars()
-        .all(|c| c == '.' || c == '\u{2026}' || c.is_whitespace())
-}
+use crate::a11y::says_nothing;
 
 /// The ids of the buttons and tables of `controls` whose name says nothing.
 fn nameless_buttons_and_tables(controls: &[Control]) -> Vec<&'static str> {
