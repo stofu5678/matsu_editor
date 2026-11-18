@@ -26,6 +26,13 @@ use crate::dialog_focus::tab_inside;
 use crate::outline::file_tree::source::SettingFrom;
 use crate::support::help::OnHelpKey as _;
 
+/// The name of the "..." button of the box 「デフォルト設定ファイル名」 (`IDC_BUTTON_REF1`) for a
+/// screen reader.
+const DEFAULT_INI_BROWSE_NAME: &str = "デフォルト設定ファイル名を参照";
+
+/// The name of the "..." button of the path box (`IDC_BUTTON_REF2`) for a screen reader.
+const PATH_BROWSE_NAME: &str = "パスを参照";
+
 const TEXT: u32 = 0x222222;
 const MUTED: u32 = 0x888888;
 const BORDER: u32 = 0xaaaaaa;
@@ -66,9 +73,30 @@ impl FileTreeDialog {
         cx: &mut Context<Self>,
         run: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> Button {
+        self.button_named(id, label, label_name(label), enabled, cx, run)
+    }
+
+    /// A button whose name for a screen reader is `name`, for a label that says nothing alone
+    /// (the "..." browse button: `name` tells which box it browses).
+    fn button_named(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        name: impl Into<SharedString>,
+        enabled: bool,
+        cx: &mut Context<Self>,
+        run: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> Button {
+        // Every dialog that is drawn in the tests goes through here: a button that is only dots
+        // fails them.
+        let name = name.into();
+        debug_assert!(
+            !crate::a11y::says_nothing(&name),
+            "the button {id} has no name that says what it is"
+        );
         Button::new(id)
             .label(parse_label(label).0)
-            .accessibility_label(label_name(label))
+            .accessibility_label(name)
             .disabled(!enabled)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| run(this, window, cx)))
     }
@@ -201,9 +229,10 @@ impl FileTreeDialog {
                                         .aria_label(label_name("デフォルト設定ファイル名(&J)")),
                                 ),
                             )
-                            .child(self.button(
+                            .child(self.button_named(
                                 "ft-ref1",
                                 "...(&1)",
+                                DEFAULT_INI_BROWSE_NAME,
                                 true,
                                 cx,
                                 |this, window, cx| {
@@ -237,11 +266,16 @@ impl FileTreeDialog {
                         &self.path,
                         path_on,
                     )))
-                    .child(
-                        self.button("ft-ref2", "&...", path_on, cx, |this, window, cx| {
+                    .child(self.button_named(
+                        "ft-ref2",
+                        "&...",
+                        PATH_BROWSE_NAME,
+                        path_on,
+                        cx,
+                        |this, window, cx| {
                             this.browse_path(window, cx);
-                        }),
-                    )
+                        },
+                    ))
                     .child(self.button(
                         "ft-path-menu-button",
                         "▼(&3)",
