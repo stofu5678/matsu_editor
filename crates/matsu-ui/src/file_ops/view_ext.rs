@@ -32,6 +32,21 @@ impl EditorView {
         restore: Option<Pos>,
         cx: &mut Context<Self>,
     ) {
+        self.load_document_of_type(new, restore, None, cx);
+    }
+
+    /// [`load_document`](Self::load_document) for a file that the history remembers with the
+    /// document type of id `remembered` (`m_nTypeId` of the history, `CMruListener::OnBeforeLoad`):
+    /// that type is taken instead of the one the name gives, so that the type is chosen once,
+    /// before the indentation of the file is detected with the settings of that type. An id
+    /// that is no type (or none) leaves the type of the name.
+    pub(crate) fn load_document_of_type(
+        &mut self,
+        new: SharedDocument,
+        restore: Option<Pos>,
+        remembered: Option<i32>,
+        cx: &mut Context<Self>,
+    ) {
         // Reopening the file keeps the mode (`CDocFileOperation::ReloadCurrentFile` loads with
         // the current one); any other new document starts without it.
         let mut new = new;
@@ -85,7 +100,9 @@ impl EditorView {
         // (`replace_with` above made a document that is not locked.)
         let name = self.document.read(cx).file_name();
         let wanted = crate::doc_types::with_user(cx, |user| {
-            let index = user.type_index_for(name.as_deref());
+            let index = remembered
+                .and_then(|id| user.document_types().iter().position(|t| t.id == id))
+                .unwrap_or_else(|| user.type_index_for(name.as_deref()));
             (index != self.prefs.settings.type_index)
                 .then(|| (index, user.view_settings_of_type(index)))
         });

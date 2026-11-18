@@ -273,10 +273,17 @@ async fn load_here_inner(
                     cx.notify();
                     return false;
                 }
-                view.load_document(shared, restore, cx);
-                // `-TYPE=` decides the type before the macro of オープン後 runs.
-                if let Some(ext) = super::start_options::expected_type(cx, path) {
-                    view.apply_launch_type(&ext, cx);
+                // The type the file had when it was closed decides the type from the start
+                // (`CMruListener::OnBeforeLoad`), unless `-TYPE=` gives one (it decides the type
+                // before the macro of オープン後 runs).
+                let launch_type = super::start_options::expected_type(cx, path);
+                let remembered = previous
+                    .as_ref()
+                    .filter(|_| launch_type.is_none())
+                    .map(|entry| entry.type_id);
+                view.load_document_of_type(shared, restore, remembered, cx);
+                if let Some(ext) = &launch_type {
+                    view.apply_launch_type(ext, cx);
                 }
                 let history = previous
                     .clone()

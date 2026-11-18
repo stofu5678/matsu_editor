@@ -429,8 +429,12 @@ pub(crate) async fn save(
             }
             view.update(cx, |view, cx| {
                 view.notice = Some(notice);
-                // Saved under another name: the new name may be of another document type.
-                view.follow_file_name(cx);
+                // Saved under another name: the new name may be of another document type. An
+                // overwrite keeps the type the document has (`CSaveAgent::OnAfterSave`: no
+                // `OnChangeSetting` when `bOverwriteMode`), also one that came from the history.
+                if named {
+                    view.follow_file_name(cx);
+                }
                 cx.notify();
             })
             .ok();

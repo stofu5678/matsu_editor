@@ -9,8 +9,8 @@ use gpui::{Entity, TestAppContext, VisualTestContext};
 use matsu_config::history::{FileEntry, History};
 
 use super::dialog::{
-    FavoriteDialog, Tab, delete_all, delete_missing, delete_non_favorites, delete_selected,
-    key_column, path_exists, rows, set_favorite,
+    FavoriteDialog, Tab, add_to_except, delete_all, delete_missing, delete_non_favorites,
+    delete_selected, key_column, path_exists, rows, set_favorite,
 };
 use super::{HistoryOptions, HistoryState, current};
 use crate::document::SharedDocument;
@@ -369,4 +369,67 @@ fn alt_a_asks_before_it_deletes_the_whole_history(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("alt-a");
     answer(cx, "はい(Y)");
     assert!(history_paths(cx).is_empty());
+}
+
+#[test]
+fn the_list_of_excluded_paths_has_rows_without_favorites() {
+    let mut h = sample();
+    h.except = vec!["/tmp/".into(), "secret".into()];
+    let r = rows(&h, Tab::Except);
+    assert_eq!(r.len(), 2);
+    assert_eq!(r[0].text, "/tmp/");
+    assert!(r.iter().all(|r| !r.favorite && r.key.is_empty()));
+    // Favorites and the search for what is gone are for paths.
+    assert!(!Tab::Except.has_favorites() && !Tab::Except.is_path_list());
+    set_favorite(&mut h, Tab::Except, 0, true);
+    delete_non_favorites(&mut h, Tab::Except);
+    delete_missing(&mut h, Tab::Except, |_| false);
+    assert_eq!(h.except.len(), 2);
+    delete_selected(&mut h, Tab::Except, &BTreeSet::from([0]));
+    assert_eq!(h.except, ["secret"]);
+    delete_all(&mut h, Tab::Except);
+    assert!(h.except.is_empty());
+}
+
+#[test]
+fn paths_go_to_the_front_of_the_excluded_list_without_repeats() {
+    let mut h = sample();
+    h.except = vec!["a".into(), "b".into()];
+    assert!(add_to_except(&mut h, vec!["c".into(), "b".into()]));
+    // `AppendItemText` puts each at the front: a text that is there comes up.
+    assert_eq!(h.except, ["b", "c", "a"]);
+}
+
+#[test]
+fn a_full_excluded_list_takes_what_fits_and_says_so() {
+    let mut h = sample();
+    h.except = (0..matsu_config::history::MAX_EXCEPT_MRU - 1)
+        .map(|i| format!("t{i}"))
+        .collect();
+    assert!(!add_to_except(&mut h, vec!["x".into(), "y".into()]));
+    assert_eq!(h.except.len(), matsu_config::history::MAX_EXCEPT_MRU);
+    assert_eq!(h.except[0], "x");
+    assert!(!h.except.contains(&"y".to_owned()));
+}
+
+#[gpui::test]
+fn the_selected_files_are_added_to_the_excluded_list(cx: &mut TestAppContext) {
+    let (dialog, cx) = setup(cx, sample());
+    dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+    dialog.update_in(cx, |d, window, cx| d.add_selected_to_except(window, cx));
+    cx.run_until_parked();
+    assert_eq!(cx.update(|_, app| current(app).unwrap()).except, ["/x/c"]);
+    // Its own tab shows it, and Tab goes round the three.
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Except, cx));
+    assert_eq!(texts(&dialog, cx), ["/x/c"]);
+    cx.simulate_keystrokes("tab");
+    assert_eq!(dialog.read_with(cx, |d, _| d.tab()), Tab::Files);
+    // Nothing is added from its own tab.
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Except, cx));
+    dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+    dialog.update_in(cx, |d, window, cx| d.add_selected_to_except(window, cx));
+    assert_eq!(cx.update(|_, app| current(app).unwrap()).except, ["/x/c"]);
+    // Delete takes it out.
+    cx.simulate_keystrokes("delete");
+    assert!(cx.update(|_, app| current(app).unwrap()).except.is_empty());
 }
