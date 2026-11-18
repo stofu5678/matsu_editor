@@ -62,10 +62,6 @@ impl ExecPrefs {
     /// kept in memory and is not worth stopping a command for.
     fn change(&mut self, change: impl Fn(&mut ExecHistory)) {
         change(&mut self.history);
-        // The file takes the change only when our own lists did (see `SearchHistory::edit`).
-        if self.history == before {
-            return;
-        }
         let Some(path) = self.store.clone() else {
             return;
         };
