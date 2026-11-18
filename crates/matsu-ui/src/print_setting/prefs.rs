@@ -14,6 +14,8 @@ use matsu_config::history::update_profile;
 use matsu_config::settings::TypeSettings;
 use matsu_config::settings::print::{self, MAX_PRINT_SETTINGS, PrintSettings};
 use matsu_platform::print::default_setting;
+#[cfg(any(windows, test))]
+use matsu_platform::print::devmode::PrinterChoice;
 use matsu_print::{PrintSetting, Printer};
 
 pub struct PrintPrefs {
@@ -78,6 +80,50 @@ impl PrintPrefs {
             (Ok(_), Some(now)) => self.settings = now,
             // A file that cannot be written leaves the printer for this session.
             _ => self.settings.get_mut(index).printer = Some(printer),
+        }
+    }
+
+    /// Writes what the printer dialog of the preview bar gave into the setting `index`: the
+    /// paper size and the direction, and the printer when the dialog named one. Sakura changes
+    /// those three of the setting in the shared data (`CPrintPreview::DispatchEvent_PPB`,
+    /// `PrintDlg` and `m_nPrintPaperSize`). The setting is written to the file as it is there with
+    /// the three changed (inside the locked update, so what another process saved meanwhile
+    /// stays), and the settings are then what the file has.
+    #[cfg(any(windows, test))]
+    fn set_choice(&mut self, index: usize, choice: PrinterChoice) {
+        let PrinterChoice {
+            printer,
+            paper_size,
+            orientation,
+        } = choice;
+        let apply = |slot: &mut PrintSetting, printer: Option<Printer>| {
+            slot.print_paper_size = paper_size;
+            slot.print_paper_orientation = orientation;
+            if printer.is_some() {
+                slot.printer = printer;
+            }
+        };
+        let Some(path) = self.store.clone() else {
+            apply(self.settings.get_mut(index), printer);
+            return;
+        };
+        let base = default_setting();
+        let mut merged = None;
+        let saved = update_profile(&path, |profile| {
+            let before = profile.to_bytes();
+            let on_disk = PrintSettings::from_profile(&base, profile);
+            let mut now = on_disk.clone();
+            // The one copy: the fallback below needs the printer if the file cannot be written.
+            apply(now.get_mut(index), printer.clone());
+            now.write_changed(&on_disk, profile)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+            merged = Some(now);
+            Ok(profile.to_bytes() != before)
+        });
+        match (saved, merged) {
+            (Ok(_), Some(now)) => self.settings = now,
+            // A file that cannot be written leaves the choice for this session.
+            _ => apply(self.settings.get_mut(index), printer),
         }
     }
 
@@ -201,6 +247,13 @@ pub(crate) fn remember_printer(cx: &mut App, index: usize, printer: Printer) {
         .set_printer(index, printer);
 }
 
+/// Writes what the printer dialog of the preview bar gave into the setting `index` (see
+/// [`PrintPrefs::set_choice`]).
+#[cfg(any(windows, test))]
+pub(crate) fn remember_choice(cx: &mut App, index: usize, choice: PrinterChoice) {
+    cx.default_global::<PrintPrefs>().set_choice(index, choice);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,6 +357,105 @@ mod tests {
         mine.set_printer(0, printer("A"));
         assert_eq!(on_disk(&path).get(0).printer, Some(printer("A")));
         assert_eq!(mine.settings.get(0).printer, Some(printer("A")));
+    }
+
+    fn choice(
+        device: Option<&str>,
+        size: i16,
+        orientation: matsu_print::Orientation,
+    ) -> PrinterChoice {
+        PrinterChoice {
+            printer: device.map(printer),
+            paper_size: size,
+            orientation,
+        }
+    }
+
+    /// The printer button of the preview bar writes the paper and the direction with the printer,
+    /// and keeps what the file has in the rest of the setting (another process may have saved
+    /// it).
+    #[test]
+    fn the_choice_of_the_printer_dialog_is_written_with_the_rest_of_the_file_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut mine, path) = prefs_with_file(&dir);
+        // another process changes a margin after this one loaded
+        let mut other = PrintPrefs::load(Some(&path), Some(path.clone()));
+        let original = other.settings.clone();
+        let mut new = original.clone();
+        new.get_mut(0).print_margin_lx = 150;
+        other.change(&new, &original, None);
+
+        mine.set_choice(
+            0,
+            choice(
+                Some("PDF"),
+                matsu_print::DMPAPER_A3,
+                matsu_print::Orientation::Landscape,
+            ),
+        );
+        for s in [&mine.settings, &on_disk(&path)] {
+            assert_eq!(s.get(0).print_paper_size, matsu_print::DMPAPER_A3);
+            assert_eq!(
+                s.get(0).print_paper_orientation,
+                matsu_print::Orientation::Landscape
+            );
+            assert_eq!(s.get(0).printer, Some(printer("PDF")));
+            assert_eq!(s.get(0).print_margin_lx, 150);
+            // what the file had for the settings of this one: dansuu 2 of `prefs_with_file`
+            assert_eq!(s.get(0).print_dansuu, 2);
+            // another slot is untouched
+            assert_eq!(s.get(1).print_paper_size, matsu_print::DMPAPER_A4);
+        }
+
+        // a dialog that names no printer keeps the printer
+        mine.set_choice(
+            0,
+            choice(
+                None,
+                matsu_print::DMPAPER_A4,
+                matsu_print::Orientation::Portrait,
+            ),
+        );
+        assert_eq!(mine.settings.get(0).printer, Some(printer("PDF")));
+        assert_eq!(on_disk(&path).get(0).printer, Some(printer("PDF")));
+        assert_eq!(
+            on_disk(&path).get(0).print_paper_size,
+            matsu_print::DMPAPER_A4
+        );
+    }
+
+    #[test]
+    fn the_choice_stays_in_the_session_when_the_file_cannot_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory is not a file that can be written.
+        let mut prefs = PrintPrefs::load(None, Some(dir.path().to_owned()));
+        prefs.set_choice(
+            2,
+            choice(
+                Some("PDF"),
+                matsu_print::DMPAPER_A3,
+                matsu_print::Orientation::Landscape,
+            ),
+        );
+        assert_eq!(
+            prefs.settings.get(2).print_paper_size,
+            matsu_print::DMPAPER_A3
+        );
+        assert_eq!(prefs.settings.get(2).printer, Some(printer("PDF")));
+        // without a file at all, too
+        let mut prefs = PrintPrefs::default();
+        prefs.set_choice(
+            2,
+            choice(
+                Some("PDF"),
+                matsu_print::DMPAPER_A3,
+                matsu_print::Orientation::Landscape,
+            ),
+        );
+        assert_eq!(
+            prefs.settings.get(2).print_paper_size,
+            matsu_print::DMPAPER_A3
+        );
     }
 
     #[test]

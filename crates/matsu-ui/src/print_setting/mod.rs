@@ -52,6 +52,24 @@ impl EditorView {
         prefs::remember_printer(cx, slot, printer);
     }
 
+    /// The setting `slot` as the preferences have it now (Sakura's `m_pPrintSettingOrg`, which the
+    /// printer button of the preview bar edits).
+    #[cfg(any(windows, test))]
+    pub(crate) fn print_setting_of(slot: usize, cx: &gpui::App) -> matsu_print::PrintSetting {
+        prefs::settings(cx).get(slot).clone()
+    }
+
+    /// Writes what the printer dialog of the preview bar gave into the setting `slot`: the
+    /// printer, the paper size and the direction (see [`prefs::remember_choice`]).
+    #[cfg(any(windows, test))]
+    pub(crate) fn remember_choice(
+        slot: usize,
+        choice: matsu_platform::print::devmode::PrinterChoice,
+        cx: &mut gpui::App,
+    ) {
+        prefs::remember_choice(cx, slot, choice);
+    }
+
     /// `Command_PRINT_PAGESETUP`: shows the dialog, and applies what OK gives. While the preview
     /// is open the line numbers take the width the document needs; otherwise the least.
     pub(crate) fn print_page_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -100,6 +118,12 @@ impl EditorView {
             type_index,
             answer.current,
         );
+        self.print_setting_changed_in_all_windows(cx);
+    }
+
+    /// `MYWM_CHANGESETTING` with `PM_PRINTSETTING` to every editor window, this one included: the
+    /// previews that are open lay the document out again.
+    pub(crate) fn print_setting_changed_in_all_windows(&mut self, cx: &mut Context<Self>) {
         self.print_setting_changed(cx);
         let me = cx.entity_id();
         let others: Vec<_> = crate::file_ops::windows::workspaces(cx)
