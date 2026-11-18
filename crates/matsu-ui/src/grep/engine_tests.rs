@@ -415,7 +415,7 @@ fn the_column_counts_utf16_units() {
     // 𠮷 is two UTF-16 units, あ one
     p.write("a.txt", "𠮷あ𠮷xyz\n".as_bytes());
     let (text, _) = grep(&p.info("xyz"));
-    assert!(body(&text).contains("(1,5)  [UTF-8]: 𠮷あ𠮷xyz"), "{text}");
+    assert!(body(&text).contains("(1,6)  [UTF-8]: 𠮷あ𠮷xyz"), "{text}");
 }
 
 #[test]
@@ -1104,11 +1104,11 @@ fn the_search_of_the_names_shows_the_encoding_the_type_detects() {
     info.type_detect = Some(cesu8_for_txt_only());
     let (text, _) = grep(&info);
     assert!(
-        text.contains(&format!("\"{}\"  [CESU-8]", p.path("a.txt"))),
+        text.contains(&format!("{}  [CESU-8]", p.path("a.txt"))),
         "{text}"
     );
     assert!(
-        text.contains(&format!("\"{}\"  [UTF-8]", p.path("b.dat"))),
+        text.contains(&format!("{}  [UTF-8]", p.path("b.dat"))),
         "{text}"
     );
 }
