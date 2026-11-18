@@ -36,7 +36,7 @@
 | 検索 | 3 | Migemo、複数行の照合の細部 |
 | ファイル | 8 | 巨大ファイルの残り（ADR-0020 の追記の「まだ入っていないもの」）、コードページ 51932/20932、ベストフィット表 |
 | 表示と編集 | 10 | マウス操作の残り（ウィンドウをまたぐドラッグ&ドロップ、右ボタンのドロップ、カーソルの形）、フリーカーソルの残り（折り返し行の途中の隙間）、行番号付きコピーの番号と桁数、送り幅が合わないフォントでのまれな文字の並べ方、Mac の既定のフォントが GPUI に読まれない件、アウトラインのフローティング（型 B） |
-| 印刷 | 2 | 印刷ページ設定の「プリンター」ボタンなど（プリンターの選択の残り）、macOS の印刷パネルの割り付け（UI スレッド） |
+| 印刷 | 2 | プリンターを名前で指定すること（macOS・Linux。型 B）、macOS の印刷パネルの割り付け（UI スレッド） |
 | OS との結び付き | 7 | タスクトレイ、署名、Wayland のアイコン、Linux の HTML クリップボード |
 | アクセシビリティ | 4 | ポップアップメニュー、本文へのキーボードのフォーカス（ほかは gpui-component と GPUI の限界） |
 | そのほか | 8 | `-GROUP`、`-NOWIN` |
@@ -172,7 +172,7 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| プリンターの選択（`szDriver`、`DEVMODE`） | `CPrint.cpp` | Windows は、設定が覚えたプリンター（`szDriver` `szDevice` `szOutput`）で印刷ダイアログを開き、選んだプリンターを設定に覚える（`matsu-platform` の `print/devnames.rs`、`windows.rs`）。残りは、macOS・Linux でプリンターを名前で指定すること（印刷パネルとポータルが最後に使ったものを覚えているので、設定には覚えない。型 B）、印刷ページ設定のダイアログの「プリンター」ボタン（`IDC_BUTTON_PRINTERSELECT`、`PD_PRINTSETUP`）、用紙と向きを `DEVMODE` から設定へ戻すこと | B | S | なし |
+| プリンターを名前で指定すること（macOS・Linux） | `CPrint.cpp`、`CPrintPreview.cpp` の `DispatchEvent_PPB` | Windows は済み: 設定が覚えたプリンター（`szDriver` `szDevice` `szOutput`）と、設定の用紙の大きさ・向きで印刷ダイアログを開き（`print/windows.rs` の `print`。`DEVMODE` の `dmPaperSize` と `dmOrientation` に設定の値を入れる。`CPrint::PrintDlg`）、選んだプリンターを設定に覚える。プレビューのバーの「プリンター(&R)」（`IDC_BUTTON_PRINTERSELECT`。印刷ページ設定のダイアログのボタンではない）は、`PD_PRINTSETUP | PD_NONETWORKBUTTON` のダイアログを開き、OK で、プリンターと用紙の大きさと向きを設定へ書いて（`PS[nn]` の `szDriver` `szDevice` `szOutput` `nInts`）、開いている全ウィンドウのプレビューに割り付けを直させる（`select_printer`、`PrinterChoice`）。ドライバーが値を入れなかった項目と、サクラの用紙の一覧にない用紙は、設定の今の値のままにする（サクラは `dmFields` を見ずに写す。型 B）。残りは、macOS・Linux でプリンターを名前で指定すること（印刷パネルとポータルが最後に使ったものを覚えているので、設定には覚えない。バーに「プリンター」のボタンも置かない: 開くものがない。型 B） | B | S | なし |
 | 大きな文書で割り付けが UI スレッドを止める（残り: macOS） | `CPrintPreview::OnChangePrintSetting` | 測った（release、1 行 99 文字・100 万行・100 MB の文書）: 割り付けは ASCII で約 0.6 秒、日本語で約 1.1〜1.2 秒（`matsu-print` の `timing_of_the_layout_of_a_100_mb_text`、`cargo test --release -p matsu-print timing -- --ignored --nocapture`）。止まるので、プレビューは 2 万行より大きい文書を別のスレッドで割り付ける（進み具合を帯に出し、設定を変えると中止する。`print/preview.rs` の `LayoutJob`）。印刷は Windows と Linux では別のスレッドで割り付ける。残りは、macOS の印刷パネルが用紙に合わせて割り付け直すところ（`matsu-platform/src/print/mac.rs` の `job.layout(paper)`）。AppKit の呼び出しの中で、UI スレッドで動く（実機で確かめる） | C | M | なし |
 
 ### OS との結び付き

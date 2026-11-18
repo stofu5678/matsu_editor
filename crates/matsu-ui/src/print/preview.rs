@@ -33,6 +33,9 @@ pub enum PreviewEvent {
     Print,
     /// The user wants the print setting dialog (the button, `S`).
     PageSetup,
+    /// The user wants to choose the printer (the button, `R`; Windows only, see
+    /// [`PrintPreview::has_printer_button`]).
+    SelectPrinter,
     /// The user leaves the preview (the button, `Q`, Esc).
     Close,
     /// The pages of a big document are laid out ([`PrintPreview::is_laying_out`] is false now).
@@ -242,6 +245,15 @@ impl PrintPreview {
         }
     }
 
+    /// Whether the bar has Sakura's printer button (`IDC_BUTTON_PRINTERSELECT`, 「プリンター(&R)」).
+    /// Only on Windows, where the printer is part of the print setting and the setup dialog of the
+    /// OS can be shown on its own. The print panel of macOS and the portal of Linux choose the
+    /// printer when they print and remember it themselves, so there is nothing for a button to
+    /// open before that (type B of ADR-0018).
+    pub fn has_printer_button() -> bool {
+        cfg!(windows)
+    }
+
     pub fn zoom_in(&mut self, cx: &mut Context<Self>) {
         self.zoom = (self.zoom + 10).min(ZOOM_MAX);
         cx.notify();
@@ -324,6 +336,10 @@ impl PrintPreview {
             }
             "s" if plain => {
                 cx.emit(PreviewEvent::PageSetup);
+                true
+            }
+            "r" if plain && Self::has_printer_button() => {
+                cx.emit(PreviewEvent::SelectPrinter);
                 true
             }
             "v" if plain => {
@@ -412,6 +428,10 @@ impl Render for PrintPreview {
                 .tab_stop(false)
                 .label(text)
         };
+        let printer_button = Self::has_printer_button().then(|| {
+            button("printer", label("プリンター", 'R'))
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(PreviewEvent::SelectPrinter)))
+        });
         let bar = h_flex()
             .gap_1()
             .px_2()
@@ -451,6 +471,7 @@ impl Render for PrintPreview {
                     .on_click(cx.listener(|this, _, _, cx| this.zoom_in(cx))),
             )
             .child(div().min_w(px(44.)).child(format!("{} %", self.zoom)))
+            .children(printer_button)
             .child(
                 button("page-setup", format!("{}...", label("ページ設定", 'S')))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(PreviewEvent::PageSetup))),

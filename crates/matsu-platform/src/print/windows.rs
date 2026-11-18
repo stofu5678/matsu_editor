@@ -16,20 +16,25 @@ use raw_window_handle::RawWindowHandle;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 use windows_sys::Win32::Graphics::Gdi::{
     CLIP_DEFAULT_PRECIS, CreateDCW, CreateFontW, CreatePen, DEFAULT_CHARSET, DEFAULT_QUALITY,
-    DeleteDC, DeleteObject, ExtTextOutW, FF_DONTCARE, FW_BOLD, FW_NORMAL, GetDeviceCaps, HDC,
-    HFONT, LOGPIXELSX, LOGPIXELSY, LineTo, MoveToEx, OUT_DEFAULT_PRECIS, PHYSICALHEIGHT,
-    PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, PS_SOLID, SelectObject, SetBkMode,
-    SetTextAlign, SetTextColor, TA_BASELINE, TA_CENTER, TA_LEFT, TA_RIGHT, TRANSPARENT,
+    DEVMODEW, DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERSIZE, DeleteDC, DeleteObject, ExtTextOutW,
+    FF_DONTCARE, FW_BOLD, FW_NORMAL, GetDeviceCaps, HDC, HFONT, LOGPIXELSX, LOGPIXELSY, LineTo,
+    MoveToEx, OUT_DEFAULT_PRECIS, PHYSICALHEIGHT, PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH,
+    PS_SOLID, SelectObject, SetBkMode, SetTextAlign, SetTextColor, TA_BASELINE, TA_CENTER, TA_LEFT,
+    TA_RIGHT, TRANSPARENT,
+};
+use windows_sys::Win32::Graphics::Printing::{
+    ClosePrinter, DocumentPropertiesW, GetDefaultPrinterW, OpenPrinterW, PRINTER_HANDLE,
 };
 use windows_sys::Win32::Storage::Xps::{AbortDoc, DOCINFOW, EndDoc, EndPage, StartDocW, StartPage};
 use windows_sys::Win32::System::Memory::{
-    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+    GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
 };
 use windows_sys::Win32::UI::Controls::Dialogs::{
-    CommDlgExtendedError, PD_HIDEPRINTTOFILE, PD_NOPAGENUMS, PD_NOSELECTION, PD_RETURNDC,
-    PD_USEDEVMODECOPIESANDCOLLATE, PRINTDLGW, PrintDlgW,
+    CommDlgExtendedError, PD_HIDEPRINTTOFILE, PD_NONETWORKBUTTON, PD_NOPAGENUMS, PD_NOSELECTION,
+    PD_PRINTSETUP, PD_RETURNDC, PD_USEDEVMODECOPIESANDCOLLATE, PRINTDLGW, PrintDlgW,
 };
 
+use super::devmode::{self, PrinterChoice};
 use super::devnames;
 use super::draw::{cell_positions, font_spec};
 use super::{Error, Outcome, PrintJob};
@@ -84,29 +89,28 @@ fn printer_of(hdevnames: *mut core::ffi::c_void) -> Option<Printer> {
     }
 }
 
+/// The flags of the print dialog. No page range; the printer driver makes the copies. Print to
+/// File is hidden: Sakura shows it and then ignores it, printing to the printer.
+const PRINT_FLAGS: u32 = PD_RETURNDC
+    | PD_NOSELECTION
+    | PD_NOPAGENUMS
+    | PD_HIDEPRINTTOFILE
+    | PD_USEDEVMODECOPIESANDCOLLATE;
+
+/// The flags of the print setup dialog of the printer button of the preview bar
+/// (`CPrintPreview::DispatchEvent_PPB`: `PD_PRINTSETUP | PD_NONETWORKBUTTON`).
+const SETUP_FLAGS: u32 = PD_PRINTSETUP | PD_NONETWORKBUTTON;
+
 /// Shows the print dialog owned by `owner` and prints. The dialog starts on the printer the
-/// setting remembers (`Printer`; the default printer when it has none or the printer is gone). Returns the printer the user printed on, for the caller to
-/// remember in the setting as Sakura does (`CPrint::PrintDlg` copies the `DEVNAMES` into the
-/// setting), or `None` when the user cancels. It blocks until the dialog closes, so call it off
-/// the UI thread, as GPUI does for its own dialogs.
+/// setting remembers (`Printer`; the default printer when it has none or the printer is gone),
+/// on the paper and in the direction the setting has (`CPrint::PrintDlg`). Returns the printer the
+/// user printed on, for the caller to remember in the setting as Sakura does (`CPrint::PrintDlg`
+/// copies the `DEVNAMES` into the setting), or `None` when the user cancels. It blocks until the
+/// dialog closes, so call it off the UI thread, as GPUI does for its own dialogs.
 pub fn print(owner: isize, job: &PrintJob) -> Result<Outcome, Error> {
-    let block = job.setting.printer.as_ref().and_then(devnames::build);
-    let (mut pd, mut ok) = show_dialog(owner, block.as_deref());
-    if ok == 0 {
-        let err = unsafe { CommDlgExtendedError() };
-        // A printer that was removed or renamed can make `PrintDlg` fail instead of falling back
-        // to the default printer: ask again without a printer, so the user can still choose one.
-        if devnames::retry_without_printer(err, block.is_some()) {
-            free_handles(&pd);
-            (pd, ok) = show_dialog(owner, None);
-        } else {
-            return finish_failed(&pd, err);
-        }
-    }
-    if ok == 0 {
-        let err = unsafe { CommDlgExtendedError() };
-        return finish_failed(&pd, err);
-    }
+    let Some(pd) = ask(owner, &job.setting, PRINT_FLAGS)? else {
+        return Ok(Outcome::Cancelled);
+    };
     let printer = printer_of(pd.hDevNames);
     let result = print_dc(pd.hDC, job, None);
     unsafe { DeleteDC(pd.hDC) };
@@ -114,11 +118,61 @@ pub fn print(owner: isize, job: &PrintJob) -> Result<Outcome, Error> {
     result.map(|_| Outcome::Printed(printer)).map_err(Error)
 }
 
+/// The print setup dialog of the printer button of the preview bar
+/// (`CPrintPreview::DispatchEvent_PPB`): shows it owned by `owner`, on the printer, the paper and
+/// the direction of `setting`, and gives back what the user chose, for the caller to write into
+/// the print setting; `None` when the user cancels. It blocks until the dialog closes, so call it
+/// off the UI thread.
+pub fn select_printer(
+    owner: isize,
+    setting: &PrintSetting,
+) -> Result<Option<PrinterChoice>, Error> {
+    let Some(pd) = ask(owner, setting, SETUP_FLAGS)? else {
+        return Ok(None);
+    };
+    let printer = printer_of(pd.hDevNames);
+    let (paper_size, orientation) = match paper_of(pd.hDevMode) {
+        Some((fields, size, orientation)) => {
+            devmode::after_dialog(setting, fields, size, orientation)
+        }
+        None => (setting.print_paper_size, setting.print_paper_orientation),
+    };
+    free_handles(&pd);
+    Ok(Some(PrinterChoice {
+        printer,
+        paper_size,
+        orientation,
+    }))
+}
+
+/// Shows a dialog with `flags` and, when the user presses OK, gives the structure with its
+/// handles, which the caller frees (`free_handles`); `None` when the user cancels.
+fn ask(owner: isize, setting: &PrintSetting, flags: u32) -> Result<Option<PRINTDLGW>, Error> {
+    let remembered = setting.printer.as_ref();
+    let (mut pd, mut ok) = show_dialog(owner, setting, remembered, flags);
+    if ok == 0 {
+        let err = unsafe { CommDlgExtendedError() };
+        // A printer that was removed or renamed can make `PrintDlg` fail instead of falling back
+        // to the default printer: ask again without a printer, so the user can still choose one.
+        if devnames::retry_without_printer(err, remembered.is_some()) {
+            free_handles(&pd);
+            (pd, ok) = show_dialog(owner, setting, None, flags);
+        } else {
+            return finish_failed(&pd, err).map(|()| None);
+        }
+    }
+    if ok == 0 {
+        let err = unsafe { CommDlgExtendedError() };
+        return finish_failed(&pd, err).map(|()| None);
+    }
+    Ok(Some(pd))
+}
+
 /// What a failed (or cancelled, error 0) dialog is, after its handles are freed.
-fn finish_failed(pd: &PRINTDLGW, err: u32) -> Result<Outcome, Error> {
+fn finish_failed(pd: &PRINTDLGW, err: u32) -> Result<(), Error> {
     free_handles(pd);
     match err {
-        0 => Ok(Outcome::Cancelled),
+        0 => Ok(()),
         err => Err(Error(format!("印刷ダイアログのエラー {err:#x}"))),
     }
 }
@@ -135,26 +189,140 @@ fn free_handles(pd: &PRINTDLGW) {
     }
 }
 
-/// Shows the print dialog, starting on the printer of `block` (a `DEVNAMES`) when there is one.
-/// Returns the structure and `PrintDlgW`'s result.
-fn show_dialog(owner: isize, block: Option<&[u16]>) -> (PRINTDLGW, i32) {
+/// Shows a dialog with `flags`, starting on `printer` when there is one, with the paper and the
+/// direction of `setting`. Returns the structure and `PrintDlgW`'s result.
+fn show_dialog(
+    owner: isize,
+    setting: &PrintSetting,
+    printer: Option<&Printer>,
+    flags: u32,
+) -> (PRINTDLGW, i32) {
     let mut pd: PRINTDLGW = unsafe { std::mem::zeroed() };
     pd.lStructSize = std::mem::size_of::<PRINTDLGW>() as u32;
     pd.hwndOwner = owner as HWND;
-    // No page range; the printer driver makes the copies. Print to File is hidden: Sakura shows it
-    // and then ignores it, printing to the printer.
-    pd.Flags = PD_RETURNDC
-        | PD_NOSELECTION
-        | PD_NOPAGENUMS
-        | PD_HIDEPRINTTOFILE
-        | PD_USEDEVMODECOPIESANDCOLLATE;
+    pd.Flags = flags;
     pd.nCopies = 1;
-    // Sakura gives the dialog the DEVNAMES of the printer it remembers (`m_hDevNames`).
-    if let Some(block) = block {
-        pd.hDevNames = global_devnames(block);
+    // Sakura gives the dialog the DEVNAMES of the printer it remembers (`m_hDevNames`) and its
+    // DEVMODE, with the paper and the direction of the print setting (`m_hDevMode`).
+    if let Some(block) = printer.and_then(devnames::build) {
+        pd.hDevNames = global_devnames(&block);
     }
+    pd.hDevMode = global_devmode(setting, printer);
     let ok = unsafe { PrintDlgW(&mut pd) };
     (pd, ok)
+}
+
+/// The name of the printer a dialog starts on, as a NUL-terminated string: `printer`, or the
+/// default printer of the user. `None` when there is none.
+fn start_printer_name(printer: Option<&Printer>) -> Option<Vec<u16>> {
+    if let Some(printer) = printer {
+        return Some(wide(&printer.device));
+    }
+    let mut len = 0u32;
+    unsafe { GetDefaultPrinterW(std::ptr::null_mut(), &mut len) };
+    if len == 0 {
+        return None;
+    }
+    let mut name = vec![0u16; len as usize];
+    (unsafe { GetDefaultPrinterW(name.as_mut_ptr(), &mut len) } != 0).then_some(name)
+}
+
+/// A movable global block with the `DEVMODE` of the printer, in which the paper and its direction
+/// are those of `setting` (`CPrint::PrintDlg` puts `dmOrientation` and `dmPaperSize` of the print
+/// setting into it before the dialog opens, so the dialog starts on what the preview shows). A
+/// value is only set when the driver says it has it (`dmFields`): Sakura notes that a bit the
+/// driver does not support makes some drivers unstable (`CPrint.cpp` 155-159). Null when the
+/// driver's `DEVMODE` is not there; the dialog then starts on its own defaults.
+fn global_devmode(setting: &PrintSetting, printer: Option<&Printer>) -> *mut core::ffi::c_void {
+    let Some(name) = start_printer_name(printer) else {
+        return std::ptr::null_mut();
+    };
+    unsafe {
+        let mut handle = PRINTER_HANDLE::default();
+        if OpenPrinterW(name.as_ptr(), &mut handle, std::ptr::null()) == 0 {
+            return std::ptr::null_mut();
+        }
+        let block = devmode_block(handle, &name, setting);
+        ClosePrinter(handle);
+        block
+    }
+}
+
+/// The part of [`global_devmode`] that needs the printer open.
+unsafe fn devmode_block(
+    printer: PRINTER_HANDLE,
+    name: &[u16],
+    setting: &PrintSetting,
+) -> *mut core::ffi::c_void {
+    unsafe {
+        let size = DocumentPropertiesW(
+            std::ptr::null_mut(),
+            printer,
+            name.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+        );
+        if size <= 0 {
+            return std::ptr::null_mut();
+        }
+        let block = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, size as usize);
+        if block.is_null() {
+            return block;
+        }
+        let ptr = GlobalLock(block).cast::<DEVMODEW>();
+        if ptr.is_null() {
+            GlobalFree(block);
+            return std::ptr::null_mut();
+        }
+        // `IDOK` is 1; a failure is 0 or less.
+        let got = DocumentPropertiesW(
+            std::ptr::null_mut(),
+            printer,
+            name.as_ptr(),
+            ptr,
+            std::ptr::null(),
+            DM_OUT_BUFFER,
+        );
+        if got != 1 {
+            GlobalUnlock(block);
+            GlobalFree(block);
+            return std::ptr::null_mut();
+        }
+        let devmode = &mut *ptr;
+        if devmode.dmFields & DM_ORIENTATION != 0 {
+            devmode.Anonymous1.Anonymous1.dmOrientation =
+                devmode::orientation_value(setting.print_paper_orientation);
+        }
+        if devmode.dmFields & DM_PAPERSIZE != 0 {
+            devmode.Anonymous1.Anonymous1.dmPaperSize = setting.print_paper_size;
+        }
+        GlobalUnlock(block);
+        block
+    }
+}
+
+/// `dmFields`, `dmPaperSize` and `dmOrientation` of the `DEVMODE` a dialog returned, or `None`
+/// when there is none or it is too short to have them.
+fn paper_of(hdevmode: *mut core::ffi::c_void) -> Option<(u32, i16, i16)> {
+    if hdevmode.is_null() {
+        return None;
+    }
+    unsafe {
+        let needed = std::mem::offset_of!(DEVMODEW, Anonymous1) + 2 * std::mem::size_of::<i16>();
+        if GlobalSize(hdevmode) < needed {
+            return None;
+        }
+        let ptr = GlobalLock(hdevmode).cast::<DEVMODEW>();
+        if ptr.is_null() {
+            return None;
+        }
+        let devmode = &*ptr;
+        let paper = devmode.Anonymous1.Anonymous1;
+        let fields = devmode.dmFields;
+        GlobalUnlock(hdevmode);
+        Some((fields, paper.dmPaperSize, paper.dmOrientation))
+    }
 }
 
 /// Prints without a dialog to `printer`, writing the job to `output` (the PDF file for

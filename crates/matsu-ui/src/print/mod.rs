@@ -56,6 +56,10 @@ pub(crate) enum Phase {
     /// started with: the printer that comes back goes to it, whatever another window selects
     /// meanwhile.
     Printing { slot: usize },
+    /// The printer dialog of the preview bar is open (Windows). `slot` is the print setting it
+    /// edits: the answer goes to it, whatever another window selects meanwhile.
+    #[cfg_attr(not(any(windows, test)), allow(dead_code))]
+    SelectingPrinter { slot: usize },
 }
 
 /// What an [`EditorView`] knows about printing.
@@ -141,6 +145,7 @@ impl EditorView {
                 cx.subscribe_in(&preview, window, |this, _, event, window, cx| match event {
                     PreviewEvent::Print => this.print_from_preview(window, cx),
                     PreviewEvent::PageSetup => this.print_page_setup(window, cx),
+                    PreviewEvent::SelectPrinter => this.select_printer(window, cx),
                     PreviewEvent::Close => this.close_print_preview(window, cx),
                     PreviewEvent::Laid => {
                         if let Phase::WaitingForLayout { slot } = this.print.phase {
@@ -218,6 +223,67 @@ impl EditorView {
                 .ok();
         })
         .detach();
+    }
+
+    /// The printer button of the preview bar (`IDC_BUTTON_PRINTERSELECT`,
+    /// `CPrintPreview::DispatchEvent_PPB`): shows the print setup dialog of the OS on the
+    /// printer, the paper and the direction of the setting, and writes the answer into the
+    /// setting. Windows only; the bar has no such button elsewhere
+    /// ([`PrintPreview::has_printer_button`]).
+    pub(crate) fn select_printer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(windows)]
+        {
+            if self.print.preview.is_none() || self.print.phase != Phase::Idle {
+                return;
+            }
+            let slot = self.print_slot(cx);
+            let setting = Self::print_setting_of(slot, cx);
+            self.print.phase = Phase::SelectingPrinter { slot };
+            let owner = raw_handle(window).map_or(0, matsu_platform::print::windows::owner);
+            let choice = cx.background_spawn(async move {
+                matsu_platform::print::windows::select_printer(owner, &setting)
+            });
+            cx.spawn_in(window, async move |this, cx| {
+                let result = choice.await;
+                this.update_in(cx, |this, window, cx| {
+                    this.finish_select_printer(result, window, cx)
+                })
+                .ok();
+            })
+            .detach();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (window, cx);
+        }
+    }
+
+    /// What became of the printer dialog: the printer, the paper and the direction go to the
+    /// setting it started with and every window's preview lays the document out again
+    /// (`PM_PRINTSETTING`); cancelling changes nothing; a failure is shown on the bar.
+    #[cfg(any(windows, test))]
+    pub(crate) fn finish_select_printer(
+        &mut self,
+        result: Result<Option<matsu_platform::print::devmode::PrinterChoice>, Error>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let phase = std::mem::take(&mut self.print.phase);
+        match (result, phase) {
+            (Ok(Some(choice)), Phase::SelectingPrinter { slot }) => {
+                Self::remember_choice(slot, &choice, cx);
+                self.print_setting_changed_in_all_windows(cx);
+            }
+            (Err(err), _) => {
+                if let Some(preview) = &self.print.preview {
+                    preview.update(cx, |preview, cx| {
+                        preview.notice = Some(err.0.into());
+                        cx.notify();
+                    });
+                }
+            }
+            _ => {}
+        }
     }
 
     /// What became of the print dialog: printed, cancelled, or failed.

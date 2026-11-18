@@ -2,12 +2,14 @@
 //! paper, each in the way of its OS:
 //!
 //! * [`draw`]: what every drawer draws, as a list of characters and lines per page. No OS.
+//! * [`devmode`]: the paper and its direction in the `DEVMODE` of the Windows dialogs. No OS.
 //! * `windows`: the print dialog (`PrintDlgW`) and GDI, as Sakura does
 //!   (`sakura_core/print/CPrint.cpp`, `CPrintPreview.cpp`).
 //! * `mac`: AppKit's `NSPrintOperation`, with the pages drawn by Core Text.
 //! * `linux`: a PDF ([`pdf`]) handed to the print portal (`org.freedesktop.portal.Print`),
 //!   which shows the desktop's print dialog. GTK's own dialog is LGPL and is not used.
 
+pub mod devmode;
 pub mod devnames;
 pub mod draw;
 #[cfg(not(any(windows, target_os = "macos")))]

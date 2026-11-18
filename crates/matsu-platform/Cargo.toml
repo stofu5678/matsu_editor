@@ -55,6 +55,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Pipes",
     "Win32_System_Threading",
     "Win32_Graphics_Gdi",
+    # The DEVMODE of the printer for the print dialogs (src/print/windows.rs): DocumentPropertiesW
+    "Win32_Graphics_Printing",
     "Win32_Storage_Xps",
     "Win32_UI_Controls_Dialogs",
     # The DPI of the owner window of the font dialog (src/font_dialog/windows.rs): GetDpiForWindow

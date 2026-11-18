@@ -7,9 +7,10 @@ use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use matsu_core::buffer::Document;
 use matsu_core::model::DocumentModel;
 use matsu_platform::print::Error;
-use matsu_print::{LineSource, Printer};
+use matsu_platform::print::devmode::PrinterChoice;
+use matsu_print::{DMPAPER_A3, DMPAPER_A4, DMPAPER_A5, LineSource, Orientation, Printer};
 
-use super::{DocLines, Outcome, Phase};
+use super::{DocLines, Outcome, Phase, PreviewEvent, PrintPreview};
 use crate::document::SharedDocument;
 use crate::ui_command::UiRegistry;
 use crate::view::EditorView;
@@ -439,5 +440,140 @@ fn the_help_of_the_preview_bar_is_h_and_f1_and_the_preview_stays(cx: &mut TestAp
     assert_eq!(take(), [page_of_function("F_PRINT_PREVIEW")]);
     cx.simulate_keystrokes("f1");
     assert_eq!(take(), [page_of_function("F_PRINT_PREVIEW")]);
+    assert!(view.read_with(cx, |v, _| v.is_print_preview_open()));
+}
+
+fn the_choice(printer: Option<&str>, paper_size: i16, orientation: Orientation) -> PrinterChoice {
+    PrinterChoice {
+        printer: printer.map(|device| Printer {
+            driver: "winspool".into(),
+            device: device.into(),
+            output: "PORTPROMPT:".into(),
+        }),
+        paper_size,
+        orientation,
+    }
+}
+
+/// The printer button of Sakura's bar is only there where the printer is part of the print
+/// setting (Windows); the access key R does nothing elsewhere.
+#[gpui::test]
+fn the_printer_button_and_its_key_are_on_windows_only(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc", None);
+    assert_eq!(PrintPreview::has_printer_button(), cfg!(windows));
+    run(&view, F_PRINT_PREVIEW, cx);
+    let preview = view
+        .read_with(cx, |v, _| v.print_preview().cloned())
+        .unwrap();
+    // On Windows the key opens the real dialog of the OS, which a test cannot answer; the
+    // Sandbox steps of the PR check that. Elsewhere nothing may happen.
+    if !cfg!(windows) {
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = events.clone();
+        let _subscription = cx.update(|_, cx| {
+            cx.subscribe(&preview, move |_, event: &PreviewEvent, _| {
+                seen.borrow_mut().push(*event);
+            })
+        });
+        cx.simulate_keystrokes("r");
+        assert!(events.borrow().is_empty());
+        assert!(!view.read_with(cx, |v, _| v.is_printing()));
+    }
+}
+
+/// What OK of the printer dialog does: the printer, the paper size and the direction go to the
+/// setting the dialog started with, and the preview lays out on that paper.
+#[gpui::test]
+fn the_choice_of_the_printer_dialog_goes_to_the_setting_and_the_preview(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &many_lines(200), None);
+    run(&view, F_PRINT_PREVIEW, cx);
+    let preview = view
+        .read_with(cx, |v, _| v.print_preview().cloned())
+        .unwrap();
+    let before = preview.read_with(cx, |p, _| (p.paper_name(), p.page_count()));
+    assert_eq!(before.0, "A4 (210 x 297 mm)  縦");
+    let slot = view.read_with(cx, |v, cx| v.print_slot(cx));
+
+    view.update_in(cx, |v, window, cx| {
+        v.print.phase = Phase::SelectingPrinter { slot };
+        assert!(v.is_printing());
+        let choice = the_choice(Some("PDF"), DMPAPER_A5, Orientation::Landscape);
+        v.finish_select_printer(Ok(Some(choice)), window, cx);
+    });
+    assert!(!view.read_with(cx, |v, _| v.is_printing()));
+    let setting = view.read_with(cx, |v, cx| v.current_print_setting(cx));
+    assert_eq!(setting.print_paper_size, DMPAPER_A5);
+    assert_eq!(setting.print_paper_orientation, Orientation::Landscape);
+    assert_eq!(setting.printer.map(|p| p.device), Some("PDF".to_owned()));
+    // the preview has taken it: another paper, another number of pages
+    let after = preview.read_with(cx, |p, _| (p.paper_name(), p.page_count()));
+    assert_eq!(after.0, "A5 (148 x 210 mm)  横");
+    // a landscape A5 page holds fewer rows than a portrait A4 one
+    assert!(after.1 > before.1);
+}
+
+/// The answer goes to the setting the dialog started with, not to the one another window selected
+/// meanwhile; a dialog that was cancelled or answered with no dialog open changes nothing; a
+/// dialog that names no printer keeps the one the setting has.
+#[gpui::test]
+fn the_printer_dialog_changes_only_the_setting_it_started_with(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc", None);
+    run(&view, F_PRINT_PREVIEW, cx);
+    let current = view.read_with(cx, |v, cx| v.print_slot(cx));
+    let started_with = (current + 1) % 8;
+    let paper = |slot, cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            let s = EditorView::print_setting_of(slot, cx);
+            (s.print_paper_size, s.print_paper_orientation, s.printer)
+        })
+    };
+    let a4 = (matsu_print::DMPAPER_A4, Orientation::Portrait, None);
+    assert_eq!(paper(started_with, cx), a4);
+
+    // cancelled: nothing changes, and the dialog is over
+    view.update_in(cx, |v, window, cx| {
+        v.print.phase = Phase::SelectingPrinter { slot: started_with };
+        v.finish_select_printer(Ok(None), window, cx);
+    });
+    assert!(!view.read_with(cx, |v, _| v.is_printing()));
+    assert_eq!(paper(started_with, cx), a4);
+
+    // no dialog open: an answer is not taken
+    view.update_in(cx, |v, window, cx| {
+        let choice = the_choice(Some("X"), DMPAPER_A3, Orientation::Landscape);
+        v.finish_select_printer(Ok(Some(choice)), window, cx);
+    });
+    assert_eq!(paper(started_with, cx), a4);
+
+    // OK without a printer name: the paper changes, the printer stays
+    let printer = the_choice(Some("PDF"), DMPAPER_A4, Orientation::Portrait);
+    view.update_in(cx, |v, window, cx| {
+        v.print.phase = Phase::SelectingPrinter { slot: started_with };
+        v.finish_select_printer(Ok(Some(printer)), window, cx);
+        v.print.phase = Phase::SelectingPrinter { slot: started_with };
+        let no_name = the_choice(None, DMPAPER_A3, Orientation::Landscape);
+        v.finish_select_printer(Ok(Some(no_name)), window, cx);
+    });
+    let (size, orientation, printer) = paper(started_with, cx);
+    assert_eq!((size, orientation), (DMPAPER_A3, Orientation::Landscape));
+    assert_eq!(printer.map(|p| p.device), Some("PDF".to_owned()));
+    // the setting the window prints with is another one, and unchanged
+    assert_eq!(paper(current, cx), a4);
+}
+
+#[gpui::test]
+fn a_failed_printer_dialog_is_shown_on_the_bar(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc", None);
+    run(&view, F_PRINT_PREVIEW, cx);
+    let preview = view
+        .read_with(cx, |v, _| v.print_preview().cloned())
+        .unwrap();
+    view.update_in(cx, |v, window, cx| {
+        v.print.phase = Phase::SelectingPrinter { slot: 0 };
+        v.finish_select_printer(Err(Error::from("印刷ダイアログのエラー 0x1")), window, cx);
+    });
+    assert!(!view.read_with(cx, |v, _| v.is_printing()));
+    let notice = preview.read_with(cx, |p, _| p.notice.clone());
+    assert_eq!(notice.as_deref(), Some("印刷ダイアログのエラー 0x1"));
     assert!(view.read_with(cx, |v, _| v.is_print_preview_open()));
 }
