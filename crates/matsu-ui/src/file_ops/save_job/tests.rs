@@ -326,6 +326,8 @@ fn dropping_the_last_hold_of_a_document_stops_its_job_at_once(cx: &mut TestAppCo
     let weak = shared.downgrade();
     assert!(state.report(0, 1).is_continue());
     drop(shared);
+    // gpui frees a dropped entity when the update that saw the drop ends
+    cx.update(|_| {});
     cx.run_until_parked();
     assert!(weak.upgrade().is_none(), "the document is gone");
     assert!(state.report(0, 1).is_break(), "and the thread is told");
