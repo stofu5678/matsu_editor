@@ -38,6 +38,18 @@ pub struct Replacement {
     skip: usize,
 }
 
+impl Replacement {
+    /// The edit that puts `text` in place of `start..end`.
+    pub fn new(start: Pos, end: Pos, text: String) -> Self {
+        Self {
+            start,
+            end,
+            text,
+            skip: 0,
+        }
+    }
+}
+
 /// An edit that was made: enough to undo it with `replace(start, end, &removed)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppliedEdit {

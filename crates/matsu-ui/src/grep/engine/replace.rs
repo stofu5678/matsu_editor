@@ -60,13 +60,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::borrow::Cow;
 use std::ops::Range;
 
-use matsu_core::buffer::{BufferError, Document, Pos};
+use matsu_core::buffer::{Document, Pos};
 use matsu_core::file::{FileError, SaveOptions, TextFile};
-use matsu_core::search::{
-    AppliedEdit, ReplaceTarget, Replacement, apply_replacements_descending, replacement_for,
-};
+use matsu_core::search::{AppliedEdit, Replacement, apply_replacements_descending};
 
-use super::{ReplaceInfo, Runner, Stopped, WindowSource, next_hit, shown_path};
+use super::{ReplaceInfo, Runner, Stopped, TextShift, WindowSource, next_hit, shown_path};
 use crate::grep::format::{self, Body, FilePaths, LineType, PathInfoState};
 
 /// The suffix of the backup file (`.skrold`).
@@ -77,8 +75,35 @@ const CANCEL_CHECK_LINES: usize = 32;
 
 /// What a Grep 置換 of one document will do: the edits, and the number of replacements.
 pub(super) struct Planned {
+    /// One edit for each run of lines that changed, in order.
     pub(super) edits: Vec<Replacement>,
+    /// What each match did to the text, in order (for a caret that goes with its text).
+    pub(super) shifts: Vec<TextShift>,
     pub(super) replaced: usize,
+}
+
+/// A run of changed lines: its new text replaces the whole lines `first..=last`.
+struct Region {
+    first: usize,
+    last: usize,
+    /// The length of the text of the last line, and whether it has a break.
+    last_len: usize,
+    last_has_eol: bool,
+    text: String,
+}
+
+impl Region {
+    /// The edit that replaces the lines of the run with its text. The run begins at the start of a
+    /// line and ends at the start of the next, or at the end of a last line that has no break, so
+    /// no position of it is between a CR and an LF.
+    fn into_edit(self) -> Replacement {
+        let end = if self.last_has_eol {
+            Pos::new(self.last + 1, 0)
+        } else {
+            Pos::new(self.last, self.last_len)
+        };
+        Replacement::new(Pos::new(self.first, 0), end, self.text)
+    }
 }
 
 impl Runner<'_> {
@@ -103,6 +128,12 @@ impl Runner<'_> {
         // its line break, as Sakura reads it, so a match can cover the break.
         let by_match = self.replacer.is_none();
         let mut plan: Vec<Replacement> = Vec::new();
+        let mut shifts: Vec<TextShift> = Vec::new();
+        let mut region: Option<Region> = None;
+        let mut new_whole = String::new();
+        // Where the line begins in the text of the document, in bytes (the text of the lines and
+        // their breaks), for `shifts`.
+        let mut line_start = 0usize;
         let mut pieces: Vec<(Range<usize>, Cow<'_, str>)> = Vec::new();
         let mut replaced = 0usize;
         let mut any_hit = false;
@@ -126,6 +157,8 @@ impl Runner<'_> {
             }
             let eol = line.eol.map_or("", matsu_core::model::eol_text);
             let whole = format!("{}{eol}", line.text);
+            let this_start = line_start;
+            line_start += whole.len();
             // The hits of the line, in the line as it was. The first is enough where only that
             // one is shown and replaced.
             let mut hits = Vec::new();
@@ -137,6 +170,7 @@ impl Runner<'_> {
                 }
             }
             if hits.is_empty() {
+                plan.extend(region.take().map(Region::into_edit));
                 continue;
             }
             any_hit = true;
@@ -191,15 +225,52 @@ impl Runner<'_> {
                 }
             }
             replaced += pieces.len();
-            if push_line_edits(doc, index, &line.text, eol, &whole, &pieces, &mut plan).is_err() {
-                self.buffer.push_str(&format::file_read_error(paths.full));
-                return Ok(None);
+            // The new text of the line with its break, made on the text: a CR and an LF are two
+            // characters of it, whatever the document makes of them.
+            new_whole.clear();
+            let mut at = 0;
+            for (range, inserted) in &pieces {
+                new_whole.push_str(&whole[at..range.start]);
+                new_whole.push_str(inserted);
+                at = range.end;
+                if whole[range.clone()] != **inserted {
+                    shifts.push(TextShift {
+                        at: this_start + range.start,
+                        old_len: range.len(),
+                        new_len: inserted.len(),
+                    });
+                }
+            }
+            new_whole.push_str(&whole[at..]);
+            if new_whole == whole {
+                plan.extend(region.take().map(Region::into_edit));
+            } else {
+                match &mut region {
+                    Some(run) if run.last + 1 == index => {
+                        run.last = index;
+                        run.last_len = line.text.len();
+                        run.last_has_eol = !eol.is_empty();
+                        run.text.push_str(&new_whole);
+                    }
+                    _ => {
+                        plan.extend(region.take().map(Region::into_edit));
+                        region = Some(Region {
+                            first: index,
+                            last: index,
+                            last_len: line.text.len(),
+                            last_has_eol: !eol.is_empty(),
+                            text: new_whole.clone(),
+                        });
+                    }
+                }
             }
             self.flush_when_due();
         }
         self.check_cancel()?;
+        plan.extend(region.take().map(Region::into_edit));
         Ok(any_hit.then_some(Planned {
             edits: plan,
+            shifts,
             replaced,
         }))
     }
@@ -212,9 +283,9 @@ impl Runner<'_> {
         doc: &mut Document,
         planned: Planned,
         full: &str,
-    ) -> Option<(Vec<AppliedEdit>, usize)> {
-        match apply_replacements_descending(doc, &merge_adjacent(planned.edits)) {
-            Ok(edits) if planned.replaced > 0 => Some((edits, planned.replaced)),
+    ) -> Option<(Vec<AppliedEdit>, Vec<TextShift>, usize)> {
+        match apply_replacements_descending(doc, &planned.edits) {
+            Ok(edits) if planned.replaced > 0 => Some((edits, planned.shifts, planned.replaced)),
             Ok(_) => None,
             Err(_) => {
                 self.buffer.push_str(&format::file_read_error(full));
@@ -241,7 +312,7 @@ impl Runner<'_> {
         let Some(planned) = self.plan_replacements(&doc, paths, state, &code_name, replace)? else {
             return Ok(());
         };
-        let Some((_, replaced)) = self.apply_plan(&mut doc, planned, paths.full) else {
+        let Some((_, _, replaced)) = self.apply_plan(&mut doc, planned, paths.full) else {
             return Ok(());
         };
         file.document = doc;
@@ -274,9 +345,9 @@ impl Runner<'_> {
         let Some(planned) = self.plan_replacements(&doc, paths, state, code_name, replace)? else {
             return Ok(());
         };
-        if let Some((edits, replaced)) = self.apply_plan(&mut doc, planned, paths.full) {
+        if let Some((edits, shifts, replaced)) = self.apply_plan(&mut doc, planned, paths.full) {
             self.hits += replaced;
-            self.sink.replaced(edits);
+            self.sink.replaced(edits, shifts);
         }
         Ok(())
     }
@@ -349,99 +420,6 @@ fn staged_name(old: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     format!("{old}.{}-{n}.tmp", std::process::id())
-}
-
-/// Puts two edits that touch each other (one ends where the next begins) into one when the first
-/// puts a CR at the seam or the second an LF there. The edits are made from the last to the first;
-/// the later one goes in front of the unedited text of the earlier one, which may end with a CR
-/// (an LF would join it into one CR LF and the earlier edit would then take the whole CR LF), and
-/// the earlier one puts its CR in front of what the later one left, which may begin with an LF. As
-/// one edit the text is just what the lines were replaced with, as Sakura writes it. Other edits
-/// that touch (`hithit`, or the deletions of `x` and of the LF after it in `a\rx\nb`) stay two, so
-/// a caret between them stays.
-fn merge_adjacent(plan: Vec<Replacement>) -> Vec<Replacement> {
-    let mut merged: Vec<Replacement> = Vec::with_capacity(plan.len());
-    for next in plan {
-        match merged.last_mut() {
-            Some(last)
-                if last.end == next.start
-                    && (last.text.ends_with('\r') || next.text.starts_with('\n')) =>
-            {
-                last.end = next.end;
-                last.text.push_str(&next.text);
-            }
-            _ => merged.push(next),
-        }
-    }
-    merged
-}
-
-/// The edits of line `index` (`text` and its break `eol`; `whole` is both) for what its matches
-/// become, one edit for each match, so a caret between two matches stays with its text. A match
-/// that covers the line break ends the edit at the start of the next line, and the line is joined
-/// with it, as the file written by Sakura does (it writes the text it built for each line). A match
-/// that covers only a part of the break (the CR of a CR LF) cannot be a range of the document: the
-/// whole line, with its break, is replaced then.
-fn push_line_edits(
-    doc: &Document,
-    index: usize,
-    text: &str,
-    eol: &str,
-    whole: &str,
-    pieces: &[(Range<usize>, Cow<'_, str>)],
-    plan: &mut Vec<Replacement>,
-) -> Result<(), BufferError> {
-    let len = text.len();
-    let whole_len = whole.len();
-    let whole_pos = |at: usize| Pos::new(index, at);
-    let ends_in_break = |range: &Range<usize>| range.end > len;
-    let covers_break = |range: &Range<usize>| range.start <= len && range.end == whole_len;
-    if pieces
-        .iter()
-        .any(|(range, _)| ends_in_break(range) && !covers_break(range))
-    {
-        // The new line is the old one with every piece put in.
-        let mut new = String::with_capacity(whole_len);
-        let mut at = 0;
-        for (range, inserted) in pieces {
-            new.push_str(&whole[at..range.start]);
-            new.push_str(inserted);
-            at = range.end;
-        }
-        new.push_str(&whole[at..]);
-        if new == whole {
-            return Ok(());
-        }
-        let end = if eol.is_empty() {
-            whole_pos(len)
-        } else {
-            Pos::new(index + 1, 0)
-        };
-        plan.push(replacement_for(
-            doc,
-            &(whole_pos(0)..end),
-            &new,
-            ReplaceTarget::Match,
-        )?);
-        return Ok(());
-    }
-    for (range, inserted) in pieces {
-        if whole[range.clone()] == *inserted {
-            continue;
-        }
-        let end = if ends_in_break(range) {
-            Pos::new(index + 1, 0)
-        } else {
-            whole_pos(range.end)
-        };
-        plan.push(replacement_for(
-            doc,
-            &(whole_pos(range.start)..end),
-            inserted,
-            ReplaceTarget::Match,
-        )?);
-    }
-    Ok(())
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is

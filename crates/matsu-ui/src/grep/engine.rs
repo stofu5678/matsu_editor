@@ -245,6 +245,16 @@ pub struct Outcome {
     pub stopped: bool,
 }
 
+/// What one match did to the text of a document, in bytes of the text of its lines and their
+/// breaks: the `old_len` bytes at `at` became `new_len`. A caret is moved through them by
+/// arithmetic, and then put back into the document that the edits made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextShift {
+    pub at: usize,
+    pub old_len: usize,
+    pub new_len: usize,
+}
+
 /// Where the result goes, and what shows the progress.
 pub trait Sink {
     /// A piece of the result, to be appended to the text.
@@ -254,7 +264,7 @@ pub trait Sink {
     /// The edits that a Grep 置換 of the text of a window makes, for the window that owns the
     /// document to make (the engine only plans them, on a snapshot). It does not wait for the
     /// answer: the window tells at the count (see [`Sink::count`]).
-    fn replaced(&mut self, _edits: Vec<AppliedEdit>) {}
+    fn replaced(&mut self, _edits: Vec<AppliedEdit>, _shifts: Vec<TextShift>) {}
     /// The last line: the number of hits, or of replacements. A sink whose window may have
     /// refused the edits of [`Sink::replaced`] says what was really made.
     fn count(&mut self, hits: usize, replace: bool) {

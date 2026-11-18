@@ -201,7 +201,11 @@ impl Sink for Planning {
         self.text.push_str(text);
     }
 
-    fn replaced(&mut self, edits: Vec<matsu_core::search::AppliedEdit>) {
+    fn replaced(
+        &mut self,
+        edits: Vec<matsu_core::search::AppliedEdit>,
+        _shifts: Vec<super::engine::TextShift>,
+    ) {
         self.edits.extend(edits);
     }
 }
@@ -235,7 +239,8 @@ fn a_replacement_of_a_window_plans_the_edits_and_counts_them() {
         sink.text
     );
     let inserted: Vec<_> = sink.edits.iter().map(|e| e.inserted.as_str()).collect();
-    assert_eq!(inserted, ["miss", "miss", "miss"]);
+    // made from the last to the first
+    assert_eq!(inserted, ["miss miss\n", "a miss\n"]);
 }
 
 #[test]
@@ -263,12 +268,10 @@ fn a_replacement_of_a_window_can_cover_the_line_break() {
     let mut sink = Planning::default();
     let outcome = run(&i, &AtomicBool::new(false), &mut sink).unwrap();
     assert_eq!(outcome.hits, 3);
-    // one edit for each break, which the edit takes up to the start of the next line
-    assert_eq!(sink.edits.len(), 3);
-    for edit in &sink.edits {
-        assert_eq!(edit.removed, "\n");
-        assert_eq!(edit.inserted, ",");
-    }
+    // the lines that changed are one run, replaced as a whole
+    assert_eq!(sink.edits.len(), 1);
+    assert_eq!(sink.edits[0].removed, "a\nb\nc\n");
+    assert_eq!(sink.edits[0].inserted, "a,b,c,");
 }
 
 #[test]
@@ -770,6 +773,12 @@ fn deleting_a_match_does_not_move_the_deletion_of_a_break_in_mixed_endings(
 ) {
     let (text, _) = replace_with_caret(cx, "a\rx\nb", Pos::new(0, 0), (r"x|\n", "", 13));
     assert_eq!(text, "a\rb");
+}
+
+#[gpui::test]
+fn deleting_the_cr_and_a_match_in_mixed_endings_leaves_the_lf(cx: &mut TestAppContext) {
+    let (text, _) = replace_with_caret(cx, "a\rx\nb", Pos::new(0, 0), (r"\r|x", "", 13));
+    assert_eq!(text, "a\nb");
 }
 
 #[gpui::test]

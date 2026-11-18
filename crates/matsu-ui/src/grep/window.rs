@@ -28,7 +28,7 @@ use matsu_commands::command::CommandError;
 use matsu_core::buffer::{Eol, Pos};
 use matsu_core::search::AppliedEdit;
 
-use super::engine::{self, GrepError, GrepInfo, Outcome, Sink, WindowSource};
+use super::engine::{self, GrepError, GrepInfo, Outcome, Sink, TextShift, WindowSource};
 use super::panel::GrepPanel;
 use super::settings::{DialogError, GrepSettings};
 use crate::clipboard::GpuiClipboard;
@@ -196,7 +196,7 @@ pub(super) enum Event {
     /// The file being searched and the hits so far.
     Progress(String, usize),
     /// The edits of a Grep 置換 of the text of a window, to make in the document that was read.
-    Replaced(Vec<AppliedEdit>),
+    Replaced(Vec<AppliedEdit>, Vec<TextShift>),
     /// The last line, with the number the engine counted.
     Count(usize, bool),
     /// The end.
@@ -223,8 +223,8 @@ impl Sink for ChannelSink {
         self.send(Event::Text(text.to_owned()));
     }
 
-    fn replaced(&mut self, edits: Vec<AppliedEdit>) {
-        self.send(Event::Replaced(edits));
+    fn replaced(&mut self, edits: Vec<AppliedEdit>, shifts: Vec<TextShift>) {
+        self.send(Event::Replaced(edits, shifts));
     }
 
     fn count(&mut self, hits: usize, replace: bool) {
@@ -692,8 +692,8 @@ impl EditorView {
                 cx.notify();
                 false
             }
-            Event::Replaced(edits) => {
-                self.replace_in_window(&edits, cx);
+            Event::Replaced(edits, shifts) => {
+                self.replace_in_window(&edits, &shifts, cx);
                 false
             }
             Event::Count(hits, replace) => {

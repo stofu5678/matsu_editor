@@ -769,6 +769,17 @@ fn deleting_a_match_does_not_move_the_deletion_of_a_break_in_mixed_endings() {
 }
 
 #[test]
+fn deleting_the_cr_and_a_match_in_mixed_endings_leaves_the_lf() {
+    let p = Project::new();
+    p.write("a.txt", b"a\rx\nb");
+    let mut info = p.info(r"\r|x", "");
+    info.options = regex();
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2, "{text}");
+    assert_eq!(p.read("a.txt"), b"a\nb", "{text}");
+}
+
+#[test]
 fn long_lines_with_matches_at_both_ends_are_replaced_in_linear_time() {
     // One edit for each match, found from the matches: no comparison of the old and the new line
     let middle = "m".repeat(900);
