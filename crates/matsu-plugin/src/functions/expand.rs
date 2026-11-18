@@ -38,7 +38,9 @@
 //! [`HostEnv::header`], which the window fills as it does for its title.
 //!
 //! Without a window ([`HostEnv::detached`]) those codes are empty or their plain default.
-//! `$p` and `$P` are the text for outside the print preview; a macro does not run in it.
+//! `$p` and `$P` are the page and the number of pages while the print preview of the window is
+//! open ([`HostEnv::print_preview`], as `CSakuraEnvironment::ExpandParameter` reads
+//! `m_pPrintPreview`), and the text for the preview only otherwise.
 
 use serde_json::Value;
 
@@ -193,7 +195,13 @@ fn header_context(ed: &Editor, format: &str) -> Result<matsu_print::HeaderContex
 fn expand_parameter(ed: &mut Editor, args: &Args) -> Result {
     let format = args.str(0);
     let context = header_context(ed, format)?;
-    Ok(matsu_print::expand_parameter_limited(format, &context, None, BUFFER_LEN).into())
+    // `$Q` is the setting of the document type in the preview, too (`m_nCurrentPrintSetting`).
+    let page = ed.env.print_preview.map(|preview| matsu_print::PageInfo {
+        number: preview.number,
+        total: preview.total,
+        setting_name: &context.print_setting_name,
+    });
+    Ok(matsu_print::expand_parameter_limited(format, &context, page.as_ref(), BUFFER_LEN).into())
 }
 
 pub const FUNCS: &[EditorFunc] = &[EditorFunc {
@@ -208,8 +216,8 @@ pub const FUNCS: &[EditorFunc] = &[EditorFunc {
           units and line, from 1), $d and $t (date and time now), $D and $T (date and time of \
           the file), $V (version), $h (Grep key), $S (the editor), $I (the settings file), \
           $M (the macro file), $<profile>, and conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A \
-          text without a file is (無題). $p and $P are the notice that they are for the print \
-          preview. At most 2047 UTF-16 units.",
+          text without a file is (無題). $p and $P are the page and the number of pages while \
+          the print preview is open, and the notice that they are for the preview otherwise. At most 2047 UTF-16 units.",
     run: expand_parameter,
 }];
 
@@ -312,6 +320,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Outside the preview `$p` and `$P` are the notice for the preview only, and `$Q` is the
+    /// print setting of the document type (`CSakuraEnvironment::ExpandParameter`).
+    #[test]
+    fn the_pages_are_the_notice_outside_the_preview_and_the_setting_name_is_there() {
+        let mut f = fixture(None);
+        assert_eq!(
+            expand_in(&mut f, "$p/$P $Q"),
+            "(印刷プレビューでのみ使用できます)/(印刷プレビューでのみ使用できます) 設定 1"
+        );
+    }
+
+    /// While the print preview of the window is open they are the page and the number of pages.
+    #[test]
+    fn the_pages_are_the_page_and_the_count_in_the_preview() {
+        let mut f = fixture(None);
+        f.env.print_preview = Some(crate::host::PreviewPage {
+            number: 3,
+            total: 12,
+        });
+        assert_eq!(expand_in(&mut f, "- $p / $P - $Q"), "- 3 / 12 - 設定 1");
+        // a window without a preview is back to the notice
+        f.env.print_preview = None;
+        assert!(expand_in(&mut f, "$p").starts_with("(印刷"));
     }
 
     #[test]

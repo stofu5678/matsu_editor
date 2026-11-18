@@ -169,6 +169,15 @@ pub type TypeOfExt = Box<dyn Fn(&str) -> usize>;
 /// `ExpandParameter`.
 pub type ShortName = Box<dyn Fn(&str) -> String>;
 
+/// The page of the print preview that is open (see [`HostEnv::print_preview`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PreviewPage {
+    /// The page shown, from 1.
+    pub number: usize,
+    /// The number of pages.
+    pub total: usize,
+}
+
 /// Everything in this file for one call. See the [module documentation](self).
 pub struct HostEnv {
     pub state: HostState,
@@ -187,6 +196,11 @@ pub struct HostEnv {
     pub recording_key_macro: bool,
     /// The full path of the macro file that runs (`$M` of `ExpandParameter`).
     pub macro_path: Option<String>,
+    /// The page shown and the number of pages while the print preview of the window is open
+    /// (`$p` and `$P` of `ExpandParameter`: `m_pPrintPreview->GetCurPageNum() + 1` and
+    /// `GetAllPageNum()`). `None` when the preview is not open, or without a window: they are
+    /// then the notice that they are for the preview only.
+    pub print_preview: Option<PreviewPage>,
     /// The index of the document type of the file in the window.
     pub current_type: usize,
     /// The document type of an extension, if the window has the types.
@@ -214,6 +228,7 @@ impl HostEnv {
             ins_space: None,
             recording_key_macro: false,
             macro_path: None,
+            print_preview: None,
             current_type: 0,
             type_of_ext: None,
             header: None,

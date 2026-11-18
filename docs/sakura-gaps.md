@@ -36,7 +36,7 @@
 | 検索 | 5 | Migemo、複数行の照合の細部、Grep 置換と `:HWND:` の組み合わせ（MATSU は断る）、Grep の標準出力で終わるときのプラグインのイベント |
 | ファイル | 9 | 巨大ファイルの残り（ADR-0020 の追記の「まだ入っていないもの」）、コードページ 51932/20932、ベストフィット表 |
 | 表示と編集 | 11 | マウス操作の残り（ウィンドウをまたぐドラッグ&ドロップ、右ボタンのドロップ、カーソルの形）、フリーカーソルの残り（折り返し行の途中の隙間）、行番号付きコピーの番号と桁数、送り幅が合わないフォントでのまれな文字の並べ方、Mac の既定のフォントが GPUI に読まれない件、アウトラインのフローティング（型 B） |
-| 印刷 | 2 | マクロ・プラグインの `ExpandParameter` の `$p` `$P`、印刷ページ設定の「プリンター」ボタン、macOS・Linux のプリンターの記憶 |
+| 印刷 | 3 | 印刷ページ設定の「プリンター」ボタンなど（プリンターの選択の残り）、プレビューを開いたまま進むマクロ、大きな文書の割り付け |
 | OS との結び付き | 7 | タスクトレイ、署名、Wayland のアイコン、Linux の HTML クリップボード |
 | アクセシビリティ | 4 | ポップアップメニュー、本文へのキーボードのフォーカス（ほかは gpui-component と GPUI の限界） |
 | そのほか | 9 | ヘルプ、`-GROUP`、`-NOWIN` |
@@ -183,7 +183,7 @@
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
 | プリンターの選択（`szDriver`、`DEVMODE`） | `CPrint.cpp` | Windows は、設定が覚えたプリンター（`szDriver` `szDevice` `szOutput`）で印刷ダイアログを開き、選んだプリンターを設定に覚える（`matsu-platform` の `print/devnames.rs`、`windows.rs`）。残りは、macOS・Linux でプリンターを名前で指定すること（印刷パネルとポータルが最後に使ったものを覚えているので、設定には覚えない。型 B）、印刷ページ設定のダイアログの「プリンター」ボタン（`IDC_BUTTON_PRINTERSELECT`、`PD_PRINTSETUP`）、用紙と向きを `DEVMODE` から設定へ戻すこと | B | S | なし |
-| マクロ・プラグインの `ExpandParameter` の `$p` `$P`、プレビューを開いていないときの `$Q` | `CPrint` の `ExpandParameter` | ヘッダー・フッター、タイトル、タブの見出しは入った。マクロ・プラグインの `ExpandParameter` は `$p` `$P` を展開しない。`$Q` はプレビュー中だけ入る | D | S | なし |
+| マクロ・プラグインの `ExpandParameter` の `$p` `$P` が、プレビューが開いている間の値を返す道（MATSU では、マクロからは通れない） | `CEditWnd.cpp` の `PrintPreviewModeONOFF`（2911 行〜）、`CViewCommander_File.cpp` の `Command_PRINT_PREVIEW`（277 行）、`CSakuraEnvironment.cpp` の `ExpandParameter`（356、371 行） | `$p` `$P` は、プレビューが開いている間はページ数と総ページ数を返す（`HostEnv::print_preview`。テストで確かめた）。ただし、プレビューを開いたまま走るマクロがない: マクロが `Editor.PrintPreview()` でプレビューを開くと、プレビューが閉じるまで待たされる（`macros/wait.rs` の `PRINT_PREVIEW`）ので、次の `ExpandParameter` の時にはもうプレビューがない。登録したマクロのメニューも、プレビュー中は動かない（Windows の Sandbox で確かめた）。サクラは待たない: `PrintPreviewModeONOFF` はプレビューを作って（`m_pPrintPreview = std::make_unique<CPrintPreview>`）すぐ返り、待つ処理（モーダルのループ）はない。`F_PRINT_PREVIEW` は `CSMacroMgr.cpp` 72 行でマクロ関数 `PrintPreview` に登録されていて、マクロは次の行に進み、`$p` `$P` は数字になる | C | S | なし |
 | 大きな文書で割り付けが UI スレッドを止める | － | #47 の宿題。未確認 | C | M | なし |
 
 ### OS との結び付き

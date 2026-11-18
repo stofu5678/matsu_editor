@@ -312,6 +312,30 @@ fn the_printer_goes_to_the_setting_the_print_started_with(cx: &mut TestAppContex
     assert_eq!(b, None);
 }
 
+/// `$p` and `$P` of a macro or a plugin read the print preview of the window
+/// (`CSakuraEnvironment::ExpandParameter`: `m_pPrintPreview`).
+#[gpui::test]
+fn a_macro_gets_the_page_of_the_preview_while_it_is_open(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc", None);
+    let page = |cx: &mut VisualTestContext| {
+        view.update(cx, |v, cx| v.host_env("ExpandParameter", cx).print_preview)
+    };
+    assert_eq!(page(cx), None);
+
+    run(&view, F_PRINT_PREVIEW, cx);
+    let preview = view
+        .read_with(cx, |v, _| v.print_preview().cloned())
+        .unwrap();
+    let total = preview.read_with(cx, |p, _| p.page_count());
+    assert_eq!(
+        page(cx),
+        Some(matsu_plugin::host::PreviewPage { number: 1, total })
+    );
+
+    view.update_in(cx, |v, window, cx| v.close_print_preview(window, cx));
+    assert_eq!(page(cx), None);
+}
+
 /// The variables that were empty (#138) come from the window, as `ExpandParameter` reads them.
 #[gpui::test]
 fn the_header_has_the_selection_the_caret_the_clock_and_the_paths(cx: &mut TestAppContext) {

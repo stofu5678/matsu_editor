@@ -70,6 +70,14 @@ impl EditorView {
             .running
             .as_ref()
             .map(|running| running.path.to_string_lossy().into_owned());
+        // `$p` and `$P` of `ExpandParameter` read the print preview of the window.
+        env.print_preview = self.print_preview().map(|preview| {
+            let preview = preview.read(cx);
+            matsu_plugin::host::PreviewPage {
+                number: preview.state().0 + 1,
+                total: preview.page_count(),
+            }
+        });
         env.current_type = self.prefs.settings.type_index;
         // The types of the settings are only copied for the two functions that read them.
         if message.contains("TypeExt") {

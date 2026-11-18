@@ -485,7 +485,8 @@ module MatsuEditorApi
     # $t (date and time now), $D and $T (date and time of the file), $V (version), $h (Grep
     # key), $S (the editor), $I (the settings file), $M (the macro file), $<profile>, and
     # conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a file is (無題). $p and $P are
-    # the notice that they are for the print preview. At most 2047 UTF-16 units.
+    # the page and the number of pages while the print preview is open, and the notice that they
+    # are for the preview otherwise. At most 2047 UTF-16 units.
     def ExpandParameter(format)
       @call.call('ExpandParameter', _pack(format))
     end
