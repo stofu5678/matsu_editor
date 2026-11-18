@@ -69,7 +69,8 @@ pub use setting::{
     DMPAPER_A3, DMPAPER_A4, DMPAPER_A4SMALL, DMPAPER_A5, DMPAPER_B4, DMPAPER_B5, DMPAPER_EXECUTIVE,
     DMPAPER_FOLIO, DMPAPER_LEDGER, DMPAPER_LEGAL, DMPAPER_LETTER, DMPAPER_LETTERSMALL,
     DMPAPER_QUARTO, DMPAPER_STATEMENT, DMPAPER_TABLOID, HEADER_MAX, HeaderFooterFont, Orientation,
-    PAPER_INFO, POS_CENTER, POS_LEFT, POS_RIGHT, Paper, PaperInfo, PrintSetting, find_paper_info,
+    PAPER_INFO, POS_CENTER, POS_LEFT, POS_RIGHT, Paper, PaperInfo, PrintSetting, Printer,
+    find_paper_info,
 };
 pub use source::LineSource;
 pub use style::{LineStyler, StyleRun};

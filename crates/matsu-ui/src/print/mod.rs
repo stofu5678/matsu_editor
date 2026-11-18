@@ -11,7 +11,7 @@ mod styler;
 
 use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window};
 use matsu_core::buffer::Document;
-use matsu_platform::print::{Error, PrintJob};
+use matsu_platform::print::{Error, Outcome, PrintJob};
 use matsu_print::{LineSource, TypeOptions};
 
 pub use preview::{PreviewEvent, PrintPreview};
@@ -41,6 +41,19 @@ impl LineSource for DocLines {
     }
 }
 
+/// Where the print of a window is: one state, so that the print setting it started with belongs
+/// to the print that runs (`docs/ownership.md`, rule 1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Phase {
+    /// No print is running.
+    #[default]
+    Idle,
+    /// The print dialog of the OS is open. `slot` is the print setting (of the eight) the print
+    /// started with: the printer that comes back goes to it, whatever another window selects
+    /// meanwhile.
+    Printing { slot: usize },
+}
+
 /// What an [`EditorView`] knows about printing.
 #[derive(Default)]
 pub(crate) struct PrintState {
@@ -50,8 +63,8 @@ pub(crate) struct PrintState {
     /// The window title and the tab caption show the page (`$p`, `$P`), so the view redraws them
     /// when the preview changes.
     observation: Option<Subscription>,
-    /// The print dialog of the OS is open.
-    printing: bool,
+    /// Whether a print runs, and the setting it started with.
+    pub(crate) phase: Phase,
     /// The print setting dialog, while it is open (`crate::print_setting`).
     pub(crate) setup_dialog: Option<Entity<crate::print_setting::dialog::PrintSettingDialog>>,
 }
@@ -95,7 +108,7 @@ impl EditorView {
 
     /// Whether the print dialog of the OS is open (a macro waits for it).
     pub(crate) fn is_printing(&self) -> bool {
-        self.print.printing
+        self.print.phase != Phase::Idle
     }
 
     pub fn is_print_preview_open(&self) -> bool {
@@ -156,7 +169,7 @@ impl EditorView {
         let Some(preview) = self.print.preview.clone() else {
             return;
         };
-        if self.print.printing {
+        if self.print.phase != Phase::Idle {
             return;
         }
         let job = preview.read(cx).printable();
@@ -164,10 +177,14 @@ impl EditorView {
             preview.notice = job.as_ref().err().cloned();
             cx.notify();
         });
-        let Ok(job) = job else {
+        let Ok(mut job) = job else {
             return;
         };
-        self.print.printing = true;
+        // The dialog starts on the printer the preferences have now, not on the copy the preview
+        // took (another window may have printed on another one since).
+        let slot = self.print_slot(cx);
+        job.setting.printer = Self::remembered_printer(slot, cx);
+        self.print.phase = Phase::Printing { slot };
         let outcome = os_print(job, window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = outcome.await;
@@ -180,19 +197,23 @@ impl EditorView {
     /// What became of the print dialog: printed, cancelled, or failed.
     pub(crate) fn finish_print(
         &mut self,
-        result: Result<bool, Error>,
+        result: Result<Outcome, Error>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.print.printing = false;
+        let phase = std::mem::take(&mut self.print.phase);
         let notice = match result {
-            Ok(true) => {
+            Ok(Outcome::Printed(printer)) => {
+                // The printer goes to the setting the print started with.
+                if let (Phase::Printing { slot }, Some(printer)) = (phase, printer) {
+                    Self::remember_printer(slot, printer, cx);
+                }
                 self.close_print_preview(window, cx);
                 self.notice = Some("印刷しました".into());
                 cx.notify();
                 return;
             }
-            Ok(false) => "印刷を取り消しました".to_owned(),
+            Ok(Outcome::Cancelled) => "印刷を取り消しました".to_owned(),
             Err(err) => err.0,
         };
         match &self.print.preview {
@@ -219,13 +240,13 @@ fn raw_handle(window: &Window) -> Option<raw_window_handle::RawWindowHandle> {
 }
 
 /// Shows the print dialog of the OS and prints, off the UI thread where the OS blocks until the
-/// dialog closes. Resolves to whether it printed: `false` when the user cancels.
+/// dialog closes. Resolves to what became of it ([`Outcome`]).
 #[cfg(windows)]
 fn os_print(
     job: PrintJob,
     window: &Window,
     cx: &mut Context<EditorView>,
-) -> impl Future<Output = Result<bool, Error>> + use<> {
+) -> impl Future<Output = Result<Outcome, Error>> + use<> {
     // A number rather than a handle, so that it can go to the thread that shows the dialog.
     let owner = raw_handle(window).map_or(0, matsu_platform::print::windows::owner);
     cx.background_spawn(async move { matsu_platform::print::windows::print(owner, &job) })
@@ -237,8 +258,9 @@ fn os_print(
     job: PrintJob,
     _: &Window,
     cx: &mut Context<EditorView>,
-) -> impl Future<Output = Result<bool, Error>> + use<> {
-    cx.background_spawn(matsu_platform::print::linux::print(job))
+) -> impl Future<Output = Result<Outcome, Error>> + use<> {
+    let printed = cx.background_spawn(matsu_platform::print::linux::print(job));
+    async move { printed.await.map(Outcome::from_printed) }
 }
 
 /// AppKit's print panel, as a sheet on the window. It starts here, outside GPUI's update of the
@@ -248,11 +270,13 @@ fn os_print(
     job: PrintJob,
     window: &Window,
     _: &mut Context<EditorView>,
-) -> impl Future<Output = Result<bool, Error>> + use<> {
+) -> impl Future<Output = Result<Outcome, Error>> + use<> {
     let ns_window = raw_handle(window).and_then(matsu_platform::print::mac::ns_window);
     async move {
         match ns_window {
-            Some(ns_window) => Ok(matsu_platform::print::mac::print(ns_window, job).await),
+            Some(ns_window) => Ok(Outcome::from_printed(
+                matsu_platform::print::mac::print(ns_window, job).await,
+            )),
             None => Err("印刷するウィンドウを取得できません".into()),
         }
     }

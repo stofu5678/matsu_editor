@@ -355,3 +355,60 @@ fn storing_for_a_type_without_a_section_writes_the_type() {
     // no such type: nothing
     assert!(!store_current(&mut p, 9999, 2).unwrap());
 }
+
+#[test]
+fn the_printer_is_read_and_written_with_sakuras_keys() {
+    let p = profile(
+        "[Print]\r\nPS[02].szDriver=winspool\r\nPS[02].szDevice=Microsoft Print to PDF\r\nPS[02].szOutput=PORTPROMPT:\r\n",
+    );
+    let base = PrintSetting::default();
+    let original = PrintSettings::from_profile(&base, &p);
+    let printer = original.get(2).printer.as_ref().unwrap();
+    assert_eq!(printer.driver, "winspool");
+    assert_eq!(printer.device, "Microsoft Print to PDF");
+    assert_eq!(printer.output, "PORTPROMPT:");
+    assert!(original.get(0).printer.is_none());
+    // names without a device are no printer
+    let only_driver = profile("[Print]\r\nPS[00].szDriver=winspool\r\n");
+    let s = PrintSettings::from_profile(&base, &only_driver);
+    assert_eq!(s.get(0).printer, None);
+
+    let mut changed = original.clone();
+    changed.get_mut(2).printer.as_mut().unwrap().device = "複合機".into();
+    let mut out = p;
+    changed.write_changed(&original, &mut out).unwrap();
+    let out = text(&out);
+    assert!(out.contains("PS[02].szDriver=winspool"), "{out}");
+    assert!(out.contains("PS[02].szDevice=複合機"), "{out}");
+    assert!(out.contains("PS[02].szOutput=PORTPROMPT:"), "{out}");
+}
+
+#[test]
+fn an_empty_printer_adds_no_keys_to_a_file_that_has_none() {
+    let mut p = profile("[Print]\r\nPS[00].szSName=a\r\n");
+    let base = PrintSetting::default();
+    let original = PrintSettings::from_profile(&base, &p);
+    let mut changed = original.clone();
+    changed.get_mut(0).print_dansuu = 2;
+    changed.write_changed(&original, &mut p).unwrap();
+    assert!(!text(&p).contains("szDriver"));
+
+    // a printer that was chosen and is cleared again is written as empty
+    let mut q = profile("[Print]\r\nPS[00].szDevice=x\r\n");
+    let original = PrintSettings::from_profile(&base, &q);
+    let mut changed = original.clone();
+    changed.get_mut(0).printer = None;
+    changed.write_changed(&original, &mut q).unwrap();
+    assert!(text(&q).contains("PS[00].szDevice=\r\n"), "{}", text(&q));
+}
+
+#[test]
+fn a_long_printer_name_is_cut_at_the_size_of_sakuras_buffer() {
+    let long = "p".repeat(300);
+    let p = profile(&format!("[Print]\r\nPS[00].szDevice={long}\r\n"));
+    let s = PrintSettings::from_profile(&PrintSetting::default(), &p);
+    assert_eq!(
+        s.get(0).printer.as_ref().unwrap().device.chars().count(),
+        PRINTER_NAME_MAX
+    );
+}

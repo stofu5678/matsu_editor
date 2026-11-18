@@ -8,6 +8,7 @@
 //! * `linux`: a PDF ([`pdf`]) handed to the print portal (`org.freedesktop.portal.Print`),
 //!   which shows the desktop's print dialog. GTK's own dialog is LGPL and is not used.
 
+pub mod devnames;
 pub mod draw;
 #[cfg(not(any(windows, target_os = "macos")))]
 pub mod linux;
@@ -87,6 +88,29 @@ impl PrintJob {
     /// (`CPrintPreview::OnChangePrintSetting`).
     pub fn setting_paper(&self) -> Paper {
         Paper::of_setting(&self.setting).unwrap_or(Paper::A4)
+    }
+}
+
+/// What became of the print dialog of the OS.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The user cancelled.
+    Cancelled,
+    /// The pages went to the printer. The printer is what the dialog gave back, for the setting
+    /// to remember (Windows only: the print panel of macOS and the portal of Linux keep the
+    /// printer they were last used with themselves), or `None` when it named none.
+    Printed(Option<matsu_print::Printer>),
+}
+
+impl Outcome {
+    /// For the OS that only says whether it printed.
+    #[cfg(not(windows))]
+    pub fn from_printed(printed: bool) -> Self {
+        if printed {
+            Self::Printed(None)
+        } else {
+            Self::Cancelled
+        }
     }
 }
 

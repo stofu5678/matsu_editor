@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 
-use matsu_print::{FontKind, HAlign, Layout, Page, Paper, PrintSetting};
+use matsu_print::{FontKind, HAlign, Layout, Page, Paper, PrintSetting, Printer};
 use raw_window_handle::RawWindowHandle;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -22,13 +22,17 @@ use windows_sys::Win32::Graphics::Gdi::{
     SetTextAlign, SetTextColor, TA_BASELINE, TA_CENTER, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::Storage::Xps::{AbortDoc, DOCINFOW, EndDoc, EndPage, StartDocW, StartPage};
+use windows_sys::Win32::System::Memory::{
+    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+};
 use windows_sys::Win32::UI::Controls::Dialogs::{
     CommDlgExtendedError, PD_HIDEPRINTTOFILE, PD_NOPAGENUMS, PD_NOSELECTION, PD_RETURNDC,
     PD_USEDEVMODECOPIESANDCOLLATE, PRINTDLGW, PrintDlgW,
 };
 
+use super::devnames;
 use super::draw::{cell_positions, font_spec};
-use super::{Error, PrintJob};
+use super::{Error, Outcome, PrintJob};
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -43,10 +47,97 @@ pub fn owner(handle: RawWindowHandle) -> isize {
     }
 }
 
-/// Shows the print dialog owned by `owner` and prints. Returns whether it printed: false when the
-/// user cancels. It blocks until the dialog closes, so call it off the UI thread, as GPUI does
-/// for its own dialogs.
-pub fn print(owner: isize, job: &PrintJob) -> Result<bool, Error> {
+/// A movable global block with `block`, for `PRINTDLG::hDevNames`. The dialog takes it over (it
+/// frees and may reallocate it); null when the memory is not there.
+fn global_devnames(block: &[u16]) -> *mut core::ffi::c_void {
+    let bytes = std::mem::size_of_val(block);
+    unsafe {
+        let handle = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if handle.is_null() {
+            return handle;
+        }
+        let ptr = GlobalLock(handle).cast::<u16>();
+        if ptr.is_null() {
+            GlobalFree(handle);
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(block.as_ptr(), ptr, block.len());
+        GlobalUnlock(handle);
+        handle
+    }
+}
+
+/// The printer in a `DEVNAMES` the dialog returned, if it names one.
+fn printer_of(hdevnames: *mut core::ffi::c_void) -> Option<Printer> {
+    if hdevnames.is_null() {
+        return None;
+    }
+    unsafe {
+        let size = GlobalSize(hdevnames) / 2;
+        let ptr = GlobalLock(hdevnames).cast::<u16>();
+        if ptr.is_null() {
+            return None;
+        }
+        let printer = devnames::parse(std::slice::from_raw_parts(ptr, size));
+        GlobalUnlock(hdevnames);
+        printer
+    }
+}
+
+/// Shows the print dialog owned by `owner` and prints. The dialog starts on the printer the
+/// setting remembers (`Printer`; the default printer when it has none or the printer is gone). Returns the printer the user printed on, for the caller to
+/// remember in the setting as Sakura does (`CPrint::PrintDlg` copies the `DEVNAMES` into the
+/// setting), or `None` when the user cancels. It blocks until the dialog closes, so call it off
+/// the UI thread, as GPUI does for its own dialogs.
+pub fn print(owner: isize, job: &PrintJob) -> Result<Outcome, Error> {
+    let block = job.setting.printer.as_ref().and_then(devnames::build);
+    let (mut pd, mut ok) = show_dialog(owner, block.as_deref());
+    if ok == 0 {
+        let err = unsafe { CommDlgExtendedError() };
+        // A printer that was removed or renamed can make `PrintDlg` fail instead of falling back
+        // to the default printer: ask again without a printer, so the user can still choose one.
+        if devnames::retry_without_printer(err, block.is_some()) {
+            free_handles(&pd);
+            (pd, ok) = show_dialog(owner, None);
+        } else {
+            return finish_failed(&pd, err);
+        }
+    }
+    if ok == 0 {
+        let err = unsafe { CommDlgExtendedError() };
+        return finish_failed(&pd, err);
+    }
+    let printer = printer_of(pd.hDevNames);
+    let result = print_dc(pd.hDC, job, None);
+    unsafe { DeleteDC(pd.hDC) };
+    free_handles(&pd);
+    result.map(|_| Outcome::Printed(printer)).map_err(Error)
+}
+
+/// What a failed (or cancelled, error 0) dialog is, after its handles are freed.
+fn finish_failed(pd: &PRINTDLGW, err: u32) -> Result<Outcome, Error> {
+    free_handles(pd);
+    match err {
+        0 => Ok(Outcome::Cancelled),
+        err => Err(Error(format!("印刷ダイアログのエラー {err:#x}"))),
+    }
+}
+
+/// The dialog allocates the handles; the app owns them after it returns.
+fn free_handles(pd: &PRINTDLGW) {
+    unsafe {
+        if !pd.hDevMode.is_null() {
+            GlobalFree(pd.hDevMode);
+        }
+        if !pd.hDevNames.is_null() {
+            GlobalFree(pd.hDevNames);
+        }
+    }
+}
+
+/// Shows the print dialog, starting on the printer of `block` (a `DEVNAMES`) when there is one.
+/// Returns the structure and `PrintDlgW`'s result.
+fn show_dialog(owner: isize, block: Option<&[u16]>) -> (PRINTDLGW, i32) {
     let mut pd: PRINTDLGW = unsafe { std::mem::zeroed() };
     pd.lStructSize = std::mem::size_of::<PRINTDLGW>() as u32;
     pd.hwndOwner = owner as HWND;
@@ -58,27 +149,12 @@ pub fn print(owner: isize, job: &PrintJob) -> Result<bool, Error> {
         | PD_HIDEPRINTTOFILE
         | PD_USEDEVMODECOPIESANDCOLLATE;
     pd.nCopies = 1;
-    let ok = unsafe { PrintDlgW(&mut pd) };
-    // The dialog allocates these; the app owns them after it returns.
-    let free = |pd: &PRINTDLGW| unsafe {
-        if !pd.hDevMode.is_null() {
-            GlobalFree(pd.hDevMode);
-        }
-        if !pd.hDevNames.is_null() {
-            GlobalFree(pd.hDevNames);
-        }
-    };
-    if ok == 0 {
-        free(&pd);
-        return match unsafe { CommDlgExtendedError() } {
-            0 => Ok(false),
-            err => Err(Error(format!("印刷ダイアログのエラー {err:#x}"))),
-        };
+    // Sakura gives the dialog the DEVNAMES of the printer it remembers (`m_hDevNames`).
+    if let Some(block) = block {
+        pd.hDevNames = global_devnames(block);
     }
-    let result = print_dc(pd.hDC, job, None);
-    unsafe { DeleteDC(pd.hDC) };
-    free(&pd);
-    result.map(|_| true).map_err(Error)
+    let ok = unsafe { PrintDlgW(&mut pd) };
+    (pd, ok)
 }
 
 /// Prints without a dialog to `printer`, writing the job to `output` (the PDF file for
