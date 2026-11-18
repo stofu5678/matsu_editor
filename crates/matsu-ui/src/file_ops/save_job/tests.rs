@@ -207,7 +207,9 @@ fn replacing_the_document_stops_the_job_of_the_old_one(cx: &mut TestAppContext) 
     let state = begin(&view, cx);
     assert!(state.report(0, 1).is_continue());
     // what the close does with the window it keeps
-    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    view.update(cx, |view, cx| {
+        view.load_document(SharedDocument::empty(), None, cx)
+    });
     assert!(state.report(0, 1).is_break(), "the thread is told to stop");
     assert!(!is_saving(&view, cx), "the new document is not saving");
     cx.simulate_input("y");
@@ -224,7 +226,9 @@ fn the_end_of_an_old_flow_leaves_the_job_of_the_new_document_alone(cx: &mut Test
     let (view, cx) = setup(cx, usize::MAX);
     open(&view, cx, &path);
     let old = begin(&view, cx);
-    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    view.update(cx, |view, cx| {
+        view.load_document(SharedDocument::empty(), None, cx)
+    });
     let new = begin(&view, cx);
     view.update(cx, |view, cx| {
         view.document()
@@ -244,8 +248,14 @@ fn a_second_save_while_one_runs_is_refused_before_anything_is_touched(cx: &mut T
     let state = begin(&view, cx);
     run(&view, cx, "F_FILESAVE");
     assert!(!cx.has_pending_prompt());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc", "not written");
-    let modified = view.read_with(cx, |view, app| view.document().read(app).model().is_modified());
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "abc",
+        "not written"
+    );
+    let modified = view.read_with(cx, |view, app| {
+        view.document().read(app).model().is_modified()
+    });
     assert!(modified);
     view.update(cx, |view, cx| {
         view.document()
@@ -279,16 +289,28 @@ fn a_save_that_waited_at_a_question_is_refused_when_another_began_writing(cx: &m
         .find(|f| f.name == "F_FILESAVE")
         .unwrap()
         .code;
-    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[], window, cx)
+    });
     settle(cx);
-    assert!(cx.has_pending_prompt(), "the question about the mixed line endings");
+    assert!(
+        cx.has_pending_prompt(),
+        "the question about the mixed line endings"
+    );
     // the other save begins writing now
     let state = begin(&view, cx);
     cx.simulate_prompt_answer("そのまま保存(N)");
     settle(cx);
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb\nc\r\n", "not written");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "a\r\nb\nc\r\n",
+        "not written"
+    );
     let held = view.read_with(cx, |view, app| view.document().read(app).held_lock_mode());
     assert_eq!(held, held_before, "the lock was not touched");
-    assert!(is_saving(&view, cx), "the other save is still the one that runs");
+    assert!(
+        is_saving(&view, cx),
+        "the other save is still the one that runs"
+    );
     assert!(state.report(0, 1).is_continue(), "and was not stopped");
 }

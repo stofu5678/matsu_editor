@@ -24,8 +24,8 @@
 
 use std::ops::ControlFlow;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use gpui::{AsyncWindowContext, Entity, WeakEntity};
@@ -84,7 +84,6 @@ impl SaveJob {
     pub fn state(&self) -> Arc<JobState> {
         self.0.clone()
     }
-
 }
 
 impl Drop for SaveJob {
@@ -162,7 +161,17 @@ pub(crate) async fn run<T: Send + 'static>(
             result
         }
     });
-    let result = wait_for(view, cx, &document, &state, task, verb, path, (version, generation)).await;
+    let result = wait_for(
+        view,
+        cx,
+        &document,
+        &state,
+        task,
+        verb,
+        path,
+        (version, generation),
+    )
+    .await;
     // The job is over, however it ended (or the document was replaced, which dropped it already).
     cx.update(|_, app| document.update(app, |shared, _| shared.end_saving(&state)))
         .ok();
@@ -209,7 +218,10 @@ async fn wait_for<T: Send + 'static>(
     let same = cx
         .update(|_, app| {
             let shared = document.read(app);
-            (shared.generation() == generation, shared.version() == version)
+            (
+                shared.generation() == generation,
+                shared.version() == version,
+            )
         })
         .unwrap_or((false, false));
     view.update(cx, |view, cx| {
