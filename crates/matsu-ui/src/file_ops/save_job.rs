@@ -88,6 +88,7 @@ impl JobState {
 pub(crate) struct SaveJob(Arc<JobState>);
 
 impl SaveJob {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self(Arc::default())
     }

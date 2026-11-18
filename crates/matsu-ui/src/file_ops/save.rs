@@ -724,7 +724,7 @@ async fn confirm_content(
         .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
         .unwrap_or(true);
     if request.ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
-        let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, &flow) else {
+        let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, flow) else {
             return Err(SaveOutcome::Cancelled);
         };
         let mixed =
@@ -773,7 +773,7 @@ async fn confirm_content(
         return Ok(());
     }
     let for_check = options.clone();
-    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, &flow) else {
+    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, flow) else {
         return Err(SaveOutcome::Cancelled);
     };
     let checked = super::save_job::run(
