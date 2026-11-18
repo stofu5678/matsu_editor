@@ -41,7 +41,7 @@
 | `view/input.rs`（IME の候補ウィンドウの位置、変換中の文字の位置） | `桁 × cell_width` | X から画素へ |
 | `view/caret_shape.rs`（キャレットの太さ） | キャレットの下の文字の幅（マス数）× 1 桁 | キャレットの下の文字の X の幅 |
 | `view/minimap.rs`・`minimap/`（ミニマップ） | 本文のレイアウトで行を決め、ミニマップの小さなフォントの 1 桁（`paint.rs` で 0 を 10 個測る）で置く | 本文の X に、ミニマップのフォントの「半角の幅 / `per_column`」を掛ける。ミニマップは自分の画素の幅を表に持たなくてよい |
-| `view/a11y_text.rs`・`copy_html/collect.rs` | `columns_of` で桁を数える（読み上げの位置、HTML のタブ展開） | X から換算。HTML のタブの空白の数は、X を空白の幅で割る（段階 5 で確かめる） |
+| `view/a11y_text.rs`・`copy_html/collect.rs` | `columns_of` で桁を数える（読み上げの位置、HTML のコピーで検索の一致の色を付ける位置） | X から換算。HTML のコピーは、タブをタブのまま書く（空白に展開しない）ので、タブを空白の数に直すことは要らない。サクラも `&` `<` `>` だけを置き換え、タブはそのまま書く（`sakura_core/cmd/CViewCommander_Clipboard.cpp` の `AppendHTMLColor`）。段階 5（#488）で、比例フォントでも一致の色がタブのあとの正しい文字に付くことをテストした |
 | `document.rs`（`columns_of`） | 桁の位置を求める | X に |
 | `matsu-print`（`page.rs`・`layout.rs`） | 印刷は格子（半角 1 マス、全角 2 マス）。フォントで測ることは「レイアウトにはできない」と明記している（`page.rs` の 27 行付近） | 変えない（案とは別に、決めたこと 2） |
 | `matsu-outline` | 桁は一覧の欄の意味で、本文の表示の桁ではない | 影響なし |
