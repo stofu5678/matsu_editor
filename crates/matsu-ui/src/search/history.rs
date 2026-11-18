@@ -117,6 +117,7 @@ impl SearchHistory {
     /// brought back from the file, and one deleted elsewhere is not brought back from memory. The
     /// sequence numbers do not move: Sakura counts additions only (`AddToSearchKeyArr`).
     pub(crate) fn edit(&mut self, change: impl Fn(&mut SearchKeys)) {
+        let before = self.keys.clone();
         change(&mut self.keys);
         let Some(path) = self.store.clone() else {
             return;
@@ -125,11 +126,87 @@ impl SearchHistory {
         let _ = update_profile(&path, |profile| {
             let mut keys = SearchKeys::from_profile(profile);
             change(&mut keys);
+            // An edit of a string only we have (one with a line break, or kept after a failed
+            // save) cannot be replayed on the file's list: the string it replaced is not there.
+            // What the user now sees and did not see before goes into the file as an addition in
+            // front (newest first), so the file has the result.
+            add_new(&before, &self.keys, &mut keys);
+            let before = profile.to_bytes();
+            let written = keys.write_to(profile).is_ok() && profile.to_bytes() != before;
+            merged = Some(keys);
+            Ok(written)
+        });
+        if saved.is_ok()
+            && let Some(keys) = merged
+        {
+            if keys.search != local.search {
+                self.search_sequence += 1;
+            }
+            if keys.replace != local.replace {
+                self.replace_sequence += 1;
+            }
+            self.keys = keys;
+        }
+    }
+}
+
+impl SearchHistory {
+    /// Changes the lists by hand (the history management dialog: delete, add, edit), here and
+    /// in the file.
+    ///
+    /// `change` is applied twice, each time to its own copy: to our lists (so strings that only
+    /// we have, such as one with a line break that the file cannot hold, or one kept after a failed
+    /// save, stay and can be edited and deleted), and, under the lock of the file, to the lists the
+    /// file has *now*, which are then written. Nothing is merged, so a string deleted here is not
+    /// brought back from the file, and one deleted elsewhere is not brought back from memory. The
+    /// sequence numbers do not move: Sakura counts additions only (`AddToSearchKeyArr`).
+    pub(crate) fn edit(&mut self, change: impl Fn(&mut SearchKeys)) {
+        let before = self.keys.clone();
+        change(&mut self.keys);
+        let Some(path) = self.store.clone() else {
+            return;
+        };
+        // A history that cannot be saved is not worth an error here.
+        let _ = update_profile(&path, |profile| {
+            let mut keys = SearchKeys::from_profile(profile);
+            change(&mut keys);
+            // An edit of a string only we have (one with a line break, or kept after a failed
+            // save) cannot be replayed on the file's list: the string it replaced is not there.
+            // What the user now sees goes into the file as an addition in front, where the
+            // edited string stands (the front is where Sakura's list keeps it: newest first).
+            for (shown, saved) in [
+                (&self.keys.search, &mut keys.search),
+                (&self.keys.replace, &mut keys.replace),
+                (&self.keys.grep_file, &mut keys.grep_file),
+                (&self.keys.grep_folder, &mut keys.grep_folder),
+            ] {
+                add_missing(shown, saved);
+            }
             let before = profile.to_bytes();
             let written = keys.write_to(profile).is_ok() && profile.to_bytes() != before;
             Ok(written)
         });
     }
+}
+
+/// Puts the strings that `after` has and `before` did not into the lists of `file`, in front, when
+/// the file does not have them (the lists the dialog edits).
+fn add_new(before: &SearchKeys, after: &SearchKeys, file: &mut SearchKeys) {
+    fn one(before: &KeyList, after: &KeyList, file: &mut KeyList) {
+        for text in after.items().iter().rev() {
+            if !before.items().contains(text) && !file.items().contains(text) {
+                file.add(text);
+            }
+        }
+    }
+    one(&before.search, &after.search, &mut file.search);
+    one(&before.replace, &after.replace, &mut file.replace);
+    one(&before.grep_file, &after.grep_file, &mut file.grep_file);
+    one(
+        &before.grep_folder,
+        &after.grep_folder,
+        &mut file.grep_folder,
+    );
 }
 
 /// The lists of the search, replace and Grep boxes as they are now.

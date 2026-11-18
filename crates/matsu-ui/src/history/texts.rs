@@ -97,14 +97,14 @@ pub(crate) fn delete_missing(list: &mut dyn EditableList, exists: impl Fn(&str) 
 /// Whether the string names something that is there. Sakura checks the whole string
 /// (`CutLastYenFromDirectoryPath`, `IsFileExists(path, false)`), which counts a GREPフォルダー
 /// string of several folders (`C:\a;C:\b`, which the Grep dialog takes) as gone even when they
-/// all are there. Here such a string stays when any of its folders is there.
+/// all are there. Here such a string stays when any of its folders is there, split as the Grep
+/// engine does (`split_folders`: `;` inside quotation marks does not split, and the marks go).
 fn is_found(text: &str, exists: &impl Fn(&str) -> bool) -> bool {
     exists(text)
-        || (text.contains(';')
-            && text
-                .split(';')
-                .map(|part| part.trim().trim_matches('"'))
-                .any(|part| !part.is_empty() && exists(part)))
+        || (text.contains([';', '"'])
+            && crate::grep::keys::split_folders(text)
+                .iter()
+                .any(|part| exists(part)))
 }
 
 /// `AddItem` (the 追加 button): puts a new string at the front. `false` when the string is refused

@@ -604,19 +604,28 @@ fn the_text_lists_add_edit_and_delete_like_crecentimp() {
     assert_eq!(keys.search.texts()[1..], ["日本語"]);
     // 存在しない項目: a string of several folders stays while one of them is there.
     let mut dirs = matsu_config::settings::ExecHistory::default();
-    for d in [
-        "/gone",
-        "/here",
-        "/here;/gone",
-        "/gone;/gone2",
-        " \"/here\" ;/x",
-    ] {
+    for d in ["/gone", "/here", "/here;/gone", "/gone;/gone2"] {
         dirs.cur_dirs.append_text(d);
     }
     delete_missing(&mut dirs.cur_dirs, |p| p == "/here");
+    assert_eq!(dirs.cur_dirs.texts(), ["/here;/gone", "/here"]);
+    // The parts are split as the Grep engine does: a `;` inside quotation marks does not split,
+    // and the marks are not part of the name.
+    let mut quoted = matsu_config::settings::ExecHistory::default();
+    for d in [
+        "\"/a;b\";/missing",
+        "\"/here\"",
+        "\"/gone;/here\"",
+        "\"/a;b",
+    ] {
+        quoted.cur_dirs.append_text(d);
+    }
+    delete_missing(&mut quoted.cur_dirs, |p| p == "/a;b" || p == "/here");
+    // `"/gone;/here"` is one name in quotation marks that is not there; `"/a;b` (an unclosed mark)
+    // is read as `/a;b`.
     assert_eq!(
-        dirs.cur_dirs.texts(),
-        [" \"/here\" ;/x", "/here;/gone", "/here"]
+        quoted.cur_dirs.texts(),
+        ["\"/a;b", "\"/here\"", "\"/a;b\";/missing"]
     );
 }
 
@@ -889,7 +898,9 @@ fn strings_only_in_memory_survive_edits_and_can_be_edited_and_deleted(cx: &mut T
     dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
     dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
     dialog.update_in(cx, |d, window, cx| d.begin_edit(window, cx));
-    dialog.update_in(cx, |d, window, cx| d.finish_edit(Some("one line".into()), window, cx));
+    dialog.update_in(cx, |d, window, cx| {
+        d.finish_edit(Some("one line".into()), window, cx)
+    });
     assert_eq!(lists(cx).keys.search.texts()[0], "one line");
     // ... and deleted.
     dialog.update(cx, |d, cx| d.select_tab(Tab::Replace, cx));
@@ -899,7 +910,53 @@ fn strings_only_in_memory_survive_edits_and_can_be_edited_and_deleted(cx: &mut T
     cx.update(|_, app| {
         crate::search::history::remember_search(app, "later");
     });
-    assert!(!lists(cx).keys.replace.texts().iter().any(|t| t.contains('\n')));
+    assert!(
+        !lists(cx)
+            .keys
+            .replace
+            .texts()
+            .iter()
+            .any(|t| t.contains('\n'))
+    );
+}
+
+#[gpui::test]
+fn editing_a_string_only_in_memory_into_a_savable_one_saves_the_result(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.0.join("matsu.ini");
+    cx.update(|app| {
+        crate::search::history::install(
+            app,
+            crate::search::history::SearchHistory::load(None, Some(path.clone())),
+        );
+        crate::exec::install(app, crate::exec::ExecPrefs::load(None, Some(path.clone())));
+    });
+    let (dialog, cx) = setup(cx, sample());
+    fill(cx);
+    cx.update(|_, app| {
+        crate::search::history::edit_keys(app, |k| {
+            k.search.append_text("multi\nline");
+        });
+        crate::exec::edit_history(app, |h| {
+            h.commands.append_text("echo a\necho b");
+        });
+    });
+    dialog.update(cx, |d, cx| d.reload(cx));
+    for (tab, to) in [(Tab::Search, "one line"), (Tab::Command, "echo ab")] {
+        dialog.update(cx, |d, cx| d.select_tab(tab, cx));
+        dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+        dialog.update_in(cx, |d, window, cx| d.begin_edit(window, cx));
+        dialog.update_in(cx, |d, window, cx| {
+            d.finish_edit(Some(to.into()), window, cx)
+        });
+    }
+    let profile = matsu_config::Profile::load(&path).unwrap();
+    let keys = matsu_config::settings::SearchKeys::from_profile(&profile);
+    let exec = matsu_config::settings::ExecHistory::from_profile(&profile);
+    assert_eq!(keys.search.texts(), ["one line", "s3", "s2", "s1"]);
+    assert_eq!(exec.commands.texts()[0], "echo ab");
+    // What the window shows is what the file has.
+    assert_eq!(lists(cx).keys.search.texts(), keys.search.texts());
 }
 
 #[gpui::test]

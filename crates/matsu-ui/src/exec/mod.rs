@@ -91,6 +91,7 @@ impl ExecPrefs {
     /// under the lock, to the lists the file has now, which are written. Nothing is merged, so a
     /// deleted string does not come back from either side.
     fn edit(&mut self, change: impl Fn(&mut ExecHistory)) {
+        let before = self.history.clone();
         change(&mut self.history);
         let Some(path) = self.store.clone() else {
             return;
@@ -98,6 +99,26 @@ impl ExecPrefs {
         let _ = update_profile(&path, |profile| {
             let mut history = ExecHistory::from_profile(profile);
             change(&mut history);
+            // A string only we had, edited into one the file can hold: the file did not have the
+            // original, so the edit cannot be replayed; the result goes in front.
+            for (was, now, saved) in [
+                (
+                    &before.commands,
+                    &self.history.commands,
+                    &mut history.commands,
+                ),
+                (
+                    &before.cur_dirs,
+                    &self.history.cur_dirs,
+                    &mut history.cur_dirs,
+                ),
+            ] {
+                for text in now.items().iter().rev() {
+                    if !was.items().contains(text) && !saved.items().contains(text) {
+                        saved.add(text);
+                    }
+                }
+            }
             let before = profile.to_bytes();
             let written = history.write_to(profile).is_ok() && profile.to_bytes() != before;
             Ok(written)
