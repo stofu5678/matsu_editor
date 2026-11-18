@@ -572,6 +572,16 @@ pub(super) fn finishing_view(
     shared.live_views().into_iter().find(|v| shows(v))
 }
 
+/// The status bar says that the save was stopped (Esc in a check or in the write).
+fn said_cancelled(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> SaveOutcome {
+    view.update(cx, |view, cx| {
+        view.notice = Some("保存を中止した".to_owned());
+        cx.notify();
+    })
+    .ok();
+    SaveOutcome::Cancelled
+}
+
 /// The question before a document that was brought back overwrites a file that has changed since the copy was
 /// made. `None` to go on.
 async fn confirm_restored_file(
@@ -727,7 +737,7 @@ async fn confirm_content(
             }
             Ok(false) => {}
             Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
-            Err(None) => return Err(SaveOutcome::Cancelled),
+            Err(None) => return Err(said_cancelled(view, cx)),
         }
     }
 
@@ -778,7 +788,7 @@ async fn confirm_content(
         }
         Ok(_) => {}
         Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
-        Err(None) => return Err(SaveOutcome::Cancelled),
+        Err(None) => return Err(said_cancelled(view, cx)),
     }
     Ok(())
 }

@@ -50,6 +50,9 @@ pub(crate) struct JobState {
     cancel: AtomicBool,
     done: AtomicU64,
     total: AtomicU64,
+    /// The size of the text, known from the start: the total to show while the work has not
+    /// reported one that means something (a check reports the amount so far as its total).
+    size: AtomicU64,
     finished: AtomicBool,
 }
 
@@ -92,14 +95,20 @@ impl Drop for SaveJob {
     }
 }
 
-/// The status bar text while the work runs, such as `a.txt を保存中 25% (3 / 12 MB) Escで中止`.
+/// The status bar text while the work runs, such as `a.txt を保存中 25% (3 / 12 MB) Esc で中止`.
+/// Without a total (not known yet) there is no percentage and no size: 100% is never said before
+/// anything is done, and a part is never more than the whole.
 pub(crate) fn progress_text(verb: &str, path: &Path, done: u64, total: u64) -> String {
     const MB: u64 = 1024 * 1024;
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
     );
-    let percent = (done * 100).checked_div(total).unwrap_or(0).min(100);
+    if total == 0 {
+        return format!("{name} を{verb}中 Esc で中止");
+    }
+    let done = done.min(total);
+    let percent = (done * 100) / total;
     format!(
         "{name} を{verb}中 {percent}% ({} / {} MB) Esc で中止",
         done / MB,
@@ -285,12 +294,13 @@ pub(crate) async fn run<T: Send + 'static>(
                 return Err(FileError::Cancelled);
             }
             let snapshot = shared.save_snapshot()?;
-            let big = shared.raw_len() >= from;
+            let size = shared.raw_len();
+            let big = size >= from;
             let (version, generation) = (shared.version(), shared.generation());
             if big {
                 shared.begin_saving(job);
             }
-            Ok((snapshot, big, version, generation))
+            Ok((snapshot, big, version, generation, size))
         });
         // Only a weak hold goes across the awaits: the document must go when its last view is
         // closed (that drops the job and raises the flag at once), not when this flow ends.
@@ -299,16 +309,26 @@ pub(crate) async fn run<T: Send + 'static>(
     let Ok((document, prepared)) = prepared else {
         return Err(FileError::Cancelled);
     };
-    let (snapshot, big, version, generation) = prepared?;
+    let (snapshot, big, version, generation, size) = prepared?;
     if !big {
         return work(&snapshot, &mut |_, _| ControlFlow::Continue(()));
     }
     // The guard owns the end of the job from here (the document owns the job itself).
     hold.job = Some(state.clone());
+    state.size.store(size as u64, Ordering::Relaxed);
     let task = cx.background_executor().spawn({
         let state = state.clone();
         async move {
-            let result = work(&snapshot, &mut |done, total| state.report(done, total));
+            // A panic of the work (a bug) is an error of the save, not a wait that never ends, and
+            // the temporary file goes with the unwinding.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                work(&snapshot, &mut |done, total| state.report(done, total))
+            }))
+            .unwrap_or_else(|_| {
+                Err(FileError::Io(std::io::Error::other(
+                    "the save stopped by an internal error",
+                )))
+            });
             state.finished.store(true, Ordering::Release);
             result
         }
@@ -352,7 +372,12 @@ async fn wait_for<T: Send + 'static>(
             verb,
             path,
             state.done.load(Ordering::Relaxed),
-            state.total.load(Ordering::Relaxed),
+            // What the work says is the total only when it is more than what is done (a check says
+            // the amount so far); the size of the text is the better whole.
+            state
+                .total
+                .load(Ordering::Relaxed)
+                .max(state.size.load(Ordering::Relaxed)),
         );
         // The wait belongs to the document, not to the view that started the save: each tick finds
         // a view that shows the document (a split pane may have been removed) for the progress.

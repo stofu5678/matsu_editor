@@ -1002,6 +1002,47 @@ fn progress_is_reported_while_saving() {
     );
 }
 
+/// A cancel at any of the looks of a write (the check that comes first, the start of the write, the
+/// end of the body, right before the rename) keeps the original and leaves no temporary file.
+#[test]
+fn a_cancel_at_every_look_of_a_write_leaves_no_temporary_file() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &vec![b'a'; 2 * READ_CHUNK + 1]);
+    let mut file = open_as(&path, Encoding::Utf8);
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    // the check before the write runs too: the text is not allowed to be unmappable unasked
+    let options = SaveOptions::keep(&file);
+    let snapshot = file.save_snapshot().unwrap();
+    let mut calls = 0;
+    snapshot
+        .write(&path, &options, &mut |_, _| {
+            calls += 1;
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    assert!(calls >= 4, "{calls}");
+    let mut file = open_as(&path, Encoding::Utf8);
+    file.document.insert(Pos::new(0, 0), "y").unwrap();
+    let snapshot = file.save_snapshot().unwrap();
+    let before = fs::read(&path).unwrap();
+    for stop_at in 1..=calls {
+        let mut seen = 0;
+        let error = snapshot
+            .write(&path, &options, &mut |_, _| {
+                seen += 1;
+                if seen == stop_at {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .unwrap_err();
+        assert!(matches!(error, FileError::Cancelled), "{stop_at}: {error}");
+        assert_eq!(fs::read(&path).unwrap(), before, "{stop_at}");
+        assert_eq!(dir.names(), ["a.txt"], "no temporary file at look {stop_at}");
+    }
+}
+
 #[test]
 fn a_cancel_right_before_the_rename_keeps_the_original() {
     let dir = TempDir::new();

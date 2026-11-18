@@ -727,8 +727,19 @@ struct TempFile {
 
 impl Drop for TempFile {
     fn drop(&mut self) {
-        if !self.keep {
-            let _ = fs::remove_file(&self.path);
+        if self.keep {
+            return;
+        }
+        // A file that was just written can be held for a moment by a scanner or an indexer
+        // (Windows refuses the removal then), and a cancelled save must not leave its file in the
+        // folder: try again for a short, bounded time (this runs on the thread of the write).
+        for attempt in 0..20 {
+            match fs::remove_file(&self.path) {
+                Ok(()) => return,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+                Err(_) if attempt == 19 => return,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            }
         }
     }
 }

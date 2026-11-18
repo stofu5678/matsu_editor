@@ -103,8 +103,15 @@ fn dropping_the_owner_of_a_job_stops_it() {
 fn the_status_text_names_the_file_and_the_way_to_stop() {
     let text = progress_text("保存", Path::new("/work/a.txt"), 3 << 20, 12 << 20);
     assert_eq!(text, "a.txt を保存中 25% (3 / 12 MB) Esc で中止");
-    // an unknown total does not divide by zero
-    assert!(progress_text("検査", Path::new("a.txt"), 5, 0).contains("0%"));
+    // an unknown total: no percentage and no size, never 100% before anything is done
+    let unknown = progress_text("検査", Path::new("a.txt"), 46 << 20, 0);
+    assert_eq!(unknown, "a.txt を検査中 Esc で中止");
+    // a part is never more than the whole
+    let over = progress_text("保存", Path::new("a.txt"), 20 << 20, 10 << 20);
+    assert_eq!(over, "a.txt を保存中 100% (10 / 10 MB) Esc で中止");
+    // nothing done yet is 0%
+    let start = progress_text("保存", Path::new("a.txt"), 0, 92 << 20);
+    assert_eq!(start, "a.txt を保存中 0% (0 / 92 MB) Esc で中止");
 }
 
 /// Gives the document of `view` a job, as the flow of a save does; returns its state.
