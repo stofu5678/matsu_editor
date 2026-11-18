@@ -542,7 +542,10 @@ fn an_old_job_leaves_the_notice_of_the_replacement_alone(cx: &mut TestAppContext
     assert_eq!(notice.as_deref(), Some("the notice of the new document"));
 }
 
-fn held(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> Option<matsu_platform::file_lock::ShareMode> {
+fn held(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+) -> Option<matsu_platform::file_lock::ShareMode> {
     view.read_with(cx, |view, app| view.document().read(app).held_lock_mode())
 }
 
@@ -655,7 +658,10 @@ fn the_wait_goes_on_when_the_view_that_started_the_save_is_gone(cx: &mut TestApp
     }
     settle(cx);
     let waited = result.borrow_mut().take().expect("the wait ended");
-    assert!(matches!(waited, Ok(7)), "the result of the worker is handed on: {waited:?}");
+    assert!(
+        matches!(waited, Ok(7)),
+        "the result of the worker is handed on: {waited:?}"
+    );
     assert!(
         seen_notice.load(Ordering::Relaxed),
         "the status text of the job is cleared in the view that showed it"
