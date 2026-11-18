@@ -86,30 +86,22 @@ impl ExecPrefs {
 }
 
 impl ExecPrefs {
-    /// Changes the lists by hand (the history management dialog), here and in the file. Unlike
-    /// [`change`](Self::change) it does not merge our strings into the file's, so that a string
-    /// the user deleted does not come back: `change` is applied to what the file has now, under
-    /// the lock. Without a file, or when it cannot be read or written, it is applied to our own.
+    /// Changes the lists by hand (the history management dialog), here and in the file. `change`
+    /// is applied to our lists (so strings only we have stay, and can be edited and deleted) and,
+    /// under the lock, to the lists the file has now, which are written. Nothing is merged, so a
+    /// deleted string does not come back from either side.
     fn edit(&mut self, change: impl Fn(&mut ExecHistory)) {
+        change(&mut self.history);
         let Some(path) = self.store.clone() else {
-            change(&mut self.history);
             return;
         };
-        let local_flags = self.history.flags;
-        let mut edited = None;
-        let saved = update_profile(&path, |profile| {
+        let _ = update_profile(&path, |profile| {
             let mut history = ExecHistory::from_profile(profile);
-            history.flags = history.flags.or(local_flags);
             change(&mut history);
             let before = profile.to_bytes();
             let written = history.write_to(profile).is_ok() && profile.to_bytes() != before;
-            edited = Some(history);
             Ok(written)
         });
-        match (saved, edited) {
-            (Ok(()), Some(history)) => self.history = history,
-            _ => change(&mut self.history),
-        }
     }
 }
 

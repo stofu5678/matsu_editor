@@ -110,29 +110,25 @@ impl SearchHistory {
     /// Changes the lists by hand (the history management dialog: delete, add, edit), here and
     /// in the file.
     ///
-    /// Unlike [`persist`](Self::persist) this does not merge our strings into the file's: a string the
-    /// user deleted must not come back from the file. Under the lock of the file `change` is
-    /// applied to the lists the file has *now*, and the result is both written and kept. Without a
-    /// file, or when it cannot be read or written, the change is applied to our own lists. The
+    /// `change` is applied twice, each time to its own copy: to our lists (so strings that only
+    /// we have, such as one with a line break that the file cannot hold, or one kept after a failed
+    /// save, stay and can be edited and deleted), and, under the lock of the file, to the lists the
+    /// file has *now*, which are then written. Nothing is merged, so a string deleted here is not
+    /// brought back from the file, and one deleted elsewhere is not brought back from memory. The
     /// sequence numbers do not move: Sakura counts additions only (`AddToSearchKeyArr`).
     pub(crate) fn edit(&mut self, change: impl Fn(&mut SearchKeys)) {
+        change(&mut self.keys);
         let Some(path) = self.store.clone() else {
-            change(&mut self.keys);
             return;
         };
-        let mut edited = None;
-        let saved = update_profile(&path, |profile| {
+        // A history that cannot be saved is not worth an error here.
+        let _ = update_profile(&path, |profile| {
             let mut keys = SearchKeys::from_profile(profile);
             change(&mut keys);
             let before = profile.to_bytes();
             let written = keys.write_to(profile).is_ok() && profile.to_bytes() != before;
-            edited = Some(keys);
             Ok(written)
         });
-        match (saved, edited) {
-            (Ok(()), Some(keys)) => self.keys = keys,
-            _ => change(&mut self.keys),
-        }
     }
 }
 

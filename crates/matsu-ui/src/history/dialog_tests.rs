@@ -859,6 +859,50 @@ fn typing_in_the_panel_and_enter_adds_without_closing_the_dialog(cx: &mut TestAp
 }
 
 #[gpui::test]
+fn strings_only_in_memory_survive_edits_and_can_be_edited_and_deleted(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.0.join("matsu.ini");
+    cx.update(|app| {
+        crate::search::history::install(
+            app,
+            crate::search::history::SearchHistory::load(None, Some(path.clone())),
+        );
+        crate::exec::install(app, crate::exec::ExecPrefs::load(None, Some(path.clone())));
+    });
+    let (dialog, cx) = setup(cx, sample());
+    fill(cx);
+    // The file cannot hold a line break: these two live in memory only.
+    cx.update(|_, app| {
+        crate::search::history::edit_keys(app, |k| {
+            k.search.append_text("multi\nline");
+            k.replace.append_text("r\n2");
+        });
+    });
+    dialog.update(cx, |d, cx| d.reload(cx));
+    // An edit on another tab leaves both alone.
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Command, cx));
+    dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+    dialog.update(cx, |d, cx| d.delete_selected_rows(cx));
+    assert_eq!(lists(cx).keys.search.texts()[0], "multi\nline");
+    assert_eq!(lists(cx).keys.replace.texts()[0], "r\n2");
+    // A multi-line string can be edited ...
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
+    dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+    dialog.update_in(cx, |d, window, cx| d.begin_edit(window, cx));
+    dialog.update_in(cx, |d, window, cx| d.finish_edit(Some("one line".into()), window, cx));
+    assert_eq!(lists(cx).keys.search.texts()[0], "one line");
+    // ... and deleted.
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Replace, cx));
+    dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+    dialog.update(cx, |d, cx| d.delete_selected_rows(cx));
+    assert_eq!(lists(cx).keys.replace.texts(), ["r1"]);
+    cx.update(|_, app| {
+        crate::search::history::remember_search(app, "later");
+    });
+    assert!(!lists(cx).keys.replace.texts().iter().any(|t| t.contains('\n')));
+}
+
+#[gpui::test]
 fn an_answer_that_comes_after_a_tab_change_still_deletes_the_list_that_was_asked_about(
     cx: &mut TestAppContext,
 ) {
