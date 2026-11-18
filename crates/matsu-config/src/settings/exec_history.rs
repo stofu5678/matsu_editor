@@ -276,6 +276,8 @@ fn write_set(
     for (i, item) in items.iter().enumerate() {
         profile.set(SECTION, &format!("{name}[{i:02}]"), item)?;
     }
+    // Nothing past the count, as Sakura writes it.
+    super::search_keys::remove_indexed_from(profile, SECTION, name, items.len());
     Ok(())
 }
 

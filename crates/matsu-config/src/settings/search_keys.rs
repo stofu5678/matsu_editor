@@ -388,7 +388,26 @@ fn write_set(
     for (i, item) in items.iter().enumerate() {
         profile.set(section, &format!("{name}[{i:02}]"), item)?;
     }
+    remove_indexed_from(profile, section, name, items.len());
     Ok(())
+}
+
+/// Removes the keys `<name>[NN]` of the section whose number is `count` or more: Sakura's file
+/// never has an entry past the count (`IOProfileDataSet` writes `count` entries), and a list that
+/// got shorter would leave its old tail behind.
+pub(crate) fn remove_indexed_from(profile: &mut Profile, section: &str, name: &str, count: usize) {
+    let prefix = format!("{name}[");
+    let stale: Vec<String> = profile
+        .entries(section)
+        .filter_map(|(key, _)| {
+            let rest = key.strip_prefix(&prefix)?;
+            let number: usize = rest.strip_suffix(']')?.parse().ok()?;
+            (number >= count).then(|| key.to_owned())
+        })
+        .collect();
+    for key in stale {
+        profile.remove(section, &key);
+    }
 }
 
 #[cfg(test)]
@@ -688,6 +707,32 @@ mod tests {
         ours.merge_from(&theirs);
         assert_eq!(ours.grep_folder.items(), ["B", "a"]);
         assert_eq!(ours.tag_keyword.items(), ["remote", "local"]);
+    }
+
+    #[test]
+    fn a_shorter_list_leaves_no_entries_past_its_count() {
+        let mut keys = SearchKeys::default();
+        for s in ["c", "b", "a"] {
+            keys.add_search(s);
+            keys.add_grep_folder(s);
+        }
+        let mut profile = Profile::new();
+        keys.write_to(&mut profile).unwrap();
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[02]"), Some("c"));
+        keys.search.items.truncate(1);
+        keys.grep_folder.items.truncate(2);
+        keys.write_to(&mut profile).unwrap();
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[00]"), Some("a"));
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[01]"), None);
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[02]"), None);
+        assert_eq!(profile.get(GREP_SECTION, "GREPFOLDER[01]"), Some("b"));
+        assert_eq!(profile.get(GREP_SECTION, "GREPFOLDER[02]"), None);
+        assert_eq!(profile.get(GREP_SECTION, "_GREPFOLDER_Counts"), Some("2"));
+        // The entries that stay are read back.
+        assert_eq!(
+            SearchKeys::from_profile(&profile).grep_folder.items(),
+            ["a", "b"]
+        );
     }
 
     #[test]

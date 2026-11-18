@@ -150,3 +150,22 @@ fn a_command_is_edited_by_hand_like_crecentimp() {
     h.commands.clear_all();
     assert!(h.commands.items().is_empty());
 }
+
+#[test]
+fn a_shorter_list_leaves_no_entries_past_its_count() {
+    let mut h = ExecHistory::default();
+    for c in ["c", "b", "a"] {
+        h.add_command(c);
+        h.add_cur_dir(c);
+    }
+    let mut profile = Profile::new();
+    h.write_to(&mut profile).unwrap();
+    h.commands.items.truncate(1);
+    h.cur_dirs.items.clear();
+    h.write_to(&mut profile).unwrap();
+    assert_eq!(profile.get(SECTION, "szCmdArr[00]"), Some("a"));
+    assert_eq!(profile.get(SECTION, "szCmdArr[01]"), None);
+    assert_eq!(profile.get(SECTION, "szCmdArr[02]"), None);
+    assert_eq!(profile.get(SECTION, "szCurDirArr[00]"), None);
+    assert_eq!(profile.get(SECTION, "nCurDirArrNum"), Some("0"));
+}
