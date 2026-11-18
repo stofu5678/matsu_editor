@@ -64,6 +64,7 @@ fn info(key: &str, window: WindowSource) -> GrepInfo {
         huge_file_len: None,
         window: Some(window),
         window_gone: false,
+        type_detect: None,
     }
 }
 

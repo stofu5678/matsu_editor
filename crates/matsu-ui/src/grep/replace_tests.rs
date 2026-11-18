@@ -89,6 +89,7 @@ impl Project {
             huge_file_len: None,
             window: None,
             window_gone: false,
+            type_detect: None,
             replace: Some(ReplaceInfo {
                 text: new.to_owned(),
                 paste: false,

@@ -85,6 +85,7 @@ impl EditorView {
     pub(crate) fn start_grep_stdout(&mut self, mut info: GrepInfo, cx: &mut Context<Self>) {
         let prefs = crate::file_ops::prefs::prefs(cx);
         info.mime_decode = prefs.auto_mime_decode;
+        info.type_detect = crate::doc_types::with_user(cx, |user| user.grep_type_detect());
         info.huge_file_len = Some(prefs.huge_file_len());
         // `:HWND:` names a window of another process: it is gone from here (`GetHwndTitle`).
         if super::window::parse_window_token(&info.file).is_some() {
@@ -134,6 +135,7 @@ mod tests {
             huge_file_len: None,
             window: None,
             window_gone: false,
+            type_detect: None,
         }
     }
 

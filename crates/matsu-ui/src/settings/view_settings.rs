@@ -605,6 +605,8 @@ impl ViewSettings {
                 cpp_string_ignore: t.indent_cpp_string_ignore,
                 cpp_comment_ignore: t.indent_cpp_comment_ignore,
                 cpp_undo_sep: t.indent_cpp_undo_sep,
+                detect: super::new_document::NewDocumentDefaults::for_type(profile, type_index)
+                    .detect_options(),
             },
             detect_indentation: t.detect_indentation_on_load,
             word_wrap: t.word_wrap,

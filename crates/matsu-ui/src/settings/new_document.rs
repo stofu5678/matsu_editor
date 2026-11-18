@@ -47,6 +47,15 @@ impl Default for NewDocumentDefaults {
 }
 
 impl NewDocumentDefaults {
+    /// What the detection of the encoding reads from the type (`SEncodingConfig`): the default
+    /// encoding and the preference for CESU-8.
+    pub fn detect_options(&self) -> matsu_core::encoding::DetectOptions {
+        matsu_core::encoding::DetectOptions {
+            default_encoding: self.encoding,
+            prefer_cesu8: self.prefer_cesu8,
+        }
+    }
+
     /// The defaults for a file called `file_name` (the name only; `None` for an untitled
     /// document, which has the basic type).
     pub fn from_profile(profile: &Profile, file_name: Option<&str>) -> Self {

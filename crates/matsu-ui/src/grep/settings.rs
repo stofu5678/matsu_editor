@@ -273,6 +273,7 @@ impl GrepSettings {
             huge_file_len: None,
             window: None,
             window_gone: false,
+            type_detect: None,
         }
     }
 

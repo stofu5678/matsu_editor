@@ -46,6 +46,7 @@ fn info(dir: &tempfile::TempDir, key: &str) -> GrepInfo {
         huge_file_len: None,
         window: None,
         window_gone: false,
+        type_detect: None,
     }
 }
 
@@ -306,6 +307,7 @@ fn window_info(key: &str, window: WindowSource) -> GrepInfo {
         huge_file_len: Some(1),
         window: Some(window),
         window_gone: false,
+        type_detect: None,
     }
 }
 

@@ -67,6 +67,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use matsu_config::Profile;
+use matsu_config::settings::DocumentTypes;
 use matsu_core::buffer::{BlockIndex, Document, Line};
 use matsu_core::encoding::{DETECT_SAMPLE_LEN, DetectOptions, Encoding, detect};
 use matsu_core::file::{
@@ -140,6 +142,35 @@ pub struct GrepInfo {
     /// The file box names a window that is not there (`GetHwndTitle` returned -1): the result
     /// says so and nothing is searched.
     pub window_gone: bool,
+    /// The document types, to detect the encoding of each file with the settings of the type that
+    /// its name chooses (`CGrepAgent::DoGrepFile`: `CCodeMediator( type->m_encoding )`). Not in
+    /// the dialog: the window sets it from the settings when the search starts. `None` detects
+    /// with the defaults (UTF-8, CESU-8 not preferred).
+    pub type_detect: Option<TypeDetect>,
+}
+
+/// The document types and the settings that decide how the encoding of a file is detected: the
+/// type of a file is found by its name (`GetDocumentTypeOfPath`), and the type gives the default
+/// encoding and whether CESU-8 is preferred (`m_eDefaultCodetype`, `m_bPriorCesu8`).
+#[derive(Clone, Debug)]
+pub struct TypeDetect {
+    types: Arc<DocumentTypes>,
+    profile: Arc<Profile>,
+}
+
+impl TypeDetect {
+    pub fn new(types: Arc<DocumentTypes>, profile: Profile) -> Self {
+        Self {
+            types,
+            profile: Arc::new(profile),
+        }
+    }
+
+    /// The detection settings for a file called `file_name` (the name only, no folder).
+    fn options_for(&self, file_name: &str) -> DetectOptions {
+        let index = self.types.type_index_for_file_name(file_name);
+        crate::settings::NewDocumentDefaults::for_type(&self.profile, index).detect_options()
+    }
 }
 
 /// The text of a window that a search of 「この編集中のテキスト」 reads (`CFileLoadOrWnd`).
@@ -857,6 +888,12 @@ impl Runner<'_> {
         Ok(())
     }
 
+    /// The detection settings for the file at `path`: those of the document type that its name
+    /// chooses, or the defaults without the types.
+    fn detect_options(&self, path: &str) -> DetectOptions {
+        detect_options_of(self.info, path)
+    }
+
     /// Opens a file of `from` bytes or more to be read in order. The error says why it cannot
     /// be: it cannot be opened, or its encoding keeps a state between characters (ISO-2022-JP,
     /// UTF-7).
@@ -865,6 +902,7 @@ impl Runner<'_> {
             encoding: self.info.charset,
             ext_eol: matsu_commands::edit_options::get().ext_eol,
             huge_file_len: Some(from),
+            detect: self.detect_options(path),
             ..OpenOptions::default()
         };
         match open_line_stream(path, &options, stream_chunk()) {
@@ -886,7 +924,7 @@ impl Runner<'_> {
             ext_eol: matsu_commands::edit_options::get().ext_eol,
             ..OpenOptions::default()
         };
-        options.detect = DetectOptions::default();
+        options.detect = self.detect_options(path);
         let cancel = self.cancel;
         match open_file_with(path, &options, &mut |_, _| {
             if cancel.load(Ordering::Relaxed) {
@@ -1012,7 +1050,7 @@ impl Runner<'_> {
         let layout = self.info.layout;
         let code_name = known_code_name.unwrap_or_else(|| {
             if self.info.charset.is_none() {
-                detect_name(Path::new(paths.full))
+                detect_name(Path::new(paths.full), &self.detect_options(paths.full))
             } else {
                 String::new()
             }
@@ -1088,16 +1126,26 @@ fn shown_path<'a>(paths: &FilePaths<'a>, layout: Layout) -> &'a str {
     }
 }
 
+/// The detection settings for the file at `path` (`CDocTypeManager::GetDocumentTypeOfPath` takes
+/// the type of the name without its folder).
+fn detect_options_of(info: &GrepInfo, path: &str) -> DetectOptions {
+    let name = Path::new(path)
+        .file_name()
+        .map_or(path, |n| n.to_str().unwrap_or(path));
+    match &info.type_detect {
+        Some(types) => types.options_for(name),
+        None => DetectOptions::default(),
+    }
+}
+
 /// The encoding of a file for the search of the names, as `  [UTF-8]` (the detection of
 /// `CCodeMediator::CheckKanjiCodeOfFile`).
-fn detect_name(path: &Path) -> String {
+fn detect_name(path: &Path, options: &DetectOptions) -> String {
     let mut bytes = Vec::new();
     let read = std::fs::File::open(path)
         .and_then(|file| file.take(DETECT_SAMPLE_LEN as u64).read_to_end(&mut bytes));
     match read {
-        Ok(_) => detect(&bytes, &DetectOptions::default())
-            .encoding
-            .bracket_name(),
+        Ok(_) => detect(&bytes, options).encoding.bracket_name(),
         Err(_) => "  [(DetectError)]".to_owned(),
     }
 }
