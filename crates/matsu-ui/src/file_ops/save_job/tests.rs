@@ -605,7 +605,8 @@ fn the_wait_goes_on_when_the_view_that_started_the_save_is_gone(cx: &mut TestApp
         let doc = shared.read(app);
         (doc.version(), doc.generation())
     });
-    let state: std::sync::Arc<JobState> = SaveJob::new().state();
+    let job = SaveJob::new();
+    let state: std::sync::Arc<JobState> = job.state();
     let weak_initiator = initiator.downgrade();
     drop(initiator);
     cx.update(|_, _| {});
@@ -660,4 +661,5 @@ fn the_wait_goes_on_when_the_view_that_started_the_save_is_gone(cx: &mut TestApp
         "the status text of the job is cleared in the view that showed it"
     );
     assert!(state.report(0, 1).is_continue(), "the job was not stopped");
+    drop(job);
 }
