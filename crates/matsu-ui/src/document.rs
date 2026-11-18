@@ -141,6 +141,11 @@ pub struct SharedDocument {
     /// document is "saving" and refuses edits (`crate::file_ops::save_job`). The document owns it,
     /// so replacing or dropping the document stops the thread.
     saving: Option<SaveJob>,
+    /// The cancel flag of the whole save flow, from Ctrl+S to its end (the checks, the questions,
+    /// the hooks, the write): Esc sets it, and every phase looks at it before it starts, so that a
+    /// cancel is not lost in the gaps between the jobs. The flow owns the flag; this only watches,
+    /// so a flow that ended is gone from here.
+    save_flow: std::sync::Weak<std::sync::atomic::AtomicBool>,
     /// The number of an untitled document (`EditNode::m_nId`), shown as `(無題)2` in the lists
     /// and as `$n` in the titles. See [`number_untitled`](Self::number_untitled).
     untitled_number: Option<u32>,
@@ -239,6 +244,7 @@ impl SharedDocument {
             disk: DiskState::default(),
             lock: FileLockState::default(),
             saving: None,
+            save_flow: std::sync::Weak::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -390,6 +396,7 @@ impl SharedDocument {
             disk,
             lock: FileLockState::default(),
             saving: None,
+            save_flow: std::sync::Weak::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -630,8 +637,27 @@ impl SharedDocument {
         }
     }
 
-    /// Esc: stops the job that runs, if one does.
+    /// A save flow begins on this document. `false` when another one runs already (one save at a
+    /// time: the second is refused at its entry).
+    pub(crate) fn begin_save_flow(&mut self, flag: &std::sync::Arc<std::sync::atomic::AtomicBool>) -> bool {
+        if self.save_flow.strong_count() > 0 {
+            return false;
+        }
+        self.save_flow = std::sync::Arc::downgrade(flag);
+        true
+    }
+
+    /// Whether a save flow runs on this document, in whatever phase it is.
+    pub(crate) fn is_in_save_flow(&self) -> bool {
+        self.save_flow.strong_count() > 0
+    }
+
+    /// Esc: stops the save, whatever phase it is in. The flag of the flow is set (every phase looks
+    /// at it before it starts), and the job that runs now is stopped too.
     pub(crate) fn cancel_saving(&self) {
+        if let Some(flag) = self.save_flow.upgrade() {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         if let Some(job) = &self.saving {
             job.state().cancel();
         }

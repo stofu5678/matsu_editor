@@ -179,6 +179,19 @@ pub(crate) async fn save(
     {
         return SaveOutcome::Cancelled;
     }
+    // The cancel of the whole flow: Esc, from here to the end of the save, whatever phase it is in
+    // (`save_job`). The flow owns the flag; the document only watches it, so it is gone from there
+    // when this function ends, on any path. One save flow at a time.
+    let flow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let began = view
+        .update(cx, |view, cx| {
+            view.document()
+                .update(cx, |shared, _| shared.begin_save_flow(&flow))
+        })
+        .unwrap_or(false);
+    if !began {
+        return SaveOutcome::Cancelled;
+    }
     let generation = view
         .read_with(cx, |view, app| view.document().read(app).generation())
         .ok();
@@ -352,7 +365,7 @@ pub(crate) async fn save(
     }
 
     // 3 and 4. The questions about the content.
-    if let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request).await {
+    if let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request, &flow).await {
         return outcome;
     }
 
@@ -419,7 +432,7 @@ pub(crate) async fn save(
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok()
         != version;
-    if changed && let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request).await
+    if changed && let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request, &flow).await
     {
         return outcome;
     }
@@ -432,7 +445,7 @@ pub(crate) async fn save(
     // A save that began writing since the entry of this one (the hooks above can wait) is the only
     // one: this one is refused here, before the lock is touched, and nothing runs for it after. No
     // `await` lies between this look and the start of the job in `run`.
-    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx) else {
+    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, &flow) else {
         return SaveOutcome::Cancelled;
     };
     let busy = view
@@ -702,6 +715,7 @@ async fn confirm_content(
     path: &std::path::Path,
     options: &mut SaveOptions,
     request: &SaveRequest,
+    flow: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), SaveOutcome> {
     // 3. Mixed line endings, unless the document type turned the question off
     // (`m_bChkEnterAtEnd`, 「保存時に改行コードの混在を警告する」; `CCodeChecker::OnCheckSave`).
@@ -709,7 +723,7 @@ async fn confirm_content(
         .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
         .unwrap_or(true);
     if request.ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
-        let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx) else {
+        let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, &flow) else {
             return Err(SaveOutcome::Cancelled);
         };
         let mixed =
@@ -758,7 +772,7 @@ async fn confirm_content(
         return Ok(());
     }
     let for_check = options.clone();
-    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx) else {
+    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, &flow) else {
         return Err(SaveOutcome::Cancelled);
     };
     let checked = super::save_job::run(

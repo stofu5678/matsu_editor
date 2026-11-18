@@ -1085,7 +1085,10 @@ impl EditorView {
         self.autoscroll_key_pressed(&event.keystroke);
         self.key_help_restart(window, cx);
         // Esc stops a save that runs on another thread (`file_ops::save_job`).
-        if event.keystroke.key == "escape" && self.document.read(cx).is_saving() {
+        if event.keystroke.key == "escape" && {
+            let shared = self.document.read(cx);
+            shared.is_saving() || shared.is_in_save_flow()
+        } {
             self.document.read(cx).cancel_saving();
             cx.stop_propagation();
             return;

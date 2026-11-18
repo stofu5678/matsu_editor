@@ -54,6 +54,8 @@ pub(crate) struct JobState {
     /// reported one that means something (a check reports the amount so far as its total).
     size: AtomicU64,
     finished: AtomicBool,
+    /// The cancel flag of the whole save flow, if the job belongs to one: it stops the job too.
+    flow: Option<Arc<AtomicBool>>,
 }
 
 impl JobState {
@@ -64,10 +66,17 @@ impl JobState {
 
     /// The progress callback of `matsu_core::file`: records how far the work is and stops it when
     /// asked.
+    /// Whether the save flow that the job belongs to was asked to stop.
+    fn flow_cancelled(&self) -> bool {
+        self.flow
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    }
+
     fn report(&self, done: u64, total: u64) -> ControlFlow<()> {
         self.done.store(done, Ordering::Relaxed);
         self.total.store(total, Ordering::Relaxed);
-        if self.cancel.load(Ordering::Relaxed) {
+        if self.cancel.load(Ordering::Relaxed) || self.flow_cancelled() {
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
@@ -81,6 +90,14 @@ pub(crate) struct SaveJob(Arc<JobState>);
 impl SaveJob {
     pub fn new() -> Self {
         Self(Arc::default())
+    }
+
+    /// A job of a save flow whose cancel flag is `flow`.
+    pub fn with_flow(flow: Option<Arc<AtomicBool>>) -> Self {
+        Self(Arc::new(JobState {
+            flow,
+            ..JobState::default()
+        }))
     }
 
     /// The state the thread and the window share.
@@ -141,6 +158,8 @@ pub(crate) struct JobEnd {
     paused: bool,
     /// The save let go of the lock of the file for the write.
     released_lock: bool,
+    /// The cancel flag of the save flow the guard belongs to.
+    flow: Option<Arc<AtomicBool>>,
 }
 
 impl JobEnd {
@@ -153,6 +172,7 @@ impl JobEnd {
             job: None,
             paused: false,
             released_lock: false,
+            flow: None,
         }
     }
 
@@ -162,7 +182,11 @@ impl JobEnd {
     }
 
     /// A guard for the document of `view` as it is now. `None` if the view or its window is gone.
-    pub fn for_view(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> Option<Self> {
+    pub fn for_view(
+        view: &WeakEntity<EditorView>,
+        cx: &mut AsyncWindowContext,
+        flow: &Arc<AtomicBool>,
+    ) -> Option<Self> {
         let (document, generation) = view
             .read_with(cx, |view, app| {
                 let document = view.document();
@@ -290,7 +314,12 @@ pub(crate) async fn run<T: Send + 'static>(
                 .map_or(BACKGROUND_FROM, |b| b.0)
         })
         .unwrap_or(BACKGROUND_FROM);
-    let job = SaveJob::new();
+    // A cancel that came before this phase (between two phases, or before the first) stops it
+    // before it starts.
+    if hold.flow_cancelled() {
+        return Err(FileError::Cancelled);
+    }
+    let job = SaveJob::with_flow(hold.flow.clone());
     let state = job.state();
     let prepared = view.update(cx, |view, cx| {
         let document = view.document().clone();
@@ -316,7 +345,14 @@ pub(crate) async fn run<T: Send + 'static>(
     };
     let (snapshot, big, version, generation, size) = prepared?;
     if !big {
-        return work(&snapshot, &mut |_, _| ControlFlow::Continue(()));
+        let flow = hold.flow.clone();
+        return work(&snapshot, &mut |_, _| {
+            if flow.as_ref().is_some_and(|f| f.load(Ordering::Relaxed)) {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        });
     }
     // The guard owns the end of the job from here (the document owns the job itself).
     hold.job = Some(state.clone());
