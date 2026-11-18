@@ -26,9 +26,11 @@ use matsu_config::settings::type_list::ListError;
 use super::edit::edit_types;
 use super::list::{SELECTED_BG, TEXT, TypeList};
 use super::with_user;
+use crate::access_keys::OnAccessKey as _;
 use crate::common_settings::transfer::{cannot_export, cannot_open, exported};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::file_dialog::{self, Ask, import_folder};
+use crate::support::help::OnHelpKey as _;
 
 /// `STR_IMPEXP_ERR_TYPE`
 const NOT_A_TYPE_FILE: &str = "不正な形式です。\nインポートを中止します";
@@ -445,6 +447,15 @@ impl TypeList {
                 .child(text)
         };
         let panel = crate::a11y::dialog(div().id("type-ascertain"), "インポート確認")
+            // F1 and Alt+H: the page of the type list (`HLP000338` is a topic of it)
+            .on_help_key("F_TYPE_LIST")
+            .on_access_key(|letter, _, cx| {
+                let help = letter == 'h';
+                if help {
+                    super::list::open_help(cx);
+                }
+                help
+            })
             .key_context("TypeList")
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
@@ -526,7 +537,11 @@ impl TypeList {
                     )))
                     .child(button("type-ascertain-cancel", "キャンセル(X)").on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| this.ascertain_cancel(cx)),
-                    )),
+                    ))
+                    .child(
+                        button("type-ascertain-help", crate::support::help::BUTTON_LABEL)
+                            .on_click(|_: &ClickEvent, _, cx| super::list::open_help(cx)),
+                    ),
             );
         div()
             .id("type-list-overlay")

@@ -20,8 +20,33 @@ pub(crate) fn open(cx: &mut App, dirs: &SearchDirs, folder: &str) -> bool {
     let Some(def) = dirs.load_def(folder, matsu_config::plugins::DEFAULT_LANGUAGE) else {
         return false;
     };
-    dialog::open(cx, &def, &dirs.option_file(folder));
+    // `CDlgPluginOption::SetData`: the ReadMe button is for a plugin that has a file
+    let readme = dirs.readme_file(folder);
+    dialog::open(cx, &def, &dirs.option_file(folder), readme);
     true
+}
+
+/// A new window that reads `file` in view mode (`-R`), the encoding detected (`-CODE=99`): what
+/// `CPropPlugin::BrowseReadMe` starts. The window is opened inside this application, so that the
+/// profile in use (`-PROF=`) is the same and the tab setting does not turn it into a tab.
+pub(crate) fn open_readme_window(cx: &mut App, file: &std::path::Path) -> gpui::Result<()> {
+    use crate::document::SharedDocument;
+    use crate::file_ops::{view_mode_request, windows};
+    view_mode_request::request(cx, file);
+    let load = windows::LoadRequest {
+        path: file.to_owned(),
+        encoding: None,
+    };
+    match windows::open_editor_window(cx, SharedDocument::empty(), Some(load)) {
+        Ok(handle) => {
+            windows::activate(cx, handle);
+            Ok(())
+        }
+        Err(error) => {
+            view_mode_request::take(cx, file);
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]

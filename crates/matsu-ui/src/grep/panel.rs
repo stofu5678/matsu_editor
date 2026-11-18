@@ -26,6 +26,7 @@ use gpui::prelude::FluentBuilder as _;
 use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
+use crate::support::help::OnHelpKey as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
@@ -84,6 +85,7 @@ const CHARSET_LABEL: &str = "文字コードセット(A)";
 const FIND: &str = "検索(F)";
 const REPLACE: &str = "置換(R)";
 const CANCEL: &str = "キャンセル(X)";
+const HELP: &str = crate::support::help::BUTTON_LABEL;
 
 /// What an access key does.
 #[derive(Clone, Copy)]
@@ -103,6 +105,8 @@ enum Use {
     Charset,
     Ok,
     Cancel,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 /// The encodings of the combo box, after 自動選択 (`CCodeTypesForCombobox`).
@@ -787,6 +791,20 @@ impl GrepPanel {
             .ok();
     }
 
+    /// `IDC_BUTTON_HELP`: `CDlgGrep` opens the page of `F_GREP_DIALOG`, `CDlgGrepReplace` the one of
+    /// `F_GREP_REPLACE_DLG`.
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, self.help_function());
+    }
+
+    fn help_function(&self) -> &'static str {
+        if self.replace_mode {
+            "F_GREP_REPLACE_DLG"
+        } else {
+            "F_GREP_DIALOG"
+        }
+    }
+
     /// キャンセル.
     pub(crate) fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.read_boxes(cx);
@@ -979,6 +997,7 @@ impl GrepPanel {
             Entry::labelled(CHARSET_LABEL, true, Use::Charset),
             Entry::labelled(if replace { REPLACE } else { FIND }, true, Use::Ok),
             Entry::labelled(CANCEL, true, Use::Cancel),
+            Entry::labelled(HELP, true, Use::Help),
         ];
         let used = match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -1001,6 +1020,7 @@ impl GrepPanel {
             Use::Charset => self.change(|s| s.charset = next_charset(s.charset), cx),
             Use::Ok => self.ok(window, cx),
             Use::Cancel => self.cancel(window, cx),
+            Use::Help => self.open_help(cx),
         }
         true
     }
@@ -1263,7 +1283,13 @@ impl Render for GrepPanel {
                 Button::new("grep-cancel")
                     .labelled(CANCEL)
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
+            )
+            .child(
+                Button::new("grep-help")
+                    .labelled(HELP)
+                    .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
             );
+        let help_function = self.help_function();
         // The panel is as tall as its rows, up to the height of the area between its margins; a
         // taller one scrolls. The wrapper has that definite height (top and bottom), the frame
         // limits itself to it, and the scroll bar is a sibling of the scrolling body, not its
@@ -1286,6 +1312,8 @@ impl Render for GrepPanel {
                     .on_access_key(move |letter, window, cx| {
                         this.update(cx, |panel, cx| panel.use_access_key(letter, window, cx))
                     })
+                    // F1: the page of the dialog
+                    .on_help_key(help_function)
                     .relative()
                     // mouse events stop here: a click on the panel must not move the caret
                     .occlude()

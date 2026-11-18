@@ -903,7 +903,7 @@ fn a_letter_that_no_control_has_is_not_the_dialogs(cx: &mut TestAppContext) {
             .unwrap()
     };
     assert!(!used('q', &w, cx));
-    assert!(!used('h', &w, cx));
+    assert!(!used('g', &w, cx));
     assert!(used('s', &w, cx));
 }
 
@@ -916,4 +916,22 @@ fn alt_x_in_the_box_of_a_running_command_stops_it(cx: &mut TestAppContext) {
     press(&w, cx, "alt-x");
     wait_until(cx, "the end", |cx| !w.running(cx));
     assert!(w.text(cx).contains("keep"), "{}", w.text(cx));
+}
+
+#[gpui::test]
+fn the_help_of_the_dialog_is_alt_h_and_f1_and_the_dialog_stays(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (dir, w) = open(cx, "");
+    set_history(cx, &file_in(dir.path()));
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    assert!(w.dialog(cx).is_some());
+    clear();
+    // `CDlgExec`: `MyWinHelp( ..., F_EXECMD_DIALOG )`
+    press(&w, cx, "alt-h");
+    assert_eq!(take(), [page_of_function("F_EXECMD_DIALOG")]);
+    press(&w, cx, "f1");
+    assert_eq!(take(), [page_of_function("F_EXECMD_DIALOG")]);
+    assert!(w.dialog(cx).is_some());
+    // the letter was not typed into the box
+    assert_eq!(command_text(&w, cx), "");
 }

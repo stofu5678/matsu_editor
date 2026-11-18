@@ -229,3 +229,17 @@ fn the_list_closes_when_the_focus_goes_to_a_box_and_enter_then_belongs_to_the_bo
     let name = view.read_with(cx, |v, cx| v.current_print_setting(cx).name);
     assert_eq!(name, "印刷設定 1");
 }
+
+#[gpui::test]
+fn the_help_is_alt_h_and_f1_and_opens_the_page_of_the_page_setup(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (view, cx) = setup(cx, "abc");
+    let _dialog = open(&view, cx);
+    clear();
+    // `CDlgPrintSetting`: `MyWinHelp( ..., F_PRINT_PAGESETUP )`; the dialog stays open
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_PRINT_PAGESETUP")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_PRINT_PAGESETUP")]);
+    assert!(dialog_of(&view, cx).is_some(), "the dialog is still open");
+}

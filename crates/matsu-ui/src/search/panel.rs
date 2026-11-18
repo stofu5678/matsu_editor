@@ -16,6 +16,7 @@ use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -55,6 +56,7 @@ const MARK: &str = "該当行マーク(B)";
 const REPLACE_ONE: &str = "置換(R)";
 const REPLACE_ALL: &str = "すべて置換(A)";
 const CLOSE: &str = "閉じる(X)";
+const HELP: &str = crate::support::help::BUTTON_LABEL;
 const BEFORE_LABEL: &str = "置換前(N)";
 const AFTER_LABEL: &str = "置換後(P)";
 const LINE_LABEL: &str = "行番号(N)";
@@ -97,6 +99,8 @@ enum Use {
     ReplaceOne,
     ReplaceAll,
     Close,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
     /// The label in front of a box: the focus goes to the box.
     FocusSearch,
     FocusReplacement,
@@ -536,6 +540,7 @@ impl SearchPanel {
             Entry::labelled(REPLACE_ONE, replacing, Use::ReplaceOne),
             Entry::labelled(REPLACE_ALL, replacing, Use::ReplaceAll),
             Entry::labelled(CLOSE, true, Use::Close),
+            Entry::labelled(HELP, true, Use::Help),
             Entry::labelled(BEFORE_LABEL, replacing, Use::FocusSearch),
             Entry::labelled(AFTER_LABEL, replacing, Use::FocusReplacement),
             Entry::labelled(LINE_LABEL, mode == PanelMode::Jump, Use::FocusLine),
@@ -555,6 +560,7 @@ impl SearchPanel {
             Use::ReplaceOne => self.replace_one(window, cx),
             Use::ReplaceAll => self.replace_all(window, cx),
             Use::Close => self.close(window, cx),
+            Use::Help => self.open_help(cx),
             Use::FocusSearch => focus_selecting(&self.text, window, cx),
             Use::FocusReplacement => focus_selecting(&self.replacement, window, cx),
             Use::FocusLine => focus_selecting(&self.line, window, cx),
@@ -679,6 +685,20 @@ impl SearchPanel {
             .update(cx, |editor, cx| editor.go_to_line(number, cx))
             .ok();
         self.close(window, cx);
+    }
+
+    /// `IDC_BUTTON_HELP`: the page of the function that opened the dialog (`CDlgFind`,
+    /// `CDlgReplace`, `CDlgJump`).
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, self.help_function());
+    }
+
+    fn help_function(&self) -> &'static str {
+        match self.mode {
+            PanelMode::Find => "F_SEARCH_DIALOG",
+            PanelMode::Replace => "F_REPLACE_DIALOG",
+            PanelMode::Jump => "F_JUMP_DIALOG",
+        }
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -848,6 +868,12 @@ impl Render for SearchPanel {
                 .labelled(CLOSE)
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
         );
+        let help = div().debug_selector(|| "search-help".to_owned()).child(
+            Button::new("search-help")
+                .labelled(HELP)
+                .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
+        );
+        let help_function = self.help_function();
         let body =
             match self.mode {
                 PanelMode::Find => {
@@ -881,7 +907,8 @@ impl Render for SearchPanel {
                                 .child(Button::new("search-mark").labelled(MARK).on_click(
                                     cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
                                 ))
-                                .child(close),
+                                .child(close)
+                                .child(help),
                         )
                         .into_any_element()
                 }
@@ -940,7 +967,8 @@ impl Render for SearchPanel {
                             .child(Button::new("search-mark").labelled(MARK).on_click(
                                 cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
                             ))
-                            .child(close),
+                            .child(close)
+                            .child(help),
                     )
                     .into_any_element(),
                 PanelMode::Jump => {
@@ -958,7 +986,8 @@ impl Render for SearchPanel {
                                 .child(Button::new("jump-ok").labelled("OK").on_click(
                                     cx.listener(|this, _, window, cx| this.jump(window, cx)),
                                 ))
-                                .child(close),
+                                .child(close)
+                                .child(help),
                         )
                         .into_any_element()
                 }
@@ -971,6 +1000,8 @@ impl Render for SearchPanel {
             .on_access_key(move |letter, window, cx| {
                 this.update(cx, |panel, cx| panel.use_access_key(letter, window, cx))
             })
+            // F1: the page of the dialog
+            .on_help_key(help_function)
             .debug_selector(|| "search-panel".to_owned())
             .absolute()
             // mouse events stop here: a click on the panel must not move the caret or the

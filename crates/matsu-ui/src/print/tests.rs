@@ -426,3 +426,18 @@ fn the_title_has_the_page_and_the_page_count_while_the_preview_is_open(cx: &mut 
     cx.simulate_keystrokes("escape");
     assert_eq!(expand(&view, cx), format!("{only}/{only}"));
 }
+
+#[gpui::test]
+fn the_help_of_the_preview_bar_is_h_and_f1_and_the_preview_stays(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (view, cx) = setup(cx, &many_lines(10), None);
+    run(&view, F_PRINT_PREVIEW, cx);
+    clear();
+    // `CPrintPreview`: `MyWinHelp( ..., F_PRINT_PREVIEW )`; the keys of the bar are the plain
+    // letters of its labels
+    cx.simulate_keystrokes("h");
+    assert_eq!(take(), [page_of_function("F_PRINT_PREVIEW")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_PRINT_PREVIEW")]);
+    assert!(view.read_with(cx, |v, _| v.is_print_preview_open()));
+}

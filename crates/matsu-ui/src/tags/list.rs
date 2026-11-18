@@ -27,6 +27,7 @@
 //! help button.
 
 use crate::dialog_focus::KeepTabInside as _;
+use crate::support::help::OnHelpKey as _;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -69,6 +70,7 @@ mod labels {
     pub(super) const NEXT: &str = "次へ(N)";
     pub(super) const JUMP: &str = "ジャンプ(J)";
     pub(super) const CANCEL: &str = "キャンセル(X)";
+    pub(super) const HELP: &str = crate::support::help::BUTTON_LABEL;
 }
 
 /// What an access key does in the dialog.
@@ -81,6 +83,8 @@ enum Use {
     Next,
     Jump,
     Cancel,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 /// The two forms of the dialog.
@@ -367,6 +371,7 @@ impl TagList {
             ),
             Entry::labelled(labels::JUMP, true, Use::Jump),
             Entry::labelled(labels::CANCEL, true, Use::Cancel),
+            Entry::labelled(labels::HELP, true, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -378,6 +383,7 @@ impl TagList {
             Found::One(Use::Next) => self.next_page(cx),
             Found::One(Use::Jump) => self.choose(window, cx),
             Found::One(Use::Cancel) => self.cancel(window, cx),
+            Found::One(Use::Help) => self.open_help(cx),
         }
         true
     }
@@ -385,6 +391,11 @@ impl TagList {
     /// The page buttons are shown unless the direct form has all its hits on one page.
     fn shows_pages(&self) -> bool {
         !(self.form == Form::Direct && self.top == 0 && !self.page.has_next)
+    }
+
+    /// `IDC_BUTTON_HELP`: `CDlgTagJumpList` opens the page of `F_TAGJUMP_LIST`.
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, "F_TAGJUMP_LIST");
     }
 
     /// キャンセル.
@@ -692,6 +703,8 @@ impl Render for TagList {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
+            // F1: the page of the dialog
+            .on_help_key("F_TAGJUMP_LIST")
             .key_context("TagList")
             .on_access_key(move |letter, window, cx| {
                 this.update(cx, |list, cx| list.use_access_key(letter, window, cx))
@@ -821,6 +834,11 @@ impl Render for TagList {
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.cancel(window, cx)
                                             })),
+                                    )
+                                    .child(
+                                        Button::new("tag-help").labelled(labels::HELP).on_click(
+                                            cx.listener(|this, _, _, cx| this.open_help(cx)),
+                                        ),
                                     ),
                             ),
                     ),

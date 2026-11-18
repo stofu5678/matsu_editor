@@ -426,3 +426,69 @@ fn a_running_plugin_sees_and_keeps_what_the_dialog_wrote_meanwhile() {
     assert_eq!(file.get("Other", "Mode"), Some("0"));
     assert_eq!(file.get("Free", "K"), Some("v"));
 }
+
+/// Presses `keys` in the window of the dialog that is open.
+fn press(cx: &mut TestAppContext, keys: &str) {
+    let (_, handle) = cx.update(|app| current(app)).expect("the dialog is open");
+    let vcx = VisualTestContext::from_window(handle, cx).into_mut();
+    vcx.simulate_keystrokes(keys);
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_help_is_alt_h_and_f1_and_opens_the_page_of_the_plugin_settings(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, take, web_page};
+    // `CDlgPluginOption`: `MyWinHelp( ..., HLP000153 )` (『プラグイン設定』); the window stays
+    let place = Place::new();
+    cx.update(gpui_component::init);
+    assert!(cx.update(|app| super::open(app, &place.dirs(), "Opt")));
+    clear();
+    press(cx, "alt-h");
+    assert_eq!(take(), [web_page("common-settings/page-plugin.md")]);
+    press(cx, "f1");
+    assert_eq!(take(), [web_page("common-settings/page-plugin.md")]);
+    assert!(cx.update(|app| current(app)).is_some());
+}
+
+#[gpui::test]
+fn the_readme_button_works_only_when_the_plugin_has_a_readme_file(cx: &mut TestAppContext) {
+    // `CDlgPluginOption::SetData`: `EnableWindow( IDC_PLUGIN_README, !m_sReadMeName.empty() )`;
+    // `GetReadMeFile`: `ReadMe.txt`, else `<folder>.txt`
+    let place = Place::new();
+    cx.update(gpui_component::init);
+    let plugin = place.dirs().user.join("Opt");
+    let windows = |cx: &mut TestAppContext| cx.update(crate::file_ops::windows::window_count);
+    // no file: Alt+M is not taken and nothing opens
+    assert!(cx.update(|app| super::open(app, &place.dirs(), "Opt")));
+    let before = windows(cx);
+    press(cx, "alt-m");
+    assert_eq!(windows(cx), before);
+    let (dialog, handle) = cx.update(|app| current(app)).unwrap();
+    handle
+        .update(cx, |_, window, _| window.remove_window())
+        .ok();
+    cx.run_until_parked();
+    drop(dialog);
+    // a file with the name of the folder
+    let readme = plugin.join("Opt.txt");
+    fs::write(&readme, "read me").unwrap();
+    assert!(cx.update(|app| super::open(app, &place.dirs(), "Opt")));
+    let before = windows(cx);
+    press(cx, "alt-m");
+    // a new window holds the file, in view mode (`BrowseReadMe` starts `-R`)
+    assert_eq!(windows(cx), before + 1);
+    let (_, view) = cx
+        .update(crate::file_ops::windows::editors)
+        .into_iter()
+        .last()
+        .unwrap();
+    assert!(view.read_with(cx, |v, app| v.document().read(app).view_mode()));
+    assert_eq!(
+        view.read_with(cx, |v, app| v
+            .document()
+            .read(app)
+            .path()
+            .map(std::path::Path::to_owned)),
+        Some(readme)
+    );
+}

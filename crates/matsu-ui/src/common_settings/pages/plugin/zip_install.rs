@@ -173,33 +173,12 @@ pub(super) fn open_readme(
 ) {
     match selected_readme(dialog.values()) {
         Some(file) => {
-            if open_in_new_window(cx, &file).is_err() {
+            if crate::plugin_options::open_readme_window(cx, &file).is_err() {
                 // `STR_PROPCOMPLG_ERR2`
                 notice(window, cx, "ReadMeファイルが開けません");
             }
         }
         // `STR_PROPCOMPLG_ERR3`
         None => notice(window, cx, "ReadMeファイルが見つかりません "),
-    }
-}
-
-/// A new window that reads `file` in view mode (`-R`), the encoding detected (`-CODE=99`).
-fn open_in_new_window(cx: &mut gpui::App, file: &std::path::Path) -> gpui::Result<()> {
-    use crate::document::SharedDocument;
-    use crate::file_ops::{view_mode_request, windows};
-    view_mode_request::request(cx, file);
-    let load = windows::LoadRequest {
-        path: file.to_owned(),
-        encoding: None,
-    };
-    match windows::open_editor_window(cx, SharedDocument::empty(), Some(load)) {
-        Ok(handle) => {
-            windows::activate(cx, handle);
-            Ok(())
-        }
-        Err(error) => {
-            view_mode_request::take(cx, file);
-            Err(error)
-        }
     }
 }

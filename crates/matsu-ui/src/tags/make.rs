@@ -12,6 +12,7 @@
 //! Not done: the help button.
 
 use crate::dialog_focus::KeepTabInside as _;
+use crate::support::help::OnHelpKey as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +40,7 @@ mod labels {
     pub(super) const MAKE: &str = "作成(O)";
     pub(super) const CANCEL: &str = "キャンセル(X)";
     pub(super) const STOP: &str = "中断(X)";
+    pub(super) const HELP: &str = crate::support::help::BUTTON_LABEL;
 }
 
 /// What an access key does in the dialog.
@@ -47,6 +49,8 @@ enum Use {
     Up,
     Make,
     Cancel,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 /// What the dialog gives back.
@@ -185,6 +189,11 @@ impl TagsMakeDialog {
         cx.notify();
     }
 
+    /// `IDC_BUTTON_HELP`: `CDlgTagsMake` opens the page of `F_TAGS_MAKE`.
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, "F_TAGS_MAKE");
+    }
+
     /// Alt with the access key of a button (`IsDialogMessage`). While ctags runs only 中断 is
     /// there. Returns whether the letter was one of the dialog's.
     pub(crate) fn use_access_key(
@@ -202,6 +211,8 @@ impl TagsMakeDialog {
                 true,
                 Use::Cancel,
             ),
+            // `IDD_TAG_MAKE` has the button; the box of the running ctags (`CDlgCancel`) has none
+            Entry::labelled(labels::HELP, form, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -209,6 +220,7 @@ impl TagsMakeDialog {
             Found::One(Use::Up) => self.folder_up(window, cx),
             Found::One(Use::Make) => self.make(cx),
             Found::One(Use::Cancel) => self.cancel(window, cx),
+            Found::One(Use::Help) => self.open_help(cx),
         }
         true
     }
@@ -310,6 +322,11 @@ impl Render for TagsMakeDialog {
                                     .on_click(
                                         cx.listener(|this, _, window, cx| this.cancel(window, cx)),
                                     ),
+                            )
+                            .child(
+                                Button::new("tags-help")
+                                    .labelled(labels::HELP)
+                                    .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
                             ),
                     )
                     .into_any_element(),
@@ -319,6 +336,8 @@ impl Render for TagsMakeDialog {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
+            // F1: the page of the dialog (the box of the running ctags has none)
+            .on_help_key("F_TAGS_MAKE")
             .key_context("TagsMake")
             .on_access_key(move |letter, window, cx| {
                 this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))

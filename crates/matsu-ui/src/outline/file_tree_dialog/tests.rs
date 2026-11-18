@@ -1494,3 +1494,19 @@ fn the_files_that_fit_are_counted_against_the_limit() {
     assert_eq!(files_that_fit(false, 10_000, 10_000, 5), 0);
     assert_eq!(files_that_fit(false, 3, 10_000, 5), 5);
 }
+
+#[gpui::test]
+fn the_help_of_the_file_tree_dialog_is_alt_h_and_f1_and_the_dialog_stays(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (_ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    clear();
+    // `CDlgFileTree`: `MyWinHelp( ..., F_FILETREE )`
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    keys.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_FILETREE")]);
+    keys.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_FILETREE")]);
+    assert!(is_open(keys, handle));
+}

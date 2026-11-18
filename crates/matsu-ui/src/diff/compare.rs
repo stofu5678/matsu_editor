@@ -8,12 +8,15 @@
 //! whether it found a difference. The dialog is a panel in the editor window. Sakura can also
 //! tile the two windows side by side afterwards (比較後、左右に並べて表示).
 //!
-//! Left out: the button ヘルプ, and the disabling of the tiling for Sakura's one-window tab mode,
-//! which this program does not have.
+//! The button ヘルプ (`IDC_BUTTON_HELP`) opens the page of `F_COMPARE` (`CDlgCompare`).
+//!
+//! Left out: the disabling of the tiling for Sakura's one-window tab mode, which this program does
+//! not have.
 
 use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
+use crate::support::help::OnHelpKey as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
@@ -42,6 +45,7 @@ const SCANNING: &str = "まだ改行位置を調べている途中のウィン�
 /// The labels that show an access key (`IDD_COMPARE`: `sakura_core/sakura_rc.rc`).
 const TILE: &str = "左右に並べて表示(T)";
 const CANCEL: &str = "キャンセル(X)";
+const HELP: &str = crate::support::help::BUTTON_LABEL;
 /// `&OK` in the resource file: the label shows no key.
 const OK_KEY: char = 'o';
 
@@ -51,6 +55,8 @@ enum Use {
     Tile,
     Ok,
     Cancel,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 pub struct ComparePanel {
@@ -102,6 +108,7 @@ impl ComparePanel {
             Entry::labelled(TILE, true, Use::Tile),
             Entry::keyed(OK_KEY, true, Use::Ok),
             Entry::labelled(CANCEL, true, Use::Cancel),
+            Entry::labelled(HELP, true, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -109,6 +116,7 @@ impl ComparePanel {
             Found::One(Use::Tile) => self.set_tile(!self.tile, cx),
             Found::One(Use::Ok) => self.ok(window, cx),
             Found::One(Use::Cancel) => self.cancel(window, cx),
+            Found::One(Use::Help) => self.open_help(cx),
         }
         true
     }
@@ -136,6 +144,11 @@ impl ComparePanel {
                 editor.compare_with(doc, tile, window, cx);
             }
         });
+    }
+
+    /// `IDC_BUTTON_HELP`: `CDlgCompare` opens the page of `F_COMPARE`.
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, "F_COMPARE");
     }
 
     pub(crate) fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -184,9 +197,16 @@ impl Render for ComparePanel {
                 Button::new("compare-cancel")
                     .labelled(CANCEL)
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
+            )
+            .child(
+                Button::new("compare-help")
+                    .labelled(HELP)
+                    .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
             );
         v_flex()
             .id("compare-panel")
+            // F1: the page of the dialog
+            .on_help_key("F_COMPARE")
             .absolute()
             .occlude()
             .top(px(8.))

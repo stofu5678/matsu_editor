@@ -356,3 +356,26 @@ fn a_type_file_in_shift_jis_is_read(cx: &mut TestAppContext) {
     let profile: Profile = ini.profile();
     assert_eq!(profile.get("Types(36)", "szTypeName"), Some("和文"));
 }
+
+#[gpui::test]
+fn the_help_of_the_question_of_the_import_is_alt_h_and_f1_and_the_question_stays(
+    cx: &mut TestAppContext,
+) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (ini, handle) = setup(cx, "");
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    let list = open_list(&view, cx);
+    let file = write_sakura_files(&ini);
+    assert!(list.update_in(cx, |l, window, lcx| l.import_chosen(&file, window, lcx)));
+    cx.run_until_parked();
+    assert!(list.read_with(cx, |l, _| l.ascertain.is_some()));
+    clear();
+    // `CDlgTypeAscertain` (`HLP000338`) is a topic of the help of the type list
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_TYPE_LIST")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_TYPE_LIST")]);
+    assert!(list.read_with(cx, |l, _| l.ascertain.is_some()));
+    assert_eq!(labels(&list, cx).len(), 36);
+}

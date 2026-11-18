@@ -16,10 +16,11 @@
 //!
 //! Drawn over the editor view, like the window list: the dialog of Sakura is a Windows dialog.
 //! Not here: the file association (the two check boxes and `AlertFileAssociation`, which write to the
-//! registry of Windows) and the help button.
+//! registry of Windows).
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
+use crate::support::help::OnHelpKey as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, ScrollHandle, StatefulInteractiveElement,
@@ -29,6 +30,12 @@ use matsu_config::settings::TypeSettings;
 
 use super::transfer::Ascertain;
 use crate::view::EditorView;
+
+/// `IDC_BUTTON_HELP`: `CDlgTypeList` opens the page of `F_TYPE_LIST`; so does the question of the
+/// import (`CDlgTypeAscertain`: a topic of the same help). The dialog stays.
+pub(super) fn open_help(cx: &mut gpui::App) {
+    crate::support::help::open_function_page(cx, "F_TYPE_LIST");
+}
 
 /// The line of a type in the list (`CDlgTypeList::SetData`).
 pub(crate) fn label(t: &TypeSettings) -> String {
@@ -52,6 +59,7 @@ mod labels {
     pub(super) const DOWN: &str = "↓(O)";
     pub(super) const ADD: &str = "追加(A)";
     pub(super) const DELETE: &str = "削除(D)";
+    pub(super) const HELP: &str = crate::support::help::BUTTON_LABEL;
 }
 
 /// What an access key does in the dialog.
@@ -68,6 +76,8 @@ enum Use {
     Down,
     Add,
     Delete,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 pub(crate) struct TypeList {
@@ -154,6 +164,7 @@ impl TypeList {
             Entry::labelled(labels::DOWN, self.can_move_down(), Use::Down),
             Entry::labelled(labels::ADD, self.has_room(), Use::Add),
             Entry::labelled(labels::DELETE, self.can_delete(), Use::Delete),
+            Entry::labelled(labels::HELP, true, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -169,6 +180,7 @@ impl TypeList {
             Found::One(Use::Down) => self.move_selected(false, window, cx),
             Found::One(Use::Add) => self.add(window, cx),
             Found::One(Use::Delete) => self.delete(window, cx),
+            Found::One(Use::Help) => open_help(cx),
         }
         true
     }
@@ -302,6 +314,10 @@ impl Render for TypeList {
                 .child(button("type-list-export", labels::EXPORT).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.export(window, cx)),
                 ))
+                .child(
+                    button("type-list-help", labels::HELP)
+                        .on_click(|_: &ClickEvent, _, cx| open_help(cx)),
+                )
                 .child(button("type-list-reset", labels::RESET).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.reset(window, cx)),
                 ))
@@ -337,6 +353,8 @@ impl Render for TypeList {
                 ));
         let panel = crate::a11y::dialog(div().id("type-list"), "タイプ別設定一覧")
             .aria_description("下からタイプを選択してください")
+            // F1: the page of the dialog
+            .on_help_key("F_TYPE_LIST")
             .key_context("TypeList")
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)

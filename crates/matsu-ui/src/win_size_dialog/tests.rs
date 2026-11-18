@@ -196,3 +196,19 @@ fn the_radio_buttons_show_and_speak_their_labels_like_the_other_settings() {
         ("直接指定(S)".to_owned(), "直接指定".to_owned())
     );
 }
+
+#[gpui::test]
+fn the_help_is_alt_h_and_f1_and_opens_the_page_of_the_window_settings(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, take, web_page};
+    // `CDlgWinSize`: `MyWinHelp( .., HLP000286 )`, which is a topic and not a function; the
+    // dialog stays and keeps what it holds
+    let got = open_dialog(cx, START);
+    clear();
+    keys(cx, "alt-h");
+    assert_eq!(take(), [web_page("common-settings/page-window.md")]);
+    keys(cx, "f1");
+    assert_eq!(take(), [web_page("common-settings/page-window.md")]);
+    assert!(cx.update(|app| current(app)).is_some());
+    assert!(got.borrow().is_empty());
+    assert_eq!(with_dialog(cx, |d, _, dcx| d.values(dcx)), START);
+}

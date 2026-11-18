@@ -46,6 +46,26 @@ pub(crate) const PAGES: &[(&str, &str)] = &[
     // `CDlgTypeList`: `FuncID_To_HelpContextID( F_TYPE_LIST )`
     ("F_TYPE_LIST", "type-settings-window/type-list.md"),
     ("F_OPTION", "common-settings/menu-common-settings.md"),
+    // the other dialogs with a help button (`MyWinHelp( ..., FuncID_To_HelpContextID( F_... ) )`):
+    // `CDlgFind`, `CDlgReplace`, `CDlgJump`, `CDlgGrep`, `CDlgGrepReplace`, `CDlgExec`,
+    // `CDlgTagsMake`, `CDlgTagJumpList`, `CDlgDiff`, `CDlgCompare`, `CDlgPrintSetting`,
+    // `CDlgCtrlCode`, `CDlgFavorite`, `CDlgWindowList`
+    ("F_SEARCH_DIALOG", "search/search.md"),
+    ("F_REPLACE_DIALOG", "search/replace.md"),
+    ("F_JUMP_DIALOG", "search/jump.md"),
+    ("F_GREP_DIALOG", "search/grep.md"),
+    ("F_GREP_REPLACE_DLG", "search/grep-replace.md"),
+    ("F_EXECMD_DIALOG", "tools/exec-command.md"),
+    ("F_TAGS_MAKE", "search/tags-make.md"),
+    ("F_TAGJUMP_LIST", "search/tag-jump.md"),
+    ("F_DIFF_DIALOG", "search/diff.md"),
+    ("F_COMPARE", "search/compare.md"),
+    ("F_PRINT_PAGESETUP", "file/file-print-pagesetup.md"),
+    ("F_CTRL_CODE_DIALOG", "edit/ctrl-code.md"),
+    ("F_FAVORITE", "common-settings/menu-history.md"),
+    ("F_DLGWINLIST", "type-settings-window/dlgwinlist.md"),
+    // the bar of the print preview (`CPrintPreview`, `IDD_PRINTPREVIEWBAR`)
+    ("F_PRINT_PREVIEW", "file/file-print-preview.md"),
     ("F_HELP_CONTENTS", "help-other/help-contents.md"),
     ("F_HELP_SEARCH", "help-other/help-search.md"),
 ];
@@ -268,6 +288,39 @@ pub(crate) fn open_function_page(cx: &mut App, function: &str) {
     }
 }
 
+/// The label of the help button of a dialog: `IDC_BUTTON_HELP` is "ヘルプ(&H)" in every dialog of
+/// `sakura_core/sakura_rc.rc` (the access key is Alt+H).
+pub(crate) const BUTTON_LABEL: &str = "ヘルプ(H)";
+
+/// F1 in a dialog. Sakura answers `WM_HELP` with the popup help of the control under the pointer
+/// (`CDialog::OnPopupHelp`: `MyWinHelp( ..., HELP_WM_HELP, GetHelpIdTable() )`), which needs a
+/// help text per control that MATSU Editor does not have (type B). The nearest is the page of the
+/// dialog, the one its help button opens.
+pub(crate) trait OnHelpKey: gpui::InteractiveElement + Sized {
+    /// F1 opens the page of `function` ([`PAGES`]); a function without a page leaves F1 alone.
+    fn on_help_key(self, function: &'static str) -> Self {
+        match page_of(function) {
+            Some(page) => self.on_help_page_key(page),
+            None => self,
+        }
+    }
+
+    /// F1 opens `page` (a path under `docs/help/ja/`).
+    fn on_help_page_key(self, page: &'static str) -> Self {
+        self.capture_key_down(move |event, _, cx| {
+            let m = event.keystroke.modifiers;
+            if event.keystroke.key == "f1"
+                && !(m.alt || m.control || m.shift || m.platform || m.function)
+            {
+                open_page(cx, page, None);
+                cx.stop_propagation();
+            }
+        })
+    }
+}
+
+impl<E: gpui::InteractiveElement> OnHelpKey for E {}
+
 /// Opens a help page, from the local help if the program has it.
 pub(crate) fn open_page(cx: &mut App, page: &str, anchor: Option<&str>) {
     let local = local_dir(exe_dir().as_deref());
@@ -435,6 +488,34 @@ pub(crate) fn perform(_cx: &mut App, opening: Opening) -> Opened {
     let keyword_lost = matches!(opening, Opening::Keyword { .. });
     OPENED.with(|opened| opened.borrow_mut().push(opening));
     Opened { keyword_lost }
+}
+
+/// What the tests of the help buttons read: nothing is started, the openings are recorded.
+#[cfg(test)]
+pub(crate) mod testing {
+    use super::*;
+
+    /// Forgets what was opened.
+    pub(crate) fn clear() {
+        OPENED.with(|opened| opened.borrow_mut().clear());
+    }
+
+    /// What was opened since the last call (the test program has no local help, so the pages are
+    /// the ones on GitHub Pages).
+    pub(crate) fn take() -> Vec<Opening> {
+        OPENED.with(|opened| std::mem::take(&mut *opened.borrow_mut()))
+    }
+
+    /// The opening of the page of `function` ([`PAGES`]).
+    pub(crate) fn page_of_function(function: &str) -> Opening {
+        let page = page_of(function).unwrap_or_else(|| panic!("{function} has no page"));
+        web_page(page)
+    }
+
+    /// The opening of `page` (a path under `docs/help/ja/`).
+    pub(crate) fn web_page(page: &str) -> Opening {
+        plan_page(None, page, None)
+    }
 }
 
 #[cfg(test)]

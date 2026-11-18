@@ -12,6 +12,7 @@ use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -39,6 +40,7 @@ const SEND_STDIN: &str = "標準入力に送る(I)";
 const CUR_DIR: &str = "カレントディレクトリ(R)";
 const RUN: &str = "実行(E)";
 const CANCEL: &str = "キャンセル(X)";
+const HELP: &str = crate::support::help::BUTTON_LABEL;
 
 /// What an access key does.
 #[derive(Clone, Copy)]
@@ -52,6 +54,8 @@ enum Use {
     CurDir,
     Run,
     Cancel,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 /// What the dialog gives back.
@@ -189,6 +193,11 @@ impl ExecDialog {
         self.close(window, cx);
     }
 
+    /// `IDC_BUTTON_HELP`: `CDlgExec` opens the page of `F_EXECMD_DIALOG`.
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, "F_EXECMD_DIALOG");
+    }
+
     /// キャンセル(X).
     pub(crate) fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(result) = self.result.take() {
@@ -236,6 +245,7 @@ impl ExecDialog {
             Entry::labelled(CUR_DIR, true, Use::CurDir),
             Entry::labelled(RUN, true, Use::Run),
             Entry::labelled(CANCEL, true, Use::Cancel),
+            Entry::labelled(HELP, true, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -260,6 +270,7 @@ impl ExecDialog {
             Found::One(Use::CurDir) => self.set_use_cur_dir(!self.use_cur_dir, cx),
             Found::One(Use::Run) => self.ok(window, cx),
             Found::One(Use::Cancel) => self.cancel(window, cx),
+            Found::One(Use::Help) => self.open_help(cx),
         }
         true
     }
@@ -554,6 +565,11 @@ impl Render for ExecDialog {
                         Button::new("exec-cancel")
                             .labelled(CANCEL)
                             .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
+                    )
+                    .child(
+                        Button::new("exec-help")
+                            .labelled(HELP)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
                     ),
             );
         let panel = v_flex()
@@ -565,6 +581,8 @@ impl Render for ExecDialog {
             .on_access_key(move |letter, window, cx| {
                 this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
             })
+            // F1: the page of the dialog
+            .on_help_key("F_EXECMD_DIALOG")
             .key_context("ExecDialog")
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)
