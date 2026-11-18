@@ -12,8 +12,8 @@
 //! carry it; the other views of the document see a newer version and lay out again.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Weak;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui::{Context, EventEmitter};
 use matsu_core::bookmarks::TextBreaks;

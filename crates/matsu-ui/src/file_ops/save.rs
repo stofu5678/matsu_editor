@@ -431,7 +431,9 @@ pub(crate) async fn save(
     })
     .await;
     let written = view
-        .update(cx, |view, cx| view.finish_save_now(target, &options, write, cx))
+        .update(cx, |view, cx| {
+            view.finish_save_now(target, &options, write, cx)
+        })
         .ok();
     match written {
         Some(Err(FileError::Cancelled)) => {

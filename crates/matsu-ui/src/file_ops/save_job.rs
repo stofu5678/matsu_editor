@@ -119,7 +119,10 @@ pub(crate) async fn run<T: Send + 'static>(
     work: impl FnOnce(&SaveSnapshot, Progress<'_>) -> Result<T, FileError> + Send + 'static,
 ) -> Result<T, FileError> {
     let from = cx
-        .update(|_, app| app.try_global::<BackgroundFrom>().map_or(BACKGROUND_FROM, |b| b.0))
+        .update(|_, app| {
+            app.try_global::<BackgroundFrom>()
+                .map_or(BACKGROUND_FROM, |b| b.0)
+        })
         .unwrap_or(BACKGROUND_FROM);
     let job = SaveJob::new();
     let prepared = view.update(cx, |view, cx| {

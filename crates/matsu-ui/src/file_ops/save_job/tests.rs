@@ -145,7 +145,10 @@ fn a_save_that_runs_on_another_thread_writes_the_file(cx: &mut TestAppContext) {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc\r\ndef\r\n");
     assert!(!is_saving(&view, cx));
     let (modified, notice) = view.read_with(cx, |view, app| {
-        (view.document().read(app).model().is_modified(), view.notice.clone())
+        (
+            view.document().read(app).model().is_modified(),
+            view.notice.clone(),
+        )
     });
     assert!(!modified, "the document is saved");
     assert!(notice.unwrap().contains("に保存した"));

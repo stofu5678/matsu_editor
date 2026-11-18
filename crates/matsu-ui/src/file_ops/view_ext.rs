@@ -6,9 +6,9 @@ use gpui::{Context, ExternalPaths, Window};
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{FileError, SaveOptions, SaveReport, Written};
 #[cfg(test)]
 use matsu_core::file::no_progress;
+use matsu_core::file::{FileError, SaveOptions, SaveReport, Written};
 use matsu_layout::DocumentLayout;
 
 use crate::document::SharedDocument;
