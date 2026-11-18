@@ -73,7 +73,7 @@ impl FileTreeDialog {
         cx: &mut Context<Self>,
         run: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> Button {
-        self.button_named(id, label, &label_name(label), enabled, cx, run)
+        self.button_named(id, label, label_name(label), enabled, cx, run)
     }
 
     /// A button whose name for a screen reader is `name`, for a label that says nothing alone
@@ -82,20 +82,21 @@ impl FileTreeDialog {
         &self,
         id: &'static str,
         label: &'static str,
-        name: &str,
+        name: impl Into<SharedString>,
         enabled: bool,
         cx: &mut Context<Self>,
         run: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> Button {
         // Every dialog that is drawn in the tests goes through here: a button that is only dots
         // fails them.
+        let name = name.into();
         debug_assert!(
-            !crate::a11y::says_nothing(name),
+            !crate::a11y::says_nothing(&name),
             "the button {id} has no name that says what it is"
         );
         Button::new(id)
             .label(parse_label(label).0)
-            .accessibility_label(name.to_owned())
+            .accessibility_label(name)
             .disabled(!enabled)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| run(this, window, cx)))
     }
