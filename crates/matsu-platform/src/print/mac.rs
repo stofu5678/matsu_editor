@@ -15,6 +15,7 @@
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 use futures_channel::oneshot;
 use objc2::rc::Retained;
@@ -127,7 +128,7 @@ pub async fn print(window: Retained<NSWindow>, job: PrintJob, laid: Option<Layou
 struct Pages {
     job: PrintJob,
     /// The layout for the paper of the print operation, made in knowsPageRange:.
-    layout: RefCell<Option<Layout>>,
+    layout: RefCell<Option<Arc<Layout>>>,
     /// The layouts for the papers the panel asked about, and the one made ahead.
     papers: RefCell<PaperLayouts>,
 }
@@ -167,7 +168,7 @@ define_class!(
                 });
                 layout
             };
-            let pages = layout.as_ref().map_or(0, Layout::page_count);
+            let pages = layout.as_ref().map_or(0, |layout| layout.page_count());
             self.setFrameSize(NSSize::new(
                 points(paper.width),
                 points(paper.height) * pages.max(1) as CGFloat,
@@ -181,7 +182,7 @@ define_class!(
         /// The pages go down the view, one paper high each.
         #[unsafe(method(rectForPage:))]
         fn rect_for_page(&self, page: NSInteger) -> NSRect {
-            let Some(paper) = self.ivars().layout.borrow().as_ref().map(Layout::paper) else {
+            let Some(paper) = self.ivars().layout.borrow().as_ref().map(|layout| layout.paper()) else {
                 return NSRect::ZERO;
             };
             let (width, height) = (points(paper.width), points(paper.height));

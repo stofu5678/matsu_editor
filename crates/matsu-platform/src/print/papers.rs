@@ -30,7 +30,8 @@ pub const AHEAD_LINES: usize = 20_000;
 const KEPT: usize = 4;
 
 enum State {
-    Ready(Box<Layout>),
+    /// Shared, so that the panel's view and this cache hold one layout (it is only read).
+    Ready(Arc<Layout>),
     /// A worker lays the document out for the paper.
     Running {
         control: Arc<LayoutControl>,
@@ -58,33 +59,36 @@ impl PaperLayouts {
             entries: Vec::new(),
         };
         if let Some(layout) = known {
-            this.keep(layout.paper(), State::Ready(Box::new(layout)));
+            this.keep(layout.paper(), State::Ready(Arc::new(layout)));
         }
         this
     }
 
-    /// The layout for `paper`: the one kept, the one a worker is making (it waits for it), or a
-    /// new one made here, which is kept.
-    pub fn layout(&mut self, paper: Paper) -> Result<Layout, PrintError> {
-        if let Some(index) = self.entries.iter().position(|e| e.paper == paper) {
-            let entry = self.entries.remove(index);
-            let layout = match entry.state {
-                State::Ready(layout) => Ok(*layout),
-                State::Running { worker, .. } => match worker.join() {
-                    Ok(layout) => layout,
-                    // The worker panicked: make it here, where the caller sees the panic.
-                    Err(_) => self.job.layout(paper),
-                },
-            };
-            if let Ok(layout) = &layout {
-                // As the newest, so that the paper in use is the last to be dropped.
-                self.keep(paper, State::Ready(Box::new(layout.clone())));
-            }
-            return layout;
+    /// The layout for `paper`: the one kept (shared, not copied), the one a worker is making (it
+    /// waits for it), or a new one made here, which is kept.
+    pub fn layout(&mut self, paper: Paper) -> Result<Arc<Layout>, PrintError> {
+        let Some(index) = self.entries.iter().position(|e| e.paper == paper) else {
+            let layout = Arc::new(self.job.layout(paper)?);
+            self.keep(paper, State::Ready(layout.clone()));
+            return Ok(layout);
+        };
+        if let State::Ready(layout) = &self.entries[index].state {
+            return Ok(layout.clone());
         }
-        let layout = self.job.layout(paper)?;
-        self.keep(paper, State::Ready(Box::new(layout.clone())));
-        Ok(layout)
+        // A worker is making it: wait for it, and keep what it made.
+        let State::Running { worker, .. } = self.entries.remove(index).state else {
+            unreachable!("the entry was not ready");
+        };
+        let layout = match worker.join() {
+            Ok(layout) => layout,
+            // The worker panicked: make it here, where the caller sees the panic.
+            Err(_) => self.job.layout(paper),
+        }
+        .map(Arc::new);
+        if let Ok(layout) = &layout {
+            self.keep(paper, State::Ready(layout.clone()));
+        }
+        layout
     }
 
     /// Starts laying the document out for `paper` on a worker thread, when the document is big
@@ -111,21 +115,30 @@ impl PaperLayouts {
     }
 
     fn keep(&mut self, paper: Paper, state: State) {
-        self.entries.retain(|e| e.paper != paper);
+        if let Some(index) = self.entries.iter().position(|e| e.paper == paper) {
+            cancel(&self.entries.remove(index).state);
+        }
         self.entries.push(Entry { paper, state });
         if self.entries.len() > KEPT {
-            self.entries.remove(0);
+            // The oldest goes; a worker still making it must not go on reading the document
+            // with nobody to take its answer.
+            cancel(&self.entries.remove(0).state);
         }
+    }
+}
+
+/// Tells a worker that is still making the layout of `state` to stop (at its next look; nothing
+/// waits for it).
+fn cancel(state: &State) {
+    if let State::Running { control, .. } = state {
+        control.cancel();
     }
 }
 
 impl Drop for PaperLayouts {
     fn drop(&mut self) {
-        // The workers stop at their next look; nothing waits for them.
         for entry in &self.entries {
-            if let State::Running { control, .. } = &entry.state {
-                control.cancel();
-            }
+            cancel(&entry.state);
         }
     }
 }
@@ -237,6 +250,75 @@ mod tests {
         layouts.lay_out_ahead(Paper::A4);
         assert_eq!(layouts.layout(Paper::A4).unwrap().paper(), got.paper());
         assert_eq!(reads.load(Ordering::Relaxed), after);
+    }
+
+    #[test]
+    fn a_kept_layout_is_shared_not_copied() {
+        let (job, _) = job(100);
+        let mut layouts = PaperLayouts::new(job, None);
+        let first = layouts.layout(Paper::A4).unwrap();
+        let second = layouts.layout(Paper::A4).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    /// A worker that runs until it is cancelled, as an entry of the cache.
+    fn running_entry(paper: Paper) -> (Entry, Arc<LayoutControl>) {
+        let control = Arc::new(LayoutControl::default());
+        let seen = control.clone();
+        let worker = std::thread::spawn(move || {
+            // Bounded, so that a failure of the test cannot hang it.
+            for _ in 0..1000 {
+                if seen.is_cancelled() {
+                    return Err(PrintError::Cancelled);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(PrintError::NoPrintableArea)
+        });
+        let entry = Entry {
+            paper,
+            state: State::Running {
+                control: control.clone(),
+                worker,
+            },
+        };
+        (entry, control)
+    }
+
+    #[test]
+    fn a_worker_that_is_dropped_from_the_cache_is_cancelled() {
+        let (job, _) = job(10);
+        // evicted as the oldest
+        let mut layouts = PaperLayouts::new(job.clone(), None);
+        let (entry, control) = running_entry(Paper {
+            width: 1,
+            height: 1,
+        });
+        layouts.entries.push(entry);
+        for width in 0..KEPT as i32 {
+            layouts
+                .layout(Paper {
+                    width: 2100 + width,
+                    height: 2970,
+                })
+                .unwrap();
+        }
+        assert!(control.is_cancelled());
+        // replaced by a layout for the same paper
+        let mut layouts = PaperLayouts::new(job.clone(), None);
+        let (entry, control) = running_entry(Paper::A4);
+        layouts.entries.push(entry);
+        layouts.keep(
+            Paper::A4,
+            State::Ready(Arc::new(job.layout(Paper::A4).unwrap())),
+        );
+        assert!(control.is_cancelled());
+        // the cache dropped
+        let mut layouts = PaperLayouts::new(job, None);
+        let (entry, control) = running_entry(Paper::A4);
+        layouts.entries.push(entry);
+        drop(layouts);
+        assert!(control.is_cancelled());
     }
 
     #[test]
