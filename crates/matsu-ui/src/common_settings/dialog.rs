@@ -88,9 +88,12 @@ pub(crate) struct CommonSettingsDialog {
     /// The selected row of each editable list.
     table_selected: HashMap<&'static str, Option<usize>>,
     opener: Option<AnyWindowHandle>,
-    /// The focus of the buttons of each choice list by control id and value: the access key of
-    /// the label of a list moves the focus to the chosen one.
-    choice_focus: std::cell::RefCell<HashMap<(&'static str, i32), FocusHandle>>,
+    /// The focus of each choice of each choice list by control id and value: the access key of
+    /// the label of a list moves the focus to the chosen one. The handle belongs to the element
+    /// that holds the choice's button (the button of gpui-component keeps a focus handle of its
+    /// own and ignores one that is given to it). Made before the page is drawn
+    /// ([`ensure_choice_focus`](Self::ensure_choice_focus)).
+    choice_focus: HashMap<(&'static str, i32), FocusHandle>,
     focus: FocusHandle,
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
@@ -307,7 +310,7 @@ impl CommonSettingsDialog {
             table_inputs,
             table_selected,
             opener,
-            choice_focus: std::cell::RefCell::default(),
+            choice_focus: HashMap::new(),
             focus: cx.focus_handle(),
             focused: false,
             body_scroll: ScrollHandle::default(),
@@ -399,7 +402,6 @@ impl CommonSettingsDialog {
     #[cfg(test)]
     pub(crate) fn choice_has_focus(&self, id: &str, value: i32, window: &Window) -> bool {
         self.choice_focus
-            .borrow()
             .iter()
             .any(|((i, v), handle)| *i == id && *v == value && handle.is_focused(window))
     }
@@ -964,7 +966,7 @@ impl CommonSettingsDialog {
             // MATSU's lists are rows of buttons: the focus goes to the chosen one.
             Kind::Choice { .. } | Kind::Dynamic { .. } => {
                 let now = self.values.int(control.id);
-                let handle = self.choice_focus.borrow().get(&(control.id, now)).cloned();
+                let handle = self.choice_focus.get(&(control.id, now)).cloned();
                 if let Some(handle) = handle {
                     window.focus(&handle, cx);
                 }
@@ -1018,6 +1020,24 @@ impl CommonSettingsDialog {
         };
         self.set_int(control.id, options[next].1, cx);
         true
+    }
+
+    /// Makes a focus handle for every choice of the choice lists of the page, before the page is
+    /// drawn (the drawing only reads them).
+    fn ensure_choice_focus(&mut self, cx: &mut Context<Self>) {
+        for control in self.page_controls() {
+            let current = self.values.int(control.id);
+            let values: Vec<i32> = match control.kind {
+                Kind::Choice { options } => options.iter().map(|(_, v)| *v).collect(),
+                Kind::Dynamic { options } => options(cx, current).iter().map(|(_, v)| *v).collect(),
+                _ => continue,
+            };
+            for value in values {
+                self.choice_focus
+                    .entry((control.id, value))
+                    .or_insert_with(|| cx.focus_handle().tab_stop(true));
+            }
+        }
     }
 
     /// Makes the color pickers show the colors of the values (a change of another control may have
@@ -1197,24 +1217,41 @@ impl CommonSettingsDialog {
                     _ => Vec::new(),
                 };
                 let choices = options.into_iter().map(|(text, value)| {
-                    let focus = self
-                        .choice_focus
-                        .borrow_mut()
-                        .entry((id, value))
-                        .or_insert_with(|| cx.focus_handle())
-                        .clone();
-                    Button::new(Self::element_id(&Control {
+                    let button = Button::new(Self::element_id(&Control {
                         kind: Kind::Radio { value },
                         ..*control
                     }))
-                    .track_focus(&focus)
                     .label(text)
                     .selected(current == value)
                     // A choice is a radio button of the group (the chosen one is checked).
                     .role(Role::RadioButton)
                     .toggled(current == value)
                     .disabled(!usable)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
+                    // The element around it is the tab stop and has the focus
+                    .tab_stop(false)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)));
+                    let wrapper = div()
+                        .id(SharedString::from(format!("cs-{id}-choice-{value}")))
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .rounded_md();
+                    match self.choice_focus.get(&(id, value)) {
+                        Some(focus) => wrapper
+                            .track_focus(focus)
+                            .focus(|style| style.border_color(rgb(SELECTED_BG)))
+                            // Space and Enter choose it, as they press the button
+                            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                                if usable
+                                    && matches!(event.keystroke.key.as_str(), "space" | "enter")
+                                {
+                                    this.set_int(id, value, cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .child(button)
+                            .into_any_element(),
+                        None => wrapper.child(button).into_any_element(),
+                    }
                 });
                 v_flex()
                     .gap_1()
@@ -1523,6 +1560,7 @@ impl Render for CommonSettingsDialog {
             window.focus(&self.focus, cx);
         }
         self.sync_pickers(window, cx);
+        self.ensure_choice_focus(cx);
         self.scale_factor = window.scale_factor();
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let pages: Vec<AnyElement> = self

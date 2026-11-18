@@ -97,8 +97,7 @@ pub(crate) fn step(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let text = input.read(cx).value().to_string();
-    let next = stepped(&text, delta, min, max).to_string();
+    let next = stepped(&input.read(cx).value(), delta, min, max).to_string();
     input.update(cx, |state, cx| {
         state.set_value(next, window, cx);
         state.focus(window, cx);

@@ -189,3 +189,23 @@ fn the_access_key_of_a_choice_list_moves_the_focus_to_it_and_keeps_the_choice(
     cx.simulate_keystrokes(window, "alt-o");
     assert_eq!(with_dialog(cx, |d, _, _| d.values().int("ai_output")), 1);
 }
+
+#[gpui::test]
+fn the_focused_choice_is_the_element_that_is_drawn_and_space_chooses_it(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_GENERAL");
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Ai, dcx));
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    cx.simulate_keystrokes(window, "alt-o");
+    assert!(with_dialog(cx, |d, w, _| d.choice_has_focus(
+        "ai_output",
+        1,
+        w
+    )));
+    // The choice changes behind the focus; Space goes to the element that has the focus, which
+    // is only the drawn one, and chooses the value of its button.
+    with_dialog(cx, |d, _, dcx| d.set_int("ai_output", 2, dcx));
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int("ai_output")), 2);
+    cx.simulate_keystrokes(window, "space");
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int("ai_output")), 1);
+}
