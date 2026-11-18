@@ -830,7 +830,9 @@ fn a_guard_leaves_a_replaced_document_alone(cx: &mut TestAppContext) {
     let mut guard = guard_for(&view, &state, cx);
     on_document(&view, cx, |shared| shared.pause_watching_for_write());
     guard.took_for_write();
-    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    view.update(cx, |view, cx| {
+        view.load_document(SharedDocument::empty(), None, cx)
+    });
     // the replacement has a hold of its own
     on_document(&view, cx, |shared| shared.disk_mut().pause());
     drop(guard);

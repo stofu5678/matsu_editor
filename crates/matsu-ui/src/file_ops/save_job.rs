@@ -155,7 +155,8 @@ impl JobEnd {
                 (document.downgrade(), document.read(app).generation())
             })
             .ok()?;
-        cx.update(|_, app| Self::new(app, document, generation)).ok()
+        cx.update(|_, app| Self::new(app, document, generation))
+            .ok()
     }
 
     /// The save let go of the lock of the file and holds a pause of the watching, as the write
@@ -171,7 +172,14 @@ impl JobEnd {
     /// needs them.
     pub fn end_job_now(&mut self, app: &mut App) {
         if let Some(state) = self.job.take() {
-            undo(app, &self.document, self.generation, Some(&state), false, false);
+            undo(
+                app,
+                &self.document,
+                self.generation,
+                Some(&state),
+                false,
+                false,
+            );
         }
     }
 
@@ -182,7 +190,14 @@ impl JobEnd {
             std::mem::take(&mut self.paused),
             std::mem::take(&mut self.released_lock),
         );
-        undo(app, &self.document, self.generation, job.as_ref(), paused, released);
+        undo(
+            app,
+            &self.document,
+            self.generation,
+            job.as_ref(),
+            paused,
+            released,
+        );
     }
 }
 

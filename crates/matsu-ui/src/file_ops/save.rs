@@ -461,9 +461,14 @@ pub(crate) async fn save(
     };
     let to_write = options.clone();
     let on_path = path.clone();
-    let write = super::save_job::run(view, cx, "保存", &path, &mut hold, move |snapshot, progress| {
-        snapshot.write(&on_path, &to_write, progress)
-    })
+    let write = super::save_job::run(
+        view,
+        cx,
+        "保存",
+        &path,
+        &mut hold,
+        move |snapshot, progress| snapshot.write(&on_path, &to_write, progress),
+    )
     .await;
     // The document that was written is gone or was replaced (a close that keeps the window, a
     // close-and-open): nothing of the finish is for the replacement, whose lock and path are its
@@ -689,10 +694,11 @@ async fn confirm_content(
         let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx) else {
             return Err(SaveOutcome::Cancelled);
         };
-        let mixed = super::save_job::run(view, cx, "検査", path, &mut hold, |snapshot, progress| {
-            snapshot.has_mixed_line_endings(progress)
-        })
-        .await;
+        let mixed =
+            super::save_job::run(view, cx, "検査", path, &mut hold, |snapshot, progress| {
+                snapshot.has_mixed_line_endings(progress)
+            })
+            .await;
         match mixed.map_err(|e| (!matches!(e, FileError::Cancelled)).then_some(e)) {
             Ok(true) => {
                 let name = view
