@@ -63,35 +63,7 @@ pub use modified_lines::ModifiedLineJump;
 pub use mouse::DragSelection;
 pub use units::{MAX_BOX_COLUMNS, raw_of as cursor_raw, x_of as cursor_x};
 
-/// One edit of the text, in the coordinates of the document before the edit for `old_end` and
-/// after it for `new_end`: the text from `start` to `old_end` is gone, and the text from `start`
-/// to `new_end` is new.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TextChange {
-    pub start: Pos,
-    pub old_end: Pos,
-    pub new_end: Pos,
-}
-
-impl TextChange {
-    /// Where position `p`, in the document before this edit, is after it. A position at or before
-    /// the start stays; one inside the removed text goes to the end of the new text; one after it
-    /// keeps its place relative to the end of the edit.
-    pub fn follow(&self, p: Pos) -> Pos {
-        if p <= self.start {
-            p
-        } else if p < self.old_end {
-            self.new_end
-        } else if p.line == self.old_end.line {
-            Pos::new(
-                self.new_end.line,
-                self.new_end.col + p.col - self.old_end.col,
-            )
-        } else {
-            Pos::new(self.new_end.line + p.line - self.old_end.line, p.col)
-        }
-    }
-}
+pub use matsu_core::undo::TextChange;
 
 /// Line endings that an edit joins into one CRLF. The buffer reports positions in the new text,
 /// where the CR and the LF of a CRLF are one line ending, so the reported change has to be
@@ -135,6 +107,10 @@ pub struct Changes {
     /// Undo or redo replaced the document with an older or newer version; the edits are not
     /// known, so the whole text counts as changed.
     pub replaced_all: bool,
+    /// With `replaced_all`: the edits of the text that the replacement amounts to, when all of
+    /// them are known (undo and redo of a step made of edits; not after a command that did
+    /// something else to the text). The other views of the document move their carets with them.
+    pub replacement: Option<Vec<TextChange>>,
     /// The caret is somewhere else than before the command.
     pub caret_moved: bool,
     /// The selection (its anchor) is different from before the command.
@@ -465,12 +441,8 @@ impl<'a> CommandContext<'a> {
         if self.view_mode {
             return false;
         }
-        let done = self.model.undo(self.cursor);
-        if done {
-            self.layout.reset(self.model.doc());
-        }
-        self.changes.replaced_all |= done;
-        done
+        let done = self.model.undo_changes(self.cursor);
+        self.replaced(done)
     }
 
     /// Redoes one block. Returns `false` if there is nothing to redo, or in view mode.
@@ -478,12 +450,29 @@ impl<'a> CommandContext<'a> {
         if self.view_mode {
             return false;
         }
-        let done = self.model.redo(self.cursor);
-        if done {
-            self.layout.reset(self.model.doc());
-        }
-        self.changes.replaced_all |= done;
-        done
+        let done = self.model.redo_changes(self.cursor);
+        self.replaced(done)
+    }
+
+    /// The text was replaced by an older or a newer version, which amounts to `changes`.
+    fn replaced(&mut self, changes: Option<Vec<TextChange>>) -> bool {
+        let Some(changes) = changes else {
+            return false;
+        };
+        self.layout.reset(self.model.doc());
+        // The edits that came before in this command, then these. Unknown when an earlier
+        // replacement in the command did not know its edits.
+        let before = if self.changes.replaced_all {
+            self.changes.replacement.take()
+        } else {
+            Some(self.changes.edits.clone())
+        };
+        self.changes.replacement = before.map(|mut all| {
+            all.extend(changes);
+            all
+        });
+        self.changes.replaced_all = true;
+        true
     }
 
     // ---- editing ----
@@ -506,7 +495,11 @@ impl<'a> CommandContext<'a> {
             // The layout is updated now, not after the command: the command may move vertically
             // next, or a macro may run more commands.
             self.layout.edited(self.model.doc(), &change);
+            self.model.refine_last_change(change);
             self.changes.edits.push(change);
+            if let Some(all) = &mut self.changes.replacement {
+                all.push(change);
+            }
         }
         Ok(edit)
     }

@@ -34,9 +34,57 @@
 use std::collections::VecDeque;
 
 use crate::bookmarks::{LineDelta, LineEdit};
-use crate::buffer::Document;
+use crate::buffer::{Document, Pos};
 use crate::cursor::Cursor;
 use crate::modified::{MarkEdit, ModifiedLines, Seq};
+
+/// One edit of the text, in the coordinates of the document before the edit for `old_end` and
+/// after it for `new_end`: the text from `start` to `old_end` is gone, and the text from `start`
+/// to `new_end` is new.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextChange {
+    pub start: Pos,
+    pub old_end: Pos,
+    pub new_end: Pos,
+}
+
+impl TextChange {
+    /// Where position `p`, in the document before this edit, is after it. A position at or before
+    /// the start stays; one inside the removed text goes to the end of the new text; one after it
+    /// keeps its place relative to the end of the edit.
+    pub fn follow(&self, p: Pos) -> Pos {
+        if p <= self.start {
+            p
+        } else if p < self.old_end {
+            self.new_end
+        } else if p.line == self.old_end.line {
+            Pos::new(
+                self.new_end.line,
+                self.new_end.col + p.col - self.old_end.col,
+            )
+        } else {
+            Pos::new(self.new_end.line + p.line - self.old_end.line, p.col)
+        }
+    }
+
+    /// The edit that puts the text back: what this edit made is removed, and what it removed is new.
+    pub fn inverse(&self) -> Self {
+        Self {
+            start: self.start,
+            old_end: self.new_end,
+            new_end: self.old_end,
+        }
+    }
+}
+
+/// What undo or redo did to the text, as the edits it amounts to, in the order they apply.
+#[derive(Debug)]
+pub struct Undone {
+    /// The changes of the line list (for the bookmarks).
+    pub lines: Vec<LineDelta>,
+    /// The edits of the text (for the carets of the other views of the document).
+    pub changes: Vec<TextChange>,
+}
 
 /// A document version and the cursor that went with it.
 #[derive(Clone, Debug)]
@@ -63,6 +111,9 @@ struct Block {
     lines: Vec<LineEdit>,
     /// The changes of the sequence numbers of the lines (for the modified lines).
     marks: Vec<MarkEdit>,
+    /// The edits of the text, in the order they were made (so that undo and redo can tell the
+    /// other views of the document where the text moved).
+    changes: Vec<TextChange>,
 }
 
 /// The block that is being made.
@@ -76,6 +127,7 @@ struct Open {
     real: bool,
     lines: Vec<LineEdit>,
     marks: Vec<MarkEdit>,
+    changes: Vec<TextChange>,
 }
 
 /// The undo and redo history of a document.
@@ -220,6 +272,7 @@ impl History {
                     real: false,
                     lines: Vec::new(),
                     marks: Vec::new(),
+                    changes: Vec::new(),
                 });
             }
         }
@@ -251,6 +304,22 @@ impl History {
         }
     }
 
+    /// Tells the history what an edit did to the text, after [`note_edit`](Self::note_edit). Outside
+    /// a block there is nothing to undo, so nothing is kept.
+    pub fn note_change(&mut self, change: TextChange) {
+        if let Some(open) = &mut self.open {
+            open.changes.push(change);
+        }
+    }
+
+    /// Puts `change` in the place of the one that [`note_change`](Self::note_change) took last: the
+    /// same edit, as the caller reports it (widened over a line break that it joined).
+    pub fn refine_last_change(&mut self, change: TextChange) {
+        if let Some(last) = self.open.as_mut().and_then(|open| open.changes.last_mut()) {
+            *last = change;
+        }
+    }
+
     /// Leaves a block. The outermost `end` stores the block if the command edited the document.
     /// `doc` and `cursor` are the state after the command.
     pub fn end(&mut self, doc: &Document, cursor: &Cursor) {
@@ -267,6 +336,7 @@ impl History {
                 Snapshot::of(doc, cursor),
                 open.lines,
                 open.marks,
+                open.changes,
                 !open.real,
             );
         }
@@ -348,13 +418,9 @@ impl History {
         self.undo_lines(doc, cursor).is_some()
     }
 
-    /// [`undo`](Self::undo) that also returns the changes of the line list that the undo makes,
-    /// in the order to apply them. `None` when there is nothing to undo.
-    pub fn undo_lines(
-        &mut self,
-        doc: &mut Document,
-        cursor: &mut Cursor,
-    ) -> Option<Vec<LineDelta>> {
+    /// [`undo`](Self::undo) that also returns the changes that the undo makes (the line list and the
+    /// text), in the order to apply them. `None` when there is nothing to undo.
+    pub fn undo_lines(&mut self, doc: &mut Document, cursor: &mut Cursor) -> Option<Undone> {
         self.store_open_edits(doc, cursor);
         if self.pos == 0 {
             return None;
@@ -370,8 +436,14 @@ impl History {
             .rev()
             .flat_map(LineEdit::inverse)
             .collect();
+        let changes = self.blocks[self.pos]
+            .changes
+            .iter()
+            .rev()
+            .map(TextChange::inverse)
+            .collect();
         self.restore(self.blocks[self.pos].before.clone(), doc, cursor);
-        Some(lines)
+        Some(Undone { lines, changes })
     }
 
     /// Redoes one block: puts back the document and the cursor from after it.
@@ -379,24 +451,20 @@ impl History {
         self.redo_lines(doc, cursor).is_some()
     }
 
-    /// [`redo`](Self::redo) that also returns the changes of the line list, like
-    /// [`undo_lines`](Self::undo_lines).
-    pub fn redo_lines(
-        &mut self,
-        doc: &mut Document,
-        cursor: &mut Cursor,
-    ) -> Option<Vec<LineDelta>> {
+    /// [`redo`](Self::redo) that also returns the changes, like [`undo_lines`](Self::undo_lines).
+    pub fn redo_lines(&mut self, doc: &mut Document, cursor: &mut Cursor) -> Option<Undone> {
         self.store_open_edits(doc, cursor);
         let block = self.blocks.get(self.pos)?;
         let after = block.after.clone();
         let lines = block.lines.iter().flat_map(LineEdit::forward).collect();
+        let changes = block.changes.clone();
         for edit in &block.marks {
             edit.apply(&mut self.marks);
         }
         self.pos += 1;
         self.caret_step_clean = false;
         self.restore(after, doc, cursor);
-        Some(lines)
+        Some(Undone { lines, changes })
     }
 
     /// Sakura closes the block of the running command before it undoes (`Command_UNDO` calls
@@ -410,8 +478,16 @@ impl History {
         open.edited = false;
         let lines = std::mem::take(&mut open.lines);
         let marks = std::mem::take(&mut open.marks);
+        let changes = std::mem::take(&mut open.changes);
         let caret_only = !std::mem::replace(&mut open.real, false);
-        self.push(before, Snapshot::of(doc, cursor), lines, marks, caret_only);
+        self.push(
+            before,
+            Snapshot::of(doc, cursor),
+            lines,
+            marks,
+            changes,
+            caret_only,
+        );
     }
 
     fn restore(&mut self, snap: Snapshot, doc: &mut Document, cursor: &mut Cursor) {
@@ -430,6 +506,7 @@ impl History {
         after: Snapshot,
         lines: Vec<LineEdit>,
         marks: Vec<MarkEdit>,
+        changes: Vec<TextChange>,
         caret_only: bool,
     ) {
         // A caret step on a document that is unmodified leaves it so; any other step is an edit.
@@ -444,6 +521,7 @@ impl History {
             after,
             lines,
             marks,
+            changes,
         });
         self.pos += 1;
         self.trim();

@@ -707,12 +707,12 @@ impl EditorView {
             let entity_id = self.entity_id;
             let edits = std::mem::take(&mut changes.edits);
             let replaced_all = changes.replaced_all;
-            self.layout_version = self.document.update(cx, |shared, cx| {
-                if replaced_all {
-                    shared.changed(cx)
-                } else {
-                    shared.edited(entity_id, edits, cx)
-                }
+            // Undo and redo know the edits they amount to; the other panes move their carets with them.
+            let replacement = changes.replacement.take();
+            self.layout_version = self.document.update(cx, |shared, cx| match replacement {
+                Some(edits) if replaced_all => shared.edited(entity_id, edits, cx),
+                _ if replaced_all => shared.changed(cx),
+                _ => shared.edited(entity_id, edits, cx),
             });
             debug_assert_eq!(self.layout_version, version);
         }
