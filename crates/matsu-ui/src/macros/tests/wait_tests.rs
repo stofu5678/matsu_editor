@@ -444,3 +444,38 @@ fn a_script_can_call_a_command_of_the_menus() {
             .is_some()
     );
 }
+
+/// `PrintPreview()` does not make the macro wait (`CEditWnd::PrintPreviewModeONOFF` returns at
+/// once): the next call sees the page of the preview, and a second `PrintPreview()` closes it.
+#[gpui::test]
+fn a_script_goes_on_while_the_print_preview_is_shown(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(
+        dir.path(),
+        "preview.cjs",
+        "Editor.PrintPreview(); console.log('r=' + Editor.ExpandParameter('$p/$P'));\n\
+         Editor.InsText('x');\n\
+         Editor.PrintPreview(); console.log('r=end');",
+    );
+    let (f, cx) = setup_with_ui(cx, "abc");
+    f.run_script(cx, &path, |_| {});
+    assert_eq!(results(&f.output(cx)), ["1/1", "end"], "{}", f.output(cx));
+    assert!(!f.view.read_with(cx, |v, _| v.is_print_preview_open()));
+    assert!(!waiting(&f, cx));
+    // The text is edited while the preview is shown, as Sakura's hidden view is.
+    assert_eq!(f.lines(cx), ["xabc"]);
+}
+
+/// A key macro goes on to its next step while the preview is shown, and the function turns it off.
+#[gpui::test]
+fn a_key_macro_goes_on_while_the_print_preview_is_shown(cx: &mut TestAppContext) {
+    let (f, cx) = setup_with_ui(cx, "abc");
+    f.run(cx, 30151, &[]);
+    assert!(f.view.read_with(cx, |v, _| v.is_print_preview_open()));
+    assert!(!waiting(&f, cx));
+    f.run(cx, 30151, &[]);
+    assert!(!f.view.read_with(cx, |v, _| v.is_print_preview_open()));
+}
