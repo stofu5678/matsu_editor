@@ -1030,7 +1030,11 @@ fn a_cancel_right_before_the_rename_keeps_the_original() {
         })
         .unwrap_err();
     assert!(matches!(error, FileError::Cancelled), "{error}");
-    assert_eq!(fs::read(&path).unwrap(), before, "the original is as it was");
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        before,
+        "the original is as it was"
+    );
     assert_eq!(dir.names(), ["a.txt"], "no temporary file");
 }
 

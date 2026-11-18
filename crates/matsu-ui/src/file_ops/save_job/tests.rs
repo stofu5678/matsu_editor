@@ -390,10 +390,15 @@ fn the_watching_is_paused_while_the_worker_writes(cx: &mut TestAppContext) {
         .find(|f| f.name == "F_FILESAVE")
         .unwrap()
         .code;
-    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[], window, cx)
+    });
     assert!(pausing(&view, cx), "the flow waits for its thread");
     settle(cx);
-    assert!(!pausing(&view, cx), "resumed when the time stamp is recorded");
+    assert!(
+        !pausing(&view, cx),
+        "resumed when the time stamp is recorded"
+    );
     let stamp = view.read_with(cx, |view, app| view.document().read(app).disk().stamp);
     assert_eq!(stamp, crate::file_watch::state::modified_time(&path));
 }
@@ -429,7 +434,9 @@ fn an_old_job_leaves_the_notice_of_the_replacement_alone(cx: &mut TestAppContext
         .find(|f| f.name == "F_FILESAVE")
         .unwrap()
         .code;
-    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[], window, cx)
+    });
     view.update(cx, |view, cx| {
         view.load_document(SharedDocument::empty(), None, cx);
         view.notice = Some("the notice of the new document".to_owned());
