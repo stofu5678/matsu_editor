@@ -220,8 +220,14 @@ fn a_second_save_while_one_runs_is_refused_before_anything_is_touched(cx: &mut T
     });
     run(&view, cx, "F_FILESAVE");
     assert!(!cx.has_pending_prompt());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc", "not written");
-    let modified = view.read_with(cx, |view, app| view.document().read(app).model().is_modified());
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "abc",
+        "not written"
+    );
+    let modified = view.read_with(cx, |view, app| {
+        view.document().read(app).model().is_modified()
+    });
     assert!(modified);
     drop(job);
     // and when the first is over, a save works
