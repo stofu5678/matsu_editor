@@ -275,7 +275,10 @@ mod tests {
     /// one that failed on Windows (`C:\tmp\my dir`).
     #[test]
     fn an_unquoted_name_with_blanks_opens_one_file_through_the_whole_path() {
-        let dir = tempfile::Builder::new().prefix("my dir ").tempdir().unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("my dir ")
+            .tempdir()
+            .unwrap();
         std::fs::write(dir.path().join("my notes.txt"), b"x").unwrap();
         std::fs::write(dir.path().join("b.txt"), b"x").unwrap();
         let request = Request::from_launch_in(

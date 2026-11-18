@@ -81,10 +81,7 @@ impl Request {
     /// folder that exists in `cwd`: they become one argument, the first file. This is done here,
     /// before the arguments are made absolute, because a glued name is made of the arguments as
     /// they were typed, and the receiver of a handed-over launch gets it in one piece.
-    pub fn from_launch_in(
-        cwd: PathBuf,
-        args: impl IntoIterator<Item = OsString>,
-    ) -> Request {
+    pub fn from_launch_in(cwd: PathBuf, args: impl IntoIterator<Item = OsString>) -> Request {
         let mut args: Vec<OsString> = args.into_iter().collect();
         if let Some((name, used)) = unquoted_name(&args, &cwd) {
             args.splice(..used, [name]);
@@ -386,7 +383,11 @@ mod tests {
         let request = launch(&folders, &["my", "folder"]);
         assert_eq!(
             strings(&request),
-            [folders.path().join("my folder").to_string_lossy().into_owned()]
+            [folders
+                .path()
+                .join("my folder")
+                .to_string_lossy()
+                .into_owned()]
         );
     }
 
@@ -399,7 +400,10 @@ mod tests {
         assert_eq!(strings(&request), [path("my"), path("other.txt")]);
         // an option first: Sakura does not look for a name
         let request = launch(&dir, &["-R", "my", "notes.txt"]);
-        assert_eq!(strings(&request), ["-R".to_owned(), path("my"), path("notes.txt")]);
+        assert_eq!(
+            strings(&request),
+            ["-R".to_owned(), path("my"), path("notes.txt")]
+        );
         // a first argument that is a file by itself is that file
         std::fs::write(dir.path().join("my"), b"x").unwrap();
         let request = launch(&dir, &["my", "notes.txt"]);
