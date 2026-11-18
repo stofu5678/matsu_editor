@@ -223,11 +223,14 @@ async fn wait_for<T: Send + 'static>(
     // written).
     let same = cx
         .update(|_, app| {
-            let shared = document.read(app);
-            (
-                shared.generation() == generation,
-                shared.version() == version,
-            )
+            // A document that is gone is not the one that was saved.
+            document.upgrade().map_or((false, false), |document| {
+                let shared = document.read(app);
+                (
+                    shared.generation() == generation,
+                    shared.version() == version,
+                )
+            })
         })
         .unwrap_or((false, false));
     view.update(cx, |view, cx| {
