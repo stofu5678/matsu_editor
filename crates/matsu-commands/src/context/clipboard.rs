@@ -32,9 +32,6 @@ fn convert_eol_paste() -> bool {
 const AUTO_COLUMN_PASTE: bool = true;
 /// `m_szInyouKigou`: the quote of `F_COPYLINESASPASSAGE` (`m_sFormat`). Default `"> "`.
 pub(crate) const QUOTE: &str = "> ";
-/// `LINENUMWIDTH_MIN` in `sakura_core/config/app_constants.h`: the least number of digits of the
-/// line numbers of `F_COPYLINESWITHLINENUMBER`.
-const LINE_NUMBER_MIN_DIGITS: usize = 2;
 
 /// The bits of the argument of `F_PASTE` (`Command_PASTE`): the macro can force each setting.
 pub(crate) mod paste_option {
@@ -379,15 +376,14 @@ impl CommandContext<'_> {
         let Some((from, to)) = self.selection() else {
             return Ok(());
         };
-        if self.cursor().is_box() {
-            self.beep();
-            return Ok(());
-        }
         // From the start of the first row to the start of the row after the last one. A
-        // selection that ends at the start of a row does not take that row. Past the last row
-        // the end of the document counts (`GetAdjustCursorPos`).
+        // selection that ends at the start of a row does not take that row, but a box takes the
+        // row of its last corner whatever the column (`IsBoxSelecting()`); the copy then is of
+        // whole rows, the box is gone (`DisableSelectArea`). Past the last row the end of the
+        // document counts (`GetAdjustCursorPos`).
+        let is_box = self.cursor().is_box();
         let from = self.layout().row_start(self.doc(), from)?;
-        let to = if to > self.layout().row_start(self.doc(), to)? {
+        let to = if is_box || to > self.layout().row_start(self.doc(), to)? {
             match self.layout().next_row_start(self.doc(), to)? {
                 Some(next) => next,
                 None => self.layout().row_end(self.doc(), to)?,
@@ -397,18 +393,25 @@ impl CommandContext<'_> {
         };
         self.select_range(from, to)?;
 
-        // The width of the line numbers: the digits of the number of lines, at least
-        // `LINE_NUMBER_MIN_DIGITS`, plus the blank that the line number area has
-        // (`DetectWidthOfLineNumberArea_calculate`) and one more (`GetSelectedData`).
-        let width = self
-            .doc()
-            .line_count()
-            .max(1)
-            .to_string()
-            .len()
-            .max(LINE_NUMBER_MIN_DIGITS)
-            + 2;
+        // The width of the line numbers: `DetectWidthOfLineNumberArea_calculate(layoutMgr, true)`
+        // (the digits of the number of rows, at least the type's `nLineNumWidth`, plus the blank
+        // that the line number area has) and one more (`GetSelectedData`).
+        let width = if numbered {
+            let least = self.input_options().line_num_width;
+            self.row_count()?.to_string().len().max(least) + 2
+        } else {
+            0
+        };
+        // `nLineNum + 1`: the number of the row, counted from the start of the document.
+        let mut number = if numbered {
+            self.layout().row_index(self.doc(), from)? + 1
+        } else {
+            0
+        };
         let new_line = eol_text(self.new_line());
+        // An empty quote adds nothing but still counts for the line ending (`nullptr != pszQuote`).
+        let has_quote = quote.is_some();
+        let add_eol = has_quote || numbered || crate::edit_options::get().add_crlf_when_copy;
         let quote = quote.filter(|q| !q.is_empty());
         let mut out = String::new();
         let mut pos = from;
@@ -427,21 +430,34 @@ impl CommandContext<'_> {
                     out.push_str(quote);
                 }
                 if numbered {
-                    // Sakura numbers the rows of the layout; this numbers the lines.
-                    let number = format!(" {}:", pos.line + 1);
-                    out.push_str(&format!("{number:>width$}"));
+                    // Sakura numbers the rows of the layout, a wrapped line has several numbers.
+                    let label = format!(" {number}:");
+                    out.push_str(&format!("{label:>width$}"));
                 }
                 out.push_str(&text);
                 // A row that does not end the line (the last line, or a wrapped row) gets a
-                // line ending when it is quoted or numbered.
-                if !ends_with_break(pos, end) && (quote.is_some() || numbered) {
+                // line ending when it is quoted or numbered, or with `bAddCRLFWhenCopy`.
+                if !ends_with_break(pos, end) && add_eol {
                     out.push_str(new_line);
                 }
             }
             pos = end;
+            number += 1;
         }
         self.copy_text(out, ClipKind::Normal)?;
         Ok(())
+    }
+
+    /// The number of rows of the document as Sakura counts them (`CLayoutMgr::GetLineCount`):
+    /// the empty row after a final line ending is no row.
+    fn row_count(&self) -> Result<usize> {
+        let lines = self.doc().line_count();
+        let Some(last) = lines.checked_sub(1) else {
+            return Ok(0);
+        };
+        let rows = self.layout().row_index(self.doc(), Pos::new(last, 0))? + 1;
+        let empty_last = last > 0 && self.doc().line(last)?.is_none_or(|l| l.text.is_empty());
+        Ok(rows - usize::from(empty_last))
     }
 
     /// `Command_PASTE`: pastes the clipboard text. `option` is the argument of `F_PASTE`

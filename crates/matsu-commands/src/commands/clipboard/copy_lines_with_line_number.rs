@@ -1,6 +1,8 @@
-//! `F_COPYLINESWITHLINENUMBER`. Sakura: `CViewCommander::Command_COPYLINESWITHLINENUMBER` in `sakura_core/cmd/CViewCommander_Clipboard.cpp`. Like `copy_lines`, with the
-//! line number (` 12:`) at the start of each row. Difference: Sakura numbers the rows of the
-//! layout; this numbers the lines of the document (they differ only in wrapped text).
+//! `F_COPYLINESWITHLINENUMBER`. Sakura: `CViewCommander::Command_COPYLINESWITHLINENUMBER` in
+//! `sakura_core/cmd/CViewCommander_Clipboard.cpp`, which calls `CEditView::CopySelectedAllLines`
+//! with the numbers on. Like `copy_lines`, with the number of the row of the layout (` 12:`, a
+//! wrapped line has one number per row) at the start of each row; the width is that of the digits
+//! of the row count, at least the type's `nLineNumWidth` (see `copy_selected_lines`).
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
