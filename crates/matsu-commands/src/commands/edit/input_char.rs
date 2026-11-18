@@ -771,6 +771,18 @@ mod tests {
     }
 
     #[test]
+    fn smart_indent_cpp_replaces_an_indentation_longer_than_sakuras_buffer() {
+        // Sakura copies the old indentation into `pszSrc[1024]` and gives up when it does not fit
+        // (`nSrcLen >= 1023`), so a closing bracket after 1023 blanks stays where it was. That is a
+        // limit of a fixed buffer, not a rule: nothing relies on it, and MATSU aligns the bracket
+        // at any length (type A of ADR-0018).
+        let blanks = " ".repeat(1100);
+        with(&cpp(), '}', &format!("{{\n{blanks}|"), "{\n}|");
+        let tabs = "\t".repeat(1100);
+        with(&cpp(), '}', &format!("{{\n{tabs}|"), "{\n}|");
+    }
+
+    #[test]
     fn smart_indent_cpp_with_both_ignores_off_counts_everything() {
         let off = InputOptions {
             cpp_string_ignore: false,
