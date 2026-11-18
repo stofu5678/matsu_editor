@@ -518,3 +518,105 @@ fn a_grep_goes_to_the_standard_output_only_without_the_dialog() {
     assert!(!line(&["-GREPMODE"]).greps_to_stdout());
     assert!(!line(&["-GOPT=U"]).greps_to_stdout());
 }
+
+// ---- names that a file cannot have (`IsInvalidFilenameChars`) ----
+
+#[test]
+fn only_the_last_part_of_the_path_is_checked_for_the_characters() {
+    for bad in ["a*b.txt", "dir/a?.txt", "c:\\w\\a\"b", "x<y", "x>y", "a|b"] {
+        assert!(has_invalid_filename_char(bad), "{bad}");
+    }
+    for good in [
+        "a.txt",
+        "dir/ok.txt",
+        "c:\\work\\ok.txt",
+        // `:` is left out for the names of streams
+        "a.txt:stream",
+        // the folders may have anything: the check is for the file name only
+        "we*ird/ok.txt",
+        // no file name at all
+        "dir/",
+        "we*ird\\",
+        "",
+    ] {
+        assert!(!has_invalid_filename_char(good), "{good}");
+    }
+}
+
+#[test]
+fn a_refused_name_is_kept_apart_and_the_others_stay() {
+    let cl = parse_in(
+        &os(&["a.txt", "b*c.txt", "-X=2", "\"d|e.txt\"", "dir/ok.txt"]),
+        true,
+        &mut |_| None,
+    );
+    assert_eq!(cl.files, paths(&["a.txt", "dir/ok.txt"]));
+    assert_eq!(cl.rejected_names, ["b*c.txt", "d|e.txt"]);
+    assert_eq!(cl.caret_x, Some(1));
+}
+
+#[test]
+fn the_names_are_not_refused_where_they_are_fine() {
+    // macOS and Linux (and `parse`, which the tests of the options use)
+    let cl = parse_in(&os(&["b*c.txt"]), false, &mut |_| None);
+    assert_eq!(cl.files, paths(&["b*c.txt"]));
+    assert!(cl.rejected_names.is_empty());
+    assert_eq!(
+        parse_with(&os(&["b*c.txt"]), &mut |_| None)
+            .rejected_names
+            .len(),
+        usize::from(cfg!(windows))
+    );
+}
+
+#[test]
+fn the_box_says_what_sakuras_box_says() {
+    assert_eq!(
+        invalid_name_message("a*b.txt"),
+        "a*b.txt\r\n上記のファイル名は不正です。ファイル名に \\ / : * ? \" < > | の文字は使えません。 "
+    );
+}
+
+// ---- the encoding in the name of the program (`ParseKanjiCodeFromFileName`) ----
+
+#[test]
+fn the_digits_before_the_last_dot_are_the_encoding() {
+    assert_eq!(code_from_program_name("matsu932.exe"), Some(932));
+    assert_eq!(code_from_program_name("matsu65001.exe"), Some(65001));
+    assert_eq!(code_from_program_name("matsu4.exe"), Some(4));
+    // the digits just before the last dot, nothing else
+    assert_eq!(code_from_program_name("m3x932.exe"), Some(932));
+    assert_eq!(code_from_program_name("932.exe"), Some(932));
+    assert_eq!(code_from_program_name("v1.2.3.exe"), Some(3));
+    assert_eq!(code_from_program_name("a.b932.exe"), Some(932));
+}
+
+#[test]
+fn a_name_without_such_digits_gives_nothing() {
+    for name in [
+        "matsu.exe",
+        "matsu",
+        "matsu932",
+        "matsu932x.exe",
+        ".exe",
+        "",
+        // digits that are no encoding
+        "matsu99999.exe",
+        "matsu99999999999999.exe",
+    ] {
+        assert_eq!(code_from_program_name(name), None, "{name}");
+    }
+}
+
+#[test]
+fn the_option_code_wins_over_the_name_of_the_program() {
+    let mut cl = line(&["-CODE=5"]);
+    cl.default_code_from_program("matsu932.exe");
+    assert_eq!(cl.code, Some(5));
+    let mut cl = line(&["a.txt"]);
+    cl.default_code_from_program("matsu932.exe");
+    assert_eq!(cl.code, Some(932));
+    let mut cl = line(&["a.txt"]);
+    cl.default_code_from_program("matsu.exe");
+    assert_eq!(cl.code, None);
+}

@@ -136,7 +136,16 @@ pub fn launch(args: Vec<OsString>) {
     )));
     let request = Request::from_current_process(args);
     let (tx, rx) = async_channel::unbounded();
-    let first = OpenRequest::from_launch(&request);
+    let mut first = OpenRequest::from_launch(&request);
+    // The digits in the name of this program choose the encoding (`ParseKanjiCodeFromFileName`).
+    // A launch that is handed to a running MATSU Editor has lost its program name: only this
+    // process reads it.
+    if let Some(program) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.file_name().map(|n| n.to_string_lossy().into_owned()))
+    {
+        first.options.default_code_from_program(&program);
+    }
     // A Grep to the standard output (`-GOPT=U`) writes to the standard output of this process: it is not
     // handed to the MATSU Editor that is running, whose output is somewhere else.
     let separate = separate || first.options.greps_to_stdout();
@@ -258,6 +267,33 @@ mod tests {
                 Path::new(cwd).join("日本語.txt"),
             ]
         );
+    }
+
+    /// The real path of a launch: the sender (`Request::from_launch_in`, which `launch` calls with the
+    /// working folder) glues the arguments of a name with blanks that was not quoted and makes them
+    /// absolute, and `from_launch` reads the result. The folder has a blank in its own name, as the
+    /// one that failed on Windows (`C:\tmp\my dir`).
+    #[test]
+    fn an_unquoted_name_with_blanks_opens_one_file_through_the_whole_path() {
+        let dir = tempfile::Builder::new()
+            .prefix("my dir ")
+            .tempdir()
+            .unwrap();
+        std::fs::write(dir.path().join("my notes.txt"), b"x").unwrap();
+        std::fs::write(dir.path().join("b.txt"), b"x").unwrap();
+        let request = Request::from_launch_in(
+            dir.path().to_owned(),
+            os(&["my", "notes.txt", "-X=3", "b.txt"]),
+        );
+        let open = OpenRequest::from_launch(&request);
+        assert_eq!(
+            open.paths,
+            [dir.path().join("my notes.txt"), dir.path().join("b.txt")]
+        );
+        assert_eq!(open.options.caret_x, Some(2));
+        // a launch handed to a running MATSU Editor travels as bytes and is read the same way
+        let sent = Request::decode(&request.encode()[4..]).unwrap();
+        assert_eq!(OpenRequest::from_launch(&sent).paths, open.paths);
     }
 
     #[test]

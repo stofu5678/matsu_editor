@@ -56,12 +56,19 @@
 //!   `-GKEY=` `-GREPR=` `-GFILE=` `-GFOLDER=` `-M=` and in a quoted file name, `""` is `"`;
 //! * every other token is a file, and so is every token after `--`.
 //!
-//! Not done: Sakura looks for an existing file among the first tokens, glued with blanks, when the
-//! first token does not start with `-` (a name with blanks that was not quoted). The OS has cut the
-//! command line already, so MATSU Editor needs the quotes. Not done either:
-//! `ParseKanjiCodeFromFileName` (the digits in the name of the program give the encoding), and
-//! the message box for a file name that is too long or has characters that Windows does not allow
-//! (the open fails with its own message).
+//! Also done, as `CCommandLine::ParseCommandLine` does:
+//!
+//! * a name with blanks that was not quoted is glued before this, by the sender of the launch
+//!   (`matsu_platform::instance::Request::from_launch_in`), which makes the arguments absolute;
+//! * the file name of a launch must not have `* ? " < > |` in it. Windows does not allow them, so
+//!   there the name is refused with a box (`STR_CMDLINE_PARSECMD1`; [`CommandLine::rejected_names`]
+//!   and [`invalid_name_message`]). On macOS and Linux every one of them is a good character of a
+//!   file name, and a name is never refused (type B of ADR-0018);
+//! * the digits in the name of the program give the encoding (`ParseKanjiCodeFromFileName`,
+//!   [`code_from_program_name`]): `-CODE=` after it wins.
+//!
+//! Not done: the box for a path that is too long (`STR_ERR_FILEPATH_TOO_LONG`, longer than
+//! `_MAX_PATH`): the open fails with its own message.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -201,25 +208,41 @@ pub(crate) struct CommandLine {
     pub profile: Option<String>,
     /// The conditions of the Grep.
     pub grep: GrepArgs,
+    /// The file names of the launch that were refused for a character Windows does not allow in
+    /// a file name (never filled on macOS and Linux): the window says so
+    /// ([`invalid_name_message`]) and does not open them.
+    pub rejected_names: Vec<String>,
 }
 
-/// Reads the arguments. `-@=file` is not read (see [`parse_with`]).
+/// Reads the arguments. `-@=file` is not read (see [`parse_with`]), and a name that was not
+/// quoted is not looked for.
 #[cfg(test)]
 pub(crate) fn parse(args: &[OsString]) -> CommandLine {
-    parse_with(args, &mut |_| None)
+    parse_in(args, false, &mut |_| None)
 }
 
 /// Reads the arguments. A response file (`-@=file`, the last one counts) is read with `read`,
 /// which gives the text of the file, or `None` if it cannot be read; its text is cut at the
 /// blanks (`my_strtok` with a blank) and read as more arguments of the same launch, after the
 /// real ones (`ParseCommandLine` calls itself with `bResponse` off).
+///
 pub(crate) fn parse_with(
     args: &[OsString],
     read: &mut dyn FnMut(&Path) -> Option<String>,
 ) -> CommandLine {
+    parse_in(args, cfg!(windows), read)
+}
+
+/// [`parse_with`], with the refusal of the characters that a file name cannot have on or off (it
+/// is on for Windows).
+fn parse_in(
+    args: &[OsString],
+    check_names: bool,
+    read: &mut dyn FnMut(&Path) -> Option<String>,
+) -> CommandLine {
     let mut line = CommandLine::default();
     let mut options_end = false;
-    let response = line.parse_tokens(args, &mut options_end);
+    let response = line.parse_tokens(args, &mut options_end, check_names);
     if let Some(path) = response
         && let Some(text) = read(Path::new(&path))
     {
@@ -230,7 +253,7 @@ pub(crate) fn parse_with(
             .collect();
         // The nested parse starts again with the options on, and has no response file.
         let mut options_end = false;
-        line.parse_tokens(&tokens, &mut options_end);
+        line.parse_tokens(&tokens, &mut options_end, check_names);
     }
     line
 }
@@ -376,7 +399,12 @@ impl CommandLine {
     }
 
     /// Reads `tokens` into this. Returns the response file that was named, if any.
-    fn parse_tokens(&mut self, tokens: &[OsString], options_end: &mut bool) -> Option<OsString> {
+    fn parse_tokens(
+        &mut self,
+        tokens: &[OsString],
+        options_end: &mut bool,
+        check_names: bool,
+    ) -> Option<OsString> {
         let mut response = None;
         for token in tokens {
             let option = match token.to_str() {
@@ -389,7 +417,13 @@ impl CommandLine {
             };
             let Some(text) = option else {
                 if let Some(file) = file_of(token) {
-                    self.files.push(file);
+                    // Sakura clears a name like this and goes on (`szPath[0] = L'\0'`).
+                    match file.to_str() {
+                        Some(text) if check_names && has_invalid_filename_char(text) => {
+                            self.rejected_names.push(text.to_owned());
+                        }
+                        _ => self.files.push(file),
+                    }
                 }
                 continue;
             };
@@ -502,6 +536,57 @@ fn file_of(token: &OsStr) -> Option<PathBuf> {
         return crate::launch::path_of_file_url(&name).map(windows_drive_path);
     }
     Some(PathBuf::from(name))
+}
+
+/// `IsInvalidFilenameChars` (`sakura_core/util/file.cpp`): the last part of the path has one of
+/// `* ? " < > |` (`:` is left out so that a stream name works). A path that ends with a separator
+/// has no file name, so it is fine.
+pub(crate) fn has_invalid_filename_char(path: &str) -> bool {
+    if path.ends_with(['/', '\\']) {
+        return false;
+    }
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    name.contains(['*', '?', '"', '<', '>', '|'])
+}
+
+/// `STR_CMDLINE_PARSECMD1`, the box for a file name that was refused (its title is
+/// `FileNameError`).
+pub(crate) fn invalid_name_message(name: &str) -> String {
+    format!(
+        "{name}\r\n上記のファイル名は不正です。ファイル名に \\ / : * ? \" < > | の文字は使えません。 "
+    )
+}
+
+/// `ParseKanjiCodeFromFileName` (`CCommandLine.cpp`): the digits just before the last `.` of the
+/// name of the program are the number of an encoding (`sakura932.exe` reads Shift_JIS files),
+/// when they are one that exists. Without a `.` there is nothing to read. `-CODE=` is read after
+/// it and wins.
+pub(crate) fn code_from_program_name(name: &str) -> Option<i32> {
+    let chars: Vec<char> = name.chars().collect();
+    let dot = chars.iter().rposition(|&c| c == '.')?;
+    let stem = &chars[..dot];
+    let end = stem.len();
+    // From the end while the chars are digits (Sakura stops at index 0 without looking at it,
+    // and then tests it again).
+    let mut start = end;
+    while start > 0 && stem[start - 1].is_ascii_digit() {
+        start -= 1;
+    }
+    if start == end {
+        return None;
+    }
+    let digits: String = stem[start..end].iter().collect();
+    let number = atoi(&digits);
+    matsu_core::encoding::Encoding::from_sakura_code(number).map(|_| number)
+}
+
+impl CommandLine {
+    /// The encoding that the name of the program asked for, when `-CODE=` did not say.
+    pub(crate) fn default_code_from_program(&mut self, program: &str) {
+        if self.code.is_none() {
+            self.code = code_from_program_name(program);
+        }
+    }
 }
 
 /// `/C:/work/a.txt` of a URL is `C:/work/a.txt` on Windows.

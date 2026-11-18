@@ -82,6 +82,17 @@ pub fn new_document_defaults(cx: &gpui::App, file_name: Option<&str>) -> NewDocu
     defaults
 }
 
+/// [`new_document_defaults`] for the document type that `-TYPE=ext` chose (the extension
+/// decides, as `CDocTypeManager::GetDocumentTypeOfExt`).
+pub fn new_document_defaults_for_ext(cx: &gpui::App, ext: &str) -> NewDocumentDefaults {
+    let mut defaults = crate::doc_types::with_user(cx, |user| {
+        let index = user.document_types().type_index_for_ext(ext);
+        user.new_document_defaults_of_type(index)
+    });
+    defaults.mime_decode = crate::file_ops::prefs::prefs(cx).auto_mime_decode;
+    defaults
+}
+
 /// The message of the migration from the old settings, with the time it was made.
 ///
 /// Kept for the thread that starts the application, which is the one that draws the windows; so the tests,

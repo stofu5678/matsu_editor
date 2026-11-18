@@ -102,8 +102,15 @@ async fn read_file_asking(
     let target = path.to_owned();
     // The settings of the type of this file name: the encoding and the line ending to fall back on.
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    // A launch with `-TYPE=` reads the file with the type it chose, not the type of the file name
+    // (`CLoadAgent::OnLoad` sets `sLoadInfo.nType` before the read).
     let defaults = cx
-        .update(|_, app| crate::settings::new_document_defaults(app, name.as_deref()))
+        .update(
+            |_, app| match super::start_options::expected_type(app, path) {
+                Some(ext) => crate::settings::new_document_defaults_for_ext(app, &ext),
+                None => crate::settings::new_document_defaults(app, name.as_deref()),
+            },
+        )
         .unwrap_or_default();
     // A big file is opened by ranges (ADR-0020, chapter 7).
     let huge = cx
