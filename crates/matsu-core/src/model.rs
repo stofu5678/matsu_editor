@@ -9,7 +9,7 @@ use crate::buffer::{Document, Edit, Eol, Pos, Result};
 use crate::cursor::Cursor;
 use crate::diff::DiffMarks;
 use crate::modified::Replaced;
-use crate::undo::History;
+use crate::undo::{History, TextChange, Undone};
 
 /// A document, its undo history, and the line ending that new line breaks get.
 #[derive(Debug)]
@@ -212,6 +212,11 @@ impl DocumentModel {
         let edit = self.doc.replace(from, to, text)?;
         self.history.note_edit();
         let (a, b) = (from.min(to), from.max(to));
+        self.history.note_change(TextChange {
+            start: a,
+            old_end: b,
+            new_end: edit.end,
+        });
         let mut line_edit = LineEdit::of_replace(
             (a.line, a.col),
             (b.line, b.col),
@@ -262,22 +267,37 @@ impl DocumentModel {
 
     /// Undoes one block, and puts the cursor back. `false` if there is nothing to undo.
     pub fn undo(&mut self, cursor: &mut Cursor) -> bool {
-        let Some(lines) = self.history.undo_lines(&mut self.doc, cursor) else {
-            return false;
-        };
+        self.undo_changes(cursor).is_some()
+    }
+
+    /// [`undo`](Self::undo) that gives the edits of the text that the undo amounts to, in the order
+    /// they apply (what the other views of the document move their carets with). `None` if there
+    /// is nothing to undo.
+    pub fn undo_changes(&mut self, cursor: &mut Cursor) -> Option<Vec<TextChange>> {
+        let Undone { lines, changes } = self.history.undo_lines(&mut self.doc, cursor)?;
         let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
-        true
+        Some(changes)
     }
 
     /// Redoes one block, and puts the cursor back. `false` if there is nothing to redo.
     pub fn redo(&mut self, cursor: &mut Cursor) -> bool {
-        let Some(lines) = self.history.redo_lines(&mut self.doc, cursor) else {
-            return false;
-        };
+        self.redo_changes(cursor).is_some()
+    }
+
+    /// [`redo`](Self::redo) that gives the edits, like [`undo_changes`](Self::undo_changes).
+    pub fn redo_changes(&mut self, cursor: &mut Cursor) -> Option<Vec<TextChange>> {
+        let Undone { lines, changes } = self.history.redo_lines(&mut self.doc, cursor)?;
         let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
-        true
+        Some(changes)
+    }
+
+    /// Puts `change` in the place of the edit that [`replace`](Self::replace) made last in the open
+    /// block: the same edit, widened over a line break that it joined, so that undo and redo give
+    /// it back the same way.
+    pub fn refine_last_change(&mut self, change: TextChange) {
+        self.history.refine_last_change(change);
     }
 
     fn apply_lines(&mut self, lines: &[LineDelta]) {
@@ -685,5 +705,44 @@ y
         assert_eq!(cursor, before);
         assert!(m.redo(&mut cursor));
         assert_eq!(cursor.box_corners(), before.box_corners());
+    }
+
+    #[test]
+    fn undo_and_redo_tell_the_edits_they_amount_to() {
+        let mut m = model("abc\ndef");
+        let mut cursor = Cursor::new(Pos::new(0, 0));
+        m.begin_block(&cursor);
+        // two edits in one step: a line break after "a", then "XY" at the start of the new line 1
+        m.replace(Pos::new(0, 1), Pos::new(0, 1), "\n").unwrap();
+        m.replace(Pos::new(1, 0), Pos::new(1, 0), "XY").unwrap();
+        m.end_block(&cursor);
+        assert_eq!(m.doc().line(1).unwrap().unwrap().text, "XYbc");
+        let change =
+            |start: (usize, usize), old_end: (usize, usize), new_end: (usize, usize)| TextChange {
+                start: Pos::new(start.0, start.1),
+                old_end: Pos::new(old_end.0, old_end.1),
+                new_end: Pos::new(new_end.0, new_end.1),
+            };
+        // undo: the last edit is taken back first
+        let undone = m.undo_changes(&mut cursor).unwrap();
+        assert_eq!(
+            undone,
+            [
+                change((1, 0), (1, 2), (1, 0)),
+                change((0, 1), (1, 0), (0, 1))
+            ]
+        );
+        assert_eq!(m.doc().line(0).unwrap().unwrap().text, "abc");
+        // redo: the edits in the order they were made
+        let redone = m.redo_changes(&mut cursor).unwrap();
+        assert_eq!(
+            redone,
+            [
+                change((0, 1), (0, 1), (1, 0)),
+                change((1, 0), (1, 0), (1, 2))
+            ]
+        );
+        assert!(m.undo_changes(&mut cursor).is_some());
+        assert!(m.undo_changes(&mut cursor).is_none());
     }
 }

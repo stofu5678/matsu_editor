@@ -63,35 +63,7 @@ pub use modified_lines::ModifiedLineJump;
 pub use mouse::DragSelection;
 pub use units::{MAX_BOX_COLUMNS, raw_of as cursor_raw, x_of as cursor_x};
 
-/// One edit of the text, in the coordinates of the document before the edit for `old_end` and
-/// after it for `new_end`: the text from `start` to `old_end` is gone, and the text from `start`
-/// to `new_end` is new.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TextChange {
-    pub start: Pos,
-    pub old_end: Pos,
-    pub new_end: Pos,
-}
-
-impl TextChange {
-    /// Where position `p`, in the document before this edit, is after it. A position at or before
-    /// the start stays; one inside the removed text goes to the end of the new text; one after it
-    /// keeps its place relative to the end of the edit.
-    pub fn follow(&self, p: Pos) -> Pos {
-        if p <= self.start {
-            p
-        } else if p < self.old_end {
-            self.new_end
-        } else if p.line == self.old_end.line {
-            Pos::new(
-                self.new_end.line,
-                self.new_end.col + p.col - self.old_end.col,
-            )
-        } else {
-            Pos::new(self.new_end.line + p.line - self.old_end.line, p.col)
-        }
-    }
-}
+pub use matsu_core::undo::TextChange;
 
 /// Line endings that an edit joins into one CRLF. The buffer reports positions in the new text,
 /// where the CR and the LF of a CRLF are one line ending, so the reported change has to be
@@ -130,11 +102,8 @@ fn widen(a: Pos, b: Pos, edit: Edit, joined: Joined) -> TextChange {
 /// range when the text or the caret changed, scrolls the caret into view, repaints, and beeps.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Changes {
-    /// The edits of the text, in the order they were made.
-    pub edits: Vec<TextChange>,
-    /// Undo or redo replaced the document with an older or newer version; the edits are not
-    /// known, so the whole text counts as changed.
-    pub replaced_all: bool,
+    /// What happened to the text.
+    pub text: TextEdits,
     /// The caret is somewhere else than before the command.
     pub caret_moved: bool,
     /// The selection (its anchor) is different from before the command.
@@ -164,10 +133,73 @@ pub struct Changes {
     pub smart_indent_plugin: Option<SmartIndentCall>,
 }
 
+/// What a command did to the text: one list of edits, owned by the variant that says what kind of
+/// change it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextEdits {
+    /// Ordinary edits, in the order they were made (none: the text is as it was).
+    Edited(Vec<TextChange>),
+    /// Undo or redo replaced the document with an older or a newer version. The edits it amounts
+    /// to are known (all the edits of the command, in order): the other views of the document move
+    /// their carets with them.
+    Replaced(Vec<TextChange>),
+    /// The document was replaced and its edits are not known, so the whole text counts as changed.
+    ReplacedUnknown,
+}
+
+impl Default for TextEdits {
+    fn default() -> Self {
+        Self::Edited(Vec::new())
+    }
+}
+
+impl TextEdits {
+    /// The edits, in the order they were made (none when they are not known).
+    pub fn edits(&self) -> &[TextChange] {
+        match self {
+            Self::Edited(edits) | Self::Replaced(edits) => edits,
+            Self::ReplacedUnknown => &[],
+        }
+    }
+
+    /// Whether the document was replaced by another version (undo, redo).
+    pub fn replaced_all(&self) -> bool {
+        !matches!(self, Self::Edited(_))
+    }
+
+    fn push(&mut self, change: TextChange) {
+        match self {
+            Self::Edited(edits) | Self::Replaced(edits) => edits.push(change),
+            Self::ReplacedUnknown => {}
+        }
+    }
+
+    /// Undo or redo made `changes`, after what the command did before.
+    fn replaced(&mut self, changes: Vec<TextChange>) {
+        *self = match std::mem::take(self) {
+            Self::Edited(mut edits) | Self::Replaced(mut edits) => {
+                edits.extend(changes);
+                Self::Replaced(edits)
+            }
+            Self::ReplacedUnknown => Self::ReplacedUnknown,
+        };
+    }
+}
+
 impl Changes {
+    /// The edits of the text, in the order they were made.
+    pub fn edits(&self) -> &[TextChange] {
+        self.text.edits()
+    }
+
+    /// Whether undo or redo replaced the document with another version.
+    pub fn replaced_all(&self) -> bool {
+        self.text.replaced_all()
+    }
+
     /// Whether the text may be different from before the command.
     pub fn text_changed(&self) -> bool {
-        self.replaced_all || !self.edits.is_empty()
+        self.text.replaced_all() || !self.text.edits().is_empty()
     }
 }
 
@@ -465,12 +497,8 @@ impl<'a> CommandContext<'a> {
         if self.view_mode {
             return false;
         }
-        let done = self.model.undo(self.cursor);
-        if done {
-            self.layout.reset(self.model.doc());
-        }
-        self.changes.replaced_all |= done;
-        done
+        let done = self.model.undo_changes(self.cursor);
+        self.replaced(done)
     }
 
     /// Redoes one block. Returns `false` if there is nothing to redo, or in view mode.
@@ -478,12 +506,19 @@ impl<'a> CommandContext<'a> {
         if self.view_mode {
             return false;
         }
-        let done = self.model.redo(self.cursor);
-        if done {
-            self.layout.reset(self.model.doc());
-        }
-        self.changes.replaced_all |= done;
-        done
+        let done = self.model.redo_changes(self.cursor);
+        self.replaced(done)
+    }
+
+    /// The text was replaced by an older or a newer version, which amounts to `changes`.
+    fn replaced(&mut self, changes: Option<Vec<TextChange>>) -> bool {
+        let Some(changes) = changes else {
+            return false;
+        };
+        self.layout.reset(self.model.doc());
+        // After the edits that came before in this command.
+        self.changes.text.replaced(changes);
+        true
     }
 
     // ---- editing ----
@@ -506,7 +541,8 @@ impl<'a> CommandContext<'a> {
             // The layout is updated now, not after the command: the command may move vertically
             // next, or a macro may run more commands.
             self.layout.edited(self.model.doc(), &change);
-            self.changes.edits.push(change);
+            self.model.refine_last_change(change);
+            self.changes.text.push(change);
         }
         Ok(edit)
     }
@@ -840,11 +876,34 @@ mod tests {
     }
 
     #[test]
+    fn a_replacement_keeps_the_edits_before_it_in_one_list() {
+        let (a, b) = (
+            change((0, 1), (0, 1), (0, 2)),
+            change((0, 5), (0, 6), (0, 5)),
+        );
+        let mut text = TextEdits::default();
+        assert!(!text.replaced_all());
+        text.push(a);
+        text.replaced(vec![b]);
+        // The edit of the command and then those of the undo, in one list; later edits join it.
+        assert_eq!(text, TextEdits::Replaced(vec![a, b]));
+        assert!(text.replaced_all());
+        text.push(a);
+        assert_eq!(text.edits(), [a, b, a]);
+        // A replacement whose edits are not known stays so.
+        let mut unknown = TextEdits::ReplacedUnknown;
+        unknown.push(a);
+        unknown.replaced(vec![b]);
+        assert_eq!(unknown, TextEdits::ReplacedUnknown);
+        assert!(unknown.edits().is_empty());
+    }
+
+    #[test]
     fn an_edit_is_reported_with_the_old_and_the_new_end() {
         let c = changes_of("abcd", |cx| {
             cx.replace(Pos::new(0, 3), Pos::new(0, 1), "XYZ").unwrap();
         });
-        assert_eq!(c.edits, [change((0, 1), (0, 3), (0, 4))]);
+        assert_eq!(c.edits(), [change((0, 1), (0, 3), (0, 4))]);
         assert!(c.text_changed());
     }
 
@@ -853,7 +912,7 @@ mod tests {
         let c = changes_of("abcd", |cx| {
             cx.replace(Pos::new(0, 1), Pos::new(0, 1), "").unwrap();
         });
-        assert!(c.edits.is_empty());
+        assert!(c.edits().is_empty());
         assert!(!c.text_changed());
     }
 
@@ -863,7 +922,7 @@ mod tests {
         let c = changes_of("a\rb\nc", |cx| {
             cx.replace(Pos::new(1, 0), Pos::new(1, 1), "").unwrap();
         });
-        assert_eq!(c.edits, [change((0, 1), (2, 0), (1, 0))]);
+        assert_eq!(c.edits(), [change((0, 1), (2, 0), (1, 0))]);
     }
 
     #[test]
@@ -871,7 +930,7 @@ mod tests {
         let c = changes_of("a\r", |cx| {
             cx.replace(Pos::new(1, 0), Pos::new(1, 0), "\nb").unwrap();
         });
-        assert_eq!(c.edits, [change((0, 1), (1, 0), (1, 1))]);
+        assert_eq!(c.edits(), [change((0, 1), (1, 0), (1, 1))]);
     }
 
     #[test]
@@ -879,7 +938,7 @@ mod tests {
         let c = changes_of("a\nb", |cx| {
             cx.replace(Pos::new(0, 1), Pos::new(0, 1), "\r").unwrap();
         });
-        assert_eq!(c.edits, [change((0, 1), (1, 0), (1, 0))]);
+        assert_eq!(c.edits(), [change((0, 1), (1, 0), (1, 0))]);
     }
 
     /// A layout that keeps its own copy of the number of lines, as a real layout keeps rows.
@@ -973,7 +1032,7 @@ mod tests {
             cx.replace(Pos::new(0, 0), Pos::new(0, 0), "X").unwrap();
             cx.replace(Pos::new(0, 2), Pos::new(0, 3), "").unwrap();
         });
-        assert_eq!(c.edits.len(), 2);
-        assert_eq!(c.edits[1], change((0, 2), (0, 3), (0, 2)));
+        assert_eq!(c.edits().len(), 2);
+        assert_eq!(c.edits()[1], change((0, 2), (0, 3), (0, 2)));
     }
 }

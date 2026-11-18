@@ -156,7 +156,7 @@ fn delete_and_backspace_delete_the_box() {
         e.run(id);
         e.assert_marked("a|d\neh\nil");
         assert!(!e.changes().beep, "{id}");
-        assert_eq!(e.changes().edits.len(), 3, "{id}");
+        assert_eq!(e.changes().edits().len(), 3, "{id}");
         e.run("undo");
         assert_eq!(text_of(&e), "abcd\nefgh\nijkl", "{id}");
     }
@@ -267,7 +267,7 @@ fn typing_puts_the_char_before_the_box_in_every_row() {
 fn typing_is_one_undo_step_and_undo_brings_the_box_back() {
     let mut e = boxed("abcd\nefgh\nijkl", (0, 1), (2, 3));
     typed(&mut e, 'X');
-    assert_eq!(e.changes().edits.len(), 3);
+    assert_eq!(e.changes().edits().len(), 3);
     e.run("undo");
     assert_eq!(text_of(&e), "abcd\nefgh\nijkl");
     e.assert_box((0, 1), (2, 3));

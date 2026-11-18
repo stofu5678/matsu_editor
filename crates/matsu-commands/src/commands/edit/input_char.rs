@@ -319,7 +319,7 @@ mod tests {
             let mut e = Editor::new("a|日b");
             e.set_overwrite(true);
             e.run_with(ID, &[Arg::Char('X')]);
-            assert_eq!(e.changes().edits.len(), 1);
+            assert_eq!(e.changes().edits().len(), 1);
             e.run("undo").assert_marked("a|日b");
         });
     }
@@ -376,7 +376,7 @@ mod tests {
         let mut e = Editor::new("ab|cd");
         e.set_overwrite(true);
         e.run_with(ID, &[Arg::Char('X')]);
-        assert_eq!(e.changes().edits.len(), 1);
+        assert_eq!(e.changes().edits().len(), 1);
         e.run("undo").assert_marked("ab|cd");
     }
 
@@ -426,7 +426,7 @@ mod tests {
         let mut e = Editor::new("z\na\r[b|\nc").with_new_line(Eol::Lf);
         e.run_with(ID, &[Arg::Char('\r')]);
         e.assert_marked("z\na\r\n|\nc");
-        assert_eq!(e.changes().edits.len(), 1);
+        assert_eq!(e.changes().edits().len(), 1);
         // the indentation is the one before the selection
         let mut e = Editor::new("  a[b|c").with_new_line(Eol::Lf);
         e.run_with(ID, &[Arg::Char('\r')])

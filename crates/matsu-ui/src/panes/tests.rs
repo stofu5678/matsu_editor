@@ -995,3 +995,41 @@ fn a_key_macro_that_splits_sees_the_panes_after_the_split(cx: &mut TestAppContex
     // it can be less), and nowhere near a page of the whole window.
     assert!(f.caret_of(cx, 0).line <= half, "{}", f.caret_of(cx, 0).line);
 }
+
+/// Undo and redo move the carets of the other panes like the edits they amount to, not only
+/// into the text: a caret after the undone edit goes back with the text.
+#[gpui::test]
+fn undo_and_redo_move_the_carets_of_the_other_panes_with_the_text(cx: &mut TestAppContext) {
+    const F_UNDO: u16 = 30210;
+    const F_REDO: u16 = 30211;
+    let (f, cx) = setup(cx, "abc\ndef\nlast");
+    f.run(cx, F_SPLIT_H);
+    let right = f.pane(cx, 1);
+    f.click(cx, 0);
+    // two commands: a line break at the start of the text, then one before "def"
+    let left = f.pane(cx, 0);
+    put_caret(cx, &left, Pos::new(0, 0));
+    cx.simulate_keystrokes("enter");
+    put_caret(cx, &left, Pos::new(2, 0));
+    cx.simulate_keystrokes("enter");
+    assert_eq!(f.lines(cx), ["", "abc", "", "def", "last"]);
+    put_caret(cx, &right, Pos::new(4, 2));
+    f.click(cx, 0);
+    f.run(cx, F_UNDO);
+    assert_eq!(f.lines(cx), ["", "abc", "def", "last"]);
+    // the caret was in "last", and is in "last" still
+    assert_eq!(caret(cx, &right), Pos::new(3, 2));
+    f.click(cx, 0);
+    f.run(cx, F_UNDO);
+    assert_eq!(f.lines(cx), ["abc", "def", "last"]);
+    assert_eq!(caret(cx, &right), Pos::new(2, 2));
+    f.click(cx, 0);
+    f.run(cx, F_REDO);
+    assert_eq!(f.lines(cx), ["", "abc", "def", "last"]);
+    assert_eq!(caret(cx, &right), Pos::new(3, 2));
+    // a caret inside the removed text goes to where the text was
+    put_caret(cx, &right, Pos::new(0, 0));
+    f.click(cx, 0);
+    f.run(cx, F_UNDO);
+    assert_eq!(caret(cx, &right), Pos::new(0, 0));
+}
