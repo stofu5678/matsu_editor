@@ -119,6 +119,22 @@ fn the_search_uses_the_options_of_the_find_panel(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_box_leaves_the_shared_search_options_alone(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    let editor = view(cx, handle);
+    write(cx, handle, "a.b axb");
+    // Another view's last search was a regular expression.
+    cx.update(|app| crate::saved_state::search::remember_pattern_options(app, true, false, false));
+    search_in_box(cx, handle, "a.b");
+    assert_eq!(pattern(cx, &editor), "a.b");
+    // `CMainToolBar::ProcSearchBox` only adds the key and sets it for the view
+    // (`ChangeCurRegexp`): `m_sSearchOption` stays what the last dialog, macro or incremental
+    // search left, and the key goes to other views with it.
+    let saved = cx.update(|app| crate::saved_state::search::saved(app));
+    assert!(saved.regex);
+}
+
+#[gpui::test]
 fn japanese_text_is_a_search_key(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, &toolbar());
     let editor = view(cx, handle);

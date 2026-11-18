@@ -379,6 +379,56 @@ fn a_window_takes_what_another_window_searched_for(cx: &mut TestAppContext) {
     assert_eq!(f.pattern(cx), "theirs");
 }
 
+fn inherit(cx: &mut VisualTestContext, on: bool) {
+    cx.update(|_, app| {
+        app.set_global(crate::search::prefs::SearchPrefs {
+            inherit_key_other_view: on,
+            ..Default::default()
+        });
+    });
+}
+
+#[gpui::test]
+fn f3_takes_what_another_view_searched_for(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "mine theirs mine");
+    f.view.update(cx, |v, cx| {
+        v.search.set_pattern("mine");
+        v.remember_search_key(cx);
+    });
+    other_window(cx, "theirs", None);
+    // `ChangeCurRegexp`: the view has not seen the newer search, so it takes it.
+    cx.simulate_keystrokes("f3");
+    assert_eq!(f.pattern(cx), "theirs");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 5), Pos::new(0, 11))));
+}
+
+#[gpui::test]
+fn f3_keeps_its_own_string_when_the_switch_is_off(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "mine theirs mine");
+    inherit(cx, false);
+    f.view.update(cx, |v, cx| {
+        v.search.set_pattern("mine");
+        v.remember_search_key(cx);
+    });
+    other_window(cx, "theirs", None);
+    cx.simulate_keystrokes("f3");
+    assert_eq!(f.pattern(cx), "mine");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 4))));
+}
+
+#[gpui::test]
+fn f3_of_a_view_with_no_string_takes_the_newest_even_when_the_switch_is_off(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx, "mine theirs mine");
+    inherit(cx, false);
+    other_window(cx, "theirs", None);
+    // `0 == m_strCurSearchKey.size()`
+    cx.simulate_keystrokes("f3");
+    assert_eq!(f.pattern(cx), "theirs");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 5), Pos::new(0, 11))));
+}
+
 #[gpui::test]
 fn the_replace_dialog_starts_with_the_previous_replacement(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "x");

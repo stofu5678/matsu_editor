@@ -474,7 +474,7 @@ impl EditorView {
             self.search.set_pattern(&text);
             self.search.set_mark(true);
             // `AddToSearchKeyArr( cmemCurText )` in `Command_SEARCH_CLEARMARK`.
-            self.remember_search_key(cx);
+            self.publish_search_key(cx);
             self.show_pattern_in_panel(window, cx);
         } else {
             self.search.set_mark(false);

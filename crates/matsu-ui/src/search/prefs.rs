@@ -20,6 +20,10 @@ pub(crate) struct SearchPrefs {
     /// `m_bGTJW_LDBLCLK` (`bGTJW_LDBLCLK`): a double click in a Grep result is a tag jump. On by
     /// default.
     pub grep_double_click_jumps: bool,
+    /// `m_bInheritKeyOtherView` (`m_bInheritKeyOtherView`): a next or previous search takes the
+    /// search string that another view searched for since this view did, and the search box shows
+    /// it. On by default; off, a view keeps its own search string.
+    pub inherit_key_other_view: bool,
 }
 
 impl Default for SearchPrefs {
@@ -30,6 +34,7 @@ impl Default for SearchPrefs {
             grep_real_time: false,
             grep_enter_jumps: true,
             grep_double_click_jumps: true,
+            inherit_key_other_view: true,
         }
     }
 }
