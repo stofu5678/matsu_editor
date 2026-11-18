@@ -277,7 +277,21 @@ pub fn newer_replace_key(cx: &App, seen: Option<u64>) -> Option<(String, u64)> {
         .then(|| (newest.to_owned(), history.replace_sequence))
 }
 
+/// The sequence number of the newest search in the shared history (`m_nSearchKeySequence`).
+fn current_search_sequence(cx: &App) -> u64 {
+    cx.try_global::<SearchHistory>()
+        .map_or(0, |history| history.search_sequence)
+}
+
 impl EditorView {
+    /// This view's search string was set without going into the history (a macro with the flag
+    /// 0x800, or a string too long for it): the view has seen every search so far, so the next
+    /// `ChangeCurRegexp` keeps this string instead of taking an older one from the history.
+    pub(crate) fn mark_search_key_seen(&mut self, cx: &App) {
+        self.search
+            .set_key_sequence(Some(current_search_sequence(cx)));
+    }
+
     /// The start of a next or previous search without a dialog (`CEditView::ChangeCurRegexp`): the
     /// view takes the newest search string and the options of the last search in any window,
     /// when it has not seen that search and 他のビューの検索条件を引き継ぐ is on

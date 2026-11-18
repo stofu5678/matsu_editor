@@ -162,6 +162,9 @@ impl EditorView {
             self.search.set_pattern(pattern);
             if history && pattern.chars().count() < MAX_HISTORY_LEN {
                 self.remember_search_key(cx);
+            } else if saved.is_none() {
+                // Not in the history, but it is this view's search string now.
+                self.mark_search_key_seen(cx);
             }
         }
         if let Some(replacement) = replacement {

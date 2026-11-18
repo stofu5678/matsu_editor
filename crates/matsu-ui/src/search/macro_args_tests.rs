@@ -182,3 +182,22 @@ fn the_settings_are_put_back_when_the_call_asks_for_it(cx: &mut TestAppContext) 
     });
     cx.update(|_, app| assert_eq!(history::search_keys(app), ["foo"]));
 }
+
+#[gpui::test]
+fn a_string_kept_out_of_the_history_stays_the_string_of_the_view(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "old hidden old hidden");
+    // Another window searched for "old": news for this view that has seen nothing.
+    cx.update(|_, app| {
+        history::remember_search(app, "old");
+    });
+    // The macro searches for "hidden" with the flag 0x800 (no history).
+    assert!(f.call(cx, "F_SEARCH_NEXT", &[text("hidden"), Arg::Int(0x800)]));
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 4), Pos::new(0, 10))));
+    // F3 goes on with "hidden"; it does not fall back to the older "old" of the history.
+    assert!(f.call(cx, "F_SEARCH_NEXT", &[]));
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 15), Pos::new(0, 21))));
+    assert_eq!(
+        f.view.read_with(cx, |v, _| v.search.pattern().to_owned()),
+        "hidden"
+    );
+}
