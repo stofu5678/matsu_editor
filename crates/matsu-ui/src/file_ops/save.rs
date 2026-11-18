@@ -468,8 +468,9 @@ pub(crate) async fn save(
             let finished = view.finish_save_now(target, &options, write, cx);
             // The new time stamp is recorded (or the save failed and the file is as it was):
             // the watching goes on, unless someone else had it paused.
-            view.document()
-                .update(cx, |shared, _| shared.resume_watching_after_write(was_paused));
+            view.document().update(cx, |shared, _| {
+                shared.resume_watching_after_write(was_paused)
+            });
             finished
         })
         .ok();
