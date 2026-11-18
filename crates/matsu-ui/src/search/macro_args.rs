@@ -158,10 +158,20 @@ impl EditorView {
         options.auto_close = has(0x10);
         options.wrap = has(0x20);
         self.search.set_options(options);
+        if saved.is_none() {
+            // The flags are the shared settings of the search while the macro runs
+            // (`m_bNOTIFYNOTFOUND` and `m_bSearchAll`, `CMacro.cpp` 813); with 0x1000 they are put
+            // back, so they are left alone here.
+            crate::saved_state::search::remember_notify_and_wrap(
+                cx,
+                options.notify_not_found,
+                options.wrap,
+            );
+        }
         if new_search {
             self.search.set_pattern(pattern);
             if history && pattern.chars().count() < MAX_HISTORY_LEN {
-                self.remember_search_key(cx);
+                self.publish_search_key(cx);
             } else if saved.is_none() {
                 // Not in the history, but it is this view's search string now.
                 self.mark_search_key_seen(cx);

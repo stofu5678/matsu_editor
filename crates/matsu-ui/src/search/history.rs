@@ -331,6 +331,28 @@ impl EditorView {
         self.search.set_key_sequence(Some(sequence));
     }
 
+    /// [`remember_search_key`](Self::remember_search_key), and the regular expression, case and
+    /// word options of the view become the shared ones (`m_sSearchOption`) when the key was
+    /// kept: what a macro search (`CMacro.cpp` 804), `ISearchExit` and `Command_SEARCH_CLEARMARK`
+    /// do. Another view that inherits the search (`ChangeCurRegexp`) then searches as this one
+    /// did. The Grep window and `-GREP` do not (`CDlgGrep` and `CNormalProcess` write them on
+    /// their own terms).
+    pub(crate) fn publish_search_key(&mut self, cx: &mut App) {
+        let before = self.search.key_sequence();
+        self.remember_search_key(cx);
+        if self.search.key_sequence() == before {
+            // Not kept (empty, or a pattern that does not compile).
+            return;
+        }
+        let options = self.search.options();
+        crate::saved_state::search::remember_pattern_options(
+            cx,
+            options.regex,
+            options.match_case,
+            options.whole_word,
+        );
+    }
+
     /// Puts the replacement in the history (`CDlgReplace::GetData`).
     pub(crate) fn remember_replace_key(&mut self, cx: &mut App) {
         let text = self.search.replace.text.clone();

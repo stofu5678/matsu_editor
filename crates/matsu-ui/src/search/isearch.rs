@@ -254,7 +254,7 @@ impl EditorView {
         self.search
             .set_pattern(if a.count() == 0 { "" } else { &a.key });
         // `ISearchExit` puts the key in the history and keeps the window's sequence up to date.
-        self.remember_search_key(cx);
+        self.publish_search_key(cx);
         cx.notify();
     }
 

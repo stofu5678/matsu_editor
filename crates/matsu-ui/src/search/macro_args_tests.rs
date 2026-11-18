@@ -201,3 +201,17 @@ fn a_string_kept_out_of_the_history_stays_the_string_of_the_view(cx: &mut TestAp
         "hidden"
     );
 }
+
+#[gpui::test]
+fn a_macro_search_publishes_its_options_for_the_other_views(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "a.b axb");
+    // 0x04: regular expression, 0x02: case, 0x08: the message, 0x20: wrap around
+    assert!(f.call(cx, "F_SEARCH_NEXT", &[text("a.b"), Arg::Int(0x2e)]));
+    let saved = cx.update(|_, app| crate::saved_state::search::saved(app));
+    assert!(saved.regex && saved.match_case && !saved.whole_word);
+    assert!(saved.notify_not_found && saved.wrap);
+    // Kept out of the history (0x800): the shared options stay as they were.
+    assert!(f.call(cx, "F_SEARCH_NEXT", &[text("b"), Arg::Int(0x800)]));
+    let after = cx.update(|_, app| crate::saved_state::search::saved(app));
+    assert!(after.regex && after.match_case);
+}

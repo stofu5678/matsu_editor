@@ -539,3 +539,14 @@ fn an_empty_match_at_the_start_is_found_again_after_wrapping(cx: &mut TestAppCon
     assert_eq!(f.message(cx).as_deref(), Some("[RegExp] I-Search: ^"));
     assert_eq!(f.caret(cx), Pos::new(0, 0));
 }
+
+#[gpui::test]
+fn ending_the_search_publishes_its_options_for_the_other_views(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "a.b axb");
+    f.run(cx, "F_ISEARCH_REGEXP_NEXT");
+    cx.simulate_input("a.b");
+    cx.simulate_keystrokes("enter");
+    // `ISearchExit` puts the options of the view in the shared ones (`m_sSearchOption`).
+    let saved = cx.update(|_, app| crate::saved_state::search::saved(app));
+    assert!(saved.regex && !saved.match_case && !saved.whole_word);
+}
