@@ -11,8 +11,7 @@
 //!
 //! Esc also gives the focus back to the text, which Sakura's box does not do (a combo box does not
 //! use Esc). The text follows the search key of the other windows
-//! (`AcceptSharedSearchKey`: `m_bInheritKeyOtherView`, which is on in Sakura and cannot be turned
-//! off here either).
+//! (`AcceptSharedSearchKey`) when 他のビューの検索条件を引き継ぐ (`m_bInheritKeyOtherView`) is on.
 
 use crate::input_select::input_field;
 use gpui::prelude::FluentBuilder as _;
@@ -293,10 +292,12 @@ impl SearchBox {
             let view = editor.read(cx);
             (view.search.pattern().to_owned(), view.search.key_sequence())
         };
-        let news = history::newer_search_key(cx, sequence);
+        // Without `m_bInheritKeyOtherView` the box keeps the view's own key.
+        let news = crate::search::prefs::prefs(cx).inherit_key_other_view
+            && history::newer_search_key(cx, sequence).is_some();
         let newest = history::search_keys(cx).into_iter().next();
         let shown = self.text(cx);
-        if let Some(text) = accepted_text(newest.as_deref(), &pattern, news.is_some(), &shown) {
+        if let Some(text) = accepted_text(newest.as_deref(), &pattern, news, &shown) {
             self.input
                 .update(cx, |state, cx| state.set_value(text, window, cx));
         }

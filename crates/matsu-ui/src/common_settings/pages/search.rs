@@ -4,10 +4,9 @@
 //! Live: the word at the caret as the first search string, the question about saving when a Grep
 //! window is closed, the display of the result while Grep runs (`bGrepRealTime`), the tag jump by
 //! the Enter key and the double click in the result of Grep (`bGTJW_RETURN`, `bGTJW_LDBLCLK`), and
-//! the two modes of the tags file search (`crate::tags::TagJumpPrefs`). Not available: taking the
-//! search condition of another view (the search always takes it, so the box would change
-//! nothing) and the choice of the regular expression library (MATSU Editor has its own,
-//! `matsu-regex`).
+//! the two modes of the tags file search (`crate::tags::TagJumpPrefs`), and taking the search
+//! condition of another view (`m_bInheritKeyOtherView`, [`SearchPrefs`]). Not available: the
+//! choice of the regular expression library (MATSU Editor has its own, `matsu-regex`).
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
@@ -45,7 +44,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "m_bInheritKeyOtherView",
                     true,
                 )
-                .unavailable()
                 .into(),
                 Control::text(
                     "regexp_lib",
@@ -128,6 +126,7 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: 
         grep_real_time: after.bool("grep_real_time"),
         grep_enter_jumps: after.bool("gtjw_return"),
         grep_double_click_jumps: after.bool("gtjw_ldblclk"),
+        inherit_key_other_view: after.bool("inherit_key_other_view"),
     });
     let mode = |id: &str| u8::try_from(after.int(id)).unwrap_or(0);
     let (direct, keyword) = (mode("tag_jump_mode"), mode("tag_jump_mode_keyword"));

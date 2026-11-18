@@ -28,6 +28,10 @@ impl UiCommand for SearchPrev {
         cx: &mut Context<EditorView>,
     ) -> Result {
         view.with_search_args(args, MacroSearch::Find, window, cx, |view, window, cx| {
+            if args.is_empty() {
+                // A macro with a string has just made it the search string.
+                view.change_cur_regexp(cx);
+            }
             if view.search(Direction::Backward, window, cx) == SearchOutcome::NoPattern {
                 view.open_search_panel(PanelMode::Find, window, cx);
             }

@@ -278,6 +278,33 @@ pub fn newer_replace_key(cx: &App, seen: Option<u64>) -> Option<(String, u64)> {
 }
 
 impl EditorView {
+    /// The start of a next or previous search without a dialog (`CEditView::ChangeCurRegexp`): the
+    /// view takes the newest search string and the options of the last search in any window,
+    /// when it has not seen that search and 他のビューの検索条件を引き継ぐ is on
+    /// (`m_bInheritKeyOtherView`), or when it has no search string at all (which counts whether
+    /// the switch is on or off). Otherwise it keeps its own.
+    pub(crate) fn change_cur_regexp(&mut self, cx: &App) {
+        let inherit = super::prefs::prefs(cx).inherit_key_other_view;
+        let news = inherit
+            .then(|| newer_search_key(cx, self.search.key_sequence()))
+            .flatten()
+            // `0 == m_strCurSearchKey.size()`: nothing seen counts as news.
+            .or_else(|| {
+                self.search
+                    .pattern()
+                    .is_empty()
+                    .then(|| newer_search_key(cx, None))
+                    .flatten()
+            });
+        let Some((newest, sequence)) = news else {
+            return;
+        };
+        let options = crate::saved_state::search::saved(cx).options(self.search.options());
+        self.search.set_options(options);
+        self.search.set_pattern(&newest);
+        self.search.set_key_sequence(Some(sequence));
+    }
+
     /// Puts the pattern of the search in the history, as Sakura's dialogs, the search mark and the
     /// end of the incremental search do. A pattern that is empty or is a regular expression that
     /// does not compile is not kept (`CDlgFind::GetData` checks the syntax first).

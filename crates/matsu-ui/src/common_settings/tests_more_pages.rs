@@ -745,7 +745,6 @@ fn the_search_page_leaves_what_is_not_available_alone(cx: &mut TestAppContext) {
     );
     run(cx, handle, "F_OPTION_GREP");
     type_in(cx, "regexp_lib", "other.dll");
-    check(cx, "inherit_key_other_view", true);
     // The options of Grep are live.
     check(cx, "grep_real_time", true);
     check(cx, "gtjw_return", false);

@@ -329,16 +329,28 @@ fn the_grep_options_are_live_and_kept(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_two_options_that_stay_gray_are_never_written(cx: &mut TestAppContext) {
-    let (ini, handle) = setup(
-        cx,
-        "[Common]\r\nm_bInheritKeyOtherView=0\r\nszRegexpLib=x.dll\r\n",
+fn the_switch_for_the_search_of_other_views_is_live_and_kept(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    assert!(
+        cx.update(|app| crate::search::prefs::prefs(app))
+            .inherit_key_other_view
     );
     run(cx, handle, "F_OPTION_GREP");
-    check(cx, "inherit_key_other_view", true);
-    type_in(cx, "regexp_lib", "other.dll");
+    check(cx, "inherit_key_other_view", false);
     ok(cx);
     assert_eq!(ini.get("m_bInheritKeyOtherView").as_deref(), Some("0"));
+    assert!(
+        !cx.update(|app| crate::search::prefs::prefs(app))
+            .inherit_key_other_view
+    );
+}
+
+#[gpui::test]
+fn the_regular_expression_library_stays_gray_and_is_never_written(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "[Common]\r\nszRegexpLib=x.dll\r\n");
+    run(cx, handle, "F_OPTION_GREP");
+    type_in(cx, "regexp_lib", "other.dll");
+    ok(cx);
     assert_eq!(ini.get("szRegexpLib").as_deref(), Some("x.dll"));
 }
 
