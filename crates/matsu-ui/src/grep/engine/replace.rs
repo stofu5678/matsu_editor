@@ -244,6 +244,16 @@ impl Runner<'_> {
             new_whole.push_str(&whole[at..]);
             if new_whole == whole {
                 plan.extend(region.take().map(Region::into_edit));
+            } else if let Some((from, to, middle)) = content_edit(&line.text, eol, &new_whole) {
+                // The break of the line stays and no break comes into the text: only what changed
+                // is replaced, so the line keeps what the document has of it (its bookmark, its
+                // marks of a diff and of the function list).
+                plan.extend(region.take().map(Region::into_edit));
+                plan.push(Replacement::new(
+                    Pos::new(index, from),
+                    Pos::new(index, to),
+                    middle.to_owned(),
+                ));
             } else {
                 match &mut region {
                     Some(run) if run.last + 1 == index => {
@@ -259,7 +269,7 @@ impl Runner<'_> {
                             last: index,
                             last_len: line.text.len(),
                             last_has_eol: !eol.is_empty(),
-                            text: new_whole.clone(),
+                            text: std::mem::take(&mut new_whole),
                         });
                     }
                 }
@@ -284,7 +294,7 @@ impl Runner<'_> {
         planned: Planned,
         full: &str,
     ) -> Option<(Vec<AppliedEdit>, Vec<TextShift>, usize)> {
-        match apply_replacements_descending(doc, &planned.edits) {
+        match apply_replacements_descending(doc, planned.edits) {
             Ok(edits) if planned.replaced > 0 => Some((edits, planned.shifts, planned.replaced)),
             Ok(_) => None,
             Err(_) => {
@@ -420,6 +430,42 @@ fn staged_name(old: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     format!("{old}.{}-{n}.tmp", std::process::id())
+}
+
+/// The edit of the text of a line (`text`, with the break `eol`) that makes its new text
+/// `new_whole` (the new text and a break), as the byte range of `text` and what goes there: what
+/// the old and the new text share at the start and the end (whole characters) is left out. `None`
+/// if the break would change: the new line does not end with the break, or its text has a CR or
+/// an LF (a new break, or a CR in front of an LF break that would join with it), or it is nothing
+/// but an LF break.
+fn content_edit<'a>(text: &str, eol: &str, new_whole: &'a str) -> Option<(usize, usize, &'a str)> {
+    let content = new_whole.strip_suffix(eol)?;
+    if content.contains(['\r', '\n']) {
+        return None;
+    }
+    // A line that is left with nothing but an LF break would put it next to the break of the line
+    // before, which may end with a CR and be replaced in the same run: that is a change of breaks.
+    if content.is_empty() && eol.starts_with('\n') {
+        return None;
+    }
+    let start: usize = text
+        .chars()
+        .zip(content.chars())
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| a.len_utf8())
+        .sum();
+    let end: usize = text[start..]
+        .chars()
+        .rev()
+        .zip(content[start..].chars().rev())
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| a.len_utf8())
+        .sum();
+    Some((
+        start,
+        text.len() - end,
+        &content[start..content.len() - end],
+    ))
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is

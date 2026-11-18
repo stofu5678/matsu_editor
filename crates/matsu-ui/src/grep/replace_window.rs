@@ -67,28 +67,61 @@ impl EditorView {
         if self.document.read(cx).version() != version {
             return false;
         }
-        self.run_with(cx, |c| -> Result<(), CommandError> {
-            c.begin_block();
-            // The caret goes with the text, as it does for 「すべて置換」: one before a match stays where
-            // it is, one after moves with the text. The selection is dropped. The place is worked
-            // out on the text of the lines (the bytes of the text and the breaks), and then found in
-            // the document that the edits made, so it is never between a CR and an LF, and never
-            // outside the document.
-            let caret = c.caret();
-            let before = text_offset(c.doc(), caret);
-            // A box selection refuses edits: the selection goes first (the caret is put back below).
-            let made = c.move_caret(caret, false).and_then(|()| {
-                apply_edits(c, edits)?;
-                let at = match before {
-                    Some(offset) => pos_at(c.doc(), moved_offset(offset, shifts)),
-                    None => caret,
-                };
-                c.move_caret(at, false)
+        // The other views of the document (panes): where their carets are in the text, before the
+        // edits. They follow the edits of the runs of lines, which puts a caret inside a run at its
+        // end; the carets are put back with the same arithmetic as this view's own.
+        let own = cx.entity_id();
+        let others: Vec<(gpui::Entity<EditorView>, Option<usize>)> = {
+            let shared = self.document.read(cx);
+            let doc = shared.doc();
+            shared
+                .views()
+                .filter(|view| view.entity_id() != own)
+                .map(|view| {
+                    let caret = view.read(cx).cursor.caret();
+                    (view, text_offset(doc, caret))
+                })
+                .collect()
+        };
+        let made = self
+            .run_with(cx, |c| -> Result<(), CommandError> {
+                c.begin_block();
+                // The caret goes with the text, as it does for 「すべて置換」: one before a match stays where
+                // it is, one after moves with the text. The selection is dropped. The place is worked
+                // out on the text of the lines (the bytes of the text and the breaks), and then found in
+                // the document that the edits made, so it is never between a CR and an LF, and never
+                // outside the document.
+                let caret = c.caret();
+                let before = text_offset(c.doc(), caret);
+                // A box selection refuses edits: the selection goes first (the caret is put back below).
+                let made = c.move_caret(caret, false).and_then(|()| {
+                    apply_edits(c, edits)?;
+                    let at = match before {
+                        Some(offset) => pos_at(c.doc(), moved_offset(offset, shifts)),
+                        None => caret,
+                    };
+                    c.move_caret(at, false)
+                });
+                c.end_block();
+                made
+            })
+            .is_ok();
+        if made && !others.is_empty() {
+            // After the views have taken the event of the change (they follow the edits of the runs
+            // of lines): the carets are put back then.
+            let shared = self.document.clone();
+            let shifts = shifts.to_vec();
+            cx.defer(move |app| {
+                for (view, before) in others {
+                    let Some(offset) = before else { continue };
+                    let at = pos_at(shared.read(app).doc(), moved_offset(offset, &shifts));
+                    view.update(app, |view, cx| {
+                        view.run_with(cx, |c| c.move_caret(at, false)).ok();
+                    });
+                }
             });
-            c.end_block();
-            made
-        })
-        .is_ok()
+        }
+        made
     }
 }
 

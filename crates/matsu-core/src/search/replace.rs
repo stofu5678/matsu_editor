@@ -150,12 +150,21 @@ pub fn apply_replacements(
 /// is the order to make them again in another copy of the document. If one fails, none is made.
 pub fn apply_replacements_descending(
     doc: &mut Document,
-    replacements: &[Replacement],
+    replacements: Vec<Replacement>,
 ) -> Result<Vec<AppliedEdit>, BufferError> {
     let mut work = doc.clone();
     let mut applied = Vec::with_capacity(replacements.len());
-    for r in replacements.iter().rev() {
-        applied.push(apply_one(&mut work, r.start, r.end, r)?);
+    for r in replacements.into_iter().rev() {
+        let removed = work.text_between(r.start, r.end)?;
+        let edit = work.replace(r.start, r.end, &r.text)?;
+        applied.push(AppliedEdit {
+            start: edit.start,
+            end: edit.end,
+            removed,
+            resume: Pos::new(edit.end.line, edit.end.col + r.skip),
+            // The text of the edit is given to the applied edit, not copied.
+            inserted: r.text,
+        });
     }
     *doc = work;
     Ok(applied)
