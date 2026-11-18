@@ -994,10 +994,44 @@ fn progress_is_reported_while_saving() {
             (READ_CHUNK as u64, total),
             (2 * READ_CHUNK as u64, total),
             (total, total),
-            // The last chance to cancel, before the target is replaced.
+            // A chance to cancel, before the temporary file is flushed to the disk.
+            (total, total),
+            // And the last one, right before the target is replaced.
             (total, total)
         ]
     );
+}
+
+#[test]
+fn a_cancel_right_before_the_rename_keeps_the_original() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &vec![b'a'; 2 * READ_CHUNK + 1]);
+    let mut file = open_as(&path, Encoding::Utf8);
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    let options = SaveOptions::keep(&file);
+    let mut calls = 0;
+    file.save_as(&path, &options, &mut |_, _| {
+        calls += 1;
+        ControlFlow::Continue(())
+    })
+    .unwrap();
+    // the same save again, stopped at its last look
+    file.document.insert(Pos::new(0, 0), "y").unwrap();
+    let before = fs::read(&path).unwrap();
+    let mut seen = 0;
+    let error = file
+        .save_as(&path, &options, &mut |_, _| {
+            seen += 1;
+            if seen == calls {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        })
+        .unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
+    assert_eq!(fs::read(&path).unwrap(), before, "the original is as it was");
+    assert_eq!(dir.names(), ["a.txt"], "no temporary file");
 }
 
 // ---- a save in two steps (the write can run on another thread) ----

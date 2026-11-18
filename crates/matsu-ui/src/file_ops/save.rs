@@ -436,13 +436,19 @@ pub(crate) async fn save(
         .update(cx, |view, cx| {
             view.document().update(cx, |shared, _| {
                 let busy = shared.is_saving();
+                let paused = shared.disk().pausing;
                 if !busy {
                     shared.unlock_file();
+                    // The check for changes by other programs waits until the new time stamp is
+                    // recorded (`CAutoReloadAgent::PauseWatching`): the rename of the worker would be
+                    // taken for a change from outside. A pause that someone else owns stays theirs.
+                    shared.disk_mut().pausing = true;
                 }
-                busy
+                (busy, paused)
             })
         })
-        .unwrap_or(true);
+        .unwrap_or((true, false));
+    let (busy, was_paused) = busy;
     if busy {
         return SaveOutcome::Cancelled;
     }
@@ -460,7 +466,12 @@ pub(crate) async fn save(
     }
     let written = view
         .update(cx, |view, cx| {
-            view.finish_save_now(target, &options, write, cx)
+            let finished = view.finish_save_now(target, &options, write, cx);
+            // The new time stamp is recorded (or the save failed and the file is as it was):
+            // the watching goes on, unless someone else had it paused.
+            view.document()
+                .update(cx, |shared, _| shared.disk_mut().pausing = was_paused);
+            finished
         })
         .ok();
     match written {

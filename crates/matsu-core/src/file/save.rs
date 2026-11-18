@@ -974,6 +974,12 @@ fn write_file(
     // Open the new file for reading before it takes the name: the open file goes with it, and
     // nothing can take the name in between.
     let generation = scan.and_then(|scan| new_generation(scan, &temp.path, bom_len as u64));
+    // The flush to the disk and the copy of the permissions can take long on slow storage: one more
+    // look right before the target is replaced, so that a cancel in that time still keeps the
+    // original (the temporary file is removed with `temp`).
+    if progress(written, written).is_break() {
+        return Err(FileError::Cancelled);
+    }
     fs::rename(&temp.path, &real)?;
     temp.keep = true;
     sync_dir(dir);

@@ -370,3 +370,71 @@ fn a_flow_of_a_replaced_document_leaves_the_replacement_alone(cx: &mut TestAppCo
     assert!(!notice.is_some_and(|n| n.contains("に保存した")));
     assert!(!saving);
 }
+
+fn pausing(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
+    view.read_with(cx, |view, app| view.document().read(app).disk().pausing)
+}
+
+/// The watching for changes by other programs is paused from the start of the write until the new
+/// time stamp is recorded, so that our own rename is not taken for an outside change.
+#[gpui::test]
+fn the_watching_is_paused_while_the_worker_writes(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, 0);
+    open(&view, cx, &path);
+    assert!(!pausing(&view, cx));
+    cx.simulate_input("x");
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_FILESAVE")
+        .unwrap()
+        .code;
+    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    assert!(pausing(&view, cx), "the flow waits for its thread");
+    settle(cx);
+    assert!(!pausing(&view, cx), "resumed when the time stamp is recorded");
+    let stamp = view.read_with(cx, |view, app| view.document().read(app).disk().stamp);
+    assert_eq!(stamp, crate::file_watch::state::modified_time(&path));
+}
+
+/// A pause that someone else owns (a check that asks a question) is left as it was.
+#[gpui::test]
+fn a_pause_of_someone_else_stays_after_the_save(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, 0);
+    open(&view, cx, &path);
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.disk_mut().pausing = true)
+    });
+    cx.simulate_input("x");
+    run(&view, cx, "F_FILESAVE");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc");
+    assert!(pausing(&view, cx));
+}
+
+/// The replacement document has a job of its own: the old job does not write over its progress
+/// and does not clear it.
+#[gpui::test]
+fn an_old_job_leaves_the_notice_of_the_replacement_alone(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, 0);
+    open(&view, cx, &path);
+    cx.simulate_input("x");
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_FILESAVE")
+        .unwrap()
+        .code;
+    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    view.update(cx, |view, cx| {
+        view.load_document(SharedDocument::empty(), None, cx);
+        view.notice = Some("the notice of the new document".to_owned());
+    });
+    settle(cx);
+    let notice = view.read_with(cx, |view, _| view.notice.clone());
+    assert_eq!(notice.as_deref(), Some("the notice of the new document"));
+}

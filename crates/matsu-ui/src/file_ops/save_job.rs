@@ -197,6 +197,8 @@ async fn wait_for<T: Send + 'static>(
     (version, generation): (u64, u64),
 ) -> Result<T, FileError> {
     let timer = cx.background_executor().clone();
+    // The status text this job last wrote, so that it clears only its own.
+    let mut own_notice: Option<String> = None;
     while !state.finished.load(Ordering::Acquire) {
         timer.timer(Duration::from_millis(100)).await;
         let text = progress_text(
@@ -206,13 +208,24 @@ async fn wait_for<T: Send + 'static>(
             state.total.load(Ordering::Relaxed),
         );
         let shown = view.update(cx, |view, cx| {
-            view.notice = Some(text);
-            cx.notify();
+            // Only while the view still shows the document this job saves: the replacement may
+            // have a job of its own, whose progress is not for this one to write over.
+            if view.document().read(cx).generation() == generation {
+                view.notice = Some(text.clone());
+                cx.notify();
+                Some(text)
+            } else {
+                None
+            }
         });
-        if shown.is_err() {
-            // The window is gone: nothing is to be written for it.
-            state.cancel();
-            return Err(FileError::Cancelled);
+        match shown {
+            Ok(Some(text)) => own_notice = Some(text),
+            Ok(None) => {}
+            Err(_) => {
+                // The window is gone: nothing is to be written for it.
+                state.cancel();
+                return Err(FileError::Cancelled);
+            }
         }
     }
     let result = task.await;
@@ -234,8 +247,13 @@ async fn wait_for<T: Send + 'static>(
         })
         .unwrap_or((false, false));
     view.update(cx, |view, cx| {
-        view.notice = None;
-        cx.notify();
+        if view.document().read(cx).generation() == generation
+            && own_notice.is_some()
+            && view.notice == own_notice
+        {
+            view.notice = None;
+            cx.notify();
+        }
     })
     .ok();
     match (result, same) {
