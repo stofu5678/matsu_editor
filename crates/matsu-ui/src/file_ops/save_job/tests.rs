@@ -847,7 +847,9 @@ fn function(
     args: &[matsu_commands::command::Arg],
 ) -> bool {
     let code = FUNCTIONS.iter().find(|f| f.name == name).unwrap().code;
-    let ok = view.update_in(cx, |view, window, cx| view.run_function(code, args, window, cx));
+    let ok = view.update_in(cx, |view, window, cx| {
+        view.run_function(code, args, window, cx)
+    });
     cx.run_until_parked();
     ok
 }
@@ -872,7 +874,11 @@ fn commands_that_change_the_document_or_a_file_are_refused_while_it_saves(cx: &m
     // PutFile to the file that the save writes
     let target = Arg::Text(path.display().to_string());
     assert!(!function(&view, cx, "F_PUTFILE", &[target, Arg::Int(4)]));
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc", "nothing wrote the file");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "abc",
+        "nothing wrote the file"
+    );
     let notice = view.read_with(cx, |view, _| view.notice.clone());
     assert_eq!(notice.as_deref(), Some("保存中は使えない（Esc で中止）"));
     // a line ending of the format, a file command
