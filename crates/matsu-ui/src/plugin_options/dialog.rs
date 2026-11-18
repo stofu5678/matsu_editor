@@ -112,13 +112,13 @@ impl OptionDialog {
     /// ReadMe: opens the file in a read-only window; says so when it cannot
     /// (`IDC_PLUGIN_README`).
     pub(crate) fn open_readme(&mut self, cx: &mut Context<Self>) {
-        let Some(file) = self.readme.clone() else {
+        let Some(file) = self.readme.as_deref() else {
             // the button is grey without a file; Sakura words this case, too
             self.message = Some(README_NOT_FOUND.to_owned());
             cx.notify();
             return;
         };
-        if super::open_readme_window(cx, &file).is_err() {
+        if super::open_readme_window(cx, file).is_err() {
             self.message = Some(README_CANNOT_OPEN.to_owned());
             cx.notify();
         }
