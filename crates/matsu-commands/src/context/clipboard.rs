@@ -448,16 +448,15 @@ impl CommandContext<'_> {
         Ok(())
     }
 
-    /// The number of rows of the document as Sakura counts them (`CLayoutMgr::GetLineCount`):
-    /// the empty row after a final line ending is no row.
+    /// The number of rows of the document (`CLayoutMgr::GetLineCount`): every row of every line.
+    /// `Document::line_count` already leaves out the empty row after a final line ending, and a
+    /// last line that wraps has several rows, so the count goes through the last row of the last line.
     fn row_count(&self) -> Result<usize> {
-        let lines = self.doc().line_count();
-        let Some(last) = lines.checked_sub(1) else {
+        let Some(last) = self.doc().line_count().checked_sub(1) else {
             return Ok(0);
         };
-        let rows = self.layout().row_index(self.doc(), Pos::new(last, 0))? + 1;
-        let empty_last = last > 0 && self.doc().line(last)?.is_none_or(|l| l.text.is_empty());
-        Ok(rows - usize::from(empty_last))
+        let end = Pos::new(last, self.doc().line_len(last)?.unwrap_or(0));
+        Ok(self.layout().row_index(self.doc(), end)? + 1)
     }
 
     /// `Command_PASTE`: pastes the clipboard text. `option` is the argument of `F_PASTE`

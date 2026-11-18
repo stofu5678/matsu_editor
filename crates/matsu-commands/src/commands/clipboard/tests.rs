@@ -245,14 +245,34 @@ fn the_line_number_width_follows_the_type() {
     assert_eq!(clip(&e), normal("     1:ab\n     2:cd\n"));
 }
 
-#[test]
-fn the_row_count_ignores_the_empty_row_after_a_final_line_ending() {
-    // 99 lines and a final line ending: the width is that of 99, not of 100 rows
-    let text = "x\n".repeat(99);
+/// The first copied row of `copy_lines_with_line_number` over the whole of `text`.
+fn first_numbered_row(text: &str) -> String {
     let mut e = Editor::new(&format!("[{text}|"));
     e.run("copy_lines_with_line_number");
-    let (copied, _) = clip(&e);
-    assert!(copied.starts_with("  1:x\n"), "{copied:?}");
+    clip(&e).0.lines().next().unwrap().to_owned()
+}
+
+#[test]
+fn the_width_changes_at_the_digit_boundaries_of_the_row_count() {
+    // `LINENUMWIDTH_MIN` is 2 digits: 99 rows still have 2, 100 have 3
+    assert_eq!(first_numbered_row(&"x\n".repeat(9)), "  1:x");
+    assert_eq!(first_numbered_row(&"x\n".repeat(10)), "  1:x");
+    assert_eq!(first_numbered_row(&"x\n".repeat(99)), "  1:x");
+    assert_eq!(first_numbered_row(&"x\n".repeat(100)), "   1:x");
+    // the empty row after a final line ending is no row ...
+    assert_eq!(
+        first_numbered_row(&format!("{}x", "x\n".repeat(98))),
+        "  1:x"
+    );
+    // ... but a blank last line is one: 99 lines and a blank one are 100 rows
+    assert_eq!(
+        first_numbered_row(&format!("{}\n", "x\n".repeat(99))),
+        "   1:x"
+    );
+    assert_eq!(
+        first_numbered_row(&format!("{}\n\n", "x\n".repeat(98))),
+        "   1:x"
+    );
 }
 
 /// A layout that wraps every line after three chars (rows "abc", "def", ...).
@@ -498,4 +518,29 @@ fn copy_drops_the_selection_with_copy_and_disable_selection() {
         let mut e = Editor::new("a|bc");
         e.run("copy").assert_marked("a|bc");
     });
+}
+
+#[test]
+fn a_last_line_that_wraps_counts_all_its_rows() {
+    // 98 lines and a last line of 3 rows are 101 rows: 3 digits
+    let text = format!("{}abcdefgh", "x\n".repeat(98));
+    let got = run_wrapped(
+        "copy_lines_with_line_number",
+        &text,
+        Pos::new(0, 0),
+        Pos::new(98, 8),
+    )
+    .unwrap();
+    assert!(got.starts_with("   1:x\n"), "{got:?}");
+    assert!(got.ends_with(" 101:gh\n"), "{got:?}");
+    // 97 lines and 3 rows are 100 ... and 96 lines are 99 rows: 2 digits
+    let text = format!("{}abcdefgh", "x\n".repeat(96));
+    let got = run_wrapped(
+        "copy_lines_with_line_number",
+        &text,
+        Pos::new(0, 0),
+        Pos::new(96, 8),
+    )
+    .unwrap();
+    assert!(got.starts_with("  1:x\n"), "{got:?}");
 }
