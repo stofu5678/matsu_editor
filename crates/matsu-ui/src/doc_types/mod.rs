@@ -89,38 +89,6 @@ impl EditorView {
         true
     }
 
-    /// `CMruListener::OnBeforeLoad`: a file that the history remembers with a type takes that
-    /// type (by its id, `GetDocumentTypeOfId`) instead of the one its name gives. The type is not
-    /// locked: a change of the settings or another name gives the type of the name again, as
-    /// `SetDocumentType( type, true )` ends the lock (`CDocType::SetDocumentType`). An id that is
-    /// no type, or the type the document has already, does nothing. Returns whether a type was
-    /// applied.
-    pub(crate) fn apply_remembered_type(&mut self, type_id: i32, cx: &mut Context<Self>) -> bool {
-        if type_id < 0 {
-            return false;
-        }
-        let current = self.prefs.settings.type_index;
-        let wanted = with_user(cx, |user| {
-            let index = user.document_types().iter().position(|t| t.id == type_id)?;
-            (index != current).then(|| (index, user.view_settings_of_type(index)))
-        });
-        let Some((index, settings)) = wanted else {
-            return false;
-        };
-        self.apply_settings(settings, cx);
-        self.document
-            .update(cx, |shared, cx| shared.announce_type(index, cx));
-        // The type changed after the load took the tab width and the spaces of the file
-        // (`apply_loaded_indentation`): the settings reset them, so take them again, with the
-        // detection that this type asks for. The other panes follow, as in `load_document`.
-        self.apply_loaded_indentation(true, cx);
-        let this = cx.entity();
-        cx.defer(move |cx| {
-            this.update(cx, |view, cx| view.copy_indent_to_other_panes(cx));
-        });
-        true
-    }
-
     /// The document got another name (Save As): gives it the type of the new name, unless the
     /// user chose a type (`CEditDoc::OnChangeSetting` calls `SetDocumentType` without force). The
     /// settings are applied only when the type changes, so a plain save keeps the zoom and the
