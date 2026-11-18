@@ -400,3 +400,40 @@ fn a_lock_that_fails_is_told_and_the_file_stays_open_unlocked(cx: &mut TestAppCo
     cx.run_until_parked();
     assert!(!cx.has_pending_prompt());
 }
+
+/// The check before a load (`CLoadAgent::OnCheckLoad`): a file this program may not read is told
+/// with `STR_LOADAGENT_ERR_OPEN` and not opened; the window stays as it was.
+#[cfg(unix)]
+#[gpui::test]
+fn a_file_that_cannot_be_read_is_told_and_not_opened(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = TempDir::new();
+    let first = dir.write("a.txt", "abc");
+    let secret = dir.write("b.txt", "secret");
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::File::open(&secret).is_ok() {
+        return; // root: the permission does not apply
+    }
+    let (view, cx) = setup(cx, 2);
+    open(&view, cx, &first);
+    open(&view, cx, &secret);
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("OK");
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(text(&view, cx), "abc");
+    assert_eq!(held(&view, cx), Some(ShareMode::DenyReadWrite));
+}
+
+/// The same file read again is checked with its own lock let go of, and the lock is back after
+/// the check whether or not the file is read.
+#[gpui::test]
+fn the_check_of_a_reread_leaves_the_lock_in_place(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, 1);
+    open(&view, cx, &path);
+    open(&view, cx, &path);
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(held(&view, cx), Some(ShareMode::DenyWrite));
+}

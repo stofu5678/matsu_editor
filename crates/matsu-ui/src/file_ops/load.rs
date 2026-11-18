@@ -221,9 +221,32 @@ async fn load_here_inner(
     let reading = path.to_owned();
     cx.update(|_, app| windows::begin_pending(app, handle, view, reading))
         .ok();
-    // The warnings of `CLoadAgent::OnCheckLoad`: a file that is not there, a file that is big. The
-    // file is pending already, so that it cannot be opened in a second window meanwhile.
-    if !crate::file_watch::open_checks::allow_open(cx, path).await {
+    // The checks of `CLoadAgent::OnCheckLoad`, in its order: a file that is not there (a message),
+    // a file that cannot be read, a file that is big. The file is pending already, so that it
+    // cannot be opened in a second window meanwhile.
+    crate::file_watch::open_checks::warn_if_missing(cx, path).await;
+    // The check for reading is made with the lock of this window on the same file let go of for
+    // the moment ("ロックは一時的に解除してチェックする": a lock that denies reading would refuse its own
+    // check) and taken again after, without the message of a failed lock (`DoFileLock(false)`).
+    // A file that is not there is not checked.
+    let released = super::lock::release_for_reading(view, cx, path);
+    let readable = !path.exists() || matsu_platform::file_lock::check_readable(path).is_ok();
+    if released {
+        super::lock::relock_quietly(view, cx);
+    }
+    let allowed = if readable {
+        crate::file_watch::open_checks::allow_size(cx, path).await
+    } else {
+        tell(
+            cx,
+            PromptLevel::Critical,
+            &crate::file_watch::open_checks::unreadable_message(path),
+            None,
+        )
+        .await;
+        false
+    };
+    if !allowed {
         cx.update(|_, app| {
             super::view_mode_request::take(app, path);
             windows::finish_pending(app, view)

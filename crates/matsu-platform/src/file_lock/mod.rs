@@ -103,6 +103,25 @@ pub fn check_writable(path: &Path) -> io::Result<()> {
     locked
 }
 
+/// Whether this program can read `path` now: the check `CLoadAgent::OnCheckLoad` makes before a
+/// load (`CFile::IsFileReadable`, `sakura_core/io/CFile.cpp`). The caller lets go of its own lock
+/// first, because a lock that denies reading would refuse its own check.
+///
+/// * Windows: the open shares reading and writing (`FILE_SHARE_READ | FILE_SHARE_WRITE`), so only
+///   a program that denies reading, or a missing permission, refuses it.
+/// * macOS and Linux: a plain open for reading; the advisory locks are not looked at (they never
+///   refuse a read).
+pub fn check_readable(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    let file = {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        File::options().read(true).share_mode(1 | 2).open(path)
+    };
+    #[cfg(not(windows))]
+    let file = File::open(path);
+    file.map(drop)
+}
+
 #[cfg(windows)]
 fn open(path: &Path, mode: ShareMode) -> io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt as _;
@@ -205,6 +224,43 @@ mod tests {
         let _lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
         assert!(File::open(&path).is_err());
         assert!(File::options().append(true).open(&path).is_err());
+    }
+
+    #[test]
+    fn a_free_file_can_be_read() {
+        let (_dir, path) = file();
+        check_readable(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc");
+    }
+
+    #[test]
+    fn a_file_that_is_not_there_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(check_readable(&dir.path().join("missing")).is_err());
+    }
+
+    /// A file without the permission to read (a program that runs as root reads it anyway).
+    #[cfg(unix)]
+    #[test]
+    fn a_file_without_read_permission_cannot_be_read() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (_dir, path) = file();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if File::open(&path).is_ok() {
+            return; // root: the permission does not apply
+        }
+        assert!(check_readable(&path).is_err());
+    }
+
+    /// The lock of another program that denies reading refuses the check on Windows only.
+    #[cfg(windows)]
+    #[test]
+    fn windows_refuses_the_check_while_another_lock_denies_reading() {
+        let (_dir, path) = file();
+        let lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
+        assert!(check_readable(&path).is_err());
+        drop(lock);
+        check_readable(&path).unwrap();
     }
 
     #[test]
