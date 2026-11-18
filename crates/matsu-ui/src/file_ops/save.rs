@@ -436,41 +436,49 @@ pub(crate) async fn save(
         .update(cx, |view, cx| {
             view.document().update(cx, |shared, _| {
                 let busy = shared.is_saving();
-                let mut paused = false;
                 if !busy {
                     shared.unlock_file();
-                    // Until the new time stamp is recorded; a pause that someone else owns stays
-                    // theirs.
-                    paused = shared.pause_watching_for_write();
+                    // Until the new time stamp is recorded; the save holds a pause of its own.
+                    shared.pause_watching_for_write();
                 }
-                (busy, paused)
+                busy
             })
         })
-        .unwrap_or((true, false));
-    let (busy, was_paused) = busy;
+        .unwrap_or(true);
     if busy {
         return SaveOutcome::Cancelled;
     }
+    // The document this save writes, whatever happens to the view that started it (a split that is
+    // removed drops that view while the document goes on in the other pane): the finish is for the
+    // document.
+    let Ok(document) = view.read_with(cx, |view, _| view.document().downgrade()) else {
+        return SaveOutcome::Cancelled;
+    };
     let to_write = options.clone();
     let on_path = path.clone();
     let write = super::save_job::run(view, cx, "保存", &path, move |snapshot, progress| {
         snapshot.write(&on_path, &to_write, progress)
     })
     .await;
-    // The document that was written is not the one in the window any more (a close that keeps the
-    // window, a close-and-open): nothing of the finish is for the replacement, whose lock and path
-    // are its own (it may be saving itself).
-    if !same_document(view, cx) {
+    // The document that was written is gone or was replaced (a close that keeps the window, a
+    // close-and-open): nothing of the finish is for the replacement, whose lock and path are its
+    // own (it may be saving itself). A document that is still there is finished in a view that
+    // shows it, the one that started the save or, if that is gone, another.
+    let finisher = cx
+        .update(|_, app| finishing_view(view, &document, generation, app))
+        .ok()
+        .flatten();
+    let Some(finisher) = finisher else {
         return SaveOutcome::Cancelled;
-    }
+    };
+    let view = &finisher;
     let written = view
         .update(cx, |view, cx| {
             let finished = view.finish_save_now(target, &options, write, cx);
-            // The new time stamp is recorded (or the save failed and the file is as it was):
-            // the watching goes on, unless someone else had it paused.
-            view.document().update(cx, |shared, _| {
-                shared.resume_watching_after_write(was_paused)
-            });
+            // The new time stamp is recorded (or the save failed and the file is as it was): the
+            // save lifts its own pause of the watching.
+            view.document()
+                .update(cx, |shared, _| shared.resume_watching_after_write());
             finished
         })
         .ok();
@@ -527,6 +535,31 @@ pub(crate) async fn save(
         }
         None => SaveOutcome::Cancelled,
     }
+}
+
+/// The view that finishes a save of `document` (the document the save began on, in `generation`): the
+/// view that started it if it still shows that document, else another view of the document. `None`
+/// when the document is gone or was replaced.
+pub(super) fn finishing_view(
+    view: &WeakEntity<EditorView>,
+    document: &gpui::WeakEntity<crate::document::SharedDocument>,
+    generation: Option<u64>,
+    app: &gpui::App,
+) -> Option<WeakEntity<EditorView>> {
+    let document = document.upgrade()?;
+    let shared = document.read(app);
+    if Some(shared.generation()) != generation {
+        return None;
+    }
+    let shows = |candidate: &WeakEntity<EditorView>| {
+        candidate
+            .upgrade()
+            .is_some_and(|v| v.read(app).document() == &document)
+    };
+    if shows(view) {
+        return Some(view.clone());
+    }
+    shared.live_views().into_iter().find(|v| shows(v))
 }
 
 /// The question before a document that was brought back overwrites a file that has changed since the copy was

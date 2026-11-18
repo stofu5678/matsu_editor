@@ -104,7 +104,7 @@ pub(crate) fn begin(
         }
         disk.delay_count = 0;
     }
-    if disk.pausing
+    if disk.is_paused()
         || !prefs.check_file_time_stamp
         || disk.mode == WatchMode::None
         || prefs.file_share_mode != 0
@@ -113,7 +113,7 @@ pub(crate) fn begin(
     }
     let stamp = disk.stamp?;
     let path = shared.path()?.to_owned();
-    shared.disk_mut().pausing = true;
+    shared.disk_mut().pause();
     Some((path, stamp))
 }
 
@@ -234,7 +234,7 @@ pub(crate) async fn run(
 /// `ResumeWatching`.
 pub(crate) fn resume(document: &WeakEntity<SharedDocument>, cx: &mut AsyncWindowContext) {
     document
-        .update(cx, |shared, _| shared.disk_mut().pausing = false)
+        .update(cx, |shared, _| shared.disk_mut().resume())
         .ok();
 }
 

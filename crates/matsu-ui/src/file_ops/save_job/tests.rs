@@ -372,7 +372,25 @@ fn a_flow_of_a_replaced_document_leaves_the_replacement_alone(cx: &mut TestAppCo
 }
 
 fn pausing(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
-    view.read_with(cx, |view, app| view.document().read(app).disk().pausing)
+    view.read_with(cx, |view, app| view.document().read(app).disk().is_paused())
+}
+
+/// Runs `f` on the document of `view`.
+fn on_document<R>(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    f: impl FnOnce(&mut SharedDocument) -> R,
+) -> R {
+    view.update(cx, |view, cx| view.document().update(cx, |shared, _| f(shared)))
+}
+
+/// Whether a check for changes by other programs could begin now (and if so, it holds its own
+/// pause, as the real one does).
+fn check_begins(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
+    let prefs = FilePrefs::default();
+    on_document(view, cx, |shared| {
+        crate::file_watch::check::begin(shared, &prefs).is_some()
+    })
 }
 
 /// The watching for changes by other programs is paused from the start of the write until the new
@@ -383,43 +401,47 @@ fn the_watching_is_paused_while_the_worker_writes(cx: &mut TestAppContext) {
     let path = dir.write("a.txt", "abc");
     let (view, cx) = setup(cx, 0);
     open(&view, cx, &path);
-    let prefs = FilePrefs::default();
-    let begin = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
-        view.update(cx, |view, cx| {
-            view.document().update(cx, |shared, _| {
-                let began = crate::file_watch::check::begin(shared, &prefs).is_some();
-                // a check that began is over for the test
-                shared.disk_mut().pausing = false;
-                began
-            })
-        })
-    };
-    assert!(begin(&view, cx), "a check begins while nothing writes");
-    let was = view.update(cx, |view, cx| {
-        view.document()
-            .update(cx, |shared, _| shared.pause_watching_for_write())
-    });
-    assert!(!was);
+    assert!(check_begins(&view, cx), "a check begins while nothing writes");
+    on_document(&view, cx, |shared| shared.disk_mut().resume());
+    on_document(&view, cx, |shared| shared.pause_watching_for_write());
     assert!(pausing(&view, cx));
-    // `begin` clears `pausing` itself in the test helper above: look without it
-    let during = view.update(cx, |view, cx| {
-        view.document().update(cx, |shared, _| {
-            crate::file_watch::check::begin(shared, &prefs).is_some()
-        })
-    });
-    assert!(!during, "no check begins while the worker writes");
-    view.update(cx, |view, cx| {
-        view.document()
-            .update(cx, |shared, _| shared.resume_watching_after_write(was))
-    });
+    assert!(!check_begins(&view, cx), "no check begins while the worker writes");
+    on_document(&view, cx, |shared| shared.resume_watching_after_write());
     assert!(!pausing(&view, cx));
-    assert!(begin(&view, cx), "and one begins again after");
     // the whole save leaves the watching as it found it, with the new time stamp
     cx.simulate_input("x");
     run(&view, cx, "F_FILESAVE");
     assert!(!pausing(&view, cx));
     let stamp = view.read_with(cx, |view, app| view.document().read(app).disk().stamp);
     assert_eq!(stamp, crate::file_watch::state::modified_time(&path));
+}
+
+/// Each pauser lifts only its own hold: a check that ends during the write does not lift the
+/// pause of the save, and a save that ends does not lift the pause of a check that is still going.
+#[gpui::test]
+fn each_pauser_lifts_only_its_own_pause(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, 0);
+    open(&view, cx, &path);
+    // the check began first, the save second; the check ends first
+    assert!(check_begins(&view, cx));
+    on_document(&view, cx, |shared| shared.pause_watching_for_write());
+    on_document(&view, cx, |shared| shared.disk_mut().resume());
+    assert!(pausing(&view, cx), "the save still holds the watching");
+    assert!(!check_begins(&view, cx));
+    on_document(&view, cx, |shared| shared.resume_watching_after_write());
+    assert!(!pausing(&view, cx));
+    // the save began first, the check second; the save ends first
+    on_document(&view, cx, |shared| shared.pause_watching_for_write());
+    on_document(&view, cx, |shared| shared.disk_mut().pause());
+    on_document(&view, cx, |shared| shared.resume_watching_after_write());
+    assert!(pausing(&view, cx), "the check still holds the watching");
+    on_document(&view, cx, |shared| shared.disk_mut().resume());
+    assert!(!pausing(&view, cx));
+    // a lift without a hold does nothing wrong
+    on_document(&view, cx, |shared| shared.disk_mut().resume());
+    assert!(!pausing(&view, cx));
 }
 
 /// A pause that someone else owns (a check that asks a question) is left as it was.
@@ -429,14 +451,60 @@ fn a_pause_of_someone_else_stays_after_the_save(cx: &mut TestAppContext) {
     let path = dir.write("a.txt", "abc");
     let (view, cx) = setup(cx, 0);
     open(&view, cx, &path);
-    view.update(cx, |view, cx| {
-        view.document()
-            .update(cx, |shared, _| shared.disk_mut().pausing = true)
-    });
+    on_document(&view, cx, |shared| shared.disk_mut().pause());
     cx.simulate_input("x");
     run(&view, cx, "F_FILESAVE");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc");
     assert!(pausing(&view, cx));
+    on_document(&view, cx, |shared| shared.disk_mut().resume());
+    assert!(!pausing(&view, cx));
+}
+
+/// The save is finished in the view that started it; when that view is gone (a split that was
+/// removed) and the document goes on in another view, in that one; a document that was replaced
+/// or is gone is not finished at all.
+#[gpui::test]
+fn the_finish_of_a_save_goes_to_a_view_of_the_document_that_was_saved(cx: &mut TestAppContext) {
+    use crate::file_ops::save::finishing_view;
+    cx.update(gpui_component::init);
+    cx.update(|app| app.set_global(FilePrefs::default()));
+    let shared = cx.new(|_| SharedDocument::empty());
+    let first = cx.new({
+        let shared = shared.clone();
+        move |cx| EditorView::new(shared, cx)
+    });
+    let second = cx.new({
+        let shared = shared.clone();
+        move |cx| EditorView::new(shared, cx)
+    });
+    let generation = Some(cx.read(|app| shared.read(app).generation()));
+    let document = shared.downgrade();
+    let pick = |cx: &mut TestAppContext, view: &WeakEntity<EditorView>, generation| {
+        cx.read(|app| finishing_view(view, &document, generation, app))
+    };
+    // the view that started the save is there
+    assert_eq!(
+        pick(cx, &first.downgrade(), generation).map(|v| v.entity_id()),
+        Some(first.entity_id())
+    );
+    // it is gone (the split was removed): the other view of the document finishes
+    let gone = first.downgrade();
+    drop(first);
+    cx.update(|_| {});
+    assert_eq!(
+        pick(cx, &gone, generation).map(|v| v.entity_id()),
+        Some(second.entity_id())
+    );
+    // the document was replaced meanwhile: nothing is finished
+    shared.update(cx, |shared, cx| {
+        shared.replace_with(SharedDocument::empty(), cx);
+    });
+    assert!(pick(cx, &second.downgrade(), generation).is_none());
+    // and when every view and the document are gone
+    drop(second);
+    drop(shared);
+    cx.update(|_| {});
+    assert!(pick(cx, &gone, generation).is_none());
 }
 
 /// The replacement document has a job of its own: the old job does not write over its progress

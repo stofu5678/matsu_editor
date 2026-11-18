@@ -669,21 +669,32 @@ impl SharedDocument {
         self.disk = DiskState {
             stamp: self.path.as_deref().and_then(state::modified_time),
             mode,
+            // the pauses of the pausers that are still going
+            pauses: self.disk.pauses,
             ..DiskState::default()
         };
     }
 
     /// A save is about to write the file: the check for changes by other programs waits
     /// (`CAutoReloadAgent::PauseWatching`), because the rename of the writer would be taken for a
-    /// change from outside. Returns whether someone else had the pause already.
-    pub(crate) fn pause_watching_for_write(&mut self) -> bool {
-        std::mem::replace(&mut self.disk.pausing, true)
+    /// change from outside. The save holds its own pause ([`DiskState::pause`]).
+    pub(crate) fn pause_watching_for_write(&mut self) {
+        self.disk.pause();
     }
 
-    /// The new time stamp is recorded, or the save failed: the watching goes on, unless someone
-    /// else had it paused (`was` of [`pause_watching_for_write`](Self::pause_watching_for_write)).
-    pub(crate) fn resume_watching_after_write(&mut self, was: bool) {
-        self.disk.pausing = was;
+    /// The new time stamp is recorded, or the save failed: the save lifts its own pause. A check
+    /// that holds the watching too keeps it.
+    pub(crate) fn resume_watching_after_write(&mut self) {
+        self.disk.resume();
+    }
+
+    /// The views that show this document and are still there.
+    pub(crate) fn live_views(&self) -> Vec<gpui::WeakEntity<crate::view::EditorView>> {
+        self.views
+            .iter()
+            .filter(|v| v.upgrade().is_some())
+            .cloned()
+            .collect()
     }
 
     /// The file on disk as this editor last saw it.
