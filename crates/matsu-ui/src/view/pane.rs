@@ -156,9 +156,14 @@ impl EditorView {
                 "the view has no window to split",
             ));
         };
+        // A macro waits until the split is done: Sakura splits at once (`CSplitterWnd::DoSplit`, which
+        // sizes the panes), so the next call of the macro runs on the panes as they are after the split,
+        // not on the sizes from before it (#91).
+        let hold = crate::macros::wait::track(cx);
         window.defer(cx, move |window, cx| {
             host.update(cx, |workspace, cx| workspace.split(kind, window, cx))
                 .ok();
+            drop(hold);
         });
         Ok(())
     }
