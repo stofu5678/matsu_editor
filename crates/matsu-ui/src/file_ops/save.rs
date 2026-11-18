@@ -181,15 +181,15 @@ pub(crate) async fn save(
     }
     // The cancel of the whole flow: Esc, from here to the end of the save, whatever phase it is in
     // (`save_job`). The flow owns the flag; the document only watches it, so it is gone from there
-    // when this function ends, on any path. One save flow at a time.
+    // when this function ends, on any path.
     let flow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let began = view
+    if view
         .update(cx, |view, cx| {
             view.document()
                 .update(cx, |shared, _| shared.begin_save_flow(&flow))
         })
-        .unwrap_or(false);
-    if !began {
+        .is_err()
+    {
         return SaveOutcome::Cancelled;
     }
     let generation = view

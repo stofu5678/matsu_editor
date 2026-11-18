@@ -145,7 +145,7 @@ pub struct SharedDocument {
     /// the hooks, the write): Esc sets it, and every phase looks at it before it starts, so that a
     /// cancel is not lost in the gaps between the jobs. The flow owns the flag; this only watches,
     /// so a flow that ended is gone from here.
-    save_flow: std::sync::Weak<std::sync::atomic::AtomicBool>,
+    save_flows: Vec<std::sync::Weak<std::sync::atomic::AtomicBool>>,
     /// The number of an untitled document (`EditNode::m_nId`), shown as `(無題)2` in the lists
     /// and as `$n` in the titles. See [`number_untitled`](Self::number_untitled).
     untitled_number: Option<u32>,
@@ -244,7 +244,7 @@ impl SharedDocument {
             disk: DiskState::default(),
             lock: FileLockState::default(),
             saving: None,
-            save_flow: std::sync::Weak::new(),
+            save_flows: Vec::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -396,7 +396,7 @@ impl SharedDocument {
             disk,
             lock: FileLockState::default(),
             saving: None,
-            save_flow: std::sync::Weak::new(),
+            save_flows: Vec::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -637,28 +637,22 @@ impl SharedDocument {
         }
     }
 
-    /// A save flow begins on this document. `false` when another one runs already (one save at a
-    /// time: the second is refused at its entry).
-    pub(crate) fn begin_save_flow(
-        &mut self,
-        flag: &std::sync::Arc<std::sync::atomic::AtomicBool>,
-    ) -> bool {
-        if self.save_flow.strong_count() > 0 {
-            return false;
-        }
-        self.save_flow = std::sync::Arc::downgrade(flag);
-        true
+    /// A save flow begins on this document. (A second one may begin while the first waits at a
+    /// question: each has its own flag, and Esc stops them all.)
+    pub(crate) fn begin_save_flow(&mut self, flag: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        self.save_flows.retain(|f| f.strong_count() > 0);
+        self.save_flows.push(std::sync::Arc::downgrade(flag));
     }
 
     /// Whether a save flow runs on this document, in whatever phase it is.
     pub(crate) fn is_in_save_flow(&self) -> bool {
-        self.save_flow.strong_count() > 0
+        self.save_flows.iter().any(|f| f.strong_count() > 0)
     }
 
-    /// Esc: stops the save, whatever phase it is in. The flag of the flow is set (every phase looks
-    /// at it before it starts), and the job that runs now is stopped too.
+    /// Esc: stops the save, whatever phase it is in. The flag of each flow is set (every phase
+    /// looks at it before it starts), and the job that runs now is stopped too.
     pub(crate) fn cancel_saving(&self) {
-        if let Some(flag) = self.save_flow.upgrade() {
+        for flag in self.save_flows.iter().filter_map(std::sync::Weak::upgrade) {
             flag.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if let Some(job) = &self.saving {
