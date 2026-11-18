@@ -462,8 +462,7 @@ fn a_grep_launch_tells_editor_start_and_document_open_after_the_search(cx: &mut 
 #[gpui::test]
 fn a_grep_to_the_standard_output_ends_after_the_events_of_the_start(cx: &mut TestAppContext) {
     use matsu_platform::instance::Request;
-    let Some((place, _files)) = begin(cx, &[("EditorStart", "console.log('[EditorStart]');")])
-    else {
+    let Some((place, _files)) = begin(cx, &[]) else {
         eprintln!("{SKIP}");
         return;
     };
@@ -496,7 +495,11 @@ fn a_grep_to_the_standard_output_ends_after_the_events_of_the_start(cx: &mut Tes
         .unwrap();
     let view = cx.update(|app| editors(app).pop().map(|(_, v)| v)).unwrap();
     wait(cx, "the process did not end", |_| quits() > before);
-    // The plugins were told before the process ended, not skipped by it.
-    assert_eq!(told(&view, cx), ["EditorStart", "DocumentOpen"]);
+    // The plugins were told before the process ended, not skipped by it: the events of the start, and
+    // the close that Sakura sends with `MYWM_CLOSE`.
+    assert_eq!(
+        told(&view, cx),
+        ["EditorStart", "DocumentOpen", "DocumentClose", "EditorEnd"]
+    );
     finish(cx);
 }

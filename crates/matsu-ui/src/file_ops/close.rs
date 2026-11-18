@@ -644,20 +644,7 @@ async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
             }
             // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
             // (`MYWM_CLOSE` of each editor).
-            let windows = cx
-                .update(|_, app| {
-                    super::windows::workspaces(app)
-                        .into_iter()
-                        .map(|(_, ws)| {
-                            ws.read(app)
-                                .tab_editors()
-                                .iter()
-                                .map(Entity::downgrade)
-                                .collect::<Vec<_>>()
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+            let windows = cx.update(|_, app| tabs_of_windows(app)).unwrap_or_default();
             let edited = crate::plugin_events::windows_closing(&windows, &mut log, cx).await;
             // The plugins took time: a window that opened, or a document that the user changed meanwhile,
             // is asked about again. What the plugins wrote does not count.
@@ -705,10 +692,31 @@ pub(crate) fn quit(cx: &mut App) {
     }
 }
 
-/// Ends the application without a question (`PM_CLOSE_GREPNOCONFIRM | PM_CLOSE_EXIT`, which the
-/// Grep to the standard output uses when it is done).
-pub(crate) fn quit_at_once(app: &mut App) {
-    quit_application(app);
+/// The tabs of every window, one list per window.
+fn tabs_of_windows(app: &mut App) -> Vec<Vec<WeakEntity<EditorView>>> {
+    super::windows::workspaces(app)
+        .into_iter()
+        .map(|(_, ws)| {
+            ws.read(app)
+                .tab_editors()
+                .iter()
+                .map(Entity::downgrade)
+                .collect()
+        })
+        .collect()
+}
+
+/// Ends the application without a question when the Grep to the standard output is done
+/// (`PM_CLOSE_GREPNOCONFIRM | PM_CLOSE_EXIT`). Sakura closes the window with `MYWM_CLOSE`, which sends
+/// the plugins `DocumentClose` and `EditorEnd` (`CEditWnd::DispatchEvent`, `CNormalProcess`): they are
+/// sent here too, and then the process ends. Like the other closes, the wait for the plugins is the
+/// one of the calls themselves; what the user changed meanwhile does not stop the end (nothing is
+/// asked in this mode).
+pub(crate) async fn quit_after_close_events(cx: &mut AsyncWindowContext) {
+    let windows = cx.update(|_, app| tabs_of_windows(app)).unwrap_or_default();
+    let mut log = crate::plugin_events::CloseLog::default();
+    crate::plugin_events::windows_closing(&windows, &mut log, cx).await;
+    cx.update(|_, app| quit_application(app)).ok();
 }
 
 /// The end of the application. The tests of the platform do not end, so they count the calls instead.
