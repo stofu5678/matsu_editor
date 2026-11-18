@@ -373,9 +373,9 @@ impl SaveSnapshot {
     }
 
     /// Whether the document has line endings of more than one kind
-    /// ([`TextFile::has_mixed_line_endings`]).
-    pub fn has_mixed_line_endings(&self) -> Result<bool> {
-        mixed_line_endings(&self.document, self.source_encoding)
+    /// ([`TextFile::has_mixed_line_endings`]); `progress` may stop it ([`FileError::Cancelled`]).
+    pub fn has_mixed_line_endings(&self, progress: Progress<'_>) -> Result<bool> {
+        mixed_line_endings(&self.document, self.source_encoding, progress)
     }
 
     /// Writes the file, and makes the document over it for a file read by ranges when that can be
@@ -419,14 +419,18 @@ impl TextFile {
     /// `sakura_core/env/CCodeChecker.cpp`). Sakura asks "unify the line endings?" when this is true
     /// and the save does not convert them. It compares every line ending with the first line's.
     pub fn has_mixed_line_endings(&self) -> Result<bool> {
-        mixed_line_endings(&self.document, self.source_encoding())
+        mixed_line_endings(&self.document, self.source_encoding(), &mut no_progress)
     }
 }
 
-fn mixed_line_endings(document: &Document, source: Encoding) -> Result<bool> {
+fn mixed_line_endings(
+    document: &Document,
+    source: Encoding,
+    progress: Progress<'_>,
+) -> Result<bool> {
     let mut first = None;
     let mut mixed = false;
-    walk_events(document, source, 0, &mut no_progress, &mut |event| {
+    walk_events(document, source, 0, progress, &mut |event| {
         if let Event::Eol(eol) = event
             && !mixed
         {

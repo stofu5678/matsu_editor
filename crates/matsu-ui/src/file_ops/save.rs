@@ -170,6 +170,15 @@ pub(crate) async fn save(
     cx: &mut AsyncWindowContext,
     request: SaveRequest,
 ) -> SaveOutcome {
+    // A save that runs on another thread (`save_job`) is the only one: a second one must not
+    // reach the target check, which would take the lock of the file back from the first one's
+    // write (Windows), nor ask anything. Nothing is said: the first save is on the status bar.
+    if view
+        .read_with(cx, |view, app| view.document().read(app).is_saving())
+        .unwrap_or(false)
+    {
+        return SaveOutcome::Cancelled;
+    }
     let generation = view
         .read_with(cx, |view, app| view.document().read(app).generation())
         .ok();
@@ -609,8 +618,8 @@ async fn confirm_content(
         .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
         .unwrap_or(true);
     if request.ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
-        let mixed = super::save_job::run(view, cx, "検査", path, |snapshot, _| {
-            snapshot.has_mixed_line_endings()
+        let mixed = super::save_job::run(view, cx, "検査", path, |snapshot, progress| {
+            snapshot.has_mixed_line_endings(progress)
         })
         .await;
         match mixed.map_err(|e| (!matches!(e, FileError::Cancelled)).then_some(e)) {

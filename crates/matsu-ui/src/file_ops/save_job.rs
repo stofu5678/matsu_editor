@@ -11,9 +11,11 @@
 //!
 //! Who owns what:
 //!
-//! * [`SaveJob`] is the owner of a running job and lives in the flow that started it. Dropping it
-//!   (the flow ends, or its window closes) stops the thread at its next report of progress, which
-//!   removes the temporary file.
+//! * [`SaveJob`] is the owner of a running job and lives in the view that started it
+//!   (`EditorView::save_job`). Dropping it (the job ends, or the tab or the window is closed, which
+//!   drops the view) stops the thread at its next report of progress, which removes the temporary
+//!   file; the thread asks before it replaces the file, so a document that was closed without
+//!   saving does not get its file written afterwards.
 //! * The document holds only a `Weak` of the job's state ([`JobState`]): while the job lives the
 //!   document is "saving" and edits are refused, because the file gets the text the job started
 //!   with. A document that is not saving never looks at the state.
@@ -74,6 +76,11 @@ pub(crate) struct SaveJob(Arc<JobState>);
 impl SaveJob {
     pub fn new() -> Self {
         Self(Arc::default())
+    }
+
+    /// The state the thread and the window share.
+    fn state(&self) -> Arc<JobState> {
+        self.0.clone()
     }
 
     /// What the document keeps to know it is saving.
@@ -145,14 +152,24 @@ pub(crate) async fn run<T: Send + 'static>(
     if !big {
         return work(&snapshot, &mut |_, _| ControlFlow::Continue(()));
     }
-    let state = job.0.clone();
-    let task = cx.background_executor().spawn(async move {
-        let result = work(&snapshot, &mut |done, total| state.report(done, total));
-        state.finished.store(true, Ordering::Release);
-        result
+    let state = job.state();
+    // The view owns the job from here: when the view is gone the job is dropped and the thread
+    // stops. (The state is shared with this flow for the progress.)
+    if view
+        .update(cx, |view, _| view.save_job = Some(job))
+        .is_err()
+    {
+        return Err(FileError::Cancelled);
+    }
+    let task = cx.background_executor().spawn({
+        let state = state.clone();
+        async move {
+            let result = work(&snapshot, &mut |done, total| state.report(done, total));
+            state.finished.store(true, Ordering::Release);
+            result
+        }
     });
     let timer = cx.background_executor().clone();
-    let state = job.0.clone();
     while !state.finished.load(Ordering::Acquire) {
         timer.timer(Duration::from_millis(100)).await;
         let text = progress_text(
@@ -161,19 +178,27 @@ pub(crate) async fn run<T: Send + 'static>(
             state.done.load(Ordering::Relaxed),
             state.total.load(Ordering::Relaxed),
         );
-        view.update(cx, |view, cx| {
+        let shown = view.update(cx, |view, cx| {
             view.notice = Some(text);
             cx.notify();
-        })
-        .ok();
+        });
+        if shown.is_err() {
+            // The view is gone: its job was dropped with it, which asked the thread to stop.
+            state.cancel();
+            return Err(FileError::Cancelled);
+        }
     }
     let result = task.await;
     // The edits were refused meanwhile; if the text changed anyway (a way in that does not ask), the
     // file does not have it, and whoever goes on must not take the document for what was written.
-    let changed = view
-        .read_with(cx, |view, app| view.document().read(app).version())
-        .map_or(true, |now| now != version);
+    let Ok(changed) = view.read_with(cx, |view, app| {
+        view.document().read(app).version() != version
+    }) else {
+        return Err(FileError::Cancelled);
+    };
     view.update(cx, |view, cx| {
+        // The job is over: the view lets go of it, and the document is not saving any more.
+        view.save_job = None;
         view.notice = None;
         cx.notify();
     })

@@ -144,6 +144,10 @@ fn a_save_that_runs_on_another_thread_writes_the_file(cx: &mut TestAppContext) {
     assert!(!cx.has_pending_prompt());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc\r\ndef\r\n");
     assert!(!is_saving(&view, cx));
+    assert!(
+        view.read_with(cx, |view, _| view.save_job.is_none()),
+        "the view lets go of the job when it is over"
+    );
     let (modified, notice) = view.read_with(cx, |view, app| {
         (
             view.document().read(app).model().is_modified(),
@@ -183,4 +187,44 @@ fn the_check_before_the_save_runs_on_another_thread_too(cx: &mut TestAppContext)
     settle(cx);
     assert!(!is_saving(&view, cx));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc");
+}
+
+#[gpui::test]
+fn the_view_owns_the_job_and_closing_it_stops_the_thread(cx: &mut TestAppContext) {
+    // A tab or a window that is closed drops its view, and the view its job: the thread must stop
+    // before it replaces the file (the file of a document that was closed without saving).
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    open(&view, cx, &path);
+    let job = SaveJob::new();
+    let state = job.state();
+    view.update(cx, |view, _| view.save_job = Some(job));
+    assert!(state.report(0, 1).is_continue());
+    // dropping the view's hold on the job is what dropping the view does
+    view.update(cx, |view, _| view.save_job = None);
+    assert!(state.report(0, 1).is_break());
+}
+
+#[gpui::test]
+fn a_second_save_while_one_runs_is_refused_before_anything_is_touched(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    open(&view, cx, &path);
+    cx.simulate_input("x");
+    let job = SaveJob::new();
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.begin_saving(job.watch()))
+    });
+    run(&view, cx, "F_FILESAVE");
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc", "not written");
+    let modified = view.read_with(cx, |view, app| view.document().read(app).model().is_modified());
+    assert!(modified);
+    drop(job);
+    // and when the first is over, a save works
+    run(&view, cx, "F_FILESAVE");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc");
 }

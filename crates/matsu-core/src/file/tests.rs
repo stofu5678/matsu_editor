@@ -1047,6 +1047,19 @@ fn a_write_that_is_stopped_leaves_the_target_and_the_folder_as_they_were() {
     assert_eq!(dir.names(), ["a.txt"], "no temporary file");
 }
 
+#[test]
+fn the_scan_for_mixed_line_endings_can_be_stopped() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\r\nb\nc\r\n");
+    let file = open_file(&path, &OpenOptions::default()).unwrap();
+    let snapshot = file.save_snapshot().unwrap();
+    assert!(snapshot.has_mixed_line_endings(&mut no_progress).unwrap());
+    let error = snapshot
+        .has_mixed_line_endings(&mut |_, _| ControlFlow::Break(()))
+        .unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
+}
+
 // ---- speed ----
 
 /// Run with `cargo test -p matsu-core --release -- --ignored --nocapture file::tests::large`.
