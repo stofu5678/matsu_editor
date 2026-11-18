@@ -381,7 +381,9 @@ fn on_document<R>(
     cx: &mut VisualTestContext,
     f: impl FnOnce(&mut SharedDocument) -> R,
 ) -> R {
-    view.update(cx, |view, cx| view.document().update(cx, |shared, _| f(shared)))
+    view.update(cx, |view, cx| {
+        view.document().update(cx, |shared, _| f(shared))
+    })
 }
 
 /// Whether a check for changes by other programs could begin now (and if so, it holds its own
@@ -401,11 +403,17 @@ fn the_watching_is_paused_while_the_worker_writes(cx: &mut TestAppContext) {
     let path = dir.write("a.txt", "abc");
     let (view, cx) = setup(cx, 0);
     open(&view, cx, &path);
-    assert!(check_begins(&view, cx), "a check begins while nothing writes");
+    assert!(
+        check_begins(&view, cx),
+        "a check begins while nothing writes"
+    );
     on_document(&view, cx, |shared| shared.disk_mut().resume());
     on_document(&view, cx, |shared| shared.pause_watching_for_write());
     assert!(pausing(&view, cx));
-    assert!(!check_begins(&view, cx), "no check begins while the worker writes");
+    assert!(
+        !check_begins(&view, cx),
+        "no check begins while the worker writes"
+    );
     on_document(&view, cx, |shared| shared.resume_watching_after_write());
     assert!(!pausing(&view, cx));
     // the whole save leaves the watching as it found it, with the new time stamp
