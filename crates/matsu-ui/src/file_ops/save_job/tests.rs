@@ -839,3 +839,84 @@ fn a_guard_leaves_a_replaced_document_alone(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(pausing(&view, cx), "the hold of the replacement stays");
 }
+
+fn function(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    name: &str,
+    args: &[matsu_commands::command::Arg],
+) -> bool {
+    let code = FUNCTIONS.iter().find(|f| f.name == name).unwrap().code;
+    let ok = view.update_in(cx, |view, window, cx| view.run_function(code, args, window, cx));
+    cx.run_until_parked();
+    ok
+}
+
+/// One rule for every command: while the document saves, those that change the text, the format
+/// or a file are refused with a message; those that only read go on. The save is not harmed: the
+/// document is what it was when the job began and is saved at the end.
+#[gpui::test]
+fn commands_that_change_the_document_or_a_file_are_refused_while_it_saves(cx: &mut TestAppContext) {
+    use matsu_commands::command::Arg;
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    open(&view, cx, &path);
+    let before = view.read_with(cx, |view, app| {
+        let shared = view.document().read(app);
+        (shared.version(), shared.file().encoding, shared.file().bom)
+    });
+    let state = begin(&view, cx);
+    // the encoding (also from the status bar: the same function)
+    assert!(!function(&view, cx, "F_CHG_CHARSET", &[Arg::Int(3)]));
+    // PutFile to the file that the save writes
+    let target = Arg::Text(path.display().to_string());
+    assert!(!function(&view, cx, "F_PUTFILE", &[target, Arg::Int(4)]));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc", "nothing wrote the file");
+    let notice = view.read_with(cx, |view, _| view.notice.clone());
+    assert_eq!(notice.as_deref(), Some("保存中は使えない（Esc で中止）"));
+    // a line ending of the format, a file command
+    assert!(!function(&view, cx, "F_CHGMOD_EOL_CRLF", &[]));
+    assert!(!function(&view, cx, "F_FILE_REOPEN", &[]));
+    // nothing of the document changed (version, encoding, BOM): the save would have been rejected
+    let after = view.read_with(cx, |view, app| {
+        let shared = view.document().read(app);
+        (shared.version(), shared.file().encoding, shared.file().bom)
+    });
+    assert_eq!(before, after);
+    // a command that only reads goes on
+    assert!(function(&view, cx, "F_RIGHT", &[]));
+    let caret = view.read_with(cx, |view, _| view.cursor.caret());
+    assert_eq!(caret.col, 1, "the caret moved");
+    // when the save is over the refused ones work again
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.end_saving(&state))
+    });
+    assert!(function(&view, cx, "F_CHG_CHARSET", &[Arg::Int(3)]));
+}
+
+#[test]
+fn the_groups_that_write_are_told_from_their_source_files() {
+    use crate::view::changes_the_document_or_its_file as writes;
+    for source in [
+        "crates/matsu-ui/src/ui_commands/file/file_save.rs",
+        "crates/matsu-ui/src/ui_commands/mode/chg_charset.rs",
+        "crates/matsu-commands/src/commands/mode/chgmod_eol_lf.rs",
+        "crates/matsu-ui/src/ui_commands/macro_only/putfile.rs",
+        "crates/matsu-ui/src/ui_commands/settings/changetype.rs",
+        r"crates\matsu-ui\src\ui_commands\file\file_open.rs",
+    ] {
+        assert!(writes(source), "{source}");
+    }
+    for source in [
+        "crates/matsu-commands/src/commands/cursor/right.rs",
+        "crates/matsu-ui/src/ui_commands/search/search_next.rs",
+        "crates/matsu-ui/src/ui_commands/clipboard/copy.rs",
+        "crates/matsu-ui/src/ui_commands/macro_only/statusmsg.rs",
+        "crates/matsu-ui/src/ui_commands/settings/show_status_bar.rs",
+        "somewhere/else.rs",
+    ] {
+        assert!(!writes(source), "{source}");
+    }
+}

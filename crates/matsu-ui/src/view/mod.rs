@@ -543,6 +543,9 @@ impl EditorView {
         args: &[Arg],
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.refuse_while_saving(reg.source, cx) {
+            return false;
+        }
         // Any function but F_AUTOSCROLL ends the auto scroll (`CViewCommander::HandleCommand`).
         self.autoscroll_exit();
         // What the user does is not part of the undo step of a smart indent that runs.
@@ -645,6 +648,9 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.refuse_while_saving(reg.source, cx) {
+            return false;
+        }
         if reg.sakura != "F_AUTOSCROLL" {
             self.autoscroll_exit();
         }
@@ -669,6 +675,24 @@ impl EditorView {
         self.say_why_refused(cx);
         cx.notify();
         ok
+    }
+
+    /// The one rule of "not while this document saves" for commands (`file_ops::save_job`): the file
+    /// gets the text a save began with, so what the save writes must not change, and no other
+    /// command may write that file. Every command that runs, from a key, a menu, the status bar or
+    /// a macro, passes the two runners that call this. Text edits are refused in `run_with` (the
+    /// context is in view mode); here the commands that do not edit through it are: those of the
+    /// groups `file` (open, close, reopen, save, print) and `mode` (the encoding, the BOM, the line
+    /// ending), and `PutFile`, `InsFile`, `FileOpen2` and the change of the type. The ones that
+    /// only read (moving, selecting, copying, searching) go on. Returns whether `source`, the file
+    /// that registered the command, is refused; the status bar says so.
+    fn refuse_while_saving(&mut self, source: &str, cx: &mut Context<Self>) -> bool {
+        if !self.document.read(cx).is_saving() || !changes_the_document_or_its_file(source) {
+            return false;
+        }
+        self.notice = Some("保存中は使えない（Esc で中止）".to_owned());
+        cx.notify();
+        true
     }
 
     /// Shows the message boxes that commands asked for: the caption, the text and an OK button.
@@ -1348,4 +1372,26 @@ fn local_time_of(stamp: std::time::SystemTime) -> matsu_commands::convert::datet
         minute: t.minute(),
         second: t.second(),
     }
+}
+
+/// Whether the command registered by `source` (its `file!()`) changes the document, its format or
+/// a file, outside the context of text edits (see `EditorView::refuse_while_saving`).
+pub(crate) fn changes_the_document_or_its_file(source: &str) -> bool {
+    let source = source.replace('\\', "/");
+    let Some((_, tail)) = source
+        .rsplit_once("/ui_commands/")
+        .or_else(|| source.rsplit_once("/commands/"))
+    else {
+        return false;
+    };
+    let mut parts = tail.split('/');
+    let (Some(group), Some(file)) = (parts.next(), parts.next()) else {
+        return false;
+    };
+    let file = file.trim_end_matches(".rs");
+    matches!(group, "file" | "mode")
+        || matches!(
+            (group, file),
+            ("macro_only", "putfile" | "insfile" | "fileopen2") | ("settings", "changetype")
+        )
 }
