@@ -54,8 +54,8 @@
 //! block index, not the whole text; while its scan is still running the snapshot has only the
 //! scanned start, so the file behind it is read in order instead ([`WindowSource::scanning`]).
 //!
-//! Differences from Sakura: `GetLongFileName` is not applied to the folders; the output to the
-//! standard output (`-GOPT=S`) is not here; a Grep 置換 of the text of a window is refused
+//! Differences from Sakura: the output to the standard output (`-GOPT=U`) is in [`super::stdout`];
+//! a Grep 置換 of the text of a window is refused
 //! (Sakura only searches, and then says that it replaced). A window that is gone is told in the
 //! result, as Sakura does (`GetHwndTitle` is -1 in `DoGrep`: "HWND handle error." follows the
 //! conditions of the heading and nothing else is written).
@@ -80,7 +80,7 @@ use matsu_regex::{
     PatternError, RegexMatcher, RegexReplacer, RegexSearchOptions, ReplacementError,
 };
 
-use super::enumerate::{Walker, join_path};
+use super::enumerate::{Walker, base_prefix_len, join_path};
 use super::format::{
     self, Body, EOL, FilePaths, HeaderConditions, Layout, LineType, OutputStyle, PathInfoState,
 };
@@ -262,6 +262,19 @@ pub fn chop_yen(folder: &str) -> String {
     folder.to_owned()
 }
 
+/// [`chop_yen`] for a folder that `GetLongFileName` made absolute: a drive root stays `C:\`.
+/// `C:` alone is the current folder of that drive, so the walk would canonicalize it to another
+/// folder (searching `..` from `C:\work` would skip the real `C:\work` as a cycle). A UNC root
+/// (`\\server\share\`) is the same path without its last separator, so it is chopped as usual.
+pub(super) fn chop_yen_keeping_root(folder: &str) -> String {
+    let chopped = chop_yen(folder);
+    let mut chars = chopped.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(drive), Some(':'), None) if drive.is_ascii_alphabetic() => format!("{chopped}\\"),
+        _ => chopped,
+    }
+}
+
 /// Stopped by the user.
 struct Stopped;
 
@@ -407,9 +420,18 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     let folders = if info.window.is_some() || info.window_gone {
         Vec::new()
     } else {
+        // `CreateFolders`: each folder in its long form (`GetLongFileName`; only Windows has one).
         split_folders(&info.folder)
+            .into_iter()
+            .map(
+                |folder| match matsu_platform::long_path::long_path(&folder) {
+                    Some(long) => (long, true),
+                    None => (folder, false),
+                },
+            )
+            .collect::<Vec<_>>()
     };
-    if !folders.iter().all(|folder| Path::new(folder).is_dir()) {
+    if !folders.iter().all(|(folder, _)| Path::new(folder).is_dir()) {
         return Err(GrepError::FolderMissing);
     }
     Ok(Prepared {
@@ -417,7 +439,16 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
         replacer,
         keys,
         regexes,
-        folders: folders.iter().map(|f| chop_yen(f)).collect(),
+        folders: folders
+            .iter()
+            .map(|(folder, expanded)| {
+                if *expanded {
+                    chop_yen_keeping_root(folder)
+                } else {
+                    chop_yen(folder)
+                }
+            })
+            .collect(),
     })
 }
 
@@ -445,11 +476,14 @@ pub fn run(
         folders: shown_folders,
     } = prepare(info)?;
 
+    // The exclusions are compared with the paths of the walk, which are in the long form.
+    let mut walk_keys = keys.clone();
+    walk_keys.expand_absolute(&matsu_platform::long_path::long_path);
     let mut runner = Runner {
         info,
         matcher,
         replacer,
-        walker: Walker::new(keys.clone(), regexes),
+        walker: Walker::new(walk_keys, regexes),
         cancel,
         sink,
         hits: 0,
@@ -586,7 +620,7 @@ impl Runner<'_> {
             }
             // `nBasePathLen2`: the folder below the base, without the separator after the base.
             let below_base = path
-                .get(base.len() + 1..)
+                .get(base_prefix_len(base)..)
                 .or_else(|| path.get(base.len()..))
                 .unwrap_or("");
             let layout = self.info.layout;
@@ -598,7 +632,7 @@ impl Runner<'_> {
             let relative = if layout.separate_folder {
                 name.as_str()
             } else {
-                full.get(base.len() + 1..).unwrap_or(&full)
+                full.get(base_prefix_len(base)..).unwrap_or(&full)
             };
             let paths = FilePaths {
                 full: &full,

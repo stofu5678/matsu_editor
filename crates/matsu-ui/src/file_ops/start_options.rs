@@ -21,12 +21,13 @@
 //!   mode of the options (`SetDocumentTypeWhenCreate`): the encoding of the type if `-CODE=` is
 //!   the one the type has, else `-CODE=` with the default BOM and CR LF.
 //! * `-GREPMODE` opens a window for a Grep and runs it with the conditions of the options
-//!   (`CGrepAgent::DoGrep`); `-GREPDLG` opens the Grep dialog with them instead.
+//!   (`CGrepAgent::DoGrep`); `-GREPDLG` opens the Grep dialog with them instead. With `-GOPT=U` the
+//!   result goes to the standard output and the application ends ([`crate::grep::stdout`]).
 //!
 //! The options that have nothing to do in MATSU Editor are read and dropped: `-NOWIN` (MATSU Editor has
 //! no process in the tray: the launch opens its window as any launch does), `-GROUP=` (the groups
 //! of the tabs are not numbered), `-DEBUGMODE` (no output window for `OutputDebugString`),
-//! `-PROFMGR` (no profile manager), and from `-GOPT=` the letters `U` (the standard output), `H`
+//! `-PROFMGR` (no profile manager), and from `-GOPT=` the letters `H`
 //! (no heading; the engine always writes it) and `X` (MATSU Editor does not change its current
 //! folder).
 
@@ -274,6 +275,34 @@ impl LaunchOptions {
         }
     }
 
+    /// The type of `-TYPE=` and the encoding of `-CODE=` for the new document of the window
+    /// (`SetDocumentTypeWhenCreate`): the encoding of the type if `-CODE=` is the one the type has,
+    /// else `-CODE=` with the default BOM and CR LF.
+    fn apply_type_and_encoding(&self, view: &mut EditorView, cx: &mut Context<EditorView>) {
+        let forced = self
+            .doc_type
+            .as_deref()
+            .map(|ext| view.apply_launch_type(ext, cx));
+        if let Some(encoding) = self.file.encoding {
+            let index = forced.unwrap_or(view.prefs.settings.type_index);
+            let defaults =
+                crate::doc_types::with_user(cx, |user| user.new_document_defaults_of_type(index));
+            let defaults = if encoding == defaults.encoding {
+                defaults
+            } else {
+                NewDocumentDefaults {
+                    encoding,
+                    bom: encoding.bom_default_on(),
+                    eol: Eol::CrLf,
+                    mime_decode: defaults.mime_decode,
+                    prefer_cesu8: defaults.prefer_cesu8,
+                }
+            };
+            view.document()
+                .update(cx, |shared, _| shared.set_new_document_defaults(&defaults));
+        }
+    }
+
     /// The document of a launch without a file, when its window is open. `-TYPE=` and `-CODE=`
     /// (`SetDocumentTypeWhenCreate`), `-R`, and then the macro.
     pub(crate) fn start_untitled(
@@ -283,29 +312,7 @@ impl LaunchOptions {
         cx: &mut App,
     ) {
         view.update(cx, |view, cx| {
-            let forced = self
-                .doc_type
-                .as_deref()
-                .map(|ext| view.apply_launch_type(ext, cx));
-            if let Some(encoding) = self.file.encoding {
-                let index = forced.unwrap_or(view.prefs.settings.type_index);
-                let defaults = crate::doc_types::with_user(cx, |user| {
-                    user.new_document_defaults_of_type(index)
-                });
-                let defaults = if encoding == defaults.encoding {
-                    defaults
-                } else {
-                    NewDocumentDefaults {
-                        encoding,
-                        bom: encoding.bom_default_on(),
-                        eol: Eol::CrLf,
-                        mime_decode: defaults.mime_decode,
-                        prefer_cesu8: defaults.prefer_cesu8,
-                    }
-                };
-                view.document()
-                    .update(cx, |shared, _| shared.set_new_document_defaults(&defaults));
-            }
+            self.apply_type_and_encoding(view, cx);
             if self.file.view_mode {
                 view.document()
                     .update(cx, |shared, cx| shared.set_view_mode(true, cx));
@@ -332,6 +339,13 @@ impl LaunchOptions {
         self.grep.as_ref().is_some_and(|grep| !grep.dialog)
     }
 
+    /// `-GREPMODE` with `-GOPT=U`: the Grep writes to the standard output and the application ends.
+    fn greps_to_stdout(&self) -> bool {
+        self.grep
+            .as_ref()
+            .is_some_and(|grep| !grep.dialog && grep.args.stdout)
+    }
+
     /// `CNormalProcess`: after the Grep come `EditorStart` and `DocumentOpen` (the window was made with its
     /// `EditorStart` deferred, see [`defer_editor_start`]). A search that cannot start is over at once.
     pub(crate) fn events_after_grep(
@@ -341,11 +355,16 @@ impl LaunchOptions {
         cx: &mut App,
     ) {
         let weak = view.downgrade();
+        // `-GOPT=U`: the window closes after the events (`CNormalProcess` posts the close after them).
+        let quits = self.greps_to_stdout();
         handle
             .update(cx, |_, window, app| {
                 window
                     .spawn(app, async move |cx| {
                         crate::plugin_events::start_after_grep(&weak, cx).await;
+                        if quits {
+                            cx.update(|_, app| super::close::quit_at_once(app)).ok();
+                        }
                     })
                     .detach();
             })
@@ -413,14 +432,32 @@ impl LaunchOptions {
                 view.notice = Some(crate::grep::panel::NO_CLIPBOARD.to_owned());
                 cx.notify();
             });
+            if grep.args.stdout {
+                // A batch reads the standard output: the reason goes there, as the other mistakes of
+                // `-GOPT=U` do. The window ends after its events. `-CODE=` and `-TYPE=` count here too.
+                view.update(cx, |view, cx| self.apply_type_and_encoding(view, cx));
+                crate::grep::stdout::write_message(
+                    view.read(cx).document().read(cx).file().encoding,
+                    crate::grep::panel::NO_CLIPBOARD,
+                );
+            }
             return;
         }
         let info = grep_info(&grep.args, &self.cwd, clipboard.as_deref());
+        let stdout = grep.args.stdout;
         handle
             .update(cx, |_, window, cx| {
                 view.update(cx, |view, cx| {
-                    // `DoGrep` is called directly: no `Command_GREP`, so no type change.
-                    view.start_grep_in(info, false, false, window, cx);
+                    if stdout {
+                        // `-GOPT=U`: no result in the window; the application ends after the search.
+                        // The output is in the encoding of its document, which `-CODE=` and
+                        // `-TYPE=` give as they do to the new document of any launch.
+                        self.apply_type_and_encoding(view, cx);
+                        view.start_grep_stdout(info, cx);
+                    } else {
+                        // `DoGrep` is called directly: no `Command_GREP`, so no type change.
+                        view.start_grep_in(info, false, false, window, cx);
+                    }
                 });
             })
             .ok();

@@ -54,7 +54,7 @@ impl Project {
     }
 
     fn root(&self) -> String {
-        self.dir.path().to_string_lossy().into_owned()
+        super::long_temp_path(self.dir.path())
     }
 
     /// The full path the result shows for `name` (written with `/`).
@@ -1036,4 +1036,17 @@ fn lines_without_a_hit_do_not_include_the_empty_line_after_the_last_break() {
     info.layout.line_type = LineType::NoHitLine;
     let (text, outcome) = grep(&info);
     assert_eq!(outcome.hits, 2, "{text}");
+}
+
+#[test]
+fn an_expanded_drive_root_keeps_its_separator() {
+    use super::engine::chop_yen_keeping_root as chop;
+    // `C:` is the current folder of the drive, not its root
+    assert_eq!(chop("C:\\"), "C:\\");
+    assert_eq!(chop("c:\\"), "c:\\");
+    assert_eq!(chop("C:\\work\\"), "C:\\work");
+    assert_eq!(chop("C:\\work"), "C:\\work");
+    // a UNC root is the same path without its last separator
+    assert_eq!(chop("\\\\server\\share\\"), "\\\\server\\share");
+    assert_eq!(chop("/"), "/");
 }

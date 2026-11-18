@@ -120,7 +120,7 @@ impl Project {
     }
 
     fn root(&self) -> String {
-        self.dir.path().to_string_lossy().into_owned()
+        super::long_temp_path(self.dir.path())
     }
 
     fn settings(&self, key: &str) -> GrepSettings {
@@ -132,7 +132,7 @@ impl Project {
     }
 
     fn file(&self, name: &str) -> String {
-        self.dir.path().join(name).to_string_lossy().into_owned()
+        super::long_temp_path(&self.dir.path().join(name))
     }
 }
 
@@ -1070,7 +1070,7 @@ fn a_file_over_the_threshold_is_never_read_whole_in_the_apps_search(cx: &mut Tes
     );
     assert!(text.contains("3 個が検索されました。"), "{text}");
     // the small files are read whole (the probe sees them), the big one is not
-    let whole = stream_probe::whole_reads_in(p.dir.path());
+    let whole = stream_probe::whole_reads_in(std::path::Path::new(&p.root()));
     assert_eq!(whole.len(), 2, "{whole:?}");
     assert!(
         whole

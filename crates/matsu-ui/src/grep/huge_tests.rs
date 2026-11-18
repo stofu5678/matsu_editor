@@ -34,7 +34,7 @@ fn info(dir: &tempfile::TempDir, key: &str) -> GrepInfo {
     GrepInfo {
         key: key.to_owned(),
         file: "*.*".to_owned(),
-        folder: dir.path().to_string_lossy().into_owned(),
+        folder: super::long_temp_path(dir.path()),
         options: SearchOptions::default(),
         sub_folder: false,
         charset: None,
@@ -207,7 +207,8 @@ fn a_huge_file_that_cannot_be_read_in_order_is_told_and_not_read_whole() {
     assert_eq!((outcome.hits, seen.files), (0, 0), "{}", body(&out));
     assert!(out.contains("jis.txt"), "{out}");
     assert!(
-        stream_probe::whole_reads_in(dir.path()).is_empty(),
+        stream_probe::whole_reads_in(std::path::Path::new(&super::long_temp_path(dir.path())))
+            .is_empty(),
         "the file was read whole"
     );
 }

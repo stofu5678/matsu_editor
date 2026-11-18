@@ -705,6 +705,12 @@ pub(crate) fn quit(cx: &mut App) {
     }
 }
 
+/// Ends the application without a question (`PM_CLOSE_GREPNOCONFIRM | PM_CLOSE_EXIT`, which the
+/// Grep to the standard output uses when it is done).
+pub(crate) fn quit_at_once(app: &mut App) {
+    quit_application(app);
+}
+
 /// The end of the application. The tests of the platform do not end, so they count the calls instead.
 fn quit_application(app: &mut App) {
     #[cfg(test)]

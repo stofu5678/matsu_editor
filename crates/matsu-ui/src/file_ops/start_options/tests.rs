@@ -266,6 +266,55 @@ fn an_empty_window_takes_the_type_and_the_encoding(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_grep_to_the_standard_output_takes_the_encoding_of_code(cx: &mut TestAppContext) {
+    // The output is in the encoding of the document of the window, which `-CODE=` gives
+    init(cx);
+    let dir = TempDir::new();
+    launch(
+        cx,
+        &dir,
+        &[
+            "-GREPMODE",
+            "-GKEY=x",
+            "-GFILE=*.txt",
+            "-GFOLDER=.",
+            "-GOPT=U",
+            "-CODE=3",
+        ],
+    );
+    let views = cx.update(editors);
+    assert_eq!(views.len(), 1);
+    let encoding = views[0]
+        .1
+        .read_with(cx, |v, app| v.document().read(app).file().encoding);
+    assert_eq!(encoding, Encoding::Utf16Le);
+}
+
+#[gpui::test]
+fn the_reason_of_an_empty_clipboard_is_in_the_encoding_of_code_too(cx: &mut TestAppContext) {
+    init(cx);
+    let dir = TempDir::new();
+    launch(
+        cx,
+        &dir,
+        &[
+            "-GREPMODE",
+            "-GKEY=x",
+            "-GREPR=y",
+            "-GFOLDER=.",
+            "-GOPT=CU",
+            "-CODE=3",
+        ],
+    );
+    let views = cx.update(editors);
+    assert_eq!(views.len(), 1);
+    let encoding = views[0]
+        .1
+        .read_with(cx, |v, app| v.document().read(app).file().encoding);
+    assert_eq!(encoding, Encoding::Utf16Le);
+}
+
+#[gpui::test]
 fn a_handed_over_launch_brings_its_options(cx: &mut TestAppContext) {
     init(cx);
     let dir = TempDir::new();

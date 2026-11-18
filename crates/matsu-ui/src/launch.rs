@@ -137,6 +137,9 @@ pub fn launch(args: Vec<OsString>) {
     let request = Request::from_current_process(args);
     let (tx, rx) = async_channel::unbounded();
     let first = OpenRequest::from_launch(&request);
+    // A Grep to the standard output (`-GOPT=U`) writes to the standard output of this process: it is not
+    // handed to the MATSU Editor that is running, whose output is somewhere else.
+    let separate = separate || first.options.greps_to_stdout();
     // `-PROF=`: before anything looks for the settings file.
     choose_profile(&first.options);
     // The settings of the old name are copied to the new places before the file is read.

@@ -141,7 +141,7 @@ pub struct GrepWindow {
     /// window that has one is a Grep window.
     key: Option<String>,
     /// The flag that stops the search that is running.
-    running: Option<Arc<AtomicBool>>,
+    pub(super) running: Option<Arc<AtomicBool>>,
     /// The macro of タイプ変更後 runs before a search that is about to begin here: the window is
     /// taken, as if the search ran.
     starting: bool,

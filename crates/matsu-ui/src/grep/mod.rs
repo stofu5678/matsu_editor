@@ -23,7 +23,17 @@ pub mod format;
 pub mod keys;
 pub mod panel;
 pub mod settings;
+pub mod stdout;
 pub mod window;
+
+/// The folder of a test as the Grep writes it. The Grep gives the long form of its folders
+/// (`GetLongFileName`, which only Windows has), and a temporary folder there may be in its short
+/// form (`RUNNER~1`): the paths that a test expects are built from the long form too.
+#[cfg(test)]
+fn long_temp_path(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy().into_owned();
+    matsu_platform::long_path::long_path(&path).unwrap_or(path)
+}
 
 #[cfg(test)]
 mod access_key_tests;
