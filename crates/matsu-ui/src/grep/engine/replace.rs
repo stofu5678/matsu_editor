@@ -171,7 +171,7 @@ impl Runner<'_> {
             match &self.replacer {
                 Some(replacer) => {
                     let done = replacer.for_each_replacement(&whole, &mut |range, text| {
-                        pieces.push((range, Cow::Owned(text.to_owned())));
+                        pieces.push((range, Cow::Owned(text)));
                     });
                     if done.is_err() {
                         self.buffer.push_str(&format::file_read_error(paths.full));
@@ -351,15 +351,16 @@ fn staged_name(old: &str) -> String {
     format!("{old}.{}-{n}.tmp", std::process::id())
 }
 
-/// Puts edits that touch each other (one ends where the next begins: the lines whose break is
-/// replaced) into one. The document joins a CR and an LF that meet at the seam of two edits into
-/// one CR LF, and the positions of the second edit are then wrong; as one edit the text is
-/// just what the lines were replaced with, as Sakura writes it.
+/// Puts two edits that touch each other (one ends where the next begins) into one when the first
+/// puts a CR at the seam. What follows the seam may be an LF (the next line is empty, or the next
+/// edit begins with one): the document joins them into one CR LF, and the positions of the second
+/// edit are then wrong; as one edit the text is just what the lines were replaced with, as Sakura
+/// writes it. Other edits that touch (`hithit`) stay two, so a caret between them stays.
 fn merge_adjacent(plan: Vec<Replacement>) -> Vec<Replacement> {
     let mut merged: Vec<Replacement> = Vec::with_capacity(plan.len());
     for next in plan {
         match merged.last_mut() {
-            Some(last) if last.end == next.start => {
+            Some(last) if last.end == next.start && last.text.ends_with('\r') => {
                 last.end = next.end;
                 last.text.push_str(&next.text);
             }

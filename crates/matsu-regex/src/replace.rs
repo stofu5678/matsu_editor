@@ -193,7 +193,7 @@ impl RegexReplacer {
         let mut at = 0;
         let count = self.for_each_replacement(subject, &mut |range, text| {
             out.push_str(&subject[at..range.start]);
-            out.push_str(text);
+            out.push_str(&text);
             at = range.end;
         })?;
         out.push_str(&subject[at..]);
@@ -201,12 +201,12 @@ impl RegexReplacer {
     }
 
     /// Calls `each` with the range of every match that [`replace_subject`](Self::replace_subject)
-    /// replaces and the text it becomes, in order, and returns how many there are. A match that
+    /// replaces and the text it becomes (given away, so a caller can keep it), in order, and returns how many there are. A match that
     /// begins before the end of the last is left alone.
     pub fn for_each_replacement(
         &self,
         subject: &str,
-        each: &mut dyn FnMut(Range<usize>, &str),
+        each: &mut dyn FnMut(Range<usize>, String),
     ) -> Result<usize, MatcherError> {
         let matches = GlobalScan(&self.matcher).find_all_from(subject, subject.len(), 0)?;
         let (mut at, mut count) = (0, 0);
@@ -218,7 +218,7 @@ impl RegexReplacer {
             groups.clear();
             groups.push(Some(m.start..m.end));
             groups.extend(m.captures.iter().cloned());
-            each(m.start..m.end, &self.template.expand(subject, &groups));
+            each(m.start..m.end, self.template.expand(subject, &groups));
             at = m.end;
             count += 1;
         }

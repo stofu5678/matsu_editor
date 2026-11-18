@@ -758,6 +758,13 @@ fn a_replacement_of_the_text_of_the_window_that_would_show_the_result_goes_to_a_
 }
 
 #[gpui::test]
+fn a_caret_between_two_touching_matches_stays_between_them(cx: &mut TestAppContext) {
+    let (text, caret) = replace_with_caret(cx, "hithit\n", Pos::new(0, 3), ("hit", "x", 5));
+    assert_eq!(text, "xx\n");
+    assert_eq!(caret, Pos::new(0, 1));
+}
+
+#[gpui::test]
 fn a_box_selection_does_not_stop_the_replacement(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "", None);
     let doc = Document::from_utf8(b"a needle\nb needle\n".to_vec()).unwrap();
