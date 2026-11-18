@@ -36,6 +36,7 @@ use crate::file_ops::windows::editors;
 use crate::saved_state::dialog_rect::{
     Rect, favorite as saved_rect, remember_favorite, work_areas,
 };
+use crate::support::help::OnHelpKey as _;
 
 /// The histories the dialog manages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,6 +267,7 @@ mod labels {
     pub(super) const SELECTED: &str = "選択項目(D)";
     pub(super) const ADD_EXCEPT: &str = "除外リストに追加(X)";
     pub(super) const CLOSE: &str = "閉じる(C)";
+    pub(super) const HELP: &str = crate::support::help::BUTTON_LABEL;
 }
 
 /// What an access key does in the dialog.
@@ -277,6 +279,13 @@ enum Use {
     Selected,
     AddExcept,
     Close,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
+}
+
+/// `IDC_BUTTON_HELP`: `CDlgFavorite` opens the page of `F_FAVORITE`. The dialog stays.
+fn open_help(cx: &mut App) {
+    crate::support::help::open_function_page(cx, "F_FAVORITE");
 }
 
 /// The dialog that is open, so that a second `F_FAVORITE` brings it to the front.
@@ -593,6 +602,7 @@ impl FavoriteDialog {
             Entry::labelled(labels::SELECTED, true, Use::Selected),
             Entry::labelled(labels::ADD_EXCEPT, self.tab.is_path_list(), Use::AddExcept),
             Entry::labelled(labels::CLOSE, true, Use::Close),
+            Entry::labelled(labels::HELP, true, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -603,6 +613,7 @@ impl FavoriteDialog {
             Found::One(Use::Selected) => self.delete_selected_rows(cx),
             Found::One(Use::AddExcept) => self.add_selected_to_except(window, cx),
             Found::One(Use::Close) => self.close(window),
+            Found::One(Use::Help) => open_help(cx),
         }
         true
     }
@@ -771,6 +782,8 @@ impl Render for FavoriteDialog {
         };
 
         crate::a11y::dialog(div().id("favorite-dialog"), "履歴とお気に入りの管理")
+            // F1: the page of the dialog
+            .on_help_key("F_FAVORITE")
             .key_context("FavoriteDialog")
             .track_focus(&self.focus)
             .on_access_key(move |letter, window, cx| {
@@ -850,7 +863,11 @@ impl Render for FavoriteDialog {
                     .child(div().flex_1())
                     .child(button("close", labels::CLOSE).on_click(
                         cx.listener(|this, _: &ClickEvent, window, _| this.close(window)),
-                    )),
+                    ))
+                    .child(
+                        button("help", labels::HELP)
+                            .on_click(|_: &ClickEvent, _, cx| open_help(cx)),
+                    ),
             )
     }
 }

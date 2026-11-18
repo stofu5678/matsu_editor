@@ -113,3 +113,28 @@ fn the_compare_dialog_has_t_o_and_x(cx: &mut TestAppContext) {
         Some("異なる箇所が見つかりました。")
     );
 }
+
+#[gpui::test]
+fn the_help_of_the_diff_and_the_compare_dialogs_is_alt_h_and_f1(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    remember_options(cx, 0, false);
+    let w = window(cx, "a\nb\n", None);
+    let other = window(cx, "a\nc\n", None);
+    // `CDlgDiff`: `MyWinHelp( ..., F_DIFF_DIALOG )`; the dialog stays open
+    assert!(w.run(cx, "F_DIFF_DIALOG"));
+    clear();
+    w.cx(cx).simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_DIFF_DIALOG")]);
+    w.cx(cx).simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_DIFF_DIALOG")]);
+    assert!(w.view.read_with(cx, |v, _| v.diff_panel_open()));
+    w.cx(cx).simulate_keystrokes("alt-x");
+    // `CDlgCompare`: `F_COMPARE`
+    assert!(w.run(cx, "F_COMPARE"));
+    w.cx(cx).simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_COMPARE")]);
+    w.cx(cx).simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_COMPARE")]);
+    assert!(w.view.read_with(cx, |v, _| v.compare_panel_open()));
+    drop(other);
+}

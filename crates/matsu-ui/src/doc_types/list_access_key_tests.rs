@@ -89,3 +89,20 @@ fn the_letters_of_the_other_buttons_apply_open_the_settings_and_cancel(cx: &mut 
     cx.run_until_parked();
     assert!(view.read_with(cx, |v, _| v.doc_type.list.is_none()));
 }
+
+#[gpui::test]
+fn the_help_of_the_type_list_is_alt_h_and_f1_and_the_list_stays(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (_ini, handle) = setup(cx, &own_types(20));
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    let list = open_list(&view, cx);
+    clear();
+    // `CDlgTypeList`: `MyWinHelp( ..., F_TYPE_LIST )`
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_TYPE_LIST")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_TYPE_LIST")]);
+    assert_eq!(labels(&list, cx).len(), 20);
+    assert!(view.read_with(cx, |v, _| v.doc_type.list.is_some()));
+}

@@ -433,3 +433,17 @@ fn the_selected_files_are_added_to_the_excluded_list(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("delete");
     assert!(cx.update(|_, app| current(app).unwrap()).except.is_empty());
 }
+
+#[gpui::test]
+fn the_help_is_alt_h_and_f1_and_the_window_stays(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (_dialog, cx) = setup(cx, sample());
+    let before = cx.windows().len();
+    clear();
+    // `CDlgFavorite`: `MyWinHelp( ..., F_FAVORITE )`
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_FAVORITE")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_FAVORITE")]);
+    assert_eq!(cx.windows().len(), before);
+}

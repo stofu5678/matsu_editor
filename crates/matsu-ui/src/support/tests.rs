@@ -636,3 +636,21 @@ fn a_letter_with_alt_that_is_not_an_access_key_does_not_choose_its_code(cx: &mut
     assert!(f.ctrl_code_open(cx));
     assert_eq!(f.text(cx), "abc");
 }
+
+#[gpui::test]
+fn the_help_of_the_control_code_dialog_is_alt_h_and_f1_and_the_dialog_stays(
+    cx: &mut TestAppContext,
+) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    clear();
+    // `CDlgCtrlCode`: `MyWinHelp( ..., F_CTRL_CODE_DIALOG )`. The letter of the access key does
+    // not choose the code of the key (H is 0x08).
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_CTRL_CODE_DIALOG")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_CTRL_CODE_DIALOG")]);
+    assert!(f.ctrl_code_open(cx));
+    assert_eq!(f.text(cx), "abc");
+}

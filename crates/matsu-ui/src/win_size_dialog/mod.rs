@@ -13,7 +13,9 @@
 //!   and the height can be used only with 直接指定.
 //! * The only way out is 閉じる (Enter, Esc and the close button of the window as well):
 //!   `OnBnClicked` reads the controls (`GetData`) for `IDOK` and `IDCANCEL` alike, so there is no
-//!   way to throw away what was typed. The ヘルプ button is not here.
+//!   way to throw away what was typed.
+//! * The button ヘルプ and F1 open the page of the 「ウィンドウ」 page of the common settings, which
+//!   describes this dialog (`CDlgWinSize`: `MyWinHelp( .., HLP000286 )`, a topic and not a function).
 //! * The numbers are what `GetDlgItemInt(.., TRUE)` makes of the text: a number, or 0. The spin
 //!   buttons of Sakura limit the position to ±30000 and the size to 0..30000; the text is held to
 //!   the same range when the dialog is closed.
@@ -23,6 +25,7 @@
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
+use crate::support::help::OnHelpKey as _;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Role,
@@ -70,6 +73,9 @@ const Y_LABEL: &str = "Y座標(&Y)";
 const WIDTH_LABEL: &str = "幅(&W)";
 const HEIGHT_LABEL: &str = "高さ(&G)";
 const CLOSE_LABEL: &str = "閉じる(&C)";
+const HELP_LABEL: &str = "ヘルプ(&H)";
+/// The page that describes this dialog.
+const HELP_PAGE: &str = "common-settings/page-window.md";
 
 /// What an access key does in the dialog.
 #[derive(Clone, Copy)]
@@ -79,6 +85,13 @@ enum Use {
     /// The focus goes to the box.
     Field(Field),
     Close,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
+}
+
+/// `IDC_BUTTON_HELP`. The dialog stays.
+fn open_help(cx: &mut App) {
+    crate::support::help::open_page(cx, HELP_PAGE, None);
 }
 
 /// The key of a label that marks it with `&` (`直接指定(&S)` is `s`).
@@ -267,6 +280,7 @@ impl WinSizeDialog {
             entries.extend(mark_of(label).map(|key| Entry::keyed(key, usable, Use::Field(field))));
         }
         entries.extend(mark_of(CLOSE_LABEL).map(|key| Entry::keyed(key, true, Use::Close)));
+        entries.extend(mark_of(HELP_LABEL).map(|key| Entry::keyed(key, true, Use::Help)));
         match pick(letter, &entries) {
             Found::Nothing => return false,
             Found::Several => {}
@@ -274,6 +288,7 @@ impl WinSizeDialog {
             Found::One(Use::SizeMode(mode)) => self.set_size_mode(mode, cx),
             Found::One(Use::Field(field)) => focus_selecting(self.input(field), window, cx),
             Found::One(Use::Close) => self.close(window, cx),
+            Found::One(Use::Help) => open_help(cx),
         }
         true
     }
@@ -387,6 +402,8 @@ impl Render for WinSizeDialog {
         };
 
         crate::a11y::dialog(div().id("win-size-dialog"), "ウィンドウの位置と大きさ")
+            // F1: the page of the dialog
+            .on_help_page_key(HELP_PAGE)
             .key_context("WinSizeDialog")
             .track_focus(&self.focus)
             .on_access_key(move |letter, window, cx| {
@@ -444,21 +461,38 @@ impl Render for WinSizeDialog {
                 ),
             )
             .child(
-                div().flex().justify_end().child(
-                    crate::a11y::button(div().id("win-size-close"), CLOSE_LABEL)
-                        .px_4()
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .border_1()
-                        .border_color(rgb(BORDER))
-                        .bg(rgb(0xf4f4f4))
-                        .cursor_pointer()
-                        .child("閉じる(C)")
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            this.close(window, cx);
-                        })),
-                ),
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        crate::a11y::button(div().id("win-size-close"), CLOSE_LABEL)
+                            .px_4()
+                            .h(px(28.))
+                            .flex()
+                            .items_center()
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .bg(rgb(0xf4f4f4))
+                            .cursor_pointer()
+                            .child("閉じる(C)")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.close(window, cx);
+                            })),
+                    )
+                    .child(
+                        crate::a11y::button(div().id("win-size-help"), HELP_LABEL)
+                            .px_4()
+                            .h(px(28.))
+                            .flex()
+                            .items_center()
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .bg(rgb(0xf4f4f4))
+                            .cursor_pointer()
+                            .child("ヘルプ(H)")
+                            .on_click(|_: &ClickEvent, _, cx| open_help(cx)),
+                    ),
             )
     }
 }

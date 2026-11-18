@@ -14,8 +14,7 @@
 //! it covers the view and takes the keys. OK writes the settings, closes it and makes the pane
 //! read the tree again (`F_FILETREE` with `SHOW_RELOAD`); キャンセル changes nothing.
 //!
-//! Not done: the ヘルプ button (the help of Sakura is not shown by MATSU Editor yet; it is shown
-//! gray as in the common settings).
+//! The ヘルプ button, Alt+H and F1 open the page of `F_FILETREE` (`CDlgFileTree`).
 
 mod actions;
 pub(crate) mod model;

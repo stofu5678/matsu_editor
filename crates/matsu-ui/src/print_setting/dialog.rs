@@ -18,6 +18,7 @@
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -63,6 +64,7 @@ mod labels {
     pub(super) const HEADER: &str = "ヘッダー(U)";
     pub(super) const FOOTER: &str = "フッター(D)";
     pub(super) const CANCEL: &str = "キャンセル(X)";
+    pub(super) const HELP: &str = crate::support::help::BUTTON_LABEL;
     /// `&OK` in the resource file: the label shows no key.
     pub(super) const OK_KEY: char = 'o';
 }
@@ -83,6 +85,8 @@ enum Use {
     Color,
     Ok,
     Cancel,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 /// How many rows PageUp and PageDown move in an open list: what its box shows (`max_h(160)`).
@@ -305,6 +309,11 @@ impl PrintSettingDialog {
             let _ = result.try_send(Some(answer));
         }
         self.close(window, cx);
+    }
+
+    /// `IDC_BUTTON_HELP`: `CDlgPrintSetting` opens the page of `F_PRINT_PAGESETUP`.
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, "F_PRINT_PAGESETUP");
     }
 
     /// キャンセル: nothing is kept.
@@ -577,6 +586,7 @@ impl PrintSettingDialog {
             // OK is greyed out while the paper has no room (`can_ok`)
             Entry::keyed(labels::OK_KEY, ok, Use::Ok),
             Entry::labelled(labels::CANCEL, true, Use::Cancel),
+            Entry::labelled(labels::HELP, true, Use::Help),
         ];
         let what = match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -611,6 +621,7 @@ impl PrintSettingDialog {
             }
             Use::Ok => self.ok(window, cx),
             Use::Cancel => self.cancel(window, cx),
+            Use::Help => self.open_help(cx),
         }
         cx.notify();
         true
@@ -1128,6 +1139,11 @@ impl Render for PrintSettingDialog {
                         Button::new("ps-cancel")
                             .label(labels::CANCEL)
                             .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
+                    )
+                    .child(
+                        Button::new("ps-help")
+                            .label(labels::HELP)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
                     ),
             );
         // The scroll bar is a sibling of the scrolling part, not its child: inside it, the bar's
@@ -1137,6 +1153,8 @@ impl Render for PrintSettingDialog {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
+            // F1: the page of the dialog
+            .on_help_key("F_PRINT_PAGESETUP")
             .key_context("PrintSettingDialog")
             .capture_key_down(cx.listener(Self::on_capture_key))
             // Alt+letter works from the boxes too, and does not type the letter

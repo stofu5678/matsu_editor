@@ -39,11 +39,13 @@
 //! GS, RS, US and DEL (`LVN_KEYDOWN` with the virtual key codes of the table). The chosen code is
 //! then typed with `F_CTRL_CODE` so that a key macro records it.
 //!
-//! Not done: the help button (the help is not ported). The key `@` of a US keyboard is on the
-//! key of the back quote, so both choose NUL.
+//! The button ヘルプ (`IDC_BUTTON_HELP`) opens the page of `F_CTRL_CODE_DIALOG` (`CDlgCtrlCode`).
+//!
+//! The key `@` of a US keyboard is on the key of the back quote, so both choose NUL.
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
+use crate::support::help::OnHelpKey as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollHandle,
@@ -156,8 +158,14 @@ impl EditorView {
 
 /// `キャンセル(&X)` of `IDD_CTRLCODE` (`sakura_core/sakura_rc.rc`).
 const CANCEL: &str = "キャンセル(X)";
+const HELP: &str = crate::support::help::BUTTON_LABEL;
 /// `&OK` of `IDD_CTRLCODE`: the label shows no key.
 const OK_KEY: char = 'o';
+
+/// `IDC_BUTTON_HELP`: `CDlgCtrlCode` opens the page of `F_CTRL_CODE_DIALOG`. The dialog stays.
+fn open_help(cx: &mut gpui::App) {
+    crate::support::help::open_function_page(cx, "F_CTRL_CODE_DIALOG");
+}
 
 /// The modal dialog over the view.
 pub(crate) struct CtrlCodeDialog {
@@ -210,16 +218,19 @@ impl CtrlCodeDialog {
         enum Use {
             Ok,
             Cancel,
+            Help,
         }
         let entries = [
             Entry::keyed(OK_KEY, true, Use::Ok),
             Entry::labelled(CANCEL, true, Use::Cancel),
+            Entry::labelled(HELP, true, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
             Found::Several => {}
             Found::One(Use::Ok) => self.finish(Some(self.selected), window, cx),
             Found::One(Use::Cancel) => self.finish(None, window, cx),
+            Found::One(Use::Help) => open_help(cx),
         }
         true
     }
@@ -340,6 +351,8 @@ impl Render for CtrlCodeDialog {
                 crate::a11y::dialog(div().id("ctrl-code-dialog"), "コントロールコード")
                     .track_focus(&self.focus)
                     .keep_tab_inside(&self.focus)
+                    // F1: the page of the dialog
+                    .on_help_key("F_CTRL_CODE_DIALOG")
                     .key_context("CtrlCodeDialog")
                     .on_access_key(move |letter, window, cx| {
                         this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
@@ -382,7 +395,11 @@ impl Render for CtrlCodeDialog {
                             )))
                             .child(button("ctrl-code-cancel", CANCEL).on_click(cx.listener(
                                 |this, _: &ClickEvent, window, cx| this.finish(None, window, cx),
-                            ))),
+                            )))
+                            .child(
+                                button("ctrl-code-help", HELP)
+                                    .on_click(|_: &ClickEvent, _, cx| open_help(cx)),
+                            ),
                     ),
             )
     }

@@ -7,10 +7,11 @@
 //! says whether this window is the new or the old file, and two of the boxes are the search options
 //! that the jumps to the next and the previous difference follow.
 //!
-//! Left out: the button ヘルプ.
+//! The button ヘルプ (`IDC_BUTTON_HELP`) opens the page of `F_DIFF_DIALOG` (`CDlgDiff`).
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
+use crate::support::help::OnHelpKey as _;
 use std::path::{Path, PathBuf};
 
 use crate::a11y::Labelled as _;
@@ -46,6 +47,7 @@ mod labels {
     pub(super) const NOTIFY: &str = "見つからないときにメッセージを表示(M)";
     pub(super) const WRAP: &str = "先頭（末尾）から再検索する(Z)";
     pub(super) const CANCEL: &str = "キャンセル(X)";
+    pub(super) const HELP: &str = crate::support::help::BUTTON_LABEL;
     /// `&OK` in the resource file: the label shows no key.
     pub(super) const OK_KEY: char = 'o';
 }
@@ -64,6 +66,8 @@ enum Use {
     Wrap,
     Ok,
     Cancel,
+    /// ヘルプ(H): the page of the dialog.
+    Help,
 }
 
 pub struct DiffPanel {
@@ -140,6 +144,7 @@ impl DiffPanel {
             Entry::labelled(labels::WRAP, true, Use::Wrap),
             Entry::keyed(labels::OK_KEY, true, Use::Ok),
             Entry::labelled(labels::CANCEL, true, Use::Cancel),
+            Entry::labelled(labels::HELP, true, Use::Help),
         ];
         match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -167,6 +172,7 @@ impl DiffPanel {
                 self.cancel(window, cx);
                 return true;
             }
+            Found::One(Use::Help) => self.open_help(cx),
         }
         cx.notify();
         true
@@ -245,6 +251,11 @@ impl DiffPanel {
                 editor.run_diff(target, flags, window, cx);
             }
         });
+    }
+
+    /// `IDC_BUTTON_HELP`: `CDlgDiff` opens the page of `F_DIFF_DIALOG`.
+    fn open_help(&self, cx: &mut Context<Self>) {
+        crate::support::help::open_function_page(cx, "F_DIFF_DIALOG");
     }
 
     /// キャンセル.
@@ -467,11 +478,18 @@ impl Render for DiffPanel {
                 Button::new("diff-cancel")
                     .labelled(labels::CANCEL)
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
+            )
+            .child(
+                Button::new("diff-help")
+                    .labelled(labels::HELP)
+                    .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
             );
         div()
             .id("diff-panel")
             .track_focus(&self.scope)
             .keep_tab_inside(&self.scope)
+            // F1: the page of the dialog
+            .on_help_key("F_DIFF_DIALOG")
             .absolute()
             // mouse events stop here: a click on the panel must not move the caret
             .occlude()

@@ -627,3 +627,19 @@ fn the_held_buttons_are_forgotten_when_the_window_loses_the_activation(cx: &mut 
         assert_eq!(v.wheel_used_buttons, Default::default());
     });
 }
+
+#[gpui::test]
+fn the_help_of_the_window_list_dialog_is_alt_h_and_f1_and_the_dialog_stays(
+    cx: &mut TestAppContext,
+) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let w = windows(cx, 2);
+    assert!(w[0].run(cx, "F_DLGWINLIST"));
+    clear();
+    // `CDlgWindowList`: `MyWinHelp( ..., F_DLGWINLIST )`
+    w[0].cx(cx).simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_DLGWINLIST")]);
+    w[0].cx(cx).simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_DLGWINLIST")]);
+    assert!(w[0].has_list(cx));
+}

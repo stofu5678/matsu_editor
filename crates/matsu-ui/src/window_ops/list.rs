@@ -14,9 +14,12 @@
 //!   上書き保存 (`F_FILESAVE` in the checked windows), ウィンドウを閉じる (close them, with the
 //!   questions of the close) and OK (which only closes the dialog). The list follows the windows
 //!   that come and go. Sakura's dialog does not bring a window to the front; here Enter and a
-//!   double click do (the way to choose one that the task asks for).
+//!   double click do (the way to choose one that the task asks for). The button ヘルプ, Alt+H and F1
+//!   open the page of `F_DLGWINLIST` (`IDC_BUTTON_HELP`).
 
+use crate::access_keys::OnAccessKey as _;
 use crate::dialog_focus::KeepTabInside as _;
+use crate::support::help::OnHelpKey as _;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -406,6 +409,16 @@ impl Render for WindowList {
         if self.dialog {
             panel =
                 panel
+                    // F1: the page of the dialog
+                    .on_help_key("F_DLGWINLIST")
+                    // Alt+H is the only access key of this dialog so far
+                    .on_access_key(|letter, _, cx| {
+                        let help = letter == 'h';
+                        if help {
+                            crate::support::help::open_function_page(cx, "F_DLGWINLIST");
+                        }
+                        help
+                    })
                     .p_4()
                     .child(div().mb_2().child("ウィンドウ一覧表示"))
                     .child(
@@ -436,7 +449,12 @@ impl Render for WindowList {
                             )
                             .child(button("window-list-ok", "OK").on_click(cx.listener(
                                 |this, _: &ClickEvent, window, cx| this.close(window, cx),
-                            ))),
+                            )))
+                            .child(button("window-list-help", "ヘルプ(H)").on_click(
+                                |_: &ClickEvent, _, cx| {
+                                    crate::support::help::open_function_page(cx, "F_DLGWINLIST");
+                                },
+                            )),
                     );
         } else {
             panel = panel

@@ -24,6 +24,7 @@ use crate::access_keys::OnAccessKey as _;
 use crate::common_settings::model::parse_label;
 use crate::dialog_focus::tab_inside;
 use crate::outline::file_tree::source::SettingFrom;
+use crate::support::help::OnHelpKey as _;
 
 const TEXT: u32 = 0x222222;
 const MUTED: u32 = 0x888888;
@@ -545,6 +546,8 @@ impl Render for FileTreeDialog {
             .id("file-tree-dialog")
             .role(Role::Dialog)
             .aria_label(TITLE)
+            // F1: the page of the dialog
+            .on_help_key("F_FILETREE")
             .key_context("FileTreeDialog")
             .track_focus(&self.focus)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

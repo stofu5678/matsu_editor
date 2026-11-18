@@ -630,6 +630,7 @@ impl FileTreeDialog {
             'y' => self.export(window, cx),
             'o' => self.ok(window, cx),
             'x' => self.cancel(window, cx),
+            'h' => crate::support::help::open_function_page(cx, "F_FILETREE"),
             _ => return false,
         }
         true

@@ -136,3 +136,35 @@ fn the_dialog_of_the_tags_file_has_o_b_and_x(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(!make_dialog_open(&w, cx));
 }
+
+#[gpui::test]
+fn the_help_of_the_tag_jump_list_and_of_the_tags_file_dialog_is_alt_h_and_f1(
+    cx: &mut TestAppContext,
+) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (dir, main) = project("x\n");
+    let w = open(cx, &main);
+    // `CDlgTagJumpList`: `MyWinHelp( ..., F_TAGJUMP_LIST )`; the dialog stays open
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("foo".into())]);
+    settle(cx, SHORT_DELAY);
+    clear();
+    w.cx(cx).simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_TAGJUMP_LIST")]);
+    w.cx(cx).simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_TAGJUMP_LIST")]);
+    assert!(w.list(cx).is_some());
+    w.cx(cx).simulate_keystrokes("alt-x");
+    cx.run_until_parked();
+    // `CDlgTagsMake`: `F_TAGS_MAKE`
+    std::fs::remove_file(dir.path().join("tags")).unwrap();
+    w.run(cx, "F_TAGS_MAKE");
+    assert!(make_dialog_open(&w, cx));
+    w.cx(cx).simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_TAGS_MAKE")]);
+    w.cx(cx).simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_TAGS_MAKE")]);
+    assert!(make_dialog_open(&w, cx));
+    w.cx(cx).simulate_keystrokes("alt-x");
+    cx.run_until_parked();
+    assert!(!make_dialog_open(&w, cx));
+}

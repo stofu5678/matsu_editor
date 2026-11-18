@@ -256,3 +256,25 @@ fn the_grep_replace_dialog_has_its_own_letters(cx: &mut TestAppContext) {
     press(cx, "alt-r");
     assert!(cx.has_pending_prompt());
 }
+
+#[gpui::test]
+fn the_help_is_alt_h_and_f1_and_each_dialog_opens_its_own_page(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (view, cx) = setup(cx);
+    // `CDlgGrep`: `MyWinHelp( ..., F_GREP_DIALOG )`; the dialog stays open
+    let _panel = open(&view, cx, "F_GREP_DIALOG");
+    clear();
+    press(cx, "alt-h");
+    assert_eq!(take(), [page_of_function("F_GREP_DIALOG")]);
+    press(cx, "f1");
+    assert_eq!(take(), [page_of_function("F_GREP_DIALOG")]);
+    assert!(view.read_with(cx, |v, _| v.grep.panel.is_some()));
+    press(cx, "alt-x");
+    // `CDlgGrepReplace`: `F_GREP_REPLACE_DLG`
+    let _panel = open(&view, cx, "F_GREP_REPLACE_DLG");
+    press(cx, "alt-h");
+    assert_eq!(take(), [page_of_function("F_GREP_REPLACE_DLG")]);
+    press(cx, "f1");
+    assert_eq!(take(), [page_of_function("F_GREP_REPLACE_DLG")]);
+    assert!(view.read_with(cx, |v, _| v.grep.panel.is_some()));
+}

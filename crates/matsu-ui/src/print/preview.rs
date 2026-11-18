@@ -56,6 +56,12 @@ fn label(name: &str, key: char) -> String {
     }
 }
 
+/// `IDC_BUTTON_HELP` of the bar: `CPrintPreview::DispatchEvent_PPB` opens the page of
+/// `F_PRINT_PREVIEW` and the preview stays.
+fn open_help(cx: &mut App) {
+    crate::support::help::open_function_page(cx, "F_PRINT_PREVIEW");
+}
+
 /// A document of more lines than this is laid out on a thread of its own, with the progress on the
 /// bar and the preview usable meanwhile. A million lines of 100 characters (100 MB) take about a
 /// second in a release build (`timing_of_the_layout_of_a_100_mb_text` in `matsu-print`); below this
@@ -340,6 +346,15 @@ impl PrintPreview {
                 cx.emit(PreviewEvent::Close);
                 true
             }
+            // ヘルプ(H) (`IDC_BUTTON_HELP`) and F1 (`WM_HELP`)
+            "h" if plain => {
+                open_help(cx);
+                true
+            }
+            "f1" if plain && !k.modifiers.shift => {
+                open_help(cx);
+                true
+            }
             _ => false,
         };
         if handled {
@@ -440,6 +455,7 @@ impl Render for PrintPreview {
                 button("page-setup", format!("{}...", label("ページ設定", 'S')))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(PreviewEvent::PageSetup))),
             )
+            .child(button("help", label("ヘルプ", 'H')).on_click(|_, _, cx| open_help(cx)))
             .child(
                 button("close", label("戻る", 'Q'))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(PreviewEvent::Close))),

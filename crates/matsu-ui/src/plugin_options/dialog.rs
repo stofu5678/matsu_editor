@@ -6,6 +6,10 @@
 //! The window is not modal (GPUI has no modal child window): the settings window it was opened
 //! from can still be used. One dialog is open at a time; asking for a second brings the first to
 //! the front. OK writes the options file; キャンセル writes nothing.
+//!
+//! ReadMe(M) opens the ReadMe file of the plugin in a read-only window (enabled only when the
+//! plugin has one: `CPropPlugin::GetReadMeFile`, `BrowseReadMe`; `CDlgPluginOption::SetData` and
+//! `DispatchEvent`). ヘルプ(H) and F1 open the page of the plugin settings (`HLP000153`).
 
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
@@ -22,7 +26,9 @@ use matsu_config::plugins::def::OptionType;
 
 use super::model::{self, Form};
 use crate::a11y::Labelled as _;
+use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::input_field;
+use crate::support::help::OnHelpKey as _;
 
 const TEXT: u32 = 0x222222;
 const BORDER: u32 = 0xaaaaaa;
@@ -32,6 +38,25 @@ const ROW_HEIGHT: f32 = 22.0;
 
 /// `STR_DLGPLUGINOPT_OPTION`: the dialog of a plugin that has no options.
 const NO_OPTIONS: &str = "指定できるオプションがありません";
+
+/// The labels with an access key (`IDD_PLUGIN_OPTION` in `sakura_core/sakura_rc.rc`).
+const README_LABEL: &str = "ReadMe(M)";
+const HELP_LABEL: &str = crate::support::help::BUTTON_LABEL;
+/// `STR_PROPCOMPLG_ERR2`
+const README_CANNOT_OPEN: &str = "ReadMeファイルが開けません";
+/// `STR_PROPCOMPLG_ERR3`
+const README_NOT_FOUND: &str = "ReadMeファイルが見つかりません ";
+
+/// The page that `IDC_BUTTON_HELP` opens (`HLP000153`, 『プラグイン設定』): the page of the plugins
+/// of the common settings.
+pub(crate) const HELP_PAGE: &str = "common-settings/page-plugin.md";
+
+/// What an access key does.
+#[derive(Clone, Copy)]
+enum Use {
+    Readme,
+    Help,
+}
 
 pub(crate) struct OptionDialog {
     form: Form,
@@ -45,6 +70,8 @@ pub(crate) struct OptionDialog {
     scroll: ScrollHandle,
     focused_once: bool,
     focus: FocusHandle,
+    /// The ReadMe file of the plugin, found when the dialog opened (`m_sReadMeName`).
+    readme: Option<std::path::PathBuf>,
     _subscription: Subscription,
 }
 
@@ -71,8 +98,51 @@ impl OptionDialog {
             scroll: ScrollHandle::new(),
             focused_once: false,
             focus: cx.focus_handle().tab_stop(true),
+            readme: None,
             _subscription: subscription,
         }
+    }
+
+    /// The ReadMe file of the plugin, if it has one: the button ReadMe can be used then.
+    pub(crate) fn with_readme(mut self, readme: Option<std::path::PathBuf>) -> Self {
+        self.readme = readme;
+        self
+    }
+
+    /// ReadMe: opens the file in a read-only window; says so when it cannot
+    /// (`IDC_PLUGIN_README`).
+    pub(crate) fn open_readme(&mut self, cx: &mut Context<Self>) {
+        let Some(file) = self.readme.clone() else {
+            // the button is grey without a file; Sakura words this case, too
+            self.message = Some(README_NOT_FOUND.to_owned());
+            cx.notify();
+            return;
+        };
+        if super::open_readme_window(cx, &file).is_err() {
+            self.message = Some(README_CANNOT_OPEN.to_owned());
+            cx.notify();
+        }
+    }
+
+    /// ヘルプ(H): the page of the plugin settings. The dialog stays.
+    pub(crate) fn open_help(&self, cx: &mut App) {
+        crate::support::help::open_page(cx, HELP_PAGE, None);
+    }
+
+    /// Alt with the access key of a button (`IsDialogMessage`). ReadMe is grey without a file.
+    /// Returns whether the letter was one of the dialog's.
+    pub(crate) fn use_access_key(&mut self, letter: char, cx: &mut Context<Self>) -> bool {
+        let entries = [
+            Entry::labelled(README_LABEL, self.readme.is_some(), Use::Readme),
+            Entry::labelled(HELP_LABEL, true, Use::Help),
+        ];
+        match pick(letter, &entries) {
+            Found::Nothing => return false,
+            Found::Several => {}
+            Found::One(Use::Readme) => self.open_readme(cx),
+            Found::One(Use::Help) => self.open_help(cx),
+        }
+        true
     }
 
     #[cfg(test)]
@@ -509,8 +579,15 @@ impl Render for OptionDialog {
                     .children(rows),
             );
         let title = self.form.title();
+        let this = cx.entity();
+        let has_readme = self.readme.is_some();
         crate::a11y::dialog(div().id("plugin-option-dialog"), &title)
             .key_context("PluginOptionDialog")
+            // F1: the page of the plugin settings
+            .on_help_page_key(HELP_PAGE)
+            .on_access_key(move |letter, _, cx| {
+                this.update(cx, |dialog, cx| dialog.use_access_key(letter, cx))
+            })
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
             .size_full()
@@ -548,6 +625,16 @@ impl Render for OptionDialog {
                     .justify_end()
                     .gap_2()
                     .child(
+                        button("plugin-option-readme", README_LABEL)
+                            .when(!has_readme, |b| b.opacity(0.5))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                // grey without a file (`EnableWindow( IDC_PLUGIN_README, ... )`)
+                                if this.readme.is_some() {
+                                    this.open_readme(cx);
+                                }
+                            })),
+                    )
+                    .child(
                         button("plugin-option-ok", "OK")
                             .when(!has_options, |b| b.opacity(0.5))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -556,7 +643,14 @@ impl Render for OptionDialog {
                     )
                     .child(button("plugin-option-cancel", "キャンセル").on_click(
                         cx.listener(|this, _: &ClickEvent, window, _| this.cancel(window)),
-                    )),
+                    ))
+                    .child(
+                        button("plugin-option-help", HELP_LABEL).on_click(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                this.open_help(cx);
+                            },
+                        )),
+                    ),
             )
     }
 }
@@ -605,6 +699,7 @@ pub(crate) fn open(
     cx: &mut App,
     def: &PluginDef,
     option_file: &std::path::Path,
+    readme: Option<std::path::PathBuf>,
 ) -> Option<Entity<OptionDialog>> {
     if let Some(open) = cx.try_global::<OpenDialog>()
         && cx.windows().contains(&open.window)
@@ -630,7 +725,7 @@ pub(crate) fn open(
     let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<OptionDialog>>>> = Default::default();
     let made = slot.clone();
     let opened = cx.open_window(options, move |window, cx| {
-        let dialog = cx.new(|cx| OptionDialog::new(form, window, cx));
+        let dialog = cx.new(|cx| OptionDialog::new(form, window, cx).with_readme(readme));
         *made.borrow_mut() = Some(dialog.clone());
         cx.new(|cx| Root::new(dialog, window, cx))
     });

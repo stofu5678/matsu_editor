@@ -183,3 +183,38 @@ fn the_jump_panel_has_the_letters_of_its_label_and_close(cx: &mut TestAppContext
     cx.simulate_keystrokes("alt-x");
     assert_eq!(f.panel_mode(cx), None);
 }
+
+#[gpui::test]
+fn the_help_is_alt_h_f1_and_a_click_and_each_panel_opens_its_own_page(cx: &mut TestAppContext) {
+    use crate::support::help::testing::{clear, page_of_function, take};
+    let (f, cx) = setup(cx, "abc");
+    // `CDlgFind`: `MyWinHelp( ..., F_SEARCH_DIALOG )`; the panel stays open and its text unchanged
+    cx.simulate_keystrokes("ctrl-f");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
+    clear();
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_SEARCH_DIALOG")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_SEARCH_DIALOG")]);
+    assert_eq!(f.pattern_now(cx), "abc");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
+    // the button itself
+    let help = cx.debug_bounds("search-help").expect("the help button");
+    cx.simulate_click(help.center(), gpui::Modifiers::none());
+    assert_eq!(take(), [page_of_function("F_SEARCH_DIALOG")]);
+    // `CDlgReplace`: `F_REPLACE_DIALOG`
+    cx.simulate_keystrokes("alt-x ctrl-r");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_REPLACE_DIALOG")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_REPLACE_DIALOG")]);
+    // `CDlgJump`: `F_JUMP_DIALOG`
+    cx.simulate_keystrokes("alt-x ctrl-j");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Jump));
+    cx.simulate_keystrokes("alt-h");
+    assert_eq!(take(), [page_of_function("F_JUMP_DIALOG")]);
+    cx.simulate_keystrokes("f1");
+    assert_eq!(take(), [page_of_function("F_JUMP_DIALOG")]);
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Jump));
+}
