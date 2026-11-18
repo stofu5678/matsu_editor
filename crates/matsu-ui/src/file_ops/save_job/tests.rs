@@ -383,24 +383,41 @@ fn the_watching_is_paused_while_the_worker_writes(cx: &mut TestAppContext) {
     let path = dir.write("a.txt", "abc");
     let (view, cx) = setup(cx, 0);
     open(&view, cx, &path);
-    assert!(!pausing(&view, cx));
-    cx.simulate_input("x");
-    let code = FUNCTIONS
-        .iter()
-        .find(|f| f.name == "F_FILESAVE")
-        .unwrap()
-        .code;
-    view.update_in(cx, |view, window, cx| {
-        view.run_function(code, &[], window, cx)
+    let prefs = FilePrefs::default();
+    let begin = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.update(cx, |view, cx| {
+            view.document().update(cx, |shared, _| {
+                let began = crate::file_watch::check::begin(shared, &prefs).is_some();
+                // a check that began is over for the test
+                shared.disk_mut().pausing = false;
+                began
+            })
+        })
+    };
+    assert!(begin(&view, cx), "a check begins while nothing writes");
+    let was = view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.pause_watching_for_write())
     });
-    // the flow runs until it waits for the timer of its thread (the clock is not moved)
-    cx.run_until_parked();
-    assert!(pausing(&view, cx), "the flow waits for its thread");
-    settle(cx);
-    assert!(
-        !pausing(&view, cx),
-        "resumed when the time stamp is recorded"
-    );
+    assert!(!was);
+    assert!(pausing(&view, cx));
+    // `begin` clears `pausing` itself in the test helper above: look without it
+    let during = view.update(cx, |view, cx| {
+        view.document().update(cx, |shared, _| {
+            crate::file_watch::check::begin(shared, &prefs).is_some()
+        })
+    });
+    assert!(!during, "no check begins while the worker writes");
+    view.update(cx, |view, cx| {
+        view.document()
+            .update(cx, |shared, _| shared.resume_watching_after_write(was))
+    });
+    assert!(!pausing(&view, cx));
+    assert!(begin(&view, cx), "and one begins again after");
+    // the whole save leaves the watching as it found it, with the new time stamp
+    cx.simulate_input("x");
+    run(&view, cx, "F_FILESAVE");
+    assert!(!pausing(&view, cx));
     let stamp = view.read_with(cx, |view, app| view.document().read(app).disk().stamp);
     assert_eq!(stamp, crate::file_watch::state::modified_time(&path));
 }
