@@ -110,67 +110,136 @@ pub(crate) fn progress_text(verb: &str, path: &Path, done: u64, total: u64) -> S
 /// What a piece of work gets: the copy of the text and how to report progress.
 pub(crate) type Progress<'a> = &'a mut dyn FnMut(u64, u64) -> ControlFlow<()>;
 
-/// Ends the job of a save on its document, on every path out of the flow that started it: the
-/// write is done, it failed, the user declined a question, the window is gone (a tab joined into
-/// another window removes the window that started the save while the document lives on).
+/// The owner of every temporary change that a save makes to its document, so that each is undone
+/// on every path out of the flow: the job that runs on another thread, the pause of the watching
+/// for changes by other programs, the lock of the file that was let go of for the write. The write
+/// is done, it failed, the user declined a question, the window is gone (a tab joined into another
+/// window removes the window that started the save while the document lives on).
 ///
-/// The normal end is [`end_in`](Self::end_in), with an `App` at hand. A guard that is dropped
+/// The normal end is [`end_now`](Self::end_now), with an `App` at hand. A guard that is dropped
 /// without it does the same later, in a task of the foreground executor, with the `App` of the
 /// application and not a window: an update through the window of a flow that is gone fails, and
-/// `Drop` itself may run inside an update, where the `App` is borrowed already.
+/// `Drop` itself may run inside an update, where the `App` is borrowed already. Both go through
+/// the document by a weak handle and its generation: a document that was replaced is not touched.
 pub(crate) struct JobEnd {
     document: WeakEntity<SharedDocument>,
-    state: Arc<JobState>,
+    generation: u64,
     app: AsyncApp,
     foreground: ForegroundExecutor,
-    armed: bool,
+    /// The job of the work that runs on another thread, while it runs.
+    job: Option<Arc<JobState>>,
+    /// The save holds a pause of the watching ([`SharedDocument::pause_watching_for_write`]).
+    paused: bool,
+    /// The save let go of the lock of the file for the write.
+    released_lock: bool,
 }
 
 impl JobEnd {
-    pub fn new(app: &App, document: WeakEntity<SharedDocument>, state: Arc<JobState>) -> Self {
+    pub fn new(app: &App, document: WeakEntity<SharedDocument>, generation: u64) -> Self {
         Self {
             document,
-            state,
+            generation,
             app: app.to_async(),
             foreground: app.foreground_executor().clone(),
-            armed: true,
+            job: None,
+            paused: false,
+            released_lock: false,
         }
     }
 
-    /// The end, now: the document is not saving any more and a lock that was asked for meanwhile is
-    /// taken with the settings of now.
-    pub fn end_in(mut self, app: &mut App) {
-        self.armed = false;
-        end_job(app, &self.document, &self.state);
+    /// A guard for the document of `view` as it is now. `None` if the view or its window is gone.
+    pub fn for_view(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> Option<Self> {
+        let (document, generation) = view
+            .read_with(cx, |view, app| {
+                let document = view.document();
+                (document.downgrade(), document.read(app).generation())
+            })
+            .ok()?;
+        cx.update(|_, app| Self::new(app, document, generation)).ok()
+    }
+
+    /// The save let go of the lock of the file and holds a pause of the watching, as the write
+    /// needs: [`SharedDocument::unlock_file`] and [`SharedDocument::pause_watching_for_write`].
+    pub fn took_for_write(&mut self) {
+        self.released_lock = true;
+        self.paused = true;
+    }
+
+    /// The end of the job that ran on another thread: the document is not saving any more and a
+    /// lock that was asked for meanwhile is taken with the settings of now. The rest (the pause,
+    /// the lock for the write) waits for [`end_now`](Self::end_now), because the finish of the save
+    /// needs them.
+    pub fn end_job_now(&mut self, app: &mut App) {
+        if let Some(state) = self.job.take() {
+            undo(app, &self.document, self.generation, Some(&state), false, false);
+        }
+    }
+
+    /// The end, now: everything the save changed is undone, and nothing is left for `Drop`.
+    pub fn end_now(&mut self, app: &mut App) {
+        let job = self.job.take();
+        let (paused, released) = (
+            std::mem::take(&mut self.paused),
+            std::mem::take(&mut self.released_lock),
+        );
+        undo(app, &self.document, self.generation, job.as_ref(), paused, released);
     }
 }
 
 impl Drop for JobEnd {
     fn drop(&mut self) {
-        if !self.armed {
+        // Nothing is left to undo after `end_now`, and nothing was taken by a check that ended.
+        if self.job.is_none() && !self.paused && !self.released_lock {
             return;
         }
-        let (document, state, app) = (self.document.clone(), self.state.clone(), self.app.clone());
+        let (document, generation, job) = (self.document.clone(), self.generation, self.job.take());
+        let (paused, released) = (self.paused, self.released_lock);
+        let app = self.app.clone();
         // Detached: nothing could own it (the flow it belonged to is gone), and it ends at once.
         self.foreground
             .spawn(async move {
-                app.update(|app| end_job(app, &document, &state));
+                app.update(|app| undo(app, &document, generation, job.as_ref(), paused, released));
             })
             .detach();
     }
 }
 
-fn end_job(app: &mut App, document: &WeakEntity<SharedDocument>, state: &Arc<JobState>) {
+/// Undoes what a save changed on the document, if it is still the document that was saved.
+fn undo(
+    app: &mut App,
+    document: &WeakEntity<SharedDocument>,
+    generation: u64,
+    job: Option<&Arc<JobState>>,
+    paused: bool,
+    released_lock: bool,
+) {
     // The job is stopped as well, if it still runs (the flow was dropped, not finished).
-    state.cancel();
-    let mode = super::prefs::prefs(app).file_share_mode;
-    if let Some(document) = document.upgrade() {
-        document.update(app, |shared, _| {
-            if shared.end_saving(state) {
-                shared.take_deferred_lock(mode);
-            }
-        });
+    if let Some(state) = job {
+        state.cancel();
     }
+    let mode = super::prefs::prefs(app).file_share_mode;
+    let Some(document) = document.upgrade() else {
+        return;
+    };
+    document.update(app, |shared, _| {
+        // A document that was replaced has its own lock, watching and job.
+        if shared.generation() != generation {
+            return;
+        }
+        if let Some(state) = job
+            && shared.end_saving(state)
+        {
+            shared.take_deferred_lock(mode);
+        }
+        if paused {
+            shared.resume_watching_after_write();
+        }
+        // The lock that was let go of for the write comes back with the setting of now, unless the
+        // finish of the save took it already.
+        if released_lock && !shared.is_saving() && !shared.is_file_locked() {
+            shared.lock_file(mode);
+        }
+    });
 }
 
 /// Runs `work` on a copy of the text of the document of `view`. A big document (see
@@ -183,6 +252,7 @@ pub(crate) async fn run<T: Send + 'static>(
     cx: &mut AsyncWindowContext,
     verb: &'static str,
     path: &Path,
+    hold: &mut JobEnd,
     work: impl FnOnce(&SaveSnapshot, Progress<'_>) -> Result<T, FileError> + Send + 'static,
 ) -> Result<T, FileError> {
     let from = cx
@@ -209,19 +279,17 @@ pub(crate) async fn run<T: Send + 'static>(
         });
         // Only a weak hold goes across the awaits: the document must go when its last view is
         // closed (that drops the job and raises the flag at once), not when this flow ends.
-        let weak = document.downgrade();
-        // The guard that ends the job on every path (taken in the same update that began it).
-        let guard = matches!(prepared, Ok((_, true, _, _)))
-            .then(|| JobEnd::new(cx, weak.clone(), state.clone()));
-        (weak, prepared, guard)
+        (document.downgrade(), prepared)
     });
-    let Ok((document, prepared, guard)) = prepared else {
+    let Ok((document, prepared)) = prepared else {
         return Err(FileError::Cancelled);
     };
     let (snapshot, big, version, generation) = prepared?;
-    let Some(guard) = guard.filter(|_| big) else {
+    if !big {
         return work(&snapshot, &mut |_, _| ControlFlow::Continue(()));
-    };
+    }
+    // The guard owns the end of the job from here (the document owns the job itself).
+    hold.job = Some(state.clone());
     let task = cx.background_executor().spawn({
         let state = state.clone();
         async move {
@@ -243,7 +311,7 @@ pub(crate) async fn run<T: Send + 'static>(
     .await;
     // The job is over, however it ended (or the document was replaced, which dropped it already).
     // If the window cannot be updated any more the guard does it when it is dropped.
-    cx.update(|_, app| guard.end_in(app)).ok();
+    cx.update(|_, app| hold.end_job_now(app)).ok();
     result
 }
 

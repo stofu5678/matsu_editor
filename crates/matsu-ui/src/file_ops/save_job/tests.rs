@@ -670,15 +670,19 @@ fn the_wait_goes_on_when_the_view_that_started_the_save_is_gone(cx: &mut TestApp
     drop(job);
 }
 
-/// A guard for the job `state` of the document of `view`, as `run` takes it.
+/// A guard for the job `state` of the document of `view`, as the flow of a save holds it.
 fn guard_for(
     view: &Entity<EditorView>,
     state: &std::sync::Arc<JobState>,
     cx: &mut VisualTestContext,
 ) -> JobEnd {
-    let document = view.read_with(cx, |view, _| view.document().downgrade());
-    let state = state.clone();
-    cx.update(|_, app| JobEnd::new(app, document, state))
+    let (document, generation) = view.read_with(cx, |view, app| {
+        let shared = view.document();
+        (shared.downgrade(), shared.read(app).generation())
+    });
+    let mut guard = cx.update(|_, app| JobEnd::new(app, document, generation));
+    guard.job = Some(state.clone());
+    guard
 }
 
 /// The flow that began a job is gone without ending it (a tab joined into another window removed
@@ -725,7 +729,7 @@ fn a_lock_deferred_during_a_check_is_taken_when_the_check_ends(cx: &mut TestAppC
     open(&view, cx, &path);
     assert!(held(&view, cx).is_some());
     let state = begin(&view, cx);
-    let guard = guard_for(&view, &state, cx);
+    let mut guard = guard_for(&view, &state, cx);
     // the setting changes to the mode that denies reading and writing during the check
     cx.update(|_, app| {
         app.set_global(FilePrefs {
@@ -736,7 +740,7 @@ fn a_lock_deferred_during_a_check_is_taken_when_the_check_ends(cx: &mut TestAppC
     on_document(&view, cx, |shared| shared.relock_checking_writable(2));
     assert!(held(&view, cx).is_none(), "deferred while the check runs");
     // the check ends (declined, cancelled, failed): `finish_save_now` never runs
-    cx.update(|_, app| guard.end_in(app));
+    cx.update(|_, app| guard.end_now(app));
     assert!(!is_saving(&view, cx));
     assert_eq!(
         held(&view, cx),
@@ -768,4 +772,68 @@ fn a_lock_deferred_during_a_save_is_taken_also_when_the_flow_is_gone(cx: &mut Te
         held(&view, cx),
         Some(matsu_platform::file_lock::ShareMode::DenyWrite)
     );
+}
+
+/// The save let go of the lock and paused the watching for the write, and its flow is gone (the
+/// window was removed before the finish): the guard, dropped, puts all of it back through the
+/// `App`: the pause count, the lock with the settings of now, the job.
+#[gpui::test]
+fn a_dropped_guard_undoes_the_pause_the_lock_and_the_job(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    cx.update(|_, app| {
+        app.set_global(FilePrefs {
+            file_share_mode: 1,
+            ..FilePrefs::default()
+        })
+    });
+    open(&view, cx, &path);
+    assert!(held(&view, cx).is_some());
+    let state = begin(&view, cx);
+    let mut guard = guard_for(&view, &state, cx);
+    // what step 5 of the flow does
+    on_document(&view, cx, |shared| {
+        shared.unlock_file();
+        shared.pause_watching_for_write();
+    });
+    guard.took_for_write();
+    assert!(held(&view, cx).is_none());
+    assert!(pausing(&view, cx));
+    assert!(is_saving(&view, cx));
+    // the setting of the moment is not the one at the start
+    cx.update(|_, app| {
+        app.set_global(FilePrefs {
+            file_share_mode: 2,
+            ..FilePrefs::default()
+        })
+    });
+    drop(guard);
+    cx.run_until_parked();
+    assert!(!pausing(&view, cx), "the pause is back");
+    assert!(!is_saving(&view, cx), "the job is cleared");
+    assert_eq!(
+        held(&view, cx),
+        Some(matsu_platform::file_lock::ShareMode::DenyReadWrite),
+        "the lock is taken again with the setting of now"
+    );
+}
+
+/// A pause or a lock of a document that was replaced meanwhile is not the guard's to undo.
+#[gpui::test]
+fn a_guard_leaves_a_replaced_document_alone(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, usize::MAX);
+    open(&view, cx, &path);
+    let state = begin(&view, cx);
+    let mut guard = guard_for(&view, &state, cx);
+    on_document(&view, cx, |shared| shared.pause_watching_for_write());
+    guard.took_for_write();
+    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    // the replacement has a hold of its own
+    on_document(&view, cx, |shared| shared.disk_mut().pause());
+    drop(guard);
+    cx.run_until_parked();
+    assert!(pausing(&view, cx), "the hold of the replacement stays");
 }

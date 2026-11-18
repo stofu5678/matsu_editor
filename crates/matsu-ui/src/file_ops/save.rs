@@ -432,6 +432,9 @@ pub(crate) async fn save(
     // A save that began writing since the entry of this one (the hooks above can wait) is the only
     // one: this one is refused here, before the lock is touched, and nothing runs for it after. No
     // `await` lies between this look and the start of the job in `run`.
+    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx) else {
+        return SaveOutcome::Cancelled;
+    };
     let busy = view
         .update(cx, |view, cx| {
             view.document().update(cx, |shared, _| {
@@ -440,6 +443,8 @@ pub(crate) async fn save(
                     shared.unlock_file();
                     // Until the new time stamp is recorded; the save holds a pause of its own.
                     shared.pause_watching_for_write();
+                    // Both are undone by `hold`, on every path out of this flow.
+                    hold.took_for_write();
                 }
                 busy
             })
@@ -456,7 +461,7 @@ pub(crate) async fn save(
     };
     let to_write = options.clone();
     let on_path = path.clone();
-    let write = super::save_job::run(view, cx, "保存", &path, move |snapshot, progress| {
+    let write = super::save_job::run(view, cx, "保存", &path, &mut hold, move |snapshot, progress| {
         snapshot.write(&on_path, &to_write, progress)
     })
     .await;
@@ -475,10 +480,10 @@ pub(crate) async fn save(
     let written = view
         .update(cx, |view, cx| {
             let finished = view.finish_save_now(target, &options, write, cx);
-            // The new time stamp is recorded (or the save failed and the file is as it was): the
-            // save lifts its own pause of the watching.
-            view.document()
-                .update(cx, |shared, _| shared.resume_watching_after_write());
+            // The new time stamp is recorded (or the save failed and the file is as it was): what
+            // the save changed (the pause of the watching, the lock) is undone now, not when the
+            // flow ends.
+            hold.end_now(cx);
             finished
         })
         .ok();
@@ -681,7 +686,10 @@ async fn confirm_content(
         .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
         .unwrap_or(true);
     if request.ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
-        let mixed = super::save_job::run(view, cx, "検査", path, |snapshot, progress| {
+        let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx) else {
+            return Err(SaveOutcome::Cancelled);
+        };
+        let mixed = super::save_job::run(view, cx, "検査", path, &mut hold, |snapshot, progress| {
             snapshot.has_mixed_line_endings(progress)
         })
         .await;
@@ -726,9 +734,17 @@ async fn confirm_content(
         return Ok(());
     }
     let for_check = options.clone();
-    let checked = super::save_job::run(view, cx, "検査", path, move |snapshot, progress| {
-        snapshot.check_save(&for_check, progress)
-    })
+    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx) else {
+        return Err(SaveOutcome::Cancelled);
+    };
+    let checked = super::save_job::run(
+        view,
+        cx,
+        "検査",
+        path,
+        &mut hold,
+        move |snapshot, progress| snapshot.check_save(&for_check, progress),
+    )
     .await;
     match checked.map_err(|e| (!matches!(e, FileError::Cancelled)).then_some(e)) {
         Ok(report) if report.total > 0 => {
