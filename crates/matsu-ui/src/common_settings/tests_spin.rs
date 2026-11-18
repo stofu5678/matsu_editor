@@ -212,7 +212,7 @@ fn the_focused_choice_is_the_element_that_is_drawn_and_space_chooses_it(cx: &mut
 
 #[test]
 fn a_choice_is_a_radio_button_named_by_its_text_on_the_element_that_has_the_focus() {
-    use gpui::{Role, Toggled, div};
+    use gpui::{InteractiveElement as _, Role, Toggled, div};
 
     let chosen = crate::a11y::node_of(&super::semantics::choice(
         div().id("c"),
