@@ -345,15 +345,26 @@ fn a_flow_of_a_replaced_document_leaves_the_replacement_alone(cx: &mut TestAppCo
         .find(|f| f.name == "F_FILESAVE")
         .unwrap()
         .code;
-    view.update_in(cx, |view, window, cx| view.run_function(code, &[], window, cx));
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[], window, cx)
+    });
     // the flow waits for its thread; the window gets another document meanwhile
-    view.update(cx, |view, cx| view.load_document(SharedDocument::empty(), None, cx));
+    view.update(cx, |view, cx| {
+        view.load_document(SharedDocument::empty(), None, cx)
+    });
     settle(cx);
     let (path_of_new, notice, saving) = view.read_with(cx, |view, app| {
         let shared = view.document().read(app);
-        (shared.path().map(PathBuf::from), view.notice.clone(), shared.is_saving())
+        (
+            shared.path().map(PathBuf::from),
+            view.notice.clone(),
+            shared.is_saving(),
+        )
     });
-    assert_eq!(path_of_new, None, "the replacement did not take the path of the file");
+    assert_eq!(
+        path_of_new, None,
+        "the replacement did not take the path of the file"
+    );
     assert!(!notice.is_some_and(|n| n.contains("に保存した")));
     assert!(!saving);
 }
