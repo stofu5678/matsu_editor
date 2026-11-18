@@ -434,7 +434,8 @@ impl LaunchOptions {
             });
             if grep.args.stdout {
                 // A batch reads the standard output: the reason goes there, as the other mistakes of
-                // `-GOPT=U` do. The window ends after its events.
+                // `-GOPT=U` do. The window ends after its events. `-CODE=` and `-TYPE=` count here too.
+                view.update(cx, |view, cx| self.apply_type_and_encoding(view, cx));
                 crate::grep::stdout::write_message(
                     view.read(cx).document().read(cx).file().encoding,
                     crate::grep::panel::NO_CLIPBOARD,
