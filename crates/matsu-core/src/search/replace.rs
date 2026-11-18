@@ -130,6 +130,25 @@ pub fn apply_replacements(
     Ok(applied)
 }
 
+/// Makes the edits from the last to the first. The positions of the edits are in the document
+/// before any of them, and no edit can change how the position of an earlier one is read (deleting
+/// the `x` of `a\rx\nb` first would join the CR and the LF into one CR LF, and the position of
+/// the deletion of that LF would then take the CR with it). The edits must be in order and must
+/// not overlap, like the result of a plan. The result is in the order the edits were made, which
+/// is the order to make them again in another copy of the document. If one fails, none is made.
+pub fn apply_replacements_descending(
+    doc: &mut Document,
+    replacements: &[Replacement],
+) -> Result<Vec<AppliedEdit>, BufferError> {
+    let mut work = doc.clone();
+    let mut applied = Vec::with_capacity(replacements.len());
+    for r in replacements.iter().rev() {
+        applied.push(apply_one(&mut work, r.start, r.end, r)?);
+    }
+    *doc = work;
+    Ok(applied)
+}
+
 /// Makes one edit at `start..end` (positions in `doc` as it is now).
 fn apply_one(
     doc: &mut Document,

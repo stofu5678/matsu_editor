@@ -765,6 +765,14 @@ fn a_caret_between_two_touching_matches_stays_between_them(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn deleting_a_match_does_not_move_the_deletion_of_a_break_in_mixed_endings(
+    cx: &mut TestAppContext,
+) {
+    let (text, _) = replace_with_caret(cx, "a\rx\nb", Pos::new(0, 0), (r"x|\n", "", 13));
+    assert_eq!(text, "a\rb");
+}
+
+#[gpui::test]
 fn a_box_selection_does_not_stop_the_replacement(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "", None);
     let doc = Document::from_utf8(b"a needle\nb needle\n".to_vec()).unwrap();

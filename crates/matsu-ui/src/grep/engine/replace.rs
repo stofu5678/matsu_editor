@@ -63,7 +63,7 @@ use std::ops::Range;
 use matsu_core::buffer::{BufferError, Document, Pos};
 use matsu_core::file::{FileError, SaveOptions, TextFile};
 use matsu_core::search::{
-    AppliedEdit, ReplaceTarget, Replacement, apply_replacements, replacement_for,
+    AppliedEdit, ReplaceTarget, Replacement, apply_replacements_descending, replacement_for,
 };
 
 use super::{ReplaceInfo, Runner, Stopped, WindowSource, next_hit, shown_path};
@@ -213,7 +213,7 @@ impl Runner<'_> {
         planned: Planned,
         full: &str,
     ) -> Option<(Vec<AppliedEdit>, usize)> {
-        match apply_replacements(doc, &merge_adjacent(planned.edits)) {
+        match apply_replacements_descending(doc, &merge_adjacent(planned.edits)) {
             Ok(edits) if planned.replaced > 0 => Some((edits, planned.replaced)),
             Ok(_) => None,
             Err(_) => {
@@ -352,15 +352,21 @@ fn staged_name(old: &str) -> String {
 }
 
 /// Puts two edits that touch each other (one ends where the next begins) into one when the first
-/// puts a CR at the seam. What follows the seam may be an LF (the next line is empty, or the next
-/// edit begins with one): the document joins them into one CR LF, and the positions of the second
-/// edit are then wrong; as one edit the text is just what the lines were replaced with, as Sakura
-/// writes it. Other edits that touch (`hithit`) stay two, so a caret between them stays.
+/// puts a CR at the seam or the second an LF there. The edits are made from the last to the first;
+/// the later one goes in front of the unedited text of the earlier one, which may end with a CR
+/// (an LF would join it into one CR LF and the earlier edit would then take the whole CR LF), and
+/// the earlier one puts its CR in front of what the later one left, which may begin with an LF. As
+/// one edit the text is just what the lines were replaced with, as Sakura writes it. Other edits
+/// that touch (`hithit`, or the deletions of `x` and of the LF after it in `a\rx\nb`) stay two, so
+/// a caret between them stays.
 fn merge_adjacent(plan: Vec<Replacement>) -> Vec<Replacement> {
     let mut merged: Vec<Replacement> = Vec::with_capacity(plan.len());
     for next in plan {
         match merged.last_mut() {
-            Some(last) if last.end == next.start && last.text.ends_with('\r') => {
+            Some(last)
+                if last.end == next.start
+                    && (last.text.ends_with('\r') || next.text.starts_with('\n')) =>
+            {
                 last.end = next.end;
                 last.text.push_str(&next.text);
             }

@@ -67,7 +67,12 @@ impl EditorView {
             // A box selection refuses edits: the selection goes first (the caret is put back below).
             let made = c.move_caret(caret, false).and_then(|()| {
                 let ends = apply_edits(c, edits)?;
-                c.move_caret(shift_start(caret, edits, &ends), false)
+                // The edits were made from the last to the first: each one maps the caret in the
+                // document as it was before that edit.
+                let at = edits.iter().zip(&ends).fold(caret, |at, (edit, &old_end)| {
+                    shift_start(at, std::slice::from_ref(edit), &[old_end])
+                });
+                c.move_caret(at, false)
             });
             c.end_block();
             made

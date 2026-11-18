@@ -38,5 +38,6 @@ pub use find::{
 pub use matcher::{Match, Matcher, MatcherError, PlainMatcher, PlainOptions};
 pub use replace::{
     AppliedEdit, ReplaceAllResult, ReplaceStep, ReplaceTarget, Replacement, apply_replacements,
-    replace_all, replace_and_find_next, replace_one, replacement_for,
+    apply_replacements_descending, replace_all, replace_and_find_next, replace_one,
+    replacement_for,
 };
