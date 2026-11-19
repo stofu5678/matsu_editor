@@ -1213,6 +1213,30 @@ fn adding_to_a_full_list_whose_file_order_differs_loses_only_the_files_oldest(
 }
 
 #[gpui::test]
+fn tab_and_shift_tab_go_round_the_panel_from_each_of_its_three_places(cx: &mut TestAppContext) {
+    let (dialog, cx) = setup(cx, sample());
+    fill(cx);
+    dialog.update(cx, |d, cx| d.reload(cx));
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
+    dialog.update_in(cx, |d, window, cx| d.begin_add(window, cx));
+    let focus = |dialog: &Entity<FavoriteDialog>, cx: &mut VisualTestContext| {
+        cx.update(|window, app| dialog.read(app).panel_focus(window, app))
+    };
+    // Field (0), OK (1), キャンセル (2): the keymap sends Tab the same way from each.
+    assert_eq!(focus(&dialog, cx), Some(0));
+    for expected in [1, 2, 0, 1, 2, 0] {
+        cx.simulate_keystrokes("tab");
+        assert_eq!(focus(&dialog, cx), Some(expected), "Tab");
+    }
+    for expected in [2, 1, 0, 2, 1, 0] {
+        cx.simulate_keystrokes("shift-tab");
+        assert_eq!(focus(&dialog, cx), Some(expected), "Shift+Tab");
+    }
+    cx.simulate_keystrokes("escape");
+    assert!(!dialog.read_with(cx, |d, _| d.is_editing()));
+}
+
+#[gpui::test]
 fn an_answer_that_comes_after_a_tab_change_still_deletes_the_list_that_was_asked_about(
     cx: &mut TestAppContext,
 ) {

@@ -42,7 +42,7 @@ struct KeysBound;
 
 impl gpui::Global for KeysBound {}
 
-/// Binds Tab and Shift+Tab in the field of the dialogs that move the focus between the field and
+/// Binds Tab and Shift+Tab in the field and the buttons of the dialogs that move the focus between the field and
 /// their buttons: this dialog (context `InputDialog`) and the panel of the history window
 /// (`FavoriteEdit`). Once per application; `input_field` calls it. Like the Up and Down keys of
 /// a spin box (`crate::spin::bind_keys`), the keys are bound in the field itself, on the context
@@ -54,7 +54,15 @@ pub(crate) fn bind_keys(cx: &mut gpui::App) {
         return;
     }
     cx.set_global(KeysBound);
-    for context in ["InputDialog > Input", "FavoriteEdit > Input"] {
+    // The field's own context first (it is deeper, so it wins over the field's Tab); the dialog's
+    // own for the buttons, which GPUI's tab navigation would otherwise take (it does not know the
+    // order field, OK, Cancel).
+    for context in [
+        "InputDialog",
+        "FavoriteEdit",
+        "InputDialog > Input",
+        "FavoriteEdit > Input",
+    ] {
         cx.bind_keys([
             KeyBinding::new("tab", DialogTab, Some(context)),
             KeyBinding::new("shift-tab", DialogBackTab, Some(context)),
