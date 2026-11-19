@@ -73,18 +73,23 @@ pub(crate) struct CursorKey {
     scroll: (f32, f32),
     version: u64,
     /// The caret, the selection and the columns of a box: a small `Copy` summary of the cursor.
-    cursor: (
-        matsu_core::buffer::Pos,
-        Option<(matsu_core::buffer::Pos, matsu_core::buffer::Pos)>,
-        bool,
-        Option<usize>,
-        Option<usize>,
-    ),
+    cursor: CursorSummary,
     /// The line height and the width of a column, and the rows of the layout.
     metrics: (f32, f32, usize),
     finds_url: bool,
     paint: Option<(f32, f32, f32)>,
     drag_drop: (bool, bool),
+}
+
+/// What of the cursor the shape depends on: where the caret is, what is selected, and the columns
+/// of a box selection.
+#[derive(Clone, Copy, PartialEq)]
+struct CursorSummary {
+    caret: matsu_core::buffer::Pos,
+    selection: Option<(matsu_core::buffer::Pos, matsu_core::buffer::Pos)>,
+    is_box: bool,
+    box_anchor_col: Option<usize>,
+    box_caret_col: Option<usize>,
 }
 
 /// The shape for a [`CursorKey`].
@@ -159,13 +164,13 @@ impl EditorView {
             drag: self.drag,
             scroll: (self.scroll_x, self.scroll_y),
             version: self.document.read(cx).version(),
-            cursor: (
-                self.cursor.caret(),
-                self.cursor.selection(),
-                self.cursor.is_box(),
-                self.cursor.box_anchor_col(),
-                self.cursor.box_caret_col(),
-            ),
+            cursor: CursorSummary {
+                caret: self.cursor.caret(),
+                selection: self.cursor.selection(),
+                is_box: self.cursor.is_box(),
+                box_anchor_col: self.cursor.box_anchor_col(),
+                box_caret_col: self.cursor.box_caret_col(),
+            },
             metrics: (
                 self.metrics.line_height,
                 self.metrics.cell_width,
