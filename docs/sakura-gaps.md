@@ -179,7 +179,7 @@
 |---|---|---|---|---|---|
 | タスクトレイ（常駐、左クリックのメニュー、`-NOWIN`）、トレイのショートカットキー | `CControlTray.cpp` | 設定は灰色。`-NOWIN` は読むだけで何もしない | B | L | GPUI にトレイの API があるか（未確認） |
 | 配布: 署名、公証、`.dmg`、Wayland のアイコン（`.desktop`）、Finder の「このアプリで開く」の確認 | － | #198、#215 は途中 | ユーザーの判断が要る: リリース | M | アカウント |
-| Linux の HTML クリップボード | `CClipboard.cpp` | テキストとして HTML のソースが載る（#170） | B | S | GPUI |
+| Linux の HTML クリップボード | `CClipboard.cpp` | テキストとして HTML のソースが載る（#170）。GPUI 0.3.8 の Linux の書き込みが文字しか載せないため。X11 は `write_to_clipboard` が `item.text()` だけを `UTF8_STRING` で書き（`linux/x11/client.rs`。`text/html` の atom は `x11/clipboard.rs` でコメントアウトのまま）、Wayland は `TEXT_MIME_TYPES`（`text/plain` の 3 種）だけを `offer` する（`wayland/client.rs`）。`ClipboardEntry` にも HTML の種類がない。MATSU が自分で書くと、GPUI の所有者と取り合い、依存（x11rb・wayland-client）も要る。報告の下書きは `.claude/handoff/drafts/`（ユーザーが再現してから投稿） | B | S | GPUI |
 | macOS のネイティブメニューのアイコン、メニューを開く直前のフック | － | 入れていない（#136、#124）。gpui-pre の限界 | B | S | GPUI |
 | ファイルのドロップ: 右ボタンのメニュー、編集ウィンドウの上限 | `CEditView::OnMyDropFiles` | #123 | B | S | GPUI |
 | ホイール 1 ノッチの行数のシステム設定 | － | Windows だけ反映（#49） | B | S | GPUI |

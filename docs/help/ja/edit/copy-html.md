@@ -20,7 +20,7 @@
 
 ## 残っていること
 
-Linux では、HTML の形式でのクリップボードは使えず、文字として HTML のソースが載ります。
+Linux では、HTML の形式でのクリップボードは使えず、文字として HTML のソースが載ります。MATSU Editor が使う GPUI の Linux 版は、クリップボードに文字（`text/plain`、`UTF8_STRING`）しか載せられず、`text/html` を足す口がないためです（X11 も Wayland も）。
 
 ## 根拠
 
