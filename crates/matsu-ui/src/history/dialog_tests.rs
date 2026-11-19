@@ -961,6 +961,11 @@ fn editing_a_string_only_in_memory_into_a_savable_one_saves_the_result(cx: &mut 
             d.finish_edit(Some(to.into()), window, cx)
         });
     }
+    // The edited row stays selected, so F2 and Delete still work on it.
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.selected().iter().copied().collect::<Vec<_>>()),
+        [0]
+    );
     let profile = matsu_config::Profile::load(&path).unwrap();
     let keys = matsu_config::settings::SearchKeys::from_profile(&profile);
     let exec = matsu_config::settings::ExecHistory::from_profile(&profile);
