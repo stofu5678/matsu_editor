@@ -151,14 +151,12 @@ impl InputDialog {
     /// Moves the focus to the next (or previous) of the field, OK and Cancel.
     fn move_focus(&self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let field = self.input.read(cx).focus_handle(cx);
-        let order = [field, self.ok_focus.clone(), self.cancel_focus.clone()];
-        let at = order.iter().position(|h| h.contains_focused(window, cx));
-        let next = match (at, forward) {
-            (Some(i), true) => (i + 1) % order.len(),
-            (Some(i), false) => (i + order.len() - 1) % order.len(),
-            (None, _) => 0,
-        };
-        window.focus(&order[next], cx);
+        cycle_focus(
+            &[field, self.ok_focus.clone(), self.cancel_focus.clone()],
+            forward,
+            window,
+            cx,
+        );
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -179,6 +177,24 @@ impl Focusable for InputDialog {
     fn focus_handle(&self, cx: &gpui::App) -> FocusHandle {
         self.input.read(cx).focus_handle(cx)
     }
+}
+
+/// Moves the focus to the next (or previous) of `order`, going round (Tab and Shift+Tab in a
+/// dialog of a field and buttons); from outside them it goes to the first. Shared by this dialog
+/// and the panel of the history window.
+pub(crate) fn cycle_focus(
+    order: &[FocusHandle],
+    forward: bool,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
+    let at = order.iter().position(|h| h.contains_focused(window, cx));
+    let next = match (at, forward) {
+        (Some(i), true) => (i + 1) % order.len(),
+        (Some(i), false) => (i + order.len() - 1) % order.len(),
+        (None, _) => 0,
+    };
+    window.focus(&order[next], cx);
 }
 
 /// The field after an edit from `before` to `after`, when `after` is longer than `max` UTF-16 code

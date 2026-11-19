@@ -525,6 +525,9 @@ struct EditPanel {
     accepted: String,
     /// The longest text the field takes, in UTF-16 units (`max_size - 1` of `CDlgInput1::DoModal`).
     max_len: usize,
+    /// The buttons take the focus too (Tab, Shift+Tab; Enter and Space press the focused one).
+    ok_focus: FocusHandle,
+    cancel_focus: FocusHandle,
     _subscription: gpui::Subscription,
 }
 
@@ -906,6 +909,8 @@ impl FavoriteDialog {
             input,
             accepted: text,
             max_len,
+            ok_focus: cx.focus_handle(),
+            cancel_focus: cx.focus_handle(),
             _subscription: subscription,
         });
         cx.notify();
@@ -1028,14 +1033,37 @@ impl FavoriteDialog {
         window.remove_window();
     }
 
+    /// The keys of the panel (as in `InputDialog`): Esc cancels, Tab and Shift+Tab go between the
+    /// field and the buttons, Enter and Space press the button that has the focus. Enter in the
+    /// field is OK, which the field reports itself.
+    fn on_panel_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.edit.as_ref() else {
+            return;
+        };
+        let (ok, cancel) = (panel.ok_focus.clone(), panel.cancel_focus.clone());
+        match event.keystroke.key.as_str() {
+            "escape" => self.finish_edit(None, window, cx),
+            "tab" => {
+                let field = panel.input.read(cx).focus_handle(cx);
+                crate::input_dialog::cycle_focus(
+                    &[field, ok, cancel],
+                    !event.keystroke.modifiers.shift,
+                    window,
+                    cx,
+                );
+            }
+            "enter" | "space" if cancel.is_focused(window) => self.finish_edit(None, window, cx),
+            "enter" | "space" if ok.is_focused(window) => self.ok_edit(window, cx),
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         // The panel of 追加 and 編集 has the keys while it is open; Enter in its field is OK.
         if self.edit.is_some() {
-            if key == "escape" {
-                self.finish_edit(None, window, cx);
-                cx.stop_propagation();
-            }
+            self.on_panel_key(event, window, cx);
             return;
         }
         let count = self.rows().len();
@@ -1097,7 +1125,7 @@ impl Focusable for FavoriteDialog {
 impl Render for FavoriteDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
-        let panel = self.render_panel(cx);
+        let panel = self.render_panel(window, cx);
         // The field of the panel of 追加 and 編集 has the focus while the panel is open.
         if self.edit.is_none() && !self.focus.is_focused(window) {
             window.focus(&self.focus, cx);
@@ -1311,20 +1339,26 @@ impl Render for FavoriteDialog {
 
 impl FavoriteDialog {
     /// The panel of 追加 and 編集 (`IDD_INPUT1`), over the dialog.
-    fn render_panel(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    fn render_panel(&self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let panel = self.edit.as_ref()?;
         let (title, message) = match panel.target {
             EditTarget::Add => ("追加", "追加する文字列を入力してください。"),
             EditTarget::Edit(_) => ("編集", "編集する文字列を入力してください。"),
         };
-        let button = |id: &'static str, label: &'static str| {
+        let button = |id: &'static str, label: &'static str, handle: &FocusHandle| {
+            let ring = if handle.is_focused(window) {
+                SELECTED_BG
+            } else {
+                0xaaaaaa
+            };
             crate::a11y::button(div().id(id), label)
+                .track_focus(handle)
                 .px_4()
                 .h(px(28.))
                 .flex()
                 .items_center()
                 .border_1()
-                .border_color(rgb(0xaaaaaa))
+                .border_color(rgb(ring))
                 .bg(rgb(0xf4f4f4))
                 .cursor_pointer()
                 .child(label)
@@ -1348,13 +1382,15 @@ impl FavoriteDialog {
                     .flex()
                     .justify_end()
                     .gap_2()
-                    .child(button("favorite-edit-ok", "OK").on_click(
+                    .child(button("favorite-edit-ok", "OK", &panel.ok_focus).on_click(
                         cx.listener(|this, _: &ClickEvent, window, cx| this.ok_edit(window, cx)),
                     ))
                     .child(
-                        button("favorite-edit-cancel", "キャンセル").on_click(cx.listener(
-                            |this, _: &ClickEvent, window, cx| this.finish_edit(None, window, cx),
-                        )),
+                        button("favorite-edit-cancel", "キャンセル", &panel.cancel_focus).on_click(
+                            cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.finish_edit(None, window, cx)
+                            }),
+                        ),
                     ),
             );
         Some(

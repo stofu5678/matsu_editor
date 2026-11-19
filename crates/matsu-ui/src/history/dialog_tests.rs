@@ -1037,6 +1037,33 @@ fn an_edit_the_dialog_refuses_does_not_touch_a_file_that_differs_from_memory(
 }
 
 #[gpui::test]
+fn tab_reaches_the_buttons_of_the_panel_and_enter_presses_the_focused_one(cx: &mut TestAppContext) {
+    let (dialog, cx) = setup(cx, sample());
+    fill(cx);
+    dialog.update(cx, |d, cx| d.reload(cx));
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
+    let windows = cx.windows().len();
+    // Field, OK, Cancel: two Tabs reach キャンセル, and Enter there cancels.
+    dialog.update_in(cx, |d, window, cx| d.begin_add(window, cx));
+    cx.simulate_input("typed");
+    cx.simulate_keystrokes("tab tab enter");
+    assert!(!dialog.read_with(cx, |d, _| d.is_editing()));
+    assert_eq!(lists(cx).keys.search.texts().len(), 3);
+    assert_eq!(cx.windows().len(), windows);
+    // One Tab reaches OK, and Space there adds the text.
+    dialog.update_in(cx, |d, window, cx| d.begin_add(window, cx));
+    cx.simulate_input("typed");
+    cx.simulate_keystrokes("tab space");
+    assert!(!dialog.read_with(cx, |d, _| d.is_editing()));
+    assert_eq!(lists(cx).keys.search.texts()[0], "typed");
+    // Shift+Tab goes back from the field to キャンセル.
+    dialog.update_in(cx, |d, window, cx| d.begin_add(window, cx));
+    cx.simulate_keystrokes("shift-tab enter");
+    assert!(!dialog.read_with(cx, |d, _| d.is_editing()));
+    assert_eq!(lists(cx).keys.search.texts().len(), 4);
+}
+
+#[gpui::test]
 fn an_answer_that_comes_after_a_tab_change_still_deletes_the_list_that_was_asked_about(
     cx: &mut TestAppContext,
 ) {
