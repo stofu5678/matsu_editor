@@ -74,7 +74,8 @@ pub fn parse_function(token: &str) -> Option<u16> {
     if token.starts_with(|c: char| c.is_ascii_digit()) {
         return token.parse().ok();
     }
-    // `GetPlugCmdInfoByName`: `<plugin ID>/<number>`, for a command that is loaded.
+    // `GetPlugCmdInfoByName`: `<plugin ID>/<number>`, for a plugin that is in the plugin table (enabled
+    // or not: the binding is kept while the plugin is off).
     if token.contains('/') {
         return plugin_commands::by_name(token);
     }
@@ -284,19 +285,28 @@ mod tests {
     }
 
     #[test]
-    fn a_plugin_command_is_read_while_it_is_loaded_and_written_by_its_name() {
+    fn a_plugin_command_is_read_while_its_plugin_is_in_the_table_and_written_by_its_name() {
         use crate::plugin_commands::{self as pc, CommandInfo};
         let mut ids = vec![String::new(); pc::MAX_PLUGIN];
         ids[1] = "vendor.plug".to_owned();
         pc::set_slots(ids);
         let code = pc::function_code(1, 2).unwrap();
         let entry = [("KeyBind[000]", "0041,0,0,vendor.plug/02,0,0,0,0,0,A")];
-        // The plugin is registered, but its command is not loaded: the cell is empty, with a warning.
+        // The plugin is registered, but its command is not loaded: the code is read all the same
+        // (`GetPlugCmdInfoByName` looks at the plugin table), so that saving keeps the binding.
         let (rows, warnings) = parse_entries(entry);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(rows[0].functions[2], code);
+        assert_eq!(
+            format_entries(&rows)[0].1,
+            "0041,0,0,vendor.plug/02,0,0,0,0,0,A"
+        );
+        // An ID that is not in the table is no code, with a warning.
+        let (rows, warnings) = parse_entries([("KeyBind[000]", "0041,0,0,nobody/02,0,0,0,0,0,A")]);
         assert_eq!(rows[0].functions[2], 0);
         assert_eq!(
             warnings[0].problem,
-            Problem::UnknownFunction("vendor.plug/02".into())
+            Problem::UnknownFunction("nobody/02".into())
         );
         pc::add_command(CommandInfo {
             code,

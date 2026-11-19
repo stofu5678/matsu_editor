@@ -140,7 +140,13 @@ impl Context<'_> {
 
     fn item(&self, code: u16, key: Option<char>) -> Item {
         Item {
-            label: menu_label_with(&self.function_name(code), key, self.parentheses),
+            // A plugin command that is not loaded: `InitMenu_Function` says so (the key list says `-- 不明 --`).
+            label: menu_label_with(
+                &crate::menu::plugin_command_label(code)
+                    .unwrap_or_else(|| self.function_name(code)),
+                key,
+                self.parentheses,
+            ),
             action: MenuAction::Function(code),
             shortcut: self.keymap.shortcut_for(code),
             enabled: self.is_enabled(code),
