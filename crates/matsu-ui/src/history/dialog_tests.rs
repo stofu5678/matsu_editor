@@ -416,7 +416,7 @@ fn a_300_character_path_goes_into_the_excluded_list_but_not_a_300_character_type
         &mut h,
         vec!["/a".into(), long.clone(), "/b".into()]
     ));
-    assert_eq!(h.except, ["/b", long.clone(), "/a"]);
+    assert_eq!(h.except, ["/b", long.as_str(), "/a"]);
     // What is typed in the panel keeps the limit.
     assert!(!append_except(&mut h, format!("/{}", "y".repeat(299))));
     assert!(!edit_except(&mut h, "/a", &long.replace('x', "z")));
