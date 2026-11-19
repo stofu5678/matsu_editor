@@ -565,3 +565,20 @@ fn the_selection_lock_extends_the_selection_to_the_match(cx: &mut TestAppContext
 }
 
 mod access_keys;
+
+#[gpui::test]
+fn the_up_and_down_keys_of_the_jump_panel_step_the_line_number(cx: &mut TestAppContext) {
+    // `IDC_SPIN_LINENUM` (`UDS_ARROWKEYS`): 1 to INT_MAX, from the number in the box
+    let (f, cx) = setup(cx, "a\nb\nc\nd");
+    cx.simulate_keystrokes("ctrl-j");
+    cx.simulate_input("2");
+    cx.simulate_keystrokes("up up");
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(f.caret(cx), Pos::new(2, 0));
+    // the box is a number: at 1 the Down key stays
+    f.run(cx, "F_JUMP_DIALOG");
+    cx.simulate_input("1");
+    cx.simulate_keystrokes("down down enter");
+    assert_eq!(f.caret(cx), Pos::new(0, 0));
+}

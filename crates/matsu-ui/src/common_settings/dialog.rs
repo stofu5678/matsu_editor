@@ -88,6 +88,12 @@ pub(crate) struct CommonSettingsDialog {
     /// The selected row of each editable list.
     table_selected: HashMap<&'static str, Option<usize>>,
     opener: Option<AnyWindowHandle>,
+    /// The focus of each choice of each choice list by control id and value: the access key of
+    /// the label of a list moves the focus to the chosen one. The handle belongs to the element
+    /// that holds the choice's button (the button of gpui-component keeps a focus handle of its
+    /// own and ignores one that is given to it). Made before the page is drawn
+    /// ([`ensure_choice_focus`](Self::ensure_choice_focus)).
+    choice_focus: HashMap<(&'static str, i32), FocusHandle>,
     focus: FocusHandle,
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
@@ -304,6 +310,7 @@ impl CommonSettingsDialog {
             table_inputs,
             table_selected,
             opener,
+            choice_focus: HashMap::new(),
             focus: cx.focus_handle(),
             focused: false,
             body_scroll: ScrollHandle::default(),
@@ -389,6 +396,14 @@ impl CommonSettingsDialog {
         self.inputs
             .get(id)
             .map(|input| input.read(cx).value().to_string())
+    }
+
+    /// Whether the button of choice `value` of the list `id` has the keyboard focus.
+    #[cfg(test)]
+    pub(crate) fn choice_has_focus(&self, id: &str, value: i32, window: &Window) -> bool {
+        self.choice_focus
+            .iter()
+            .any(|((i, v), handle)| *i == id && *v == value && handle.is_focused(window))
     }
 
     /// The selected row of an editable list.
@@ -946,19 +961,32 @@ impl CommonSettingsDialog {
                 self.set_bool(control.id, !on, cx);
             }
             Kind::Radio { value } => self.set_int(control.id, value, cx),
-            Kind::Choice { options } | Kind::List { options } => {
+            // The label of a drop-down list: the focus goes to the list and the choice stays
+            // (`IsDialogMessage` moves the focus to the next control; the list is not opened).
+            // MATSU's lists are rows of buttons: the focus goes to the chosen one. A choice that a
+            // page draws with its own code (a hidden control) has no such button to focus: its
+            // access key goes to the next choice, as before.
+            Kind::Choice { .. } | Kind::Dynamic { .. } => {
+                let now = self.values.int(control.id);
+                if let Some(handle) = self.choice_focus.get(&(control.id, now)).cloned() {
+                    window.focus(&handle, cx);
+                } else if let Kind::Choice { options } = control.kind {
+                    let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+                    let next = options[(at + 1) % options.len()].1;
+                    self.set_int(control.id, next, cx);
+                } else if let Kind::Dynamic { options } = control.kind {
+                    let options = options(cx, now);
+                    let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+                    if let Some((_, next)) = options.get((at + 1) % options.len().max(1)) {
+                        self.set_int(control.id, *next, cx);
+                    }
+                }
+            }
+            Kind::List { options } => {
                 let now = self.values.int(control.id);
                 let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
                 let next = options[(at + 1) % options.len()].1;
                 self.set_int(control.id, next, cx);
-            }
-            Kind::Dynamic { options } => {
-                let now = self.values.int(control.id);
-                let options = options(cx, now);
-                let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
-                if let Some((_, next)) = options.get((at + 1) % options.len().max(1)) {
-                    self.set_int(control.id, *next, cx);
-                }
             }
             Kind::Number { .. } | Kind::Text => {
                 if let Some(input) = self.inputs.get(control.id).cloned() {
@@ -1003,6 +1031,29 @@ impl CommonSettingsDialog {
         };
         self.set_int(control.id, options[next].1, cx);
         true
+    }
+
+    /// Makes a focus handle for every choice of the choice lists of the page, before the page is
+    /// drawn (the drawing only reads them).
+    fn ensure_choice_focus(&mut self, cx: &mut Context<Self>) {
+        let drawn = self.pages[self.page]
+            .items
+            .as_deref()
+            .map(super::model::drawn_controls)
+            .unwrap_or_default();
+        for control in drawn {
+            let current = self.values.int(control.id);
+            let values: Vec<i32> = match control.kind {
+                Kind::Choice { options } => options.iter().map(|(_, v)| *v).collect(),
+                Kind::Dynamic { options } => options(cx, current).iter().map(|(_, v)| *v).collect(),
+                _ => continue,
+            };
+            for value in values {
+                self.choice_focus
+                    .entry((control.id, value))
+                    .or_insert_with(|| cx.focus_handle().tab_stop(true));
+            }
+        }
     }
 
     /// Makes the color pickers show the colors of the values (a change of another control may have
@@ -1182,17 +1233,46 @@ impl CommonSettingsDialog {
                     _ => Vec::new(),
                 };
                 let choices = options.into_iter().map(|(text, value)| {
-                    Button::new(Self::element_id(&Control {
+                    let name = text.clone();
+                    let button = Button::new(Self::element_id(&Control {
                         kind: Kind::Radio { value },
                         ..*control
                     }))
                     .label(text)
                     .selected(current == value)
-                    // A choice is a radio button of the group (the chosen one is checked).
-                    .role(Role::RadioButton)
-                    .toggled(current == value)
+                    // The element around it is the radio button of the group for assistive
+                    // technology (`semantics::choice`).
+                    .role(gpui_component::RoleOverride::Presentational)
                     .disabled(!usable)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
+                    // The element around it is the tab stop and has the focus
+                    .tab_stop(false)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)));
+                    let wrapper = semantics::choice(
+                        div().id(SharedString::from(format!("cs-{id}-choice-{value}"))),
+                        &name,
+                        current == value,
+                        usable,
+                        cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)),
+                    )
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .rounded_md();
+                    // A choice that cannot be used is no tab stop and takes no focus
+                    match self.choice_focus.get(&(id, value)).filter(|_| usable) {
+                        Some(focus) => wrapper
+                            .track_focus(focus)
+                            .focus(|style| style.border_color(rgb(SELECTED_BG)))
+                            // Space and Enter choose it, as they press the button
+                            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                                if matches!(event.keystroke.key.as_str(), "space" | "enter") {
+                                    this.set_int(id, value, cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .child(button)
+                            .into_any_element(),
+                        None => wrapper.child(button).into_any_element(),
+                    }
                 });
                 v_flex()
                     .gap_1()
@@ -1216,21 +1296,28 @@ impl CommonSettingsDialog {
                     return div().into_any_element();
                 };
                 let wide = matches!(control.kind, Kind::Text);
+                let field = div()
+                    .when(wide, |d| d.flex_1().min_w(px(160.)))
+                    .when(!wide, |d| d.w(px(80.)))
+                    .child(Input::new(input).aria_label(name.clone()).disabled(!usable));
+                // The up-down control of Sakura's number box (`IDC_SPIN_*`), with its Up and
+                // Down keys.
+                let field = match control.spin {
+                    Some(range) => crate::spin::spin_box(
+                        format!("cs-{id}-spin"),
+                        input,
+                        &name,
+                        range,
+                        usable,
+                        field,
+                    )
+                    .into_any_element(),
+                    None => field.into_any_element(),
+                };
                 v_flex()
                     .gap_1()
                     .when(!label.is_empty(), |this| this.child(label.clone()))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .when(wide, |d| d.flex_1().min_w(px(160.)))
-                                    .when(!wide, |d| d.w(px(80.)))
-                                    .child(Input::new(input).aria_label(name).disabled(!usable)),
-                            )
-                            .children(note),
-                    )
+                    .child(h_flex().gap_2().items_center().child(field).children(note))
                     .into_any_element()
             }
             Kind::Table { spec } => self.table_element(control, spec, usable, cx),
@@ -1494,6 +1581,7 @@ impl Render for CommonSettingsDialog {
             window.focus(&self.focus, cx);
         }
         self.sync_pickers(window, cx);
+        self.ensure_choice_focus(cx);
         self.scale_factor = window.scale_factor();
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let pages: Vec<AnyElement> = self

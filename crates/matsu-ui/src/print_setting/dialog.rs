@@ -13,7 +13,8 @@
 //! The keys of a drop-down list (the arrows, Home, End, PageUp, PageDown, Enter, Escape) and the
 //! access keys of the labels (Alt+letter, `access_keys`) work as in Sakura's dialog.
 //!
-//! Not done: the spin buttons next to the numbers, and the help button.
+//! The numbers have the spin buttons of Sakura's dialog (`crate::spin`). Not done: the help
+//! button.
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
@@ -809,11 +810,16 @@ impl PrintSettingDialog {
             .gap_2()
             .items_center()
             .child(div().w(px(104.)).text_right().child(label))
-            .child(
+            .child(crate::spin::spin_box(
+                format!("print-setting-spin-{index}"),
+                &self.numbers[index],
+                number.name(),
+                number.range(),
+                true,
                 div()
                     .w(px(64.))
                     .child(Input::new(&self.numbers[index]).aria_label(number.name())),
-            )
+            ))
             .child(unit)
     }
 

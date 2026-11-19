@@ -89,6 +89,7 @@ mod saved_state;
 pub mod search;
 pub mod segments;
 pub mod settings;
+mod spin;
 pub mod status;
 mod status_bar;
 mod status_options;

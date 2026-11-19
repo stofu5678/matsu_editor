@@ -215,6 +215,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             ruler_min,
                             ruler_max,
                         )
+                        .spin()
                         .into(),
                         Control::number(
                             "ruler_bottom_space",
@@ -224,6 +225,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             0,
                             32,
                         )
+                        .spin()
                         .into(),
                         Control::number(
                             "line_number_right_space",
@@ -233,6 +235,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             0,
                             32,
                         )
+                        .spin()
                         .into(),
                     ],
                 ),
@@ -276,6 +279,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             1,
                             12,
                         )
+                        .spin()
                         .when(funckey_bar_is_shown)
                         .into(),
                     ],

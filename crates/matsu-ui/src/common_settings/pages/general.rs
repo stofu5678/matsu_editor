@@ -209,6 +209,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         1,
                         10,
                     )
+                    .spin()
                     .into(),
                     Control::check(
                         "repeated_scroll_smooth",
@@ -255,6 +256,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         0,
                         MAX_HISTORY,
                     )
+                    .spin()
                     .into(),
                     Control::button("clear_mru_file", "履歴をクリア(&C)...", clear_files).into(),
                     Control::number(
@@ -265,6 +267,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         0,
                         MAX_HISTORY,
                     )
+                    .spin()
                     .into(),
                     Control::button("clear_mru_folder", "履歴をクリア(&L)...", clear_folders)
                         .into(),

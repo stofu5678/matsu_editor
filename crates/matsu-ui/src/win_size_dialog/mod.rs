@@ -365,19 +365,26 @@ impl Render for WinSizeDialog {
                 .gap_1()
                 .children(radios)
         };
-        let number = |label: &'static str, input: &Entity<InputState>, usable: bool| {
-            let (shown, name) = radio_texts(label);
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(div().w(px(72.)).child(shown))
-                .child(
-                    div()
-                        .w(px(110.))
-                        .child(Input::new(input).aria_label(name).disabled(!usable)),
-                )
-        };
+        let number =
+            |label: &'static str, input: &Entity<InputState>, range: (i32, i32), usable: bool| {
+                let (shown, name) = radio_texts(label);
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().w(px(72.)).child(shown))
+                    // `IDC_SPIN_WX`, `_WY`, `_SX`, `_SY`
+                    .child(crate::spin::spin_box(
+                        format!("win-size-spin-{label}"),
+                        input,
+                        &name,
+                        range,
+                        usable,
+                        div()
+                            .w(px(110.))
+                            .child(Input::new(input).aria_label(name.clone()).disabled(!usable)),
+                    ))
+            };
         let kinds = KINDS
             .into_iter()
             .map(|(label, kind)| {
@@ -430,8 +437,8 @@ impl Render for WinSizeDialog {
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(number(X_LABEL, &self.x, pos_set))
-                                .child(number(Y_LABEL, &self.y, pos_set)),
+                                .child(number(X_LABEL, &self.x, POSITION_RANGE, pos_set))
+                                .child(number(Y_LABEL, &self.y, POSITION_RANGE, pos_set)),
                         ),
                 ),
             )
@@ -455,8 +462,8 @@ impl Render for WinSizeDialog {
                                         .gap_1()
                                         .children(kinds),
                                 )
-                                .child(number(WIDTH_LABEL, &self.width, size_set))
-                                .child(number(HEIGHT_LABEL, &self.height, size_set)),
+                                .child(number(WIDTH_LABEL, &self.width, SIZE_RANGE, size_set))
+                                .child(number(HEIGHT_LABEL, &self.height, SIZE_RANGE, size_set)),
                         ),
                 ),
             )

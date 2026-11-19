@@ -425,4 +425,6 @@ mod tests_saved_dialogs;
 #[cfg(test)]
 mod tests_small;
 #[cfg(test)]
+mod tests_spin;
+#[cfg(test)]
 mod tests_table;

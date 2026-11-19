@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::TestAppContext;
+use gpui::{AppContext as _, TestAppContext};
 
 use super::{
     Field, MODE_DEFAULT, MODE_SAVE, MODE_SET, SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED,
@@ -211,4 +211,45 @@ fn the_help_is_alt_h_and_f1_and_opens_the_page_of_the_window_settings(cx: &mut T
     assert!(cx.update(|app| current(app)).is_some());
     assert!(got.borrow().is_empty());
     assert_eq!(with_dialog(cx, |d, _, dcx| d.values(dcx)), START);
+}
+
+#[gpui::test]
+fn the_spin_buttons_of_the_numbers_have_the_ranges_of_sakura(cx: &mut TestAppContext) {
+    // `IDC_SPIN_WX`, `_WY`: -30000 to 30000 (a window may stand off the screen); `IDC_SPIN_SX`,
+    // `_SY`: 0 to 30000 (`CDlgWinSize::SetData`)
+    let _got = open_dialog(
+        cx,
+        WinSize {
+            pos_mode: MODE_SET,
+            size_mode: MODE_SET,
+            x: -29999,
+            width: 1,
+            ..START
+        },
+    );
+    let (_, handle) = cx.update(|app| current(app)).expect("the dialog is open");
+    let cx = gpui::VisualTestContext::from_window(handle, cx).into_mut();
+    cx.run_until_parked();
+    let click = |cx: &mut gpui::VisualTestContext, selector: &'static str| {
+        let bounds = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("no {selector}"));
+        cx.simulate_click(bounds.center(), gpui::Modifiers::none());
+        cx.run_until_parked();
+    };
+    let values = |cx: &mut gpui::VisualTestContext| {
+        let (dialog, _) = cx.update(|_, app| current(app)).expect("open");
+        cx.read_entity(&dialog, |d, app| d.values(app))
+    };
+    // X: down below zero and to the end
+    click(cx, "win-size-spin-X座標(&X)-down");
+    click(cx, "win-size-spin-X座標(&X)-down");
+    assert_eq!(values(cx).x, -30000);
+    // 幅: up, and down to 0 and no further
+    click(cx, "win-size-spin-幅(&W)-up");
+    assert_eq!(values(cx).width, 2);
+    click(cx, "win-size-spin-幅(&W)-down");
+    click(cx, "win-size-spin-幅(&W)-down");
+    click(cx, "win-size-spin-幅(&W)-down");
+    assert_eq!(values(cx).width, 0);
 }

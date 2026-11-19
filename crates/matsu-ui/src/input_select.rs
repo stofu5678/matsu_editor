@@ -60,6 +60,8 @@ fn watch_navigation_keys(cx: &mut App) {
 /// field.
 pub(crate) fn input_field(window: &mut Window, cx: &mut Context<InputState>) -> InputState {
     watch_navigation_keys(cx);
+    // the Up and Down keys of the boxes that have a spin button (`crate::spin`)
+    crate::spin::bind_keys(cx);
     let state = InputState::new(window, cx);
     let handle = state.focus_handle(cx);
     // The window gets back the focus it lost with its activation (Alt+Tab from another program):

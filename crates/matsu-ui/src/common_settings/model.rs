@@ -209,6 +209,10 @@ pub(crate) struct Control {
     /// draws its caption as a separate text (or as the title of a group box, or on the check box
     /// next to it). Empty: the name is made from the label ([`Control::accessible_name`]).
     pub name: &'static str,
+    /// The range of the spin button beside a number box ([`crate::spin`]): the range that Sakura
+    /// gives its up-down control (`SetUpDownRange`), which is not always the range that the
+    /// number is checked with. `None`: the box has no spin button in Sakura.
+    pub spin: Option<(i32, i32)>,
 }
 
 impl Control {
@@ -233,6 +237,7 @@ impl Control {
             key_default: 0,
             changed: unchanged,
             name: "",
+            spin: None,
         }
     }
 
@@ -386,6 +391,22 @@ impl Control {
         }
     }
 
+    /// A spin button (up-down control) beside the number box, with the range of the number
+    /// (`SetUpDownRange(.., min, max)`).
+    pub(crate) const fn spin(mut self) -> Self {
+        if let Kind::Number { min, max } = self.kind {
+            self.spin = Some((min, max));
+        }
+        self
+    }
+
+    /// A spin button whose range is not the range of the number (Sakura sets the up-down control
+    /// and checks the number separately).
+    pub(crate) const fn spin_range(mut self, min: i32, max: i32) -> Self {
+        self.spin = Some((min, max));
+        self
+    }
+
     /// The control can be used only while `enabled` says so.
     pub(crate) const fn when(mut self, enabled: Enabled) -> Self {
         self.enabled = enabled;
@@ -481,19 +502,29 @@ impl From<Control> for Item {
 
 /// Every control of the items, in the order they are drawn.
 pub(crate) fn controls(items: &[Item]) -> Vec<Control> {
-    fn walk(items: &[Item], out: &mut Vec<Control>) {
+    walk_controls(items, true)
+}
+
+/// The controls of the items that the dialog itself draws: not the hidden ones, which hold the
+/// state of a widget that the page draws with its own code.
+pub(crate) fn drawn_controls(items: &[Item]) -> Vec<Control> {
+    walk_controls(items, false)
+}
+
+fn walk_controls(items: &[Item], hidden: bool) -> Vec<Control> {
+    fn walk(items: &[Item], hidden: bool, out: &mut Vec<Control>) {
         for item in items {
             match item {
                 Item::Control(c) => out.push(*c),
-                Item::Group(_, inner) | Item::Row(inner) => walk(inner, out),
-                Item::Columns(columns) => columns.iter().for_each(|c| walk(c, out)),
-                Item::Hidden(list) => out.extend(list.iter().copied()),
-                Item::Label(_) | Item::Custom(_) => {}
+                Item::Group(_, inner) | Item::Row(inner) => walk(inner, hidden, out),
+                Item::Columns(columns) => columns.iter().for_each(|c| walk(c, hidden, out)),
+                Item::Hidden(list) if hidden => out.extend(list.iter().copied()),
+                Item::Hidden(_) | Item::Label(_) | Item::Custom(_) => {}
             }
         }
     }
     let mut out = Vec::new();
-    walk(items, &mut out);
+    walk(items, hidden, &mut out);
     out
 }
 

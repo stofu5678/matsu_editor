@@ -305,6 +305,7 @@ fn line_comment_row(n: usize, label: &'static str, column_label: &'static str) -
         Control::text(LINE_COMMENT[n], label, "", "").into(),
         Control::check(LINE_COMMENT_POS_ON[n], column_label, "", false).into(),
         Control::number(LINE_COMMENT_POS[n], "", "", 1, 0, COMMENT_COLUMN_MAX)
+            .spin_range(1, 1000)
             .named(LINE_COMMENT_POS_NAMES[n])
             .when(COLUMN_ENABLED[n])
             .into(),

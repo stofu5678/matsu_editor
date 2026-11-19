@@ -845,7 +845,8 @@ fn the_alt_keys_of_the_labels_work_without_a_panic(cx: &mut TestAppContext) {
         with_dialog(cx, |d, _, dcx| d.input_text(NAME, dcx)).unwrap(),
         "One"
     );
-    // Alt+K is the kind, Alt+D 削除 (no row is selected: not used).
+    // Alt+K is the kind (the page draws that list itself, so the key goes to the next one),
+    // Alt+D 削除 (no row is selected: not used).
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('k', window, dcx)));
     assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 1);
     assert!(!with_dialog(cx, |d, window, dcx| d.use_access_key('d', window, dcx)));

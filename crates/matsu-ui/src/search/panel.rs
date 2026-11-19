@@ -978,7 +978,15 @@ impl Render for SearchPanel {
                             h_flex()
                                 .gap_2()
                                 .child(LINE_LABEL)
-                                .child(Input::new(&self.line).aria_label("行番号")),
+                                // `IDC_SPIN_LINENUM`: 1 to INT_MAX (`CDlgJump::SetData`)
+                                .child(crate::spin::spin_box(
+                                    "jump-line-spin",
+                                    &self.line,
+                                    "行番号",
+                                    (1, i32::MAX),
+                                    true,
+                                    Input::new(&self.line).aria_label("行番号"),
+                                )),
                         )
                         .child(
                             h_flex()
