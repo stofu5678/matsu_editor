@@ -310,6 +310,34 @@ fn the_printer_goes_to_the_setting_the_print_started_with(cx: &mut TestAppContex
     assert_eq!(b, None);
 }
 
+/// The macOS print panel takes the layout the preview made, so that it does not lay a big document
+/// out again on the main thread; there is none to give while the pages are still being laid out
+/// (the next test).
+#[gpui::test]
+fn the_preview_gives_a_copy_of_its_layout_once_it_is_made(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &many_lines(200), None);
+    run(&view, F_PRINT_PREVIEW, cx);
+    let preview = view
+        .read_with(cx, |v, _| v.print_preview().cloned())
+        .unwrap();
+    let (pages, snapshot) = preview.read_with(cx, |p, _| (p.page_count(), p.layout_snapshot()));
+    let snapshot = snapshot.unwrap();
+    assert_eq!(snapshot.page_count(), pages);
+    assert_eq!(snapshot.paper(), matsu_print::Paper::A4);
+}
+
+#[gpui::test]
+fn the_preview_has_no_layout_to_give_while_it_lays_the_pages_out(cx: &mut TestAppContext) {
+    let text = "line\n".repeat(30_000);
+    let (view, cx) = setup(cx, &text, None);
+    run(&view, F_PRINT_PREVIEW, cx);
+    let preview = view
+        .read_with(cx, |v, _| v.print_preview().cloned())
+        .unwrap();
+    assert!(preview.read_with(cx, |p, _| p.is_laying_out()));
+    assert!(preview.read_with(cx, |p, _| p.layout_snapshot().is_none()));
+}
+
 /// Printing a big document opens the preview, whose pages are laid out on a thread; the print
 /// dialog waits for them rather than failing, and closing the preview drops the wait.
 #[gpui::test]

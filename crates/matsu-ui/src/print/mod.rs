@@ -12,7 +12,7 @@ mod styler;
 use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window};
 use matsu_core::buffer::Document;
 use matsu_platform::print::{Error, Outcome, PrintJob};
-use matsu_print::{LineSource, TypeOptions};
+use matsu_print::{Layout, LineSource, TypeOptions};
 
 pub use preview::{PreviewEvent, PrintPreview};
 
@@ -219,7 +219,13 @@ impl EditorView {
         // took (another window may have printed on another one since).
         job.setting.printer = Self::remembered_printer(slot, cx);
         self.print.phase = Phase::Printing { slot };
-        let outcome = os_print(job, window, cx);
+        // Only the macOS panel takes the layout (see `os_print`).
+        let laid = if cfg!(target_os = "macos") {
+            preview.read(cx).layout_snapshot()
+        } else {
+            None
+        };
+        let outcome = os_print(job, laid, window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = outcome.await;
             this.update_in(cx, |this, window, cx| this.finish_print(result, window, cx))
@@ -338,9 +344,13 @@ fn raw_handle(window: &Window) -> Option<raw_window_handle::RawWindowHandle> {
 
 /// Shows the print dialog of the OS and prints, off the UI thread where the OS blocks until the
 /// dialog closes. Resolves to what became of it ([`Outcome`]).
+///
+/// `laid` is the layout the preview made for the paper of the setting, which only the macOS
+/// print panel takes (it lays the document out for the paper it is asked about).
 #[cfg(windows)]
 fn os_print(
     job: PrintJob,
+    _laid: Option<Layout>,
     window: &Window,
     cx: &mut Context<EditorView>,
 ) -> impl Future<Output = Result<Outcome, Error>> + use<> {
@@ -353,6 +363,7 @@ fn os_print(
 #[cfg(not(any(windows, target_os = "macos")))]
 fn os_print(
     job: PrintJob,
+    _laid: Option<Layout>,
     _: &Window,
     cx: &mut Context<EditorView>,
 ) -> impl Future<Output = Result<Outcome, Error>> + use<> {
@@ -365,6 +376,7 @@ fn os_print(
 #[cfg(target_os = "macos")]
 fn os_print(
     job: PrintJob,
+    laid: Option<Layout>,
     window: &Window,
     _: &mut Context<EditorView>,
 ) -> impl Future<Output = Result<Outcome, Error>> + use<> {
@@ -372,7 +384,7 @@ fn os_print(
     async move {
         match ns_window {
             Some(ns_window) => Ok(Outcome::from_printed(
-                matsu_platform::print::mac::print(ns_window, job).await,
+                matsu_platform::print::mac::print(ns_window, job, laid).await,
             )),
             None => Err("印刷するウィンドウを取得できません".into()),
         }

@@ -4,8 +4,9 @@
 //! user checks it on a Mac.
 //!
 //! The pages are an NSView that paginates itself (knowsPageRange: and rectForPage:). It lays the
-//! text out again for the paper of the print operation, so the print panel's own preview follows
-//! the paper chosen in it.
+//! text out for the paper of the print operation, so the print panel's own preview follows the
+//! paper chosen in it. AppKit asks on the main thread, so [`PaperLayouts`] keeps the layouts and
+//! makes the likely next one on a worker.
 
 // The Objective-C calls are `unsafe`. This module and `windows` are the only places of the
 // program that need it (ADR-0013).
@@ -14,6 +15,7 @@
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 use futures_channel::oneshot;
 use objc2::rc::Retained;
@@ -36,6 +38,7 @@ use raw_window_handle::RawWindowHandle;
 
 use super::PrintJob;
 use super::draw::{DrawOp, cell_positions, font_spec, on_grid, underline_of};
+use super::papers::PaperLayouts;
 
 /// 0.1 mm in points (1/72 inch), the unit of Core Graphics.
 fn points(tenth_mm: i32) -> CGFloat {
@@ -81,7 +84,11 @@ fn print_info() -> Retained<NSPrintInfo> {
 /// Shows the print panel as a sheet on the window and prints if the user says so. Returns
 /// whether it printed. Call it outside GPUI's updates: the sheet takes the key window from
 /// GPUI's, and GPUI handles that at once.
-pub async fn print(window: Retained<NSWindow>, job: PrintJob) -> bool {
+///
+/// `laid` is a layout of `job` that was made already (the preview's, for the paper of the
+/// setting): the panel takes it when it opens on that paper, instead of laying the document out
+/// again on the main thread.
+pub async fn print(window: Retained<NSWindow>, job: PrintJob, laid: Option<Layout>) -> bool {
     let mtm = MainThreadMarker::new().expect("printing starts on the main thread");
     // AppKit would not start a second sheet, nor say that it did not.
     if window.attachedSheet().is_some() {
@@ -89,7 +96,7 @@ pub async fn print(window: Retained<NSWindow>, job: PrintJob) -> bool {
     }
     let info = print_info();
     let title = job.title.clone();
-    let view = PrintView::new(mtm, job, paper_of(&info));
+    let view = PrintView::new(mtm, job, laid, paper_of(&info));
     let operation = NSPrintOperation::printOperationWithView_printInfo(&view, &info);
     operation.setJobTitle(Some(&NSString::from_str(&title)));
     let panel = operation.printPanel();
@@ -121,7 +128,9 @@ pub async fn print(window: Retained<NSWindow>, job: PrintJob) -> bool {
 struct Pages {
     job: PrintJob,
     /// The layout for the paper of the print operation, made in knowsPageRange:.
-    layout: RefCell<Option<Layout>>,
+    layout: RefCell<Option<Arc<Layout>>>,
+    /// The layouts for the papers the panel asked about, and the one made ahead.
+    papers: RefCell<PaperLayouts>,
 }
 
 define_class!(
@@ -147,8 +156,19 @@ define_class!(
             let paper = NSPrintOperation::currentOperation(self.mtm())
                 .map(|operation| paper_of(&operation.printInfo()))
                 .unwrap_or(Paper::A4);
-            let layout = state.job.layout(paper).ok();
-            let pages = layout.as_ref().map_or(0, Layout::page_count);
+            // AppKit asks again for every change in the panel, on the main thread: the layouts
+            // that were made are kept, and the same paper turned is laid out ahead on a worker,
+            // so that a big document does not make the panel wait (`papers`).
+            let layout = {
+                let mut papers = state.papers.borrow_mut();
+                let layout = papers.layout(paper).ok();
+                papers.lay_out_ahead(Paper {
+                    width: paper.height,
+                    height: paper.width,
+                });
+                layout
+            };
+            let pages = layout.as_ref().map_or(0, |layout| layout.page_count());
             self.setFrameSize(NSSize::new(
                 points(paper.width),
                 points(paper.height) * pages.max(1) as CGFloat,
@@ -162,7 +182,7 @@ define_class!(
         /// The pages go down the view, one paper high each.
         #[unsafe(method(rectForPage:))]
         fn rect_for_page(&self, page: NSInteger) -> NSRect {
-            let Some(paper) = self.ivars().layout.borrow().as_ref().map(Layout::paper) else {
+            let Some(paper) = self.ivars().layout.borrow().as_ref().map(|layout| layout.paper()) else {
                 return NSRect::ZERO;
             };
             let (width, height) = (points(paper.width), points(paper.height));
@@ -200,8 +220,14 @@ define_class!(
 );
 
 impl PrintView {
-    fn new(mtm: MainThreadMarker, job: PrintJob, paper: Paper) -> Retained<Self> {
+    fn new(
+        mtm: MainThreadMarker,
+        job: PrintJob,
+        laid: Option<Layout>,
+        paper: Paper,
+    ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(Pages {
+            papers: RefCell::new(PaperLayouts::new(job.clone(), laid)),
             job,
             layout: RefCell::new(None),
         });

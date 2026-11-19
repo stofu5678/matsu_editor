@@ -3,6 +3,8 @@
 //!
 //! * [`draw`]: what every drawer draws, as a list of characters and lines per page. No OS.
 //! * [`devmode`]: the paper and its direction in the `DEVMODE` of the Windows dialogs. No OS.
+//! * [`papers`]: the layouts of a job for the papers a print panel asks about, with the next one
+//!   laid out ahead on a worker. No OS (`mac` uses it).
 //! * `windows`: the print dialog (`PrintDlgW`) and GDI, as Sakura does
 //!   (`sakura_core/print/CPrint.cpp`, `CPrintPreview.cpp`).
 //! * `mac`: AppKit's `NSPrintOperation`, with the pages drawn by Core Text.
@@ -16,6 +18,7 @@ pub mod draw;
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod mac;
+pub mod papers;
 #[cfg(not(target_os = "macos"))]
 pub mod pdf;
 #[cfg(windows)]

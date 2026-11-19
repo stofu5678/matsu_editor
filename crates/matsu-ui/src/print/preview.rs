@@ -207,6 +207,13 @@ impl PrintPreview {
         &self.job
     }
 
+    /// A copy of the layout for the paper of the setting, once it is made. It holds only where
+    /// each page begins, so the copy is small however big the document is. The macOS print panel
+    /// takes it when it opens on the same paper, instead of laying the document out again.
+    pub fn layout_snapshot(&self) -> Option<Layout> {
+        self.layout.layout().cloned()
+    }
+
     /// What printing needs, or why there is nothing to print.
     pub fn printable(&self) -> Result<PrintJob, SharedString> {
         match &self.layout {
