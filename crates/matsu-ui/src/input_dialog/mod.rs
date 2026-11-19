@@ -18,13 +18,49 @@ use std::future::Future;
 use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window, div, px, rgb, rgba,
+    IntoElement, KeyBinding, KeyDownEvent, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window, actions, div, px,
+    rgb, rgba,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use matsu_plugin::functions::window::truncate_utf16;
 
 use crate::view::EditorView;
+
+actions!(
+    matsu_dialog_field,
+    [
+        /// Tab in the single-line field of a dialog that has buttons.
+        DialogTab,
+        /// Shift+Tab in the same field.
+        DialogBackTab
+    ]
+);
+
+/// Whether the keys are bound (once per application).
+struct KeysBound;
+
+impl gpui::Global for KeysBound {}
+
+/// Binds Tab and Shift+Tab in the field of the dialogs that move the focus between the field and
+/// their buttons: this dialog (context `InputDialog`) and the panel of the history window
+/// (`FavoriteEdit`). Once per application; `input_field` calls it. Like the Up and Down keys of
+/// a spin box (`crate::spin::bind_keys`), the keys are bound in the field itself, on the context
+/// `<dialog> > Input`: the single-line field takes Tab on its own on some systems (seen on
+/// Windows), and a key listener of an element around it is not called for a key that an action
+/// took.
+pub(crate) fn bind_keys(cx: &mut gpui::App) {
+    if cx.has_global::<KeysBound>() {
+        return;
+    }
+    cx.set_global(KeysBound);
+    for context in ["InputDialog > Input", "FavoriteEdit > Input"] {
+        cx.bind_keys([
+            KeyBinding::new("tab", DialogTab, Some(context)),
+            KeyBinding::new("shift-tab", DialogBackTab, Some(context)),
+        ]);
+    }
+}
 
 /// What to ask.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,6 +301,12 @@ impl Render for InputDialog {
         let panel = crate::a11y::dialog(div().id("input-dialog"), &self.title)
             .aria_description(self.message.clone())
             .key_context("InputDialog")
+            .on_action(cx.listener(|this, _: &DialogTab, window, cx| {
+                this.move_focus(true, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogBackTab, window, cx| {
+                this.move_focus(false, window, cx);
+            }))
             .on_key_down(cx.listener(Self::on_key_down))
             .w(px(420.))
             .p_4()

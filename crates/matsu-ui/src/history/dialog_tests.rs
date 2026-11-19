@@ -1062,7 +1062,18 @@ fn tab_reaches_the_buttons_of_the_panel_and_enter_presses_the_focused_one(cx: &m
     // Field, OK, Cancel: two Tabs reach キャンセル, and Enter there cancels.
     dialog.update_in(cx, |d, window, cx| d.begin_add(window, cx));
     cx.simulate_input("typed");
-    cx.simulate_keystrokes("tab tab enter");
+    // The keys go through the real keymap (`FavoriteEdit > Input`), from the field.
+    let focus = |dialog: &Entity<FavoriteDialog>, cx: &mut VisualTestContext| {
+        cx.update(|window, app| dialog.read(app).panel_focus(window, app))
+    };
+    assert_eq!(focus(&dialog, cx), Some(0));
+    cx.simulate_keystrokes("tab");
+    assert_eq!(focus(&dialog, cx), Some(1));
+    cx.simulate_keystrokes("tab");
+    assert_eq!(focus(&dialog, cx), Some(2));
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(focus(&dialog, cx), Some(1));
+    cx.simulate_keystrokes("tab enter");
     assert!(!dialog.read_with(cx, |d, _| d.is_editing()));
     assert_eq!(lists(cx).keys.search.texts().len(), 3);
     assert_eq!(cx.windows().len(), windows);

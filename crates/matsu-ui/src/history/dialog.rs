@@ -1046,6 +1046,28 @@ impl FavoriteDialog {
         window.remove_window();
     }
 
+    /// Tab (`forward`) or Shift+Tab: the focus goes round the field, OK and キャンセル. From the field
+    /// the keys come as actions (`DialogTab`, bound in `FavoriteEdit > Input`); from a button they
+    /// come as key events.
+    fn cycle_panel(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.edit.as_ref() else {
+            return;
+        };
+        let field = panel.input.read(cx).focus_handle(cx);
+        let order = [field, panel.ok_focus.clone(), panel.cancel_focus.clone()];
+        crate::input_dialog::cycle_focus(&order, forward, window, cx);
+    }
+
+    /// Which of the field (0), OK (1) and キャンセル (2) has the focus, if any.
+    #[cfg(test)]
+    pub(crate) fn panel_focus(&self, window: &Window, cx: &App) -> Option<usize> {
+        let panel = self.edit.as_ref()?;
+        let field = panel.input.read(cx).focus_handle(cx);
+        [field, panel.ok_focus.clone(), panel.cancel_focus.clone()]
+            .iter()
+            .position(|h| h.contains_focused(window, cx))
+    }
+
     /// The keys of the panel (as in `InputDialog`): Esc cancels, Tab and Shift+Tab go between the
     /// field and the buttons, Enter and Space press the button that has the focus. Enter in the
     /// field is OK, which the field reports itself.
@@ -1056,15 +1078,7 @@ impl FavoriteDialog {
         let (ok, cancel) = (panel.ok_focus.clone(), panel.cancel_focus.clone());
         match event.keystroke.key.as_str() {
             "escape" => self.finish_edit(None, window, cx),
-            "tab" => {
-                let field = panel.input.read(cx).focus_handle(cx);
-                crate::input_dialog::cycle_focus(
-                    &[field, ok, cancel],
-                    !event.keystroke.modifiers.shift,
-                    window,
-                    cx,
-                );
-            }
+            "tab" => self.cycle_panel(!event.keystroke.modifiers.shift, window, cx),
             "enter" | "space" if cancel.is_focused(window) => self.finish_edit(None, window, cx),
             "enter" | "space" if ok.is_focused(window) => self.ok_edit(window, cx),
             _ => return,
@@ -1378,6 +1392,17 @@ impl FavoriteDialog {
         };
         let inner = crate::a11y::dialog(div().id("favorite-edit"), title)
             .aria_description(message)
+            .key_context("FavoriteEdit")
+            .on_action(
+                cx.listener(|this, _: &crate::input_dialog::DialogTab, window, cx| {
+                    this.cycle_panel(true, window, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &crate::input_dialog::DialogBackTab, window, cx| {
+                    this.cycle_panel(false, window, cx);
+                }),
+            )
             .w(px(420.))
             .p_4()
             .flex()
