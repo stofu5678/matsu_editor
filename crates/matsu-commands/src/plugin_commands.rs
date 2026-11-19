@@ -218,7 +218,7 @@ pub fn by_name(text: &str) -> Option<u16> {
 
 /// Whether the command `code` is loaded (its plugin is enabled and has the command now).
 pub fn is_loaded(code: u16) -> bool {
-    info(code).is_some()
+    read(|table| table.commands.iter().any(|c| c.code == code))
 }
 
 /// The name of function `code` if it is a loaded plugin command (`CJackManager::GetCommandName`).
