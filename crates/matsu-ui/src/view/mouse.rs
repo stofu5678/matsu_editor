@@ -22,7 +22,7 @@
 
 use gpui::{
     Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection,
-    Pixels, Point, ScrollWheelEvent, Window,
+    Pixels, Point, ScrollWheelEvent, Window, px,
 };
 use matsu_commands::context::DragSelection;
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
@@ -392,6 +392,21 @@ impl EditorView {
             self.run_with(cx, |command_cx| command_cx.mouse_begin_box(pos))
                 .ok();
             self.drag = Drag::Box;
+            if in_gutter {
+                // Alt and the line number column also move the caret one row down, growing the
+                // box (`Command_DOWN( true, false )` at the end of the Alt branch of
+                // `OnLBUTTONDOWN`). On the last row there is no row below and nothing moves.
+                let below = Point {
+                    x: event.position.x,
+                    y: event.position.y + px(self.metrics.line_height),
+                };
+                if let Some((row, _)) = self.box_corner_for_point(below, cx) {
+                    self.run_with(cx, |command_cx| {
+                        command_cx.mouse_box_to(row, matsu_layout::X::ZERO)
+                    })
+                    .ok();
+                }
+            }
             return;
         }
         // The line number column: the row, and the rows to the pointer while it is dragged along
@@ -488,10 +503,10 @@ impl EditorView {
         ((pos, pos), false)
     }
 
-    /// The range of the URL at `pos` in its line, if the type shows URLs (`IsCurrentPositionURL`;
-    /// the URLs of regular expression keywords are not looked for).
-    fn url_range_at(&self, pos: Pos, cx: &gpui::App) -> Option<(Pos, Pos)> {
-        if !self.prefs.settings.coloring.shows_url() {
+    /// The range of the URL at `pos` in its line, if the type shows URLs or has a regular
+    /// expression keyword of the color URL (`IsCurrentPositionURL`).
+    pub(super) fn url_range_at(&self, pos: Pos, cx: &gpui::App) -> Option<(Pos, Pos)> {
+        if !self.prefs.settings.coloring.finds_url() {
             return None;
         }
         let doc = self.document.read(cx).doc();
@@ -505,7 +520,11 @@ impl EditorView {
         } else {
             (doc.line(pos.line).ok().flatten()?.text, 0)
         };
-        let range = matsu_coloring::url_at(&text, pos.col.checked_sub(base)?)?;
+        let range = self
+            .prefs
+            .settings
+            .coloring
+            .url_at(&text, pos.col.checked_sub(base)?)?;
         Some((
             Pos::new(pos.line, base + range.start),
             Pos::new(pos.line, base + range.end),
@@ -532,6 +551,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         self.key_help_pointer_moved(event.position, event.pressed_button.is_some(), window, cx);
+        self.update_cursor_style(event, cx);
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = Drag::None;
             self.drop_caret = None;
@@ -625,6 +645,8 @@ impl EditorView {
 
     /// The pointer moves while the selected text is dragged: the drop caret follows it.
     fn move_drop_caret(&mut self, p: Point<Pixels>, cx: &mut Context<Self>) {
+        // Near the edge of the view the text scrolls under the drag.
+        self.drag_scroll(p, cx);
         if let Some(pos) = self.position_for_point(p, cx) {
             self.drop_caret = Some(pos);
             cx.notify();
@@ -670,6 +692,8 @@ impl EditorView {
             self.drag = Drag::None;
             cx.notify();
         }
+        // The shape of the drag (or of the selecting) gives way to the shape of the place.
+        self.cursor_style = self.cursor_style_at(event.position, event.modifiers, cx);
     }
 
     /// The left button is released outside the view. Dragged text that is let go there has no

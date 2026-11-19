@@ -214,6 +214,34 @@ impl ColorRules {
         self.url
     }
 
+    /// Whether a click can find a URL in a line: URLs are shown in their color, or a regular
+    /// expression keyword has the color URL (the first test of `IsCurrentPositionURL`).
+    pub fn finds_url(&self) -> bool {
+        self.url || self.has_url_keyword()
+    }
+
+    /// A regular expression keyword of the type has the color URL (`m_nColorIndex ==
+    /// COLORIDX_URL` in `IsCurrentPositionURL`). The list ends at the first empty pattern, as
+    /// the compiled keywords do.
+    fn has_url_keyword(&self) -> bool {
+        (0..self.regex_keywords.len()).any(|i| self.regex_keywords.color_name(i) == Some("URL"))
+    }
+
+    /// `CEditView::IsCurrentPositionURL`: the byte range of the URL of `line` (no line ending)
+    /// that covers the byte column `col`, from the URL coloring and from the regular expression
+    /// keywords of the color URL. `None` when neither is on.
+    pub fn url_at(&self, line: &str, col: usize) -> Option<std::ops::Range<usize>> {
+        let keywords = self.has_url_keyword();
+        if !self.url && !keywords {
+            return None;
+        }
+        let search = keywords.then(|| self.regex_keywords.line_search());
+        crate::url::url_at_with(line, col, self.url, |i| {
+            let (index, len) = search.as_ref()?.match_at(line, i)?;
+            (self.regex_keywords.color_name(usize::from(index)) == Some("URL")).then_some(len)
+        })
+    }
+
     /// The color entry of a kind of run.
     pub fn entry(&self, kind: ColorKind) -> &ColorEntry {
         match kind {
@@ -261,6 +289,60 @@ mod tests {
         let types = DocumentTypes::builtin();
         let index = types.index_of_name(name).expect("a built-in type");
         ColorRules::from_type(types.get(index).unwrap(), types.keywords())
+    }
+
+    /// The basic type with the URL coloring off and the given regular expression keywords on.
+    fn rules_with_keywords(url: bool, keywords: &[(&str, &str)]) -> ColorRules {
+        use matsu_config::settings::type_rules::RegexKeyword;
+        let types = DocumentTypes::builtin();
+        let mut t = types
+            .get(types.index_of_name("基本").unwrap())
+            .unwrap()
+            .clone();
+        t.colors.get_mut("URL").unwrap().disp = url;
+        t.use_regex_keyword = true;
+        t.regex_keywords = keywords
+            .iter()
+            .map(|(color, pattern)| RegexKeyword {
+                color: (*color).to_owned(),
+                pattern: (*pattern).to_owned(),
+            })
+            .collect();
+        ColorRules::from_type(&t, types.keywords())
+    }
+
+    #[test]
+    fn a_keyword_of_the_color_url_finds_a_url_even_when_the_url_coloring_is_off() {
+        // `IsCurrentPositionURL`: the regular expression keywords of the color URL count too.
+        let rules = rules_with_keywords(false, &[("URL", r"/\bfile:[^ ]+/k")]);
+        assert!(rules.finds_url());
+        let line = "see file:/tmp/a.txt now";
+        assert_eq!(rules.url_at(line, 8), Some(4..19));
+        assert_eq!(rules.url_at(line, 3), None);
+        assert_eq!(rules.url_at(line, 19), None);
+        // The URL coloring is off: a plain address is none.
+        assert_eq!(rules.url_at("go http://a.b/c", 6), None);
+    }
+
+    #[test]
+    fn a_keyword_of_another_color_is_no_url() {
+        let rules = rules_with_keywords(false, &[("RK1", r"/\bfile:[^ ]+/k")]);
+        assert!(!rules.finds_url());
+        assert_eq!(rules.url_at("see file:/tmp/a.txt now", 8), None);
+    }
+
+    #[test]
+    fn the_url_coloring_and_the_keywords_both_find() {
+        let rules = rules_with_keywords(true, &[("URL", r"/\bfile:[^ ]+/k")]);
+        assert_eq!(rules.url_at("go http://a.b/c x", 6), Some(3..15));
+        assert_eq!(rules.url_at("file:/x y", 2), Some(0..7));
+    }
+
+    #[test]
+    fn nothing_is_found_when_neither_is_on() {
+        let rules = rules_with_keywords(false, &[]);
+        assert!(!rules.finds_url());
+        assert_eq!(rules.url_at("http://a.b/c", 3), None);
     }
 
     #[test]

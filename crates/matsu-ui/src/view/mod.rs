@@ -21,6 +21,7 @@ mod bracket_marks;
 mod caret_shape;
 mod colors;
 mod diff_mark;
+mod drag_cursor;
 mod element;
 pub(crate) mod font_widths;
 mod held_buttons;
@@ -243,6 +244,10 @@ pub struct EditorView {
     /// Where a drag of the selected text would drop it: the caret is drawn there meanwhile
     /// (Sakura moves the caret with the pointer, `OnMOUSEMOVE` while `m_bDragMode`).
     pub(crate) drop_caret: Option<Pos>,
+    /// The shape of the pointer over the view (`drag_cursor.rs`).
+    pub(crate) cursor_style: CursorStyle,
+    /// When a drag of the selected text scrolled the view last (`drag_cursor.rs`).
+    pub(crate) drag_scroll_at: Option<std::time::Instant>,
     /// Which click of a series the last press was: 1 to 4 (single, double, triple, quadruple).
     /// Sakura keeps it as `m_dwTripleClickCheck` (`mouse.rs`).
     pub(crate) click_phase: u8,
@@ -382,6 +387,8 @@ impl EditorView {
             composing_over_selection: false,
             drag: Drag::None,
             drop_caret: None,
+            cursor_style: CursorStyle::IBeam,
+            drag_scroll_at: None,
             click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
@@ -1084,6 +1091,11 @@ impl EditorView {
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.autoscroll_key_pressed(&event.keystroke);
         self.key_help_restart(window, cx);
+        // Esc ends a drag of the selected text: nothing is dropped (`drag_cursor.rs`).
+        if event.keystroke.key == "escape" && self.cancel_drag(cx) {
+            cx.stop_propagation();
+            return;
+        }
         // Esc stops a save that runs on another thread (`file_ops::save_job`).
         if event.keystroke.key == "escape" && {
             let shared = self.document.read(cx);
@@ -1257,7 +1269,7 @@ impl Render for EditorView {
             .size_full()
             .overflow_hidden()
             .key_context("Editor")
-            .cursor(CursorStyle::IBeam)
+            .cursor(self.cursor_style)
             // `lfWeight` and `lfItalic` of the font (`ViewSettings`)
             .font_weight(gpui::FontWeight(self.prefs.settings.gpui_font_weight()))
             .text_size(px(self.font_size))
