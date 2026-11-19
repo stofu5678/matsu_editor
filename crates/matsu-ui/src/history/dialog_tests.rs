@@ -407,6 +407,20 @@ fn paths_go_to_the_front_of_the_excluded_list_without_repeats() {
 }
 
 #[test]
+fn a_path_too_long_for_the_buffer_is_left_out_as_in_sakura_and_the_rest_goes_in() {
+    let mut h = sample();
+    let long = format!("/{}", "x".repeat(299));
+    // `CMetaPath` is `_MAX_PATH` long: `AppendItemText` refuses such a text, and
+    // `MENU_ADD_EXCEPT` goes on with the next path without saying so.
+    assert!(add_to_except(
+        &mut h,
+        vec!["/a".into(), long.clone(), "/b".into()]
+    ));
+    assert_eq!(h.except, ["/b", "/a"]);
+    assert!(!h.except.contains(&long));
+}
+
+#[test]
 fn a_full_excluded_list_takes_what_fits_and_says_so() {
     let mut h = sample();
     h.except = (0..matsu_config::history::MAX_EXCEPT_MRU - 1)

@@ -358,6 +358,10 @@ pub(crate) fn edit_except(history: &mut History, from: &str, to: &str) -> bool {
     true
 }
 
+/// A path of 260 UTF-16 units or more is left out without a word, as in Sakura: `MENU_ADD_EXCEPT`
+/// calls `AppendItemText`, whose `ValidateReceiveType` refuses a text that does not fit the
+/// `_MAX_PATH` buffer of `CMetaPath` (`wcsnlen(p, max) < max`, `CRecentImp.h`), and the caller
+/// does not look at the result. The same limit holds for what is typed in the panel.
 /// 除外リストに追加 (`MENU_ADD_EXCEPT`): puts the paths in front of `ExceptMRU`, one by one with
 /// [`append_except`] (a text that is there already stays where it is). The list takes
 /// `MAX_EXCEPT_MRU` texts; once it is full the rest is left out, as Sakura does, and the dialog
