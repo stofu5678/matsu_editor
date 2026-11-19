@@ -410,8 +410,7 @@ impl SearchPanel {
                 .enumerate()
                 .map(|(i, text)| {
                     let picked = text.clone();
-                    div()
-                        .id((id, i))
+                    crate::a11y::list_row(div().id((id, i)), &text, i == open.highlight)
                         .px_2()
                         .truncate()
                         .when(i == open.highlight, |d| d.bg(rgb(0xcce4f7)))
@@ -422,8 +421,7 @@ impl SearchPanel {
                         }))
                 });
             column = column.child(
-                div()
-                    .id(id)
+                crate::a11y::list_box(div().id(id), toggle_name)
                     .max_h(px(150.))
                     .overflow_y_scroll()
                     .track_scroll(&self.list_scroll)
@@ -1000,8 +998,7 @@ impl Render for SearchPanel {
                         .into_any_element()
                 }
             };
-        div()
-            .id("search-panel")
+        crate::a11y::dialog(div().id("search-panel"), &title)
             .track_focus(&self.scope)
             .keep_tab_inside(&self.scope)
             // Alt+letter works from the boxes too, and does not type the letter

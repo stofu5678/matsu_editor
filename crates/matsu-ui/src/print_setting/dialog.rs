@@ -1154,8 +1154,7 @@ impl Render for PrintSettingDialog {
             );
         // The scroll bar is a sibling of the scrolling part, not its child: inside it, the bar's
         // overlay itself made a dialog that fits overflow by its padding.
-        let scrolling = v_flex()
-            .id("print-setting-dialog")
+        let scrolling = crate::a11y::dialog(v_flex().id("print-setting-dialog"), "印刷ページ設定")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)

@@ -274,8 +274,7 @@ impl OneLinerDialog {
     }
 
     fn history_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut list = v_flex()
-            .id("oneliner-history")
+        let mut list = crate::a11y::list_box(v_flex().id("oneliner-history"), "履歴")
             .max_h(px(140.))
             .overflow_y_scroll()
             .border_1()
@@ -287,8 +286,7 @@ impl OneLinerDialog {
         for (i, text) in self.history.iter().cloned().enumerate() {
             let pick = text.clone();
             list = list.child(
-                div()
-                    .id(("oneliner-history", i))
+                crate::a11y::list_row(div().id(("oneliner-history", i)), &text, false)
                     .px_1()
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xdde8f5)))
@@ -396,49 +394,49 @@ impl Render for OneLinerDialog {
                         .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
                 )
         };
-        let panel = v_flex()
-            .id("oneliner-dialog")
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .track_focus(&self.focus)
-            .keep_tab_inside(&self.focus)
-            // Alt+letter works from the box of the line too, and does not type the letter
-            .on_access_key(move |letter, window, cx| {
-                this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
-            })
-            .key_context("OneLinerDialog")
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                this.on_key_down(event, window, cx)
-            }))
-            .w(px(520.))
-            .max_w_full()
-            .max_h_full()
-            .overflow_y_scroll()
-            .p_3()
-            .gap_2()
-            .bg(rgb(0xf7f7f7))
-            .text_color(rgb(0x222222))
-            .text_size(px(13.))
-            .border_1()
-            .border_color(rgb(0x888888))
-            .rounded_md()
-            .shadow_md()
-            .child(
-                div()
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .child("ワンライナーを入力して実行"),
-            )
-            .child(line_row)
-            .when(self.list, |this| this.child(self.history_list(cx)))
-            .child(
-                div()
-                    .text_color(rgb(0x666666))
-                    .child("選んだ文字列 (なければ文書全体) が標準入力に渡されます。"),
-            )
-            .child(places)
-            .when_some(self.message.clone(), |this, message| {
-                this.child(div().text_color(rgb(0x994400)).child(message))
-            })
-            .child(buttons);
+        let panel =
+            crate::a11y::dialog(v_flex().id("oneliner-dialog"), "ワンライナーを入力して実行")
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .track_focus(&self.focus)
+                .keep_tab_inside(&self.focus)
+                // Alt+letter works from the box of the line too, and does not type the letter
+                .on_access_key(move |letter, window, cx| {
+                    this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
+                })
+                .key_context("OneLinerDialog")
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    this.on_key_down(event, window, cx)
+                }))
+                .w(px(520.))
+                .max_w_full()
+                .max_h_full()
+                .overflow_y_scroll()
+                .p_3()
+                .gap_2()
+                .bg(rgb(0xf7f7f7))
+                .text_color(rgb(0x222222))
+                .text_size(px(13.))
+                .border_1()
+                .border_color(rgb(0x888888))
+                .rounded_md()
+                .shadow_md()
+                .child(
+                    div()
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .child("ワンライナーを入力して実行"),
+                )
+                .child(line_row)
+                .when(self.list, |this| this.child(self.history_list(cx)))
+                .child(
+                    div()
+                        .text_color(rgb(0x666666))
+                        .child("選んだ文字列 (なければ文書全体) が標準入力に渡されます。"),
+                )
+                .child(places)
+                .when_some(self.message.clone(), |this, message| {
+                    this.child(div().text_color(rgb(0x994400)).child(message))
+                })
+                .child(buttons);
         div()
             .id("oneliner-dialog-overlay")
             .absolute()

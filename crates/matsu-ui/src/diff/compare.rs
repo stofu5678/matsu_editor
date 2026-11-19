@@ -170,18 +170,19 @@ impl Render for ComparePanel {
         let rows: Vec<Candidate> = candidates(cx, self.owner);
         let list = rows.iter().enumerate().map(|(i, row)| {
             let doc = row.doc;
-            let mut item = div()
-                .id(("compare-window", i))
-                .px_2()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .child(row.label.clone())
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.select_window(doc, cx);
-                }));
-            if self.selected == Some(doc) {
+            let selected = self.selected == Some(doc);
+            let mut item =
+                crate::a11y::list_row(div().id(("compare-window", i)), &row.label, selected)
+                    .px_2()
+                    .h(px(22.))
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .child(row.label.clone())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.select_window(doc, cx);
+                    }));
+            if selected {
                 item = item.bg(rgb(0x2f6fd0)).text_color(rgb(0xffffff));
             }
             item
@@ -203,8 +204,7 @@ impl Render for ComparePanel {
                     .labelled(HELP)
                     .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
             );
-        v_flex()
-            .id("compare-panel")
+        crate::a11y::dialog(v_flex().id("compare-panel"), "ファイル内容比較")
             // F1: the page of the dialog
             .on_help_key("F_COMPARE")
             .absolute()
@@ -242,8 +242,7 @@ impl Render for ComparePanel {
             .child(format!("ソースファイル: {}", self.own_label))
             .child("相手のファイル")
             .child(
-                div()
-                    .id("compare-windows")
+                crate::a11y::list_box(div().id("compare-windows"), "相手のファイル")
                     .min_h(px(88.))
                     .max_h(px(200.))
                     .overflow_y_scroll()

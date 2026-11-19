@@ -85,8 +85,7 @@ impl Focusable for ExecRunning {
 impl Render for ExecRunning {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
-        let panel = v_flex()
-            .id("exec-running")
+        let panel = crate::a11y::dialog(v_flex().id("exec-running"), "コマンド実行中")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             // only the modal one holds the keys; the other leaves the window usable

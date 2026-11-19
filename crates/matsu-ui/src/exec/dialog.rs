@@ -348,8 +348,11 @@ impl ExecDialog {
             Field::Command => ("exec-command-history", rows.is_empty()),
             Field::CurDir => ("exec-dir-history", rows.is_empty()),
         };
-        let mut list = v_flex()
-            .id(id)
+        let name = match field {
+            Field::Command => "コマンドの履歴",
+            Field::CurDir => "カレントディレクトリの履歴",
+        };
+        let mut list = crate::a11y::list_box(v_flex().id(id), name)
             .max_h(px(140.))
             .overflow_y_scroll()
             .border_1()
@@ -361,8 +364,7 @@ impl ExecDialog {
         for (i, text) in rows.into_iter().enumerate() {
             let pick = text.clone();
             list = list.child(
-                div()
-                    .id((id, i))
+                crate::a11y::list_row(div().id((id, i)), &text, false)
                     .px_1()
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xdde8f5)))
@@ -572,8 +574,7 @@ impl Render for ExecDialog {
                             .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
                     ),
             );
-        let panel = v_flex()
-            .id("exec-dialog")
+        let panel = crate::a11y::dialog(v_flex().id("exec-dialog"), "ファイル名を指定して実行")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)
