@@ -145,7 +145,7 @@ pub(crate) fn edit_history(cx: &mut App, change: impl Fn(&mut ExecHistory)) {
     edit_history_with(cx, true, change);
 }
 
-/// [`edit_history`]; `removes` is false for an addition, whose pushing out of a full list is the
+/// `edit_history`; `removes` is false for an addition, whose pushing out of a full list is the
 /// capacity rule of each list, not a removal by the user.
 pub(crate) fn edit_history_with(cx: &mut App, removes: bool, change: impl Fn(&mut ExecHistory)) {
     cx.default_global::<ExecPrefs>().edit(removes, change);

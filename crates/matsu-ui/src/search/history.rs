@@ -203,7 +203,7 @@ pub(crate) fn edit_keys(cx: &mut App, change: impl Fn(&mut SearchKeys)) {
     edit_keys_with(cx, true, change);
 }
 
-/// [`edit_keys`]; `removes` says whether `change` removes strings by the user's wish (a delete, an
+/// `edit_keys`; `removes` says whether `change` removes strings by the user's wish (a delete, an
 /// edit). An addition does not: what it pushes out of a full list is the list's own capacity
 /// rule, which the file's list applies by itself (see [`SearchHistory::edit`]).
 pub(crate) fn edit_keys_with(cx: &mut App, removes: bool, change: impl Fn(&mut SearchKeys)) {
