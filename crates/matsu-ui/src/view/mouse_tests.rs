@@ -1147,3 +1147,30 @@ fn alt_and_the_line_numbers_beside_a_partly_visible_row_grow_the_box_by_one_row(
     });
     up_g(&f, cx, row, alt());
 }
+
+#[gpui::test]
+fn a_still_drag_of_text_away_from_the_edges_redraws_nothing(cx: &mut TestAppContext) {
+    let _o = options();
+    let text = (0..200)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (f, cx) = setup(cx, &text);
+    select(&f, cx, Pos::new(0, 0), Pos::new(0, 4));
+    down_at(&f, cx, 0, 1, 1, Modifiers::default());
+    // the middle of the view: no edge
+    let middle = point_of(&f, cx, 2, 3);
+    drag_to(cx, middle, Modifiers::default());
+    drag_to(cx, middle, Modifiers::default());
+    cx.run_until_parked();
+    let count = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let seen = count.clone();
+    let _sub = cx.update(|_, app| app.observe(&f.view, move |_, _| seen.set(seen.get() + 1)));
+    for _ in 0..10 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+    }
+    assert_eq!(count.get(), 0, "the task redrew a drag that rests");
+    up(cx, middle, Modifiers::default());
+}

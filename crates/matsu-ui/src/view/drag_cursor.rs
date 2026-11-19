@@ -128,8 +128,11 @@ impl EditorView {
                         return None;
                     }
                     let p = window.mouse_position();
-                    let wait = view.drag_scroll(p, cx);
-                    view.move_drop_caret(p, cx);
+                    let (wait, scrolled) = view.drag_scroll(p, cx);
+                    // The drop caret follows only a real scroll: a resting drag redraws nothing.
+                    if scrolled {
+                        view.move_drop_caret(p, cx);
+                    }
                     Some(wait)
                 });
                 match next {
@@ -147,10 +150,14 @@ impl EditorView {
 
     /// The pointer of a drag of the selected text is near the edge of the view: scrolls it by a
     /// row (and a column). Returns how long to wait before the next step (Sakura's `dwPerTiming`:
-    /// shorter when the view goes toward the top).
-    fn drag_scroll(&mut self, p: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) -> Duration {
+    /// shorter when the view goes toward the top) and whether the view moved.
+    fn drag_scroll(
+        &mut self,
+        p: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) -> (Duration, bool) {
         let Some(paint) = self.paint else {
-            return SCROLL_INTERVAL;
+            return (SCROLL_INTERVAL, false);
         };
         let row = (f32::from(p.y) - paint.origin_y) / self.metrics.line_height;
         let rows = edge_row_step(row, self.metrics.visible_rows());
@@ -165,7 +172,7 @@ impl EditorView {
         let can_left = cols < 0 && self.scroll_x > 0.0;
         let can_right = cols > 0;
         if !(can_up || can_down || can_left || can_right) {
-            return SCROLL_UP_INTERVAL;
+            return (SCROLL_UP_INTERVAL, false);
         }
         let dy = if can_up || can_down {
             -rows as f32 * self.metrics.line_height
@@ -179,14 +186,16 @@ impl EditorView {
         };
         let (before_x, before_y) = (self.scroll_x, self.scroll_y);
         self.scroll_by(dx, dy);
-        if (self.scroll_x, self.scroll_y) != (before_x, before_y) {
+        let moved = (self.scroll_x, self.scroll_y) != (before_x, before_y);
+        if moved {
             cx.notify();
         }
-        if can_up {
+        let wait = if can_up {
             SCROLL_UP_INTERVAL
         } else {
             SCROLL_INTERVAL
-        }
+        };
+        (wait, moved)
     }
 
     /// There are rows below the last one on the view.

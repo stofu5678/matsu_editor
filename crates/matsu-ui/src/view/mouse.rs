@@ -668,7 +668,9 @@ impl EditorView {
 
     /// The pointer moves while the selected text is dragged: the drop caret follows it.
     pub(crate) fn move_drop_caret(&mut self, p: Point<Pixels>, cx: &mut Context<Self>) {
-        if let Some(pos) = self.position_for_point(p, cx) {
+        if let Some(pos) = self.position_for_point(p, cx)
+            && self.drop_caret != Some(pos)
+        {
             self.drop_caret = Some(pos);
             cx.notify();
         }
