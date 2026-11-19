@@ -8,8 +8,11 @@
 //!
 //! * Windows: the format `HTML Format` with the header of [`cf_html`], as Sakura does.
 //! * macOS: the type `public.html` of the general pasteboard (it has no header of offsets).
-//! * Linux: nothing. GPUI's clipboard there offers plain text only and this crate has no
-//!   clipboard of its own to add a second type to, so the HTML source goes as text only.
+//! * Linux: nothing. GPUI 0.3.8's clipboard there offers plain text only (X11 writes `item.text()`
+//!   as `UTF8_STRING`, Wayland offers the three `text/plain` types; `ClipboardEntry` has no HTML
+//!   kind) and this crate has no clipboard of its own to add a second type to: a second owner
+//!   would replace GPUI's text, and the X11 and Wayland protocols would be new dependencies. So
+//!   the HTML source goes as text only (type B of ADR-0018).
 //!
 //! `unsafe` is in `windows` and `mac` only.
 
