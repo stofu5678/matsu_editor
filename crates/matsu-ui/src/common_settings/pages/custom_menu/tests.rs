@@ -845,10 +845,10 @@ fn the_alt_keys_of_the_labels_work_without_a_panic(cx: &mut TestAppContext) {
         with_dialog(cx, |d, _, dcx| d.input_text(NAME, dcx)).unwrap(),
         "One"
     );
-    // Alt+K is the kind: the focus goes to the list and the choice stays (Windows moves the
-    // focus to the combo box). Alt+D 削除 (no row is selected: not used).
+    // Alt+K is the kind (the page draws that list itself, so the key goes to the next one),
+    // Alt+D 削除 (no row is selected: not used).
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('k', window, dcx)));
-    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 0);
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 1);
     assert!(!with_dialog(cx, |d, window, dcx| d.use_access_key('d', window, dcx)));
     select_row(cx, 0);
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('d', window, dcx)));
@@ -872,9 +872,9 @@ fn a_letter_that_two_controls_share_uses_neither(cx: &mut TestAppContext) {
     with_dialog(cx, |d, window, dcx| d.set_input(KEY, "Q", window, dcx));
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('g', window, dcx)));
     assert_eq!(items_now(cx)[0].key, Some('Q'));
-    // Alt+K is the kind alone: the focus goes to it, the choice stays.
+    // Alt+K is the kind alone.
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('k', window, dcx)));
-    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 0);
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 1);
 }
 
 #[gpui::test]

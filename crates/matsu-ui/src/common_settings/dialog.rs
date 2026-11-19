@@ -963,12 +963,23 @@ impl CommonSettingsDialog {
             Kind::Radio { value } => self.set_int(control.id, value, cx),
             // The label of a drop-down list: the focus goes to the list and the choice stays
             // (`IsDialogMessage` moves the focus to the next control; the list is not opened).
-            // MATSU's lists are rows of buttons: the focus goes to the chosen one.
+            // MATSU's lists are rows of buttons: the focus goes to the chosen one. A choice that a
+            // page draws with its own code (a hidden control) has no such button to focus: its
+            // access key goes to the next choice, as before.
             Kind::Choice { .. } | Kind::Dynamic { .. } => {
                 let now = self.values.int(control.id);
-                let handle = self.choice_focus.get(&(control.id, now)).cloned();
-                if let Some(handle) = handle {
+                if let Some(handle) = self.choice_focus.get(&(control.id, now)).cloned() {
                     window.focus(&handle, cx);
+                } else if let Kind::Choice { options } = control.kind {
+                    let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+                    let next = options[(at + 1) % options.len()].1;
+                    self.set_int(control.id, next, cx);
+                } else if let Kind::Dynamic { options } = control.kind {
+                    let options = options(cx, now);
+                    let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+                    if let Some((_, next)) = options.get((at + 1) % options.len().max(1)) {
+                        self.set_int(control.id, *next, cx);
+                    }
                 }
             }
             Kind::List { options } => {
@@ -1025,7 +1036,12 @@ impl CommonSettingsDialog {
     /// Makes a focus handle for every choice of the choice lists of the page, before the page is
     /// drawn (the drawing only reads them).
     fn ensure_choice_focus(&mut self, cx: &mut Context<Self>) {
-        for control in self.page_controls() {
+        let drawn = self.pages[self.page]
+            .items
+            .as_deref()
+            .map(super::model::drawn_controls)
+            .unwrap_or_default();
+        for control in drawn {
             let current = self.values.int(control.id);
             let values: Vec<i32> = match control.kind {
                 Kind::Choice { options } => options.iter().map(|(_, v)| *v).collect(),

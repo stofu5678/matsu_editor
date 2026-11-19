@@ -941,10 +941,10 @@ fn a_file_that_is_not_a_menu_file_is_refused_and_changes_nothing(cx: &mut TestAp
 fn the_alt_keys_of_the_labels_work(cx: &mut TestAppContext) {
     let _restore = crate::common_settings::tests::RestoreEditOptions::new();
     let _ini = open_page(cx, "");
-    // Alt+K is the kind (the focus goes to it, the choice stays), Alt+P the check box, Alt+N a
-    // new node.
+    // Alt+K is the kind (the next one: the page draws that list itself), Alt+P the check box,
+    // Alt+N a new node.
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('k', window, dcx)));
-    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 0);
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 1);
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('p', window, dcx)));
     assert!(!with_dialog(cx, |d, _, _| state_of(d.values()).key_parentheses));
     let rows = tree_now(cx).rows.len();

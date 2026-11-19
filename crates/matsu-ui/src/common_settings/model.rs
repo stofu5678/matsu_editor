@@ -502,19 +502,29 @@ impl From<Control> for Item {
 
 /// Every control of the items, in the order they are drawn.
 pub(crate) fn controls(items: &[Item]) -> Vec<Control> {
-    fn walk(items: &[Item], out: &mut Vec<Control>) {
+    walk_controls(items, true)
+}
+
+/// The controls of the items that the dialog itself draws: not the hidden ones, which hold the
+/// state of a widget that the page draws with its own code.
+pub(crate) fn drawn_controls(items: &[Item]) -> Vec<Control> {
+    walk_controls(items, false)
+}
+
+fn walk_controls(items: &[Item], hidden: bool) -> Vec<Control> {
+    fn walk(items: &[Item], hidden: bool, out: &mut Vec<Control>) {
         for item in items {
             match item {
                 Item::Control(c) => out.push(*c),
-                Item::Group(_, inner) | Item::Row(inner) => walk(inner, out),
-                Item::Columns(columns) => columns.iter().for_each(|c| walk(c, out)),
-                Item::Hidden(list) => out.extend(list.iter().copied()),
-                Item::Label(_) | Item::Custom(_) => {}
+                Item::Group(_, inner) | Item::Row(inner) => walk(inner, hidden, out),
+                Item::Columns(columns) => columns.iter().for_each(|c| walk(c, hidden, out)),
+                Item::Hidden(list) if hidden => out.extend(list.iter().copied()),
+                Item::Hidden(_) | Item::Label(_) | Item::Custom(_) => {}
             }
         }
     }
     let mut out = Vec::new();
-    walk(items, &mut out);
+    walk(items, hidden, &mut out);
     out
 }
 
