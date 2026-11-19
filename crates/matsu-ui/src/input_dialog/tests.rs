@@ -113,6 +113,21 @@ fn the_cancel_button_cancels_and_ok_answers_by_keys(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn tab_goes_round_from_the_buttons_too(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    // From Cancel, Tab comes back to the field and on to OK, which answers the text ...
+    let slot = open(&view, cx, request("値", 260));
+    cx.simulate_keystrokes("tab tab tab tab enter");
+    cx.run_until_parked();
+    assert_eq!(*slot.borrow(), Some(Some("値".to_owned())));
+    // ... and Shift+Tab from OK goes back to the field, from the field to Cancel.
+    let slot = open(&view, cx, request("値", 260));
+    cx.simulate_keystrokes("tab shift-tab shift-tab enter");
+    cx.run_until_parked();
+    assert_eq!(*slot.borrow(), Some(None));
+}
+
+#[gpui::test]
 fn the_default_is_selected_so_typing_replaces_it(cx: &mut TestAppContext) {
     // `CDlgInput1::OnInitDialog` returns true: the dialog manager focuses the edit and selects its
     // text. (Headless, Enter would replace a selection with nothing before the handler runs, so

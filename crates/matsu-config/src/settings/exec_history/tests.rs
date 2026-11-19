@@ -127,3 +127,45 @@ fn what_the_file_has_goes_on_top_when_it_is_merged() {
     empty.merge_from(&file);
     assert_eq!(empty.flags, Some(1));
 }
+
+#[test]
+fn a_command_is_edited_by_hand_like_crecentimp() {
+    use crate::settings::EditableList;
+    let mut h = ExecHistory::default();
+    for c in ["a", "b", "c"] {
+        h.add_command(c);
+    }
+    assert!(!h.commands.append_text("b"));
+    assert_eq!(h.commands.items(), ["c", "b", "a"]);
+    assert!(h.commands.append_text("d"));
+    assert!(h.commands.edit_text(1, "C"));
+    assert!(!h.commands.edit_text(1, "b"));
+    // An empty string and a too long one are refused (`fits`).
+    assert!(!h.commands.edit_text(1, ""));
+    assert!(!h.commands.append_text(&"x".repeat(1024)));
+    assert!(h.commands.append_text(&"x".repeat(1023)));
+    // [x, d, C, b, a]: the second one goes.
+    assert!(h.commands.delete_at(1));
+    assert_eq!(h.commands.items()[1..], ["C", "b", "a"]);
+    h.commands.clear_all();
+    assert!(h.commands.items().is_empty());
+}
+
+#[test]
+fn a_shorter_list_leaves_no_entries_past_its_count() {
+    let mut h = ExecHistory::default();
+    for c in ["c", "b", "a"] {
+        h.add_command(c);
+        h.add_cur_dir(c);
+    }
+    let mut profile = Profile::new();
+    h.write_to(&mut profile).unwrap();
+    h.commands.items.truncate(1);
+    h.cur_dirs.items.clear();
+    h.write_to(&mut profile).unwrap();
+    assert_eq!(profile.get(SECTION, "szCmdArr[00]"), Some("a"));
+    assert_eq!(profile.get(SECTION, "szCmdArr[01]"), None);
+    assert_eq!(profile.get(SECTION, "szCmdArr[02]"), None);
+    assert_eq!(profile.get(SECTION, "szCurDirArr[00]"), None);
+    assert_eq!(profile.get(SECTION, "nCurDirArrNum"), Some("0"));
+}

@@ -121,6 +121,51 @@ impl Recent {
     }
 }
 
+impl crate::settings::EditableList for Recent {
+    fn texts(&self) -> &[String] {
+        &self.items
+    }
+
+    fn max_units(&self) -> usize {
+        self.max_units
+    }
+
+    fn append_text(&mut self, text: &str) -> bool {
+        // `AppendItemText` does nothing for a string that is in the list already.
+        if !self.fits(text) || self.items.iter().any(|s| s == text) {
+            return false;
+        }
+        self.add(text)
+    }
+
+    fn edit_text(&mut self, index: usize, text: &str) -> bool {
+        if index >= self.items.len()
+            || !self.fits(text)
+            || self
+                .items
+                .iter()
+                .enumerate()
+                .any(|(i, s)| i != index && s == text)
+        {
+            return false;
+        }
+        self.items[index] = text.to_owned();
+        true
+    }
+
+    fn delete_at(&mut self, index: usize) -> bool {
+        let found = index < self.items.len();
+        if found {
+            self.items.remove(index);
+        }
+        found
+    }
+
+    fn clear_all(&mut self) {
+        self.items.clear();
+    }
+}
+
 /// The commands, the folders and the choices of the dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecHistory {
@@ -231,6 +276,8 @@ fn write_set(
     for (i, item) in items.iter().enumerate() {
         profile.set(SECTION, &format!("{name}[{i:02}]"), item)?;
     }
+    // Nothing past the count, as Sakura writes it.
+    super::search_keys::remove_indexed_from(profile, SECTION, name, items.len());
     Ok(())
 }
 

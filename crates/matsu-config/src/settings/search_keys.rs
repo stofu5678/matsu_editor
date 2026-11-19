@@ -149,6 +149,53 @@ impl KeyList {
     }
 }
 
+impl crate::settings::EditableList for KeyList {
+    fn texts(&self) -> &[String] {
+        &self.items
+    }
+
+    fn max_units(&self) -> usize {
+        self.max_units
+    }
+
+    fn append_text(&mut self, text: &str) -> bool {
+        // `AppendItemText` does nothing for a string that is in the list already.
+        if !self.accepts(text) || self.items.iter().any(|s| self.same(s, text)) {
+            return false;
+        }
+        self.add(text)
+    }
+
+    fn edit_text(&mut self, index: usize, text: &str) -> bool {
+        if index >= self.items.len() || !self.accepts(text) {
+            return false;
+        }
+        // The same string at the same place may differ in case (`EditItemText`).
+        if self
+            .items
+            .iter()
+            .enumerate()
+            .any(|(i, s)| i != index && self.same(s, text))
+        {
+            return false;
+        }
+        self.items[index] = text.to_owned();
+        true
+    }
+
+    fn delete_at(&mut self, index: usize) -> bool {
+        let found = index < self.items.len();
+        if found {
+            self.items.remove(index);
+        }
+        found
+    }
+
+    fn clear_all(&mut self) {
+        self.items.clear();
+    }
+}
+
 /// The search strings and the replace strings, and the strings of the other combo boxes that
 /// Sakura keeps in the same shared data.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -341,7 +388,26 @@ fn write_set(
     for (i, item) in items.iter().enumerate() {
         profile.set(section, &format!("{name}[{i:02}]"), item)?;
     }
+    remove_indexed_from(profile, section, name, items.len());
     Ok(())
+}
+
+/// Removes the keys `<name>[NN]` of the section whose number is `count` or more: Sakura's file
+/// never has an entry past the count (`IOProfileDataSet` writes `count` entries), and a list that
+/// got shorter would leave its old tail behind.
+pub(crate) fn remove_indexed_from(profile: &mut Profile, section: &str, name: &str, count: usize) {
+    let prefix = format!("{name}[");
+    let stale: Vec<String> = profile
+        .entries(section)
+        .filter_map(|(key, _)| {
+            let rest = key.strip_prefix(&prefix)?;
+            let number: usize = rest.strip_suffix(']')?.parse().ok()?;
+            (number >= count).then(|| key.to_owned())
+        })
+        .collect();
+    for key in stale {
+        profile.remove(section, &key);
+    }
 }
 
 #[cfg(test)]
@@ -641,5 +707,66 @@ mod tests {
         ours.merge_from(&theirs);
         assert_eq!(ours.grep_folder.items(), ["B", "a"]);
         assert_eq!(ours.tag_keyword.items(), ["remote", "local"]);
+    }
+
+    #[test]
+    fn a_shorter_list_leaves_no_entries_past_its_count() {
+        let mut keys = SearchKeys::default();
+        for s in ["c", "b", "a"] {
+            keys.add_search(s);
+            keys.add_grep_folder(s);
+        }
+        let mut profile = Profile::new();
+        keys.write_to(&mut profile).unwrap();
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[02]"), Some("c"));
+        keys.search.items.truncate(1);
+        keys.grep_folder.items.truncate(2);
+        keys.write_to(&mut profile).unwrap();
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[00]"), Some("a"));
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[01]"), None);
+        assert_eq!(profile.get(SECTION, "SEARCHKEY[02]"), None);
+        assert_eq!(profile.get(GREP_SECTION, "GREPFOLDER[01]"), Some("b"));
+        assert_eq!(profile.get(GREP_SECTION, "GREPFOLDER[02]"), None);
+        assert_eq!(profile.get(GREP_SECTION, "_GREPFOLDER_Counts"), Some("2"));
+        // The entries that stay are read back.
+        assert_eq!(
+            SearchKeys::from_profile(&profile).grep_folder.items(),
+            ["a", "b"]
+        );
+    }
+
+    #[test]
+    fn a_list_is_edited_by_hand_like_crecentimp() {
+        use crate::settings::EditableList;
+        let mut l = list(30, &["c", "b", "a"]);
+        // `AppendItemText`: a string that is there is refused and does not move.
+        assert!(!l.append_text("a"));
+        assert_eq!(l.items(), ["c", "b", "a"]);
+        assert!(l.append_text("d"));
+        assert_eq!(l.items(), ["d", "c", "b", "a"]);
+        // `EditItemText`: in place, and never onto another string.
+        assert!(l.edit_text(2, "B"));
+        assert_eq!(l.items(), ["d", "c", "B", "a"]);
+        assert!(!l.edit_text(2, "a"));
+        assert!(!l.edit_text(9, "x"));
+        assert!(!l.edit_text(0, &"x".repeat(260)));
+        // `DeleteItem` closes the gap; `DeleteAllItem` empties.
+        assert!(l.delete_at(1));
+        assert!(!l.delete_at(9));
+        assert_eq!(l.items(), ["d", "B", "a"]);
+        l.clear_all();
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn the_grep_lists_tell_strings_apart_without_case_when_editing() {
+        use crate::settings::EditableList;
+        let mut keys = SearchKeys::default();
+        assert!(keys.grep_file.append_text("*.rs"));
+        assert!(!keys.grep_file.append_text("*.RS"));
+        assert!(keys.grep_file.append_text("*.md"));
+        // The item itself may change its case; another item's text may not be taken.
+        assert!(keys.grep_file.edit_text(0, "*.MD"));
+        assert!(!keys.grep_file.edit_text(0, "*.rs"));
     }
 }

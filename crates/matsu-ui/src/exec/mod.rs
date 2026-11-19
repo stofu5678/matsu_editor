@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, Global};
 use matsu_config::Profile;
 use matsu_config::history::update_profile;
-use matsu_config::settings::ExecHistory;
+use matsu_config::settings::{EditableList as _, ExecHistory};
 use matsu_core::exec::ExecFlags;
 
 pub(crate) mod dialog;
@@ -83,6 +83,72 @@ impl ExecPrefs {
             self.history = history;
         }
     }
+}
+
+impl ExecPrefs {
+    /// Changes the lists by hand (the history management dialog), here and in the file. `change`
+    /// is applied to our lists (so strings only we have stay, and can be edited and deleted) and,
+    /// under the lock, to the lists the file has now, which are written. Nothing is merged, so a
+    /// deleted string does not come back from either side.
+    fn edit(&mut self, removes: bool, change: impl Fn(&mut ExecHistory)) {
+        let before = self.history.clone();
+        change(&mut self.history);
+        // The file takes the change only when our own lists did (see `SearchHistory::edit`).
+        if self.history == before {
+            return;
+        }
+        let Some(path) = self.store.clone() else {
+            return;
+        };
+        let _ = update_profile(&path, |profile| {
+            let mut history = ExecHistory::from_profile(profile);
+            change(&mut history);
+            // A string only we had, edited into one the file can hold: the file did not have the
+            // original, so the edit cannot be replayed; the result goes in front.
+            for (was, now, saved) in [
+                (
+                    &before.commands,
+                    &self.history.commands,
+                    &mut history.commands,
+                ),
+                (
+                    &before.cur_dirs,
+                    &self.history.cur_dirs,
+                    &mut history.cur_dirs,
+                ),
+            ] {
+                for text in now.items().iter().rev() {
+                    if !was.items().contains(text) && !saved.items().contains(text) {
+                        saved.add(text);
+                    }
+                }
+                // What the user removed here goes from the file too, even when the replay could
+                // not do it (an edit into a string the file has already).
+                for text in was.items().iter().filter(|_| removes) {
+                    if !now.items().contains(text)
+                        && let Some(at) = saved.items().iter().position(|t| t == text)
+                    {
+                        saved.delete_at(at);
+                    }
+                }
+            }
+            let before = profile.to_bytes();
+            let written = history.write_to(profile).is_ok() && profile.to_bytes() != before;
+            Ok(written)
+        });
+    }
+}
+
+/// Changes the commands and folders by hand ([`ExecPrefs::edit`]).
+#[cfg(test)]
+pub(crate) fn edit_history(cx: &mut App, change: impl Fn(&mut ExecHistory)) {
+    edit_history_with(cx, true, change);
+}
+
+/// `edit_history`; `removes` is false for an addition, whose pushing out of a full list is the
+/// capacity rule of each list, not a removal by the user.
+pub(crate) fn edit_history_with(cx: &mut App, removes: bool, change: impl Fn(&mut ExecHistory)) {
+    cx.default_global::<ExecPrefs>().edit(removes, change);
 }
 
 /// Makes the history of the application. Called once at startup.

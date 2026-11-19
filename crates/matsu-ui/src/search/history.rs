@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, BorrowAppContext as _, Global};
 use matsu_config::Profile;
 use matsu_config::history::update_profile;
-use matsu_config::settings::{KeyList, SearchKeys};
+use matsu_config::settings::{EditableList as _, KeyList, SearchKeys};
 
 use crate::view::EditorView;
 
@@ -104,6 +104,110 @@ impl SearchHistory {
             self.keys = keys;
         }
     }
+}
+
+impl SearchHistory {
+    /// Changes the lists by hand (the history management dialog: delete, add, edit), here and
+    /// in the file.
+    ///
+    /// `change` is applied twice, each time to its own copy: to our lists (so strings that only
+    /// we have, such as one with a line break that the file cannot hold, or one kept after a failed
+    /// save, stay and can be edited and deleted), and, under the lock of the file, to the lists the
+    /// file has *now*, which are then written. Nothing is merged, so a string deleted here is not
+    /// brought back from the file, and one deleted elsewhere is not brought back from memory. The
+    /// sequence numbers do not move: Sakura counts additions only (`AddToSearchKeyArr`).
+    pub(crate) fn edit(&mut self, removes: bool, change: impl Fn(&mut SearchKeys)) {
+        let before = self.keys.clone();
+        change(&mut self.keys);
+        // The file takes the change only when our own lists did: a change that was refused here
+        // (a duplicate, say) must not act on a file that differs from memory.
+        if self.keys == before {
+            return;
+        }
+        let Some(path) = self.store.clone() else {
+            return;
+        };
+        // A history that cannot be saved is not worth an error here.
+        let _ = update_profile(&path, |profile| {
+            let mut keys = SearchKeys::from_profile(profile);
+            change(&mut keys);
+            // An edit of a string only we have (one with a line break, or kept after a failed
+            // save) cannot be replayed on the file's list: the string it replaced is not there.
+            // What the user now sees and did not see before goes into the file as an addition in
+            // front (newest first), so the file has the result.
+            add_new(&before, &self.keys, &mut keys);
+            // And what the user removed here (deleted, or the old text of an edit) goes from the
+            // file even when the replay could not do it: an edit into a string the file has
+            // already is refused there, and would leave the old text behind.
+            if removes {
+                remove_gone(&before, &self.keys, &mut keys);
+            }
+            let bytes = profile.to_bytes();
+            let written = keys.write_to(profile).is_ok() && profile.to_bytes() != bytes;
+            Ok(written)
+        });
+    }
+}
+
+/// Puts the strings that `after` has and `before` did not into the lists of `file`, in front, when
+/// the file does not have them (the lists the dialog edits).
+fn add_new(before: &SearchKeys, after: &SearchKeys, file: &mut SearchKeys) {
+    fn one(before: &KeyList, after: &KeyList, file: &mut KeyList) {
+        for text in after.items().iter().rev() {
+            if !before.items().contains(text) && !file.items().contains(text) {
+                file.add(text);
+            }
+        }
+    }
+    one(&before.search, &after.search, &mut file.search);
+    one(&before.replace, &after.replace, &mut file.replace);
+    one(&before.grep_file, &after.grep_file, &mut file.grep_file);
+    one(
+        &before.grep_folder,
+        &after.grep_folder,
+        &mut file.grep_folder,
+    );
+}
+
+/// Removes from `file` the strings that `before` had and `after` does not.
+fn remove_gone(before: &SearchKeys, after: &SearchKeys, file: &mut SearchKeys) {
+    fn one(before: &KeyList, after: &KeyList, file: &mut KeyList) {
+        for text in before.items() {
+            if !after.items().contains(text)
+                && let Some(at) = file.items().iter().position(|t| t == text)
+            {
+                file.delete_at(at);
+            }
+        }
+    }
+    one(&before.search, &after.search, &mut file.search);
+    one(&before.replace, &after.replace, &mut file.replace);
+    one(&before.grep_file, &after.grep_file, &mut file.grep_file);
+    one(
+        &before.grep_folder,
+        &after.grep_folder,
+        &mut file.grep_folder,
+    );
+}
+
+/// The lists of the search, replace and Grep boxes as they are now.
+pub(crate) fn snapshot(cx: &App) -> SearchKeys {
+    cx.try_global::<SearchHistory>()
+        .map(|h| h.keys.clone())
+        .unwrap_or_default()
+}
+
+/// Changes the lists by hand ([`SearchHistory::edit`]) and tells the observers.
+#[cfg(test)]
+pub(crate) fn edit_keys(cx: &mut App, change: impl Fn(&mut SearchKeys)) {
+    edit_keys_with(cx, true, change);
+}
+
+/// `edit_keys`; `removes` says whether `change` removes strings by the user's wish (a delete, an
+/// edit). An addition does not: what it pushes out of a full list is the list's own capacity
+/// rule, which the file's list applies by itself (see [`SearchHistory::edit`]).
+pub(crate) fn edit_keys_with(cx: &mut App, removes: bool, change: impl Fn(&mut SearchKeys)) {
+    cx.update_default_global(|history: &mut SearchHistory, _| history.edit(removes, change));
 }
 
 /// Makes the history of the application. Called once at startup.

@@ -18,13 +18,57 @@ use std::future::Future;
 use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window, div, px, rgb, rgba,
+    IntoElement, KeyBinding, KeyDownEvent, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window, actions, div, px,
+    rgb, rgba,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use matsu_plugin::functions::window::truncate_utf16;
 
 use crate::view::EditorView;
+
+actions!(
+    matsu_dialog_field,
+    [
+        /// Tab in the single-line field of a dialog that has buttons.
+        DialogTab,
+        /// Shift+Tab in the same field.
+        DialogBackTab
+    ]
+);
+
+/// Whether the keys are bound (once per application).
+struct KeysBound;
+
+impl gpui::Global for KeysBound {}
+
+/// Binds Tab and Shift+Tab in the field and the buttons of the dialogs that move the focus between the field and
+/// their buttons: this dialog (context `InputDialog`) and the panel of the history window
+/// (`FavoriteEdit`). Once per application; `input_field` calls it. Like the Up and Down keys of
+/// a spin box (`crate::spin::bind_keys`), the keys are bound in the field itself, on the context
+/// `<dialog> > Input`: the single-line field takes Tab on its own on some systems (seen on
+/// Windows), and a key listener of an element around it is not called for a key that an action
+/// took.
+pub(crate) fn bind_keys(cx: &mut gpui::App) {
+    if cx.has_global::<KeysBound>() {
+        return;
+    }
+    cx.set_global(KeysBound);
+    // The field's own context first (it is deeper, so it wins over the field's Tab); the dialog's
+    // own for the buttons, which GPUI's tab navigation would otherwise take (it does not know the
+    // order field, OK, Cancel).
+    for context in [
+        "InputDialog",
+        "FavoriteEdit",
+        "InputDialog > Input",
+        "FavoriteEdit > Input",
+    ] {
+        cx.bind_keys([
+            KeyBinding::new("tab", DialogTab, Some(context)),
+            KeyBinding::new("shift-tab", DialogBackTab, Some(context)),
+        ]);
+    }
+}
 
 /// What to ask.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,14 +195,12 @@ impl InputDialog {
     /// Moves the focus to the next (or previous) of the field, OK and Cancel.
     fn move_focus(&self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let field = self.input.read(cx).focus_handle(cx);
-        let order = [field, self.ok_focus.clone(), self.cancel_focus.clone()];
-        let at = order.iter().position(|h| h.contains_focused(window, cx));
-        let next = match (at, forward) {
-            (Some(i), true) => (i + 1) % order.len(),
-            (Some(i), false) => (i + order.len() - 1) % order.len(),
-            (None, _) => 0,
-        };
-        window.focus(&order[next], cx);
+        cycle_focus(
+            &[field, self.ok_focus.clone(), self.cancel_focus.clone()],
+            forward,
+            window,
+            cx,
+        );
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -181,6 +223,24 @@ impl Focusable for InputDialog {
     }
 }
 
+/// Moves the focus to the next (or previous) of `order`, going round (Tab and Shift+Tab in a
+/// dialog of a field and buttons); from outside them it goes to the first. Shared by this dialog
+/// and the panel of the history window.
+pub(crate) fn cycle_focus(
+    order: &[FocusHandle],
+    forward: bool,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
+    let at = order.iter().position(|h| h.contains_focused(window, cx));
+    let next = match (at, forward) {
+        (Some(i), true) => (i + 1) % order.len(),
+        (Some(i), false) => (i + order.len() - 1) % order.len(),
+        (None, _) => 0,
+    };
+    window.focus(&order[next], cx);
+}
+
 /// The field after an edit from `before` to `after`, when `after` is longer than `max` UTF-16 code
 /// units: the part that was inserted is cut so that the whole fits, and the text around it stays
 /// (inserting `X` at the start of a full field gives nothing, not a field without its last
@@ -191,7 +251,7 @@ impl Focusable for InputDialog {
 /// from the common start and end of the two texts. When a selection is replaced by a text that
 /// begins or ends with the selected text itself, the old text is taken as untouched and the
 /// replacement is refused; the text that was there is never lost.
-fn limit_edit(before: &str, after: &str, max: usize) -> Option<(String, usize)> {
+pub(crate) fn limit_edit(before: &str, after: &str, max: usize) -> Option<(String, usize)> {
     if after.encode_utf16().count() <= max {
         return None;
     }
@@ -249,6 +309,12 @@ impl Render for InputDialog {
         let panel = crate::a11y::dialog(div().id("input-dialog"), &self.title)
             .aria_description(self.message.clone())
             .key_context("InputDialog")
+            .on_action(cx.listener(|this, _: &DialogTab, window, cx| {
+                this.move_focus(true, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogBackTab, window, cx| {
+                this.move_focus(false, window, cx);
+            }))
             .on_key_down(cx.listener(Self::on_key_down))
             .w(px(420.))
             .p_4()
