@@ -200,9 +200,11 @@ pub fn name_of(code: u16) -> Option<String> {
     })
 }
 
-/// `GetPlugCmdInfoByName`: the function code of `<plugin ID>/<number>` for a command that is
-/// loaded. `None` for anything else, also for a command of a plugin that is registered but not
-/// enabled (the text stays as it is then).
+/// `GetPlugCmdInfoByName` (`CShareData_IO.cpp`): the function code of `<plugin ID>/<number>`. It looks
+/// the ID up in the plugin table only: the plugin does not have to be enabled and the command does not
+/// have to be loaded, so a menu, a key or a toolbar button that names a command of a plugin that is
+/// switched off keeps its code (it works again when the plugin is enabled, and writing gives the name
+/// back). `None` for an ID that is not in the table and for a number outside 1 to 49.
 pub fn by_name(text: &str) -> Option<u16> {
     let (id, number) = text.split_once('/')?;
     // `_wtoi`: the number at the start of the text, 0 when there is none.
@@ -210,13 +212,13 @@ pub fn by_name(text: &str) -> Option<u16> {
     let plug = digits.parse::<usize>().ok().filter(|&n| n > 0)?;
     read(|table| {
         let slot = table.slots.iter().position(|s| !s.is_empty() && s == id)?;
-        let code = function_code(slot, plug)?;
-        table
-            .commands
-            .iter()
-            .any(|c| c.code == code)
-            .then_some(code)
+        function_code(slot, plug)
     })
+}
+
+/// Whether the command `code` is loaded (its plugin is enabled and has the command now).
+pub fn is_loaded(code: u16) -> bool {
+    info(code).is_some()
 }
 
 /// The name of function `code` if it is a loaded plugin command (`CJackManager::GetCommandName`).
@@ -279,8 +281,9 @@ mod tests {
         set_slots(ids);
         let code = function_code(3, 2).unwrap();
         assert_eq!(name_of(code).as_deref(), Some("test.names/02"));
-        // Registered, not loaded: the name is known, the text does not read.
-        assert_eq!(by_name("test.names/02"), None);
+        // Registered, not loaded: the name reads (`GetPlugCmdInfoByName` looks at the table only).
+        assert_eq!(by_name("test.names/02"), Some(code));
+        assert!(!is_loaded(code));
         add_command(CommandInfo {
             code,
             slot: 3,
@@ -293,16 +296,19 @@ mod tests {
             added: false,
         });
         assert_eq!(by_name("test.names/02"), Some(code));
+        assert!(is_loaded(code));
         assert_eq!(by_name("test.names/2"), Some(code));
-        assert_eq!(by_name("test.names/03"), None);
+        assert_eq!(by_name("test.names/03"), function_code(3, 3));
         assert_eq!(by_name("test.names/00"), None);
+        assert_eq!(by_name("test.names/50"), None);
         assert_eq!(by_name("other/02"), None);
         assert_eq!(label(code).as_deref(), Some("Second"));
         assert_eq!(info(code).map(|c| c.plug), Some(2));
         assert_eq!(count_in(3), 1);
         set_commands(Vec::new());
-        assert_eq!(by_name("test.names/02"), None);
+        assert_eq!(by_name("test.names/02"), Some(code));
         set_slots(Vec::new());
+        assert_eq!(by_name("test.names/02"), None);
         assert_eq!(name_of(code), None);
     }
 }

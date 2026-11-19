@@ -15,7 +15,7 @@
 //!   it that shows the recent files and folders ([`super::open_menu`]); the button itself opens a
 //!   file, as `Command_FILEOPEN` does.
 //! * A plugin command is a button of its function code (`TOOLBAR_ICON_PLUGCOMMAND_DEFAULT`); it is
-//!   undefined while its plugin is not enabled.
+//!   undefined while the command is not loaded (its plugin is not enabled).
 //! * A button is pressed while `IsFuncChecked` says so (`TBSTATE_CHECKED`, `CMainToolBar.cpp`) and
 //!   gray while `IsFuncEnable` says no (`TBSTATE_ENABLED`): the state of the window the toolbar
 //!   is in ([`crate::menu_state::FuncStates`]), read each time the window is drawn.
@@ -59,8 +59,12 @@ impl Default for ToolbarButtons {
 impl ToolbarButtons {
     /// `ShareData_IO_Toolbar` reading: `nToolBarButtonNum` entries `nTBB[000]`...; an entry the file
     /// does not have keeps the default list's value at that place (0 past its end). A value with a
-    /// `/` is a plugin command (`<plugin ID>/<number>`): the button of its function code, or an
-    /// undefined button when the plugin is not enabled.
+    /// `/` is a plugin command (`<plugin ID>/<number>`): its function code, which is the button number
+    /// (`GetPlugCmdInfoByName`), or `-1` for a plugin that is not in the plugin table. Sakura reads `-1`
+    /// also for a command that is not loaded (`FindToolbarNoFromCommandId`), and writes the `-1` back,
+    /// so a button of a plugin that is switched off is lost at the next save of the toolbar. Here the
+    /// code stays (the button is an undefined one until the command is loaded: [`item_of`]) and the
+    /// name is written back.
     pub(crate) fn from_profile(profile: &Profile) -> Self {
         const SECTION: &str = "Toolbar";
         let default = Self::default().0;
@@ -69,8 +73,7 @@ impl ToolbarButtons {
             .map_or(default.len(), |n| n.clamp(0, MAX_BUTTONS as i32) as usize);
         let numbers = (0..count)
             .map(|i| match profile.get(SECTION, &format!("nTBB[{i:03}]")) {
-                // A plugin command (`GetPlugCmdInfoByName`): the button number is its function code. One
-                // that is not loaded is an undefined button (`-1`).
+                // A plugin command (`GetPlugCmdInfoByName`): the button number is its function code.
                 Some(text) if text.contains('/') => {
                     matsu_commands::plugin_commands::by_name(text).map_or(-1, i32::from)
                 }
@@ -223,10 +226,14 @@ fn item_of(number: i32) -> Item {
     if let Ok(code) = u16::try_from(number)
         && matsu_commands::plugin_commands::is_plugin_code(code)
     {
+        // A command that is not loaded has no button (`FindIndexFromCommandId` finds none, and
+        // `getButton` makes an undefined one): gray, no picture.
+        if !matsu_commands::plugin_commands::is_loaded(code) {
+            return undefined;
+        }
         return Item::Button(Button {
             number: code,
             code,
-            // A button of a plugin command that is not loaded keeps the default picture, gray.
             icon: super::icon_of_function(code).or_else(plugin_icon),
         });
     }

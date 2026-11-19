@@ -306,8 +306,14 @@ fn a_plugin_button_is_listed_by_its_kind_and_written_by_the_name_of_its_command(
     assert!(store(&[20001], &mut p).unwrap());
     assert_eq!(p.get("Toolbar", "nTBB[000]"), Some("toolbar.test/01"));
     assert_eq!(load(&p), vec![20001]);
-    // The plugin is gone: the name stays unresolved and the button is an undefined one.
+    // The plugin is switched off: the code stays (the plugin is in the table), the button is an
+    // unknown one, and the name is written back (Sakura reads `-1` and loses the button).
     pc::set_commands(Vec::new());
+    assert_eq!(load(&p), vec![20001]);
+    assert_eq!(row_of(20001, &RegisteredMacros::default()).1, None);
+    assert!(!store(&[20001], &mut p).unwrap());
+    // The plugin is gone from the table: the name stays unresolved.
+    pc::set_slots(Vec::new());
     assert_eq!(load(&p), vec![-1]);
     pc::set_slots(Vec::new());
 }

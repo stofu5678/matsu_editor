@@ -161,6 +161,22 @@ pub fn default_main_menu() -> &'static MainMenu {
     })
 }
 
+/// What `CEditWnd::InitMenu_Function` shows for a plugin command that is not loaded (its plugin is
+/// switched off, or it is not there any more): the row is grayed out.
+pub(crate) const UNDEFINED_PLUGIN_COMMAND: &str = "-- undefined plugin command --";
+
+/// The label a menu shows for function `code` when it is a plugin command: the label of the command
+/// while it is loaded, else [`UNDEFINED_PLUGIN_COMMAND`]. `None` for any other function.
+pub(crate) fn plugin_command_label(code: u16) -> Option<String> {
+    if !matsu_commands::plugin_commands::is_plugin_code(code) {
+        return None;
+    }
+    Some(
+        matsu_commands::plugin_commands::label(code)
+            .unwrap_or_else(|| UNDEFINED_PLUGIN_COMMAND.to_owned()),
+    )
+}
+
 /// The label of function `code` in the table (`LS(code)`, `Funccode2Name`).
 fn function_label(code: u16) -> Option<&'static str> {
     FUNCTIONS
@@ -175,7 +191,7 @@ fn name_of(row: &MenuRow, parentheses: bool) -> String {
     if row.kind == RowKind::Node && (row.function == F_NODE || !row.name.is_empty()) {
         return menu_label_with(&row.name, row.key, parentheses);
     }
-    if let Some(label) = matsu_commands::plugin_commands::label(row.function) {
+    if let Some(label) = plugin_command_label(row.function) {
         return menu_label_with(&label, row.key, parentheses);
     }
     let label = function_label(row.function).unwrap_or("-- undefined name --");

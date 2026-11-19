@@ -71,6 +71,12 @@ pub(super) fn row_of(number: i32, macros: &RegisteredMacros) -> (String, Option<
     match number {
         0 => (ITEM_SEPARATOR.to_owned(), None),
         WRAP => (ITEM_WRAP.to_owned(), None),
+        // A command that is not loaded is an unknown button (`-1` in Sakura).
+        n if u16::try_from(n).is_ok_and(matsu_commands::plugin_commands::is_plugin_code)
+            && !u16::try_from(n).is_ok_and(matsu_commands::plugin_commands::is_loaded) =>
+        {
+            (ITEM_UNKNOWN.to_owned(), None)
+        }
         n if u16::try_from(n).is_ok_and(matsu_commands::plugin_commands::is_plugin_code) => {
             let code = u16::try_from(n).unwrap_or_default();
             let name = crate::func_name::funccode_to_name(code, &CustomMenus::default(), macros);

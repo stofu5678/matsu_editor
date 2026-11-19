@@ -137,7 +137,9 @@ fn the_commands_of_plugin_def_are_registered_for_an_enabled_plugin_only(cx: &mut
     );
     assert!(codes().is_empty());
     assert_eq!(pc::name_of(first).unwrap(), format!("{ID}/01"));
-    assert_eq!(pc::by_name(&format!("{ID}/01")), None);
+    // The code is read all the same (`GetPlugCmdInfoByName` looks at the table), the command is not loaded.
+    assert_eq!(pc::by_name(&format!("{ID}/01")), Some(first));
+    assert!(!pc::is_loaded(first));
     // Plugins are switched off.
     install(
         cx,
@@ -264,7 +266,8 @@ fn a_binding_and_a_button_saved_for_an_added_command_work_once_it_is_added(
             ..Setup::ON
         },
     );
-    // At startup command 3 is not there: the key is unbound and the button is an undefined one.
+    // At startup command 3 is not loaded: the key and the button already have its code (the plugin is in
+    // the table), and the button is an undefined one until the command is loaded.
     cx.update(|app| {
         crate::app::set_key_map(app, user.key_map(Platform::current()));
         crate::bars::toolbar::install(app, &user);
@@ -279,8 +282,9 @@ fn a_binding_and_a_button_saved_for_an_added_command_work_once_it_is_added(
                 .clone()
         })
     };
-    assert!(!bound(cx));
-    assert_eq!(buttons(cx), vec![-1]);
+    assert!(bound(cx));
+    assert_eq!(buttons(cx), vec![20203]);
+    assert!(!pc::is_loaded(20203));
 
     // The plugin adds the command while it runs: the key and the button work from now on.
     let dirs = place.dirs();
@@ -290,6 +294,7 @@ fn a_binding_and_a_button_saved_for_an_added_command_work_once_it_is_added(
     cx.update(commands_changed);
     assert!(bound(cx));
     assert_eq!(buttons(cx), vec![20203]);
+    assert!(pc::is_loaded(20203));
 }
 
 #[gpui::test]
@@ -354,9 +359,9 @@ fn a_saved_menu_entry_is_the_command_while_the_plugin_is_enabled_and_text_otherw
     let items = &menus.get(3).unwrap().items;
     assert_eq!((items[1].function, items[1].key), (20202, Some('P')));
     assert!(items[1].text.is_none());
-    // Command 9 does not exist: the text stays.
-    assert!(items[2].is_unknown());
-    assert_eq!(items[2].text.as_deref(), Some(&*format!("{ID}/09")));
+    // Command 9 is not loaded, but the plugin is in the table: the code is read (`GetPlugCmdInfoByName`).
+    assert_eq!(items[2].function, 20209);
+    assert!(items[2].text.is_none());
 
     // Writing the menu gives the name, as Sakura does, not the number.
     let mut profile = Profile::from_bytes(b"");
@@ -373,7 +378,8 @@ fn a_saved_menu_entry_is_the_command_while_the_plugin_is_enabled_and_text_otherw
         Some(&*format!("{ID}/09"))
     );
 
-    // The plugin is not enabled (the user did not agree): the entries are texts, and saving keeps them.
+    // The plugin is not enabled (the user did not agree): the entries keep their codes, and saving
+    // writes the names as before.
     let user = install(
         cx,
         &place,
@@ -385,8 +391,8 @@ fn a_saved_menu_entry_is_the_command_while_the_plugin_is_enabled_and_text_otherw
     );
     let menus = user.custom_menus();
     let items = &menus.get(3).unwrap().items;
-    assert!(items[1].is_unknown() && items[2].is_unknown());
-    assert_eq!(items[1].text.as_deref(), Some(&*format!("{ID}/02")));
+    assert_eq!((items[1].function, items[2].function), (20202, 20209));
+    assert!(!pc::is_loaded(20202));
     let mut profile = Profile::from_bytes(b"");
     menus
         .write_to_profile(&mut profile, Some(&name_of), None)
@@ -415,9 +421,10 @@ fn the_main_menu_and_the_toolbar_read_a_plugin_command_by_its_name(cx: &mut Test
     );
     let menu = user.main_menu();
     assert_eq!(menu.rows[1].function, 20201);
-    assert!(menu.rows[2].is_unknown(), "{:?}", menu.rows[2]);
+    // A command that is not loaded still has its code (`GetPlugCmdInfoByName` looks at the table).
+    assert_eq!(menu.rows[2].function, 20207);
     let toolbar = crate::bars::toolbar::ToolbarButtons::from_profile(user.profile().unwrap());
-    assert_eq!(toolbar.0, vec![20202, -1, 3]);
+    assert_eq!(toolbar.0, vec![20202, 20208, 3]);
 
     // The menu shows the label of the command, and it can run.
     let bar = crate::menu::main_menu_for(
@@ -442,8 +449,13 @@ fn the_main_menu_and_the_toolbar_read_a_plugin_command_by_its_name(cx: &mut Test
         panic!();
     };
     assert!(!gone.enabled);
+    assert!(
+        gone.label.starts_with("-- undefined plugin command --"),
+        "{}",
+        gone.label
+    );
 
-    // The plugin is not enabled: the same file gives the rows as texts.
+    // The plugin is not enabled: the same file gives the same codes, and the rows are grayed out.
     let user = install(
         cx,
         &place,
@@ -453,9 +465,37 @@ fn the_main_menu_and_the_toolbar_read_a_plugin_command_by_its_name(cx: &mut Test
             ..Setup::ON
         },
     );
-    assert!(user.main_menu().rows[1].is_unknown());
+    let menu = user.main_menu();
+    assert_eq!(menu.rows[1].function, 20201);
     let toolbar = crate::bars::toolbar::ToolbarButtons::from_profile(user.profile().unwrap());
-    assert_eq!(toolbar.0, vec![-1, -1, 3]);
+    assert_eq!(toolbar.0, vec![20202, 20208, 3]);
+    let bar = crate::menu::main_menu_for(
+        &menu,
+        &matsu_commands::keymap::KeyMap::default(),
+        &crate::menu::Registered,
+        &crate::menu::NoLists,
+        &CustomMenus::default(),
+    );
+    let crate::menu::Entry::Item(off) = &bar[0].entries[0] else {
+        panic!();
+    };
+    assert!(
+        off.label.starts_with("-- undefined plugin command --"),
+        "{}",
+        off.label
+    );
+    assert!(!off.enabled);
+    // An ID that is not in the plugin table is not a code: the text stays.
+    let user = install(
+        cx,
+        &place,
+        &Setup {
+            extra: "[MainMenu]\r\nnMainMenuVer=2\r\nnMainMenuNum=2\r\nbKeyParentheses=0\r\n\
+                    MM[000]=0,0,34052,F,\r\nMM[001]=1,1,nobody.here/01,P,\r\n",
+            ..Setup::ON
+        },
+    );
+    assert!(user.main_menu().rows[1].is_unknown());
 }
 
 #[gpui::test]
@@ -509,7 +549,8 @@ fn a_key_binding_of_a_plugin_command_is_read_and_written_by_its_name(cx: &mut Te
         matsu_commands::keymap::user::parse_entries(user.profile().unwrap().entries("KeyBind")).0;
     let written = matsu_commands::keymap::user::format_entries(&rows);
     assert_eq!(written[0].1, format!("0041,0,0,{ID}/01,0,0,0,0,0,A"));
-    // The plugin is not enabled: the binding is not read (it was not before plugins existed either).
+    // The plugin is not enabled: the binding is read all the same (`GetPlugCmdInfoByName` looks at the
+    // table), so that it is not lost when the key page is saved; the command says that it is off.
     let user = install(
         cx,
         &place,
@@ -521,8 +562,12 @@ fn a_key_binding_of_a_plugin_command_is_read_and_written_by_its_name(cx: &mut Te
     );
     assert_eq!(
         user.key_map(Platform::Other).resolve(ctrl_a),
-        Resolved::Unbound
+        Resolved::Code(20201)
     );
+    let rows =
+        matsu_commands::keymap::user::parse_entries(user.profile().unwrap().entries("KeyBind")).0;
+    let written = matsu_commands::keymap::user::format_entries(&rows);
+    assert_eq!(written[0].1, format!("0041,0,0,{ID}/01,0,0,0,0,0,A"));
 }
 
 fn run_and_wait(
