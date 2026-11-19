@@ -48,9 +48,9 @@ pub(crate) mod vscroll;
 use std::ops::Range;
 
 use gpui::{
-    App, Context, CursorStyle, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window, actions, div, px,
+    App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window, actions, div, px,
 };
 use matsu_commands::command::{Arg, Registration};
 use matsu_commands::context::{Changes, CommandContext, TextEdits};
@@ -244,9 +244,9 @@ pub struct EditorView {
     /// Where a drag of the selected text would drop it: the caret is drawn there meanwhile
     /// (Sakura moves the caret with the pointer, `OnMOUSEMOVE` while `m_bDragMode`).
     pub(crate) drop_caret: Option<Pos>,
-    /// The shape of the pointer that the last render gave, only to see whether a redraw is
-    /// needed when it would change (`drag_cursor.rs`); render derives the shape each time.
-    pub(crate) shown_cursor: CursorStyle,
+    /// The shape of the pointer with what it was made from (`drag_cursor.rs`); render reuses it
+    /// while the inputs are the same (see `CursorKey`).
+    pub(crate) cursor_memo: Option<drag_cursor::CursorMemo>,
     /// The task that scrolls while a drag of text rests at the edge (`drag_cursor.rs`).
     pub(crate) drag_scroll_task: Option<gpui::Task<()>>,
     /// Which click of a series the last press was: 1 to 4 (single, double, triple, quadruple).
@@ -388,7 +388,7 @@ impl EditorView {
             composing_over_selection: false,
             drag: Drag::None,
             drop_caret: None,
-            shown_cursor: CursorStyle::IBeam,
+            cursor_memo: None,
             drag_scroll_task: None,
             click_phase: 1,
             autoscroll: Default::default(),
@@ -1261,8 +1261,7 @@ impl Render for EditorView {
         let a11y_text = self.a11y_text.clone();
         let text_font = self.text_font(cx);
         // The pointer shape from the drag, the pointer and the modifiers of the window now.
-        let cursor = self.cursor_style_at(window.mouse_position(), window.modifiers(), cx);
-        self.shown_cursor = cursor;
+        let cursor = self.current_cursor(window.mouse_position(), window.modifiers(), cx);
         let mut editor = text_font
             .apply(crate::a11y::focusable_editor(
                 div().id("editor"),

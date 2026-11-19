@@ -112,6 +112,9 @@ pub struct ColorRules {
     /// Here-documents are on (`HDC` shown, and the type is PHP's).
     pub(crate) heredoc: bool,
     pub(crate) url: bool,
+    /// A regular expression keyword of the type has the color URL (`m_nColorIndex ==
+    /// COLORIDX_URL` in `IsCurrentPositionURL`), found once when the rules are made.
+    url_keyword: bool,
     pub(crate) number: bool,
     /// The keyword sets in use, with the slot (the color `KW1` to `KWA`) of each: a slot whose
     /// color is off or whose set is `-1` or does not exist is left out.
@@ -154,6 +157,8 @@ impl ColorRules {
             .collect();
         let entries = std::array::from_fn(|i| entry_of(colors, KINDS[i]));
         let regex_keywords = RegexKeywords::from_type(t);
+        let url_keyword =
+            (0..regex_keywords.len()).any(|i| regex_keywords.color_name(i) == Some("URL"));
         let regex_entries = (0..regex_keywords.len())
             .map(|i| {
                 regex_keywords
@@ -178,6 +183,7 @@ impl ColorRules {
             string_end_line: t.string_end_line,
             heredoc: disp("HDC") && t.heredoc_type == HEREDOC_PHP,
             url: disp("URL"),
+            url_keyword,
             number: disp("NUM"),
             keywords,
             regex_keywords,
@@ -200,6 +206,7 @@ impl ColorRules {
             string_end_line: false,
             heredoc: false,
             url: false,
+            url_keyword: false,
             number: false,
             keywords: Vec::new(),
             regex_keywords: RegexKeywords::default(),
@@ -217,25 +224,17 @@ impl ColorRules {
     /// Whether a click can find a URL in a line: URLs are shown in their color, or a regular
     /// expression keyword has the color URL (the first test of `IsCurrentPositionURL`).
     pub fn finds_url(&self) -> bool {
-        self.url || self.has_url_keyword()
-    }
-
-    /// A regular expression keyword of the type has the color URL (`m_nColorIndex ==
-    /// COLORIDX_URL` in `IsCurrentPositionURL`). The list ends at the first empty pattern, as
-    /// the compiled keywords do.
-    fn has_url_keyword(&self) -> bool {
-        (0..self.regex_keywords.len()).any(|i| self.regex_keywords.color_name(i) == Some("URL"))
+        self.url || self.url_keyword
     }
 
     /// `CEditView::IsCurrentPositionURL`: the byte range of the URL of `line` (no line ending)
     /// that covers the byte column `col`, from the URL coloring and from the regular expression
     /// keywords of the color URL. `None` when neither is on.
     pub fn url_at(&self, line: &str, col: usize) -> Option<std::ops::Range<usize>> {
-        let keywords = self.has_url_keyword();
-        if !self.url && !keywords {
+        if !self.finds_url() {
             return None;
         }
-        let search = keywords.then(|| self.regex_keywords.line_search());
+        let search = self.url_keyword.then(|| self.regex_keywords.line_search());
         crate::url::url_at_with(line, col, self.url, |i| {
             let (index, len) = search.as_ref()?.match_at(line, i)?;
             (self.regex_keywords.color_name(usize::from(index)) == Some("URL")).then_some(len)

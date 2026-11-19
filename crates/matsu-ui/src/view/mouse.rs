@@ -241,7 +241,7 @@ impl EditorView {
         // The ruler and the gap under it do nothing: `OnLBUTTONDOWN` returns for `y < AreaTop`
         // (the comment there says "ルーラクリック").
         if f32::from(event.position.y) < paint.origin_y {
-            self.drag = Drag::None;
+            self.set_drag(Drag::None);
             return;
         }
         // Before the hit test: finishing an overwrite composition can remove chars and move the
@@ -270,7 +270,7 @@ impl EditorView {
                     self.double_click(pos, true, m, window, cx);
                 } else {
                     // The series ends here: the next press (count 5) is a plain click.
-                    self.drag = Drag::None;
+                    self.set_drag(Drag::None);
                     self.run_at_click(pos, code, window, cx);
                 }
                 return;
@@ -313,7 +313,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         if !after_quad && self.open_url_at(pos, cx) {
-            self.drag = Drag::None;
+            self.set_drag(Drag::None);
             self.click_phase = 1;
             return;
         }
@@ -327,7 +327,7 @@ impl EditorView {
         // In the result of a Grep the double click jumps to the place the line names
         // (`OnLBUTTONDBLCLK`, after the URL).
         if !after_quad && self.grep_double_click_jump(window, cx) {
-            self.drag = Drag::None;
+            self.set_drag(Drag::None);
             self.click_phase = 2;
             return;
         }
@@ -336,7 +336,7 @@ impl EditorView {
         }
         // The next press may be the third click (`m_dwTripleClickCheck = GetTickCount()`).
         self.click_phase = 2;
-        self.drag = if code == F_SELECTWORD {
+        self.set_drag(if code == F_SELECTWORD {
             let caret = self.cursor.caret();
             Drag::Select {
                 bgn: self.cursor.selection().unwrap_or((caret, caret)),
@@ -344,7 +344,7 @@ impl EditorView {
             }
         } else {
             Drag::None
-        };
+        });
     }
 
     /// The third click of a series with a function assigned (`tripleClickMode` in
@@ -352,18 +352,18 @@ impl EditorView {
     /// starts a drag by logical lines (the "2.5 click").
     fn triple_click(&mut self, pos: Pos, code: u16, window: &mut Window, cx: &mut Context<Self>) {
         self.run_at_click(pos, code, window, cx);
-        self.drag = Drag::None;
+        self.set_drag(Drag::None);
         if code != F_SELECTLINE {
             return;
         }
-        self.drag = match self.cursor.selection() {
+        self.set_drag(match self.cursor.selection() {
             Some(bgn) => Drag::Lines { bgn, logical: true },
             // Nothing to select (the empty row at the end): a plain click.
             None => Drag::Select {
                 bgn: (self.cursor.caret(), self.cursor.caret()),
                 words: false,
             },
-        };
+        });
     }
 
     /// The start of the layout row below the row that contains `pos`; `None` on the last row.
@@ -395,9 +395,9 @@ impl EditorView {
             && !in_gutter
             && self.point_is_selected(event.position, cx)
         {
-            self.drag = Drag::Press {
+            self.set_drag(Drag::Press {
                 down: event.position,
-            };
+            });
             return;
         }
         // Alt: a box selection. In the gutter it starts at the left edge of the row.
@@ -419,7 +419,7 @@ impl EditorView {
             };
             self.run_with(cx, |command_cx| command_cx.mouse_begin_box(begin))
                 .ok();
-            self.drag = Drag::Box;
+            self.set_drag(Drag::Box);
             if let Some(row_start) = below {
                 // Alt and the line number column also move the caret one row down, growing the
                 // box (`Command_DOWN( true, false )` at the end of the Alt branch of
@@ -438,7 +438,7 @@ impl EditorView {
                 .run_with(cx, |command_cx| command_cx.mouse_begin_units(pos, false))
                 .ok()
                 .flatten();
-            self.drag = match bgn {
+            self.set_drag(match bgn {
                 Some(bgn) => Drag::Lines {
                     bgn,
                     logical: false,
@@ -447,11 +447,11 @@ impl EditorView {
                     bgn: (pos, pos),
                     words: false,
                 },
-            };
+            });
             return;
         }
         let (bgn, words) = self.press_selection(event, pos, cx);
-        self.drag = Drag::Select { bgn, words };
+        self.set_drag(Drag::Select { bgn, words });
         // A click on a URL selects it, if the setting says so (`m_bSelectClickedURL`).
         if !in_gutter
             && options.select_clicked_url
@@ -459,10 +459,10 @@ impl EditorView {
         {
             self.run_with(cx, |command_cx| command_cx.select_range(url.0, url.1))
                 .ok();
-            self.drag = Drag::Select {
+            self.set_drag(Drag::Select {
                 bgn: url,
                 words: false,
-            };
+            });
         }
     }
 
@@ -575,7 +575,7 @@ impl EditorView {
         self.key_help_pointer_moved(event.position, event.pressed_button.is_some(), window, cx);
         self.cursor_changed(window, cx);
         if event.pressed_button != Some(MouseButton::Left) {
-            self.drag = Drag::None;
+            self.set_drag(Drag::None);
             self.drop_caret = None;
             return;
         }
@@ -628,7 +628,7 @@ impl EditorView {
                 let dx = f32::from(event.position.x - down.x);
                 let dy = f32::from(event.position.y - down.y);
                 if dx.abs().max(dy.abs()) > DRAG_START_DISTANCE {
-                    self.drag = Drag::Drop;
+                    self.set_drag(Drag::Drop);
                     self.start_drag_scroll(window, cx);
                     self.move_drop_caret(event.position, cx);
                 }
@@ -653,7 +653,7 @@ impl EditorView {
                     // that bar, which the bar of the document does not use.
                     match self.scan_scrollbar(&self.metrics, cx) {
                         Some(bar) => self.drag_scan_thumb(&bar, start_scroll + dy, cx),
-                        None => self.drag = Drag::None,
+                        None => self.set_drag(Drag::None),
                     }
                     return;
                 }
@@ -711,9 +711,8 @@ impl EditorView {
         }
         self.drop_caret = None;
         self.end_scroll_repeat();
-        self.end_drag_scroll();
         if self.drag != Drag::None {
-            self.drag = Drag::None;
+            self.set_drag(Drag::None);
             cx.notify();
         }
         // The shape of the drag (or of the selecting) gives way to the shape of the place.
@@ -731,9 +730,8 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         if matches!(self.drag, Drag::Drop | Drag::Press { .. }) {
-            self.drag = Drag::None;
+            self.set_drag(Drag::None);
             self.drop_caret = None;
-            self.end_drag_scroll();
             cx.notify();
             return;
         }

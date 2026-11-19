@@ -903,12 +903,13 @@ fn move_to(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, m: Modifie
     cx.simulate_mouse_move(at, None, m);
 }
 
-/// The shape the view gives now: it is derived from the state of the view and the window.
+/// The shape the view shows: what the last event or render left in its memo.
 fn style(f: &Fixture, cx: &mut VisualTestContext) -> gpui::CursorStyle {
-    cx.update(|window, app| {
-        f.view
-            .read(app)
-            .cursor_style_at(window.mouse_position(), window.modifiers(), app)
+    cx.run_until_parked();
+    f.view.read_with(cx, |v, _| {
+        v.cursor_memo
+            .as_ref()
+            .map_or(gpui::CursorStyle::IBeam, |memo| memo.style)
     })
 }
 
@@ -1173,4 +1174,35 @@ fn a_still_drag_of_text_away_from_the_edges_redraws_nothing(cx: &mut TestAppCont
     }
     assert_eq!(count.get(), 0, "the task redrew a drag that rests");
     up(cx, middle, Modifiers::default());
+}
+
+#[gpui::test]
+fn the_hand_does_not_show_below_the_last_row(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = with_url_color(cx, "see https://example.com/a now");
+    let on_url = point_of(&f, cx, 0, 10);
+    move_to(cx, on_url, Modifiers::default());
+    assert_eq!(style(&f, cx), gpui::CursorStyle::PointingHand);
+    // the rows below the text clamp to the last row in the hit test, but there is no text
+    let below = point_of(&f, cx, 3, 10);
+    move_to(cx, below, Modifiers::default());
+    assert_eq!(style(&f, cx), gpui::CursorStyle::IBeam);
+}
+
+#[gpui::test]
+fn every_end_of_a_drag_of_text_drops_the_scrolling_task(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdef ghi");
+    select(&f, cx, Pos::new(0, 0), Pos::new(0, 3));
+    down_at(&f, cx, 0, 1, 1, Modifiers::default());
+    drag_at(&f, cx, 0, 8, Modifiers::default());
+    f.view
+        .read_with(cx, |v, _| assert!(v.drag_scroll_task.is_some()));
+    // the button is not down any more at the next move (a release that was lost)
+    let at = point_of(&f, cx, 0, 8);
+    cx.simulate_mouse_move(at, None, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.drag, super::Drag::None);
+        assert!(v.drag_scroll_task.is_none());
+    });
 }

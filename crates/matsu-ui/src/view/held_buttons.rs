@@ -118,7 +118,7 @@ impl EditorView {
     /// capture, `WM_CAPTURECHANGED`).
     pub(crate) fn cancel_scroll_press(&mut self) {
         if self.drag == super::Drag::Repeat {
-            self.drag = super::Drag::None;
+            self.set_drag(super::Drag::None);
         }
         self.end_scroll_repeat();
     }

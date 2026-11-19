@@ -98,7 +98,7 @@ impl EditorView {
         self.scroll_y = status.top_row * self.metrics.line_height;
         self.scroll_past_end = status.scroll_past_end;
         self.marked = None;
-        self.drag = super::Drag::None;
+        self.set_drag(super::Drag::None);
         self.clamp_scroll();
     }
 
@@ -184,7 +184,7 @@ impl EditorView {
         let Some(host) = self.split_host.clone() else {
             return;
         };
-        self.drag = super::Drag::None;
+        self.set_drag(super::Drag::None);
         let split = match kind {
             BoxKind::Vertical => crate::panes::SplitKind::Vertical,
             BoxKind::Horizontal => crate::panes::SplitKind::Horizontal,

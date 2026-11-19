@@ -58,6 +58,29 @@ pub(crate) fn edge_col_step(x: f32, width: f32, cell: f32) -> i32 {
     }
 }
 
+/// What the shape of the pointer depends on. The memo holds while all of these are equal: the
+/// pointer and the modifiers (the hit test and Ctrl), the drag state, the scroll offsets, the
+/// version of the document and the cursor (what is under the pointer), the places of the parts of
+/// the view, and the drag settings. Settings of the type (the URL colors) are not in it: they
+/// change only through the dialogs, and the next move of the pointer is the next look.
+#[derive(Clone, PartialEq)]
+pub(crate) struct CursorKey {
+    pointer: gpui::Point<gpui::Pixels>,
+    modifiers: Modifiers,
+    drag: Drag,
+    scroll: (f32, f32),
+    version: u64,
+    cursor: matsu_core::cursor::Cursor,
+    paint: Option<(f32, f32, f32)>,
+    drag_drop: (bool, bool),
+}
+
+/// The shape for a [`CursorKey`].
+pub(crate) struct CursorMemo {
+    key: CursorKey,
+    pub(crate) style: CursorStyle,
+}
+
 impl EditorView {
     /// The pointer for the point of the window, by what is there (`OnMOUSEMOVE`).
     pub(crate) fn cursor_style_at(
@@ -93,6 +116,12 @@ impl EditorView {
         if options.drag_drop && options.drop_source && self.point_is_selected(p, cx) {
             return CursorStyle::Arrow;
         }
+        // Below the last row the hit test clamps to the last row, but there is no text there
+        // (as in `point_is_selected`).
+        let row = ((y - paint.origin_y + self.scroll_y) / self.metrics.line_height).floor();
+        if row < 0.0 || row as usize >= self.layout.row_count() {
+            return CursorStyle::IBeam;
+        }
         if self
             .position_for_point(p, cx)
             .is_some_and(|pos| self.url_range_at(pos, cx).is_some())
@@ -102,22 +131,60 @@ impl EditorView {
         CursorStyle::IBeam
     }
 
-    /// The pointer or a modifier key changed, or the drag did: redraws if the shape that the
-    /// render would now give differs from the one it gave last. The shape itself is never kept
-    /// as the truth: [`render`](gpui::Render) derives it from the drag state, the pointer of the
-    /// window and the modifiers the window holds.
+    /// The shape for the pointer `p` and the modifiers `m`, from the memo when nothing it depends
+    /// on has changed since it was made (the search for a URL under the pointer is not cheap, and
+    /// render asks on every repaint).
+    pub(crate) fn current_cursor(
+        &mut self,
+        p: gpui::Point<gpui::Pixels>,
+        m: Modifiers,
+        cx: &gpui::App,
+    ) -> CursorStyle {
+        let options = matsu_commands::edit_options::get();
+        let key = CursorKey {
+            pointer: p,
+            modifiers: m,
+            drag: self.drag,
+            scroll: (self.scroll_x, self.scroll_y),
+            version: self.document.read(cx).version(),
+            cursor: self.cursor.clone(),
+            paint: self
+                .paint
+                .map(|paint| (paint.origin_x, paint.origin_y, paint.scrollbar_left)),
+            drag_drop: (options.drag_drop, options.drop_source),
+        };
+        if let Some(memo) = &self.cursor_memo
+            && memo.key == key
+        {
+            return memo.style;
+        }
+        let style = self.cursor_style_at(p, m, cx);
+        self.cursor_memo = Some(CursorMemo { key, style });
+        style
+    }
+
+    /// The pointer or a modifier key changed, or the drag did: redraws if the shape now differs
+    /// from the one the last render used.
     pub(crate) fn cursor_changed(&mut self, window: &gpui::Window, cx: &mut Context<Self>) {
-        let now = self.cursor_style_at(window.mouse_position(), window.modifiers(), cx);
-        if now != self.shown_cursor {
+        let before = self.cursor_memo.as_ref().map(|memo| memo.style);
+        let now = self.current_cursor(window.mouse_position(), window.modifiers(), cx);
+        if before != Some(now) {
             cx.notify();
         }
     }
 
+    /// The only place that changes what the mouse is doing. The task that scrolls a drag of text
+    /// at the edge lives as long as the drag is [`Drag::Drop`]: any other state drops it.
+    pub(crate) fn set_drag(&mut self, drag: Drag) {
+        if drag != Drag::Drop {
+            self.drag_scroll_task = None;
+        }
+        self.drag = drag;
+    }
+
     /// Starts the task that goes on scrolling while the pointer stays at the edge of the view
     /// during a drag of the selected text (the pointer sends nothing then). The view owns the
-    /// task; it ends with the drag, and dropping it (a new drag, [`end_drag_scroll`]) stops it.
-    ///
-    /// [`end_drag_scroll`]: Self::end_drag_scroll
+    /// task; it ends with the drag (`set_drag` drops it).
     pub(crate) fn start_drag_scroll(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         self.drag_scroll_task = Some(cx.spawn_in(window, async move |this, cx| {
             let mut wait = SCROLL_UP_INTERVAL;
@@ -141,11 +208,6 @@ impl EditorView {
                 }
             }
         }));
-    }
-
-    /// The drag of the selected text is over: the scrolling task and its wait end.
-    pub(crate) fn end_drag_scroll(&mut self) {
-        self.drag_scroll_task = None;
     }
 
     /// The pointer of a drag of the selected text is near the edge of the view: scrolls it by a
@@ -214,9 +276,8 @@ impl EditorView {
         if !matches!(self.drag, Drag::Drop | Drag::Press { .. }) {
             return false;
         }
-        self.drag = Drag::None;
+        self.set_drag(Drag::None);
         self.drop_caret = None;
-        self.end_drag_scroll();
         cx.notify();
         true
     }

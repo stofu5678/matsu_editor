@@ -245,10 +245,10 @@ impl EditorView {
         if part == BarPart::Thumb {
             // A disabled bar has no thumb to take.
             if bar.enabled() {
-                self.drag = Drag::HThumb {
+                self.set_drag(Drag::HThumb {
                     start_x: window_x,
                     start_col: bar.pos,
-                };
+                });
             }
         } else if matches!(part, BarPart::PageBack | BarPart::PageForward) && !bar.enabled() {
             // Nothing to scroll.
