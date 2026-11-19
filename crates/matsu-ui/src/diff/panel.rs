@@ -323,18 +323,19 @@ impl Render for DiffPanel {
         let rows: Vec<Candidate> = candidates(cx, self.owner);
         let list = rows.iter().enumerate().map(|(i, row)| {
             let doc = row.doc;
-            let mut item = div()
-                .id(("diff-window", i))
-                .px_2()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .child(row.label.clone())
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.select_window(doc, cx);
-                }));
-            if !self.use_file && self.selected == Some(doc) {
+            let selected = !self.use_file && self.selected == Some(doc);
+            let mut item =
+                crate::a11y::list_row(div().id(("diff-window", i)), &row.label, selected)
+                    .px_2()
+                    .h(px(22.))
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .child(row.label.clone())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.select_window(doc, cx);
+                    }));
+            if selected {
                 item = item.bg(rgb(0x2f6fd0)).text_color(rgb(0xffffff));
             }
             item
@@ -379,8 +380,7 @@ impl Render for DiffPanel {
                     })),
             )
             .child(
-                div()
-                    .id("diff-windows")
+                crate::a11y::list_box(div().id("diff-windows"), "他の編集中のファイル")
                     .min_h(px(66.))
                     .max_h(px(140.))
                     .overflow_y_scroll()
@@ -484,8 +484,7 @@ impl Render for DiffPanel {
                     .labelled(labels::HELP)
                     .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
             );
-        div()
-            .id("diff-panel")
+        crate::a11y::dialog(div().id("diff-panel"), "DIFF差分表示")
             .track_focus(&self.scope)
             .keep_tab_inside(&self.scope)
             // F1: the page of the dialog

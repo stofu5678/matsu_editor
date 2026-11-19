@@ -331,8 +331,7 @@ impl Render for TagsMakeDialog {
                     )
                     .into_any_element(),
             };
-        let panel = v_flex()
-            .id("tags-make")
+        let panel = crate::a11y::dialog(v_flex().id("tags-make"), "タグファイルの作成")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .keep_tab_inside(&self.focus)

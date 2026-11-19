@@ -114,6 +114,12 @@ pub(crate) fn text(element: Stateful<Div>, text: &str) -> Stateful<Div> {
         .aria_value(text.to_owned())
 }
 
+/// A hand-drawn list box (a table of one column, a drop-down list) named `name`. Without a role
+/// the rows are in the tree with no container, and a screen reader cannot say what they belong to.
+pub(crate) fn list_box(element: Stateful<Div>, name: &str) -> Stateful<Div> {
+    element.role(Role::ListBox).aria_label(name.to_owned())
+}
+
 /// A row of a hand-drawn list box: an option named `name`, `selected` when it is the chosen one.
 pub(crate) fn list_row(element: Stateful<Div>, name: &str, selected: bool) -> Stateful<Div> {
     element
@@ -458,6 +464,20 @@ mod tests {
         assert_eq!(key_hint(""), None);
         assert_eq!(without_key_hint("開く(O)..."), "開く...");
         assert_eq!(without_key_hint("(なし)"), "(なし)");
+    }
+
+    #[test]
+    fn a_hand_drawn_list_is_a_named_list_box_of_options() {
+        let list = node_of(&list_box(gpui::div().id("history"), "履歴")).unwrap();
+        assert_eq!((list.role(), list.label()), (Role::ListBox, Some("履歴")));
+        let chosen = node_of(&list_row(gpui::div().id("row"), "abc", true)).unwrap();
+        assert_eq!(chosen.role(), Role::ListBoxOption);
+        assert_eq!(chosen.label(), Some("abc"));
+        assert_eq!(chosen.is_selected(), Some(true));
+        let other = node_of(&list_row(gpui::div().id("row2"), "def", false)).unwrap();
+        assert_eq!(other.is_selected(), Some(false));
+        let panel = node_of(&dialog(gpui::div().id("panel"), "検索")).unwrap();
+        assert_eq!((panel.role(), panel.label()), (Role::Dialog, Some("検索")));
     }
 
     #[test]

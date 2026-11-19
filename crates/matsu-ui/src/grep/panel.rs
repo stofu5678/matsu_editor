@@ -757,8 +757,7 @@ impl GrepPanel {
             });
             let entries = texts.into_iter().enumerate().map(|(i, text)| {
                 let picked = text.clone();
-                div()
-                    .id((id, i))
+                crate::a11y::list_row(div().id((id, i)), &text, i == open.highlight)
                     .px_2()
                     .truncate()
                     .when(i == open.highlight, |d| d.bg(rgb(0xcce4f7)))
@@ -769,8 +768,7 @@ impl GrepPanel {
                     }))
             });
             column = column.child(
-                div()
-                    .id(id)
+                crate::a11y::list_box(div().id(id), toggle_name)
                     .max_h(px(150.))
                     .overflow_y_scroll()
                     .track_scroll(&self.list_scroll)
@@ -1290,6 +1288,11 @@ impl Render for GrepPanel {
                     .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
             );
         let help_function = self.help_function();
+        let title = if self.replace_mode {
+            "Grep置換"
+        } else {
+            "Grep"
+        };
         // The panel is as tall as its rows, up to the height of the area between its margins; a
         // taller one scrolls. The wrapper has that definite height (top and bottom), the frame
         // limits itself to it, and the scroll bar is a sibling of the scrolling body, not its
@@ -1304,8 +1307,7 @@ impl Render for GrepPanel {
             .flex()
             .flex_col()
             .child(
-                div()
-                    .id("grep-panel")
+                crate::a11y::dialog(div().id("grep-panel"), title)
                     .track_focus(&self.scope)
                     .keep_tab_inside(&self.scope)
                     // Alt+letter works from the boxes too, and does not type the letter
