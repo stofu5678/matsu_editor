@@ -21,6 +21,7 @@ mod bracket_marks;
 mod caret_shape;
 mod colors;
 mod diff_mark;
+mod drag_cursor;
 mod element;
 pub(crate) mod font_widths;
 mod held_buttons;
@@ -47,9 +48,9 @@ pub(crate) mod vscroll;
 use std::ops::Range;
 
 use gpui::{
-    App, Context, CursorStyle, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window, actions, div, px,
+    App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window, actions, div, px,
 };
 use matsu_commands::command::{Arg, Registration};
 use matsu_commands::context::{Changes, CommandContext, TextEdits};
@@ -243,6 +244,11 @@ pub struct EditorView {
     /// Where a drag of the selected text would drop it: the caret is drawn there meanwhile
     /// (Sakura moves the caret with the pointer, `OnMOUSEMOVE` while `m_bDragMode`).
     pub(crate) drop_caret: Option<Pos>,
+    /// The shape of the pointer with what it was made from (`drag_cursor.rs`); render reuses it
+    /// while the inputs are the same (see `CursorKey`).
+    pub(crate) cursor_memo: Option<drag_cursor::CursorMemo>,
+    /// The task that scrolls while a drag of text rests at the edge (`drag_cursor.rs`).
+    pub(crate) drag_scroll_task: Option<gpui::Task<()>>,
     /// Which click of a series the last press was: 1 to 4 (single, double, triple, quadruple).
     /// Sakura keeps it as `m_dwTripleClickCheck` (`mouse.rs`).
     pub(crate) click_phase: u8,
@@ -382,6 +388,8 @@ impl EditorView {
             composing_over_selection: false,
             drag: Drag::None,
             drop_caret: None,
+            cursor_memo: None,
+            drag_scroll_task: None,
             click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
@@ -1084,6 +1092,11 @@ impl EditorView {
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.autoscroll_key_pressed(&event.keystroke);
         self.key_help_restart(window, cx);
+        // Esc ends a drag of the selected text: nothing is dropped (`drag_cursor.rs`).
+        if event.keystroke.key == "escape" && self.cancel_drag(cx) {
+            cx.stop_propagation();
+            return;
+        }
         // Esc stops a save that runs on another thread (`file_ops::save_job`).
         if event.keystroke.key == "escape" && {
             let shared = self.document.read(cx);
@@ -1247,6 +1260,8 @@ impl Render for EditorView {
         }
         let a11y_text = self.a11y_text.clone();
         let text_font = self.text_font(cx);
+        // The pointer shape from the drag, the pointer and the modifiers of the window now.
+        let cursor = self.current_cursor(window.mouse_position(), window.modifiers(), cx);
         let mut editor = text_font
             .apply(crate::a11y::focusable_editor(
                 div().id("editor"),
@@ -1257,7 +1272,11 @@ impl Render for EditorView {
             .size_full()
             .overflow_hidden()
             .key_context("Editor")
-            .cursor(CursorStyle::IBeam)
+            .cursor(cursor)
+            // Ctrl pressed or released with the mouse still changes the shape of a drag.
+            .on_modifiers_changed(cx.listener(|this, _, window, cx| {
+                this.cursor_changed(window, cx);
+            }))
             // `lfWeight` and `lfItalic` of the font (`ViewSettings`)
             .font_weight(gpui::FontWeight(self.prefs.settings.gpui_font_weight()))
             .text_size(px(self.font_size))

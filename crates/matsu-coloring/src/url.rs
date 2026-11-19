@@ -141,25 +141,41 @@ pub fn url_len(b: &[u8], before: Option<u8>) -> usize {
 /// before `col`, as Sakura's does, and a URL has to start at a keyword head, as the coloring's
 /// does.
 pub fn url_at(line: &str, col: usize) -> Option<std::ops::Range<usize>> {
+    url_at_with(line, col, true, |_| None)
+}
+
+/// [`url_at`] with the two sources of `IsCurrentPositionURL` told apart: `plain` is whether URLs
+/// are shown in their color (`bDispUrl`), and `keyword_len(i)` is the length of a regular
+/// expression keyword of the color URL that matches at the byte `i` (`RegexIsKeyword` with
+/// `COLORIDX_URL`), tried first at every position. Positions are asked in increasing order.
+pub(crate) fn url_at_with(
+    line: &str,
+    col: usize,
+    plain: bool,
+    mut keyword_len: impl FnMut(usize) -> Option<usize>,
+) -> Option<std::ops::Range<usize>> {
     const MAX_PATH: usize = 260;
     let bytes = line.as_bytes();
     let mut i = col.saturating_sub(MAX_PATH);
     while i <= col && i < bytes.len() {
         if line.is_char_boundary(i) {
-            let head = line[..i]
-                .chars()
-                .next_back()
-                .is_none_or(|c| !crate::charkind::is_keyword_char(c));
-            if head {
-                let before = i.checked_sub(1).map(|b| bytes[b]);
-                let n = url_len(&bytes[i..], before);
-                if n > 0 {
-                    if col < i + n {
-                        return Some(i..i + n);
-                    }
-                    i += n;
-                    continue;
+            let mut n = keyword_len(i).unwrap_or(0);
+            if n == 0 && plain {
+                let head = line[..i]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|c| !crate::charkind::is_keyword_char(c));
+                if head {
+                    let before = i.checked_sub(1).map(|b| bytes[b]);
+                    n = url_len(&bytes[i..], before);
                 }
+            }
+            if n > 0 {
+                if col < i + n {
+                    return Some(i..i + n);
+                }
+                i += n;
+                continue;
             }
         }
         i += 1;

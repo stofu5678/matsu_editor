@@ -63,7 +63,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         let id = self.scroll_repeat.map_or(0, |r| r.id) + 1;
-        self.drag = Drag::Repeat;
+        self.set_drag(Drag::Repeat);
         self.scroll_repeat = Some(ScrollRepeat {
             axis,
             part,

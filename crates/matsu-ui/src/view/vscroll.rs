@@ -49,7 +49,7 @@ impl EditorView {
         let part = bar.part_at(&self.metrics, pos);
         if part == BarPart::Thumb {
             let rows = self.layout.row_count();
-            self.drag = Drag::Thumb {
+            self.set_drag(Drag::Thumb {
                 start_y: window_y,
                 // (for the bar of a scan: where the thumb was)
                 start_scroll: if scan {
@@ -57,7 +57,7 @@ impl EditorView {
                 } else {
                     clamp_scroll_y(&self.metrics, rows, self.scroll_y)
                 },
-            };
+            });
         } else {
             self.v_scroll_step(part, cx);
             self.start_scroll_repeat(Axis::Vertical, part, pos, window, cx);
