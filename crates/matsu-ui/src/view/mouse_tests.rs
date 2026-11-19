@@ -903,8 +903,13 @@ fn move_to(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, m: Modifie
     cx.simulate_mouse_move(at, None, m);
 }
 
+/// The shape the view gives now: it is derived from the state of the view and the window.
 fn style(f: &Fixture, cx: &mut VisualTestContext) -> gpui::CursorStyle {
-    f.view.read_with(cx, |v, _| v.cursor_style)
+    cx.update(|window, app| {
+        f.view
+            .read(app)
+            .cursor_style_at(window.mouse_position(), window.modifiers(), app)
+    })
 }
 
 #[gpui::test]
@@ -913,7 +918,6 @@ fn the_pointer_is_the_i_beam_in_the_text_the_arrow_in_the_numbers_and_the_hand_o
 ) {
     let _o = options();
     let (f, cx) = with_url_color(cx, "see https://example.com/a now\nline two");
-    assert_eq!(style(&f, cx), gpui::CursorStyle::IBeam);
     // `OnMOUSEMOVE`: the hand over a URL
     let on_url = point_of(&f, cx, 0, 10);
     move_to(cx, on_url, Modifiers::default());
@@ -1018,13 +1022,104 @@ fn a_drag_of_text_near_the_bottom_scrolls_the_view(cx: &mut TestAppContext) {
     // the pointer in the last row of the view
     let last = point_of(&f, cx, visible - 1, 2);
     drag_to(cx, last, Modifiers::default());
+    for _ in 0..3 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+    }
     let scrolled = f.view.read_with(cx, |v, _| v.scroll_y);
     assert!(scrolled > 0.0, "the view scrolled down");
-    // above the view it scrolls back (after the wait between two scrolls)
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // above the view it scrolls back
     let above = point(last.x, px(0.0));
     drag_to(cx, above, Modifiers::default());
+    for _ in 0..3 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+    }
     let back = f.view.read_with(cx, |v, _| v.scroll_y);
     assert!(back < scrolled, "{back} < {scrolled}");
     up(cx, above, Modifiers::default());
+}
+
+#[gpui::test]
+fn ctrl_pressed_or_released_with_the_mouse_still_changes_the_shape_of_a_drag(
+    cx: &mut TestAppContext,
+) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdef ghi");
+    select(&f, cx, Pos::new(0, 0), Pos::new(0, 3));
+    down_at(&f, cx, 0, 1, 1, Modifiers::default());
+    drag_at(&f, cx, 0, 8, Modifiers::default());
+    drag_at(&f, cx, 0, 9, Modifiers::default());
+    assert_eq!(style(&f, cx), gpui::CursorStyle::Arrow);
+    cx.simulate_modifiers_change(ctrl());
+    assert_eq!(style(&f, cx), gpui::CursorStyle::DragCopy);
+    cx.simulate_modifiers_change(Modifiers::default());
+    assert_eq!(style(&f, cx), gpui::CursorStyle::Arrow);
+    // Esc with Ctrl held and the pointer still: the drag is over, the copy mark goes
+    cx.simulate_modifiers_change(ctrl());
+    assert_eq!(style(&f, cx), gpui::CursorStyle::DragCopy);
+    cx.simulate_keystrokes("escape");
+    assert_ne!(style(&f, cx), gpui::CursorStyle::DragCopy);
+}
+
+#[gpui::test]
+fn a_drag_of_text_resting_at_the_edge_goes_on_scrolling(cx: &mut TestAppContext) {
+    let _o = options();
+    let text = (0..200)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (f, cx) = setup(cx, &text);
+    select(&f, cx, Pos::new(0, 0), Pos::new(0, 4));
+    down_at(&f, cx, 0, 1, 1, Modifiers::default());
+    let visible = f.view.read_with(cx, |v, _| v.metrics.visible_rows());
+    let last = point_of(&f, cx, visible - 1, 2);
+    drag_to(cx, last, Modifiers::default());
+    drag_to(cx, last, Modifiers::default());
+    let first = f.view.read_with(cx, |v, _| v.scroll_y);
+    // the pointer does not move: the task scrolls by itself
+    for _ in 0..10 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+    }
+    let later = f.view.read_with(cx, |v, _| v.scroll_y);
+    assert!(
+        later >= first + 3.0 * f.view.read_with(cx, |v, _| v.metrics.line_height),
+        "{first} -> {later}"
+    );
+    // the drop caret follows the scroll
+    f.view.read_with(cx, |v, _| {
+        assert!(v.drop_caret.is_some_and(|p| p.line > visible))
+    });
+    // the release ends the task: no more scrolling
+    up(cx, last, Modifiers::default());
+    let at_release = f.view.read_with(cx, |v, _| v.scroll_y);
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(500));
+    cx.run_until_parked();
+    assert_eq!(f.view.read_with(cx, |v, _| v.scroll_y), at_release);
+    f.view
+        .read_with(cx, |v, _| assert!(v.drag_scroll_task.is_none()));
+}
+
+#[gpui::test]
+fn alt_and_the_line_numbers_start_the_box_at_the_left_edge_when_scrolled_sideways(
+    cx: &mut TestAppContext,
+) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nabcdefghijklmnop\nabc");
+    f.view
+        .update(cx, |v, _| v.scroll_x = 3.0 * v.metrics.cell_width);
+    cx.run_until_parked();
+    down_g(&f, cx, 0, 1, alt());
+    f.view.read_with(cx, |v, _| {
+        assert!(v.cursor.is_box());
+        assert_eq!(v.cursor.box_anchor_col(), Some(0));
+        assert_eq!(v.cursor.box_caret_col(), Some(0));
+        assert_eq!(v.cursor.caret(), Pos::new(1, 0));
+    });
+    up_g(&f, cx, 0, alt());
 }

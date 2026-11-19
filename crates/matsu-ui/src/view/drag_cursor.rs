@@ -19,9 +19,9 @@
 //! the arrow otherwise. The cursors of the incremental search (`IDC_CURSOR_ISEARCH_F` and `_B`)
 //! are pictures as well: the I-beam stays.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use gpui::{Context, CursorStyle, Modifiers, MouseMoveEvent};
+use gpui::{Context, CursorStyle, Modifiers};
 
 use super::{Drag, EditorView};
 
@@ -102,20 +102,55 @@ impl EditorView {
         CursorStyle::IBeam
     }
 
-    /// The pointer moved: sets the shape it has, and redraws when that changed.
-    pub(crate) fn update_cursor_style(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        let style = self.cursor_style_at(event.position, event.modifiers, cx);
-        if style != self.cursor_style {
-            self.cursor_style = style;
+    /// The pointer or a modifier key changed, or the drag did: redraws if the shape that the
+    /// render would now give differs from the one it gave last. The shape itself is never kept
+    /// as the truth: [`render`](gpui::Render) derives it from the drag state, the pointer of the
+    /// window and the modifiers the window holds.
+    pub(crate) fn cursor_changed(&mut self, window: &gpui::Window, cx: &mut Context<Self>) {
+        let now = self.cursor_style_at(window.mouse_position(), window.modifiers(), cx);
+        if now != self.shown_cursor {
             cx.notify();
         }
     }
 
+    /// Starts the task that goes on scrolling while the pointer stays at the edge of the view
+    /// during a drag of the selected text (the pointer sends nothing then). The view owns the
+    /// task; it ends with the drag, and dropping it (a new drag, [`end_drag_scroll`]) stops it.
+    ///
+    /// [`end_drag_scroll`]: Self::end_drag_scroll
+    pub(crate) fn start_drag_scroll(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        self.drag_scroll_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let mut wait = SCROLL_UP_INTERVAL;
+            loop {
+                cx.background_executor().timer(wait).await;
+                let next = this.update_in(cx, |view, window, cx| {
+                    if view.drag != Drag::Drop {
+                        return None;
+                    }
+                    let p = window.mouse_position();
+                    let wait = view.drag_scroll(p, cx);
+                    view.move_drop_caret(p, cx);
+                    Some(wait)
+                });
+                match next {
+                    Ok(Some(next)) => wait = next,
+                    _ => break,
+                }
+            }
+        }));
+    }
+
+    /// The drag of the selected text is over: the scrolling task and its wait end.
+    pub(crate) fn end_drag_scroll(&mut self) {
+        self.drag_scroll_task = None;
+    }
+
     /// The pointer of a drag of the selected text is near the edge of the view: scrolls it by a
-    /// row (and a column) if the wait since the last scroll is over.
-    pub(crate) fn drag_scroll(&mut self, p: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+    /// row (and a column). Returns how long to wait before the next step (Sakura's `dwPerTiming`:
+    /// shorter when the view goes toward the top).
+    fn drag_scroll(&mut self, p: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) -> Duration {
         let Some(paint) = self.paint else {
-            return;
+            return SCROLL_INTERVAL;
         };
         let row = (f32::from(p.y) - paint.origin_y) / self.metrics.line_height;
         let rows = edge_row_step(row, self.metrics.visible_rows());
@@ -130,21 +165,8 @@ impl EditorView {
         let can_left = cols < 0 && self.scroll_x > 0.0;
         let can_right = cols > 0;
         if !(can_up || can_down || can_left || can_right) {
-            return;
+            return SCROLL_UP_INTERVAL;
         }
-        let wait = if can_up {
-            SCROLL_UP_INTERVAL
-        } else {
-            SCROLL_INTERVAL
-        };
-        let now = Instant::now();
-        if self
-            .drag_scroll_at
-            .is_some_and(|last| now.duration_since(last) < wait)
-        {
-            return;
-        }
-        self.drag_scroll_at = Some(now);
         let dy = if can_up || can_down {
             -rows as f32 * self.metrics.line_height
         } else {
@@ -159,6 +181,11 @@ impl EditorView {
         self.scroll_by(dx, dy);
         if (self.scroll_x, self.scroll_y) != (before_x, before_y) {
             cx.notify();
+        }
+        if can_up {
+            SCROLL_UP_INTERVAL
+        } else {
+            SCROLL_INTERVAL
         }
     }
 
@@ -180,7 +207,7 @@ impl EditorView {
         }
         self.drag = Drag::None;
         self.drop_caret = None;
-        self.drag_scroll_at = None;
+        self.end_drag_scroll();
         cx.notify();
         true
     }

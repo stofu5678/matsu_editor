@@ -389,7 +389,15 @@ impl EditorView {
         }
         // Alt: a box selection. In the gutter it starts at the left edge of the row.
         if m.alt {
-            self.run_with(cx, |command_cx| command_cx.mouse_begin_box(pos))
+            // In the gutter the box starts at the left edge of the row, however far the view is
+            // scrolled sideways (`GetDocumentLeftClientPointX`).
+            let begin = if in_gutter {
+                self.box_corner_for_point(event.position, cx)
+                    .map_or(pos, |(start, _)| start)
+            } else {
+                pos
+            };
+            self.run_with(cx, |command_cx| command_cx.mouse_begin_box(begin))
                 .ok();
             self.drag = Drag::Box;
             if in_gutter {
@@ -551,7 +559,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         self.key_help_pointer_moved(event.position, event.pressed_button.is_some(), window, cx);
-        self.update_cursor_style(event, cx);
+        self.cursor_changed(window, cx);
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = Drag::None;
             self.drop_caret = None;
@@ -607,6 +615,7 @@ impl EditorView {
                 let dy = f32::from(event.position.y - down.y);
                 if dx.abs().max(dy.abs()) > DRAG_START_DISTANCE {
                     self.drag = Drag::Drop;
+                    self.start_drag_scroll(window, cx);
                     self.move_drop_caret(event.position, cx);
                 }
             }
@@ -644,9 +653,7 @@ impl EditorView {
     }
 
     /// The pointer moves while the selected text is dragged: the drop caret follows it.
-    fn move_drop_caret(&mut self, p: Point<Pixels>, cx: &mut Context<Self>) {
-        // Near the edge of the view the text scrolls under the drag.
-        self.drag_scroll(p, cx);
+    pub(crate) fn move_drop_caret(&mut self, p: Point<Pixels>, cx: &mut Context<Self>) {
         if let Some(pos) = self.position_for_point(p, cx) {
             self.drop_caret = Some(pos);
             cx.notify();
@@ -688,12 +695,13 @@ impl EditorView {
         }
         self.drop_caret = None;
         self.end_scroll_repeat();
+        self.end_drag_scroll();
         if self.drag != Drag::None {
             self.drag = Drag::None;
             cx.notify();
         }
         // The shape of the drag (or of the selecting) gives way to the shape of the place.
-        self.cursor_style = self.cursor_style_at(event.position, event.modifiers, cx);
+        self.cursor_changed(window, cx);
     }
 
     /// The left button is released outside the view. Dragged text that is let go there has no
@@ -709,6 +717,7 @@ impl EditorView {
         if matches!(self.drag, Drag::Drop | Drag::Press { .. }) {
             self.drag = Drag::None;
             self.drop_caret = None;
+            self.end_drag_scroll();
             cx.notify();
             return;
         }
