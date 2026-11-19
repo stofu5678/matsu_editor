@@ -67,8 +67,12 @@
 //! * the digits in the name of the program give the encoding (`ParseKanjiCodeFromFileName`,
 //!   [`code_from_program_name`]): `-CODE=` after it wins.
 //!
-//! Not done: the box for a path that is too long (`STR_ERR_FILEPATH_TOO_LONG`, longer than
-//! `_MAX_PATH`): the open fails with its own message.
+//! Not done: the box for a path that is too long (`STR_ERR_FILEPATH_TOO_LONG`, which Sakura shows
+//! when `wcsncpy_s(.., _TRUNCATE)` cuts the name at `_MAX_PATH`): MATSU Editor's paths have no such
+//! limit, so there is no case to show it for (type B of ADR-0018).
+//!
+//! The options that are read and dropped (`-NOWIN`, `-GROUP=`, `-DEBUGMODE`, `-PROFMGR`) and why
+//! are in `docs/help/ja/specs-regex/command-line.md` and `docs/sakura-gaps.md`.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
