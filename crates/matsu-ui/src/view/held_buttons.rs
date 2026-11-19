@@ -116,10 +116,14 @@ impl EditorView {
     /// The window lost the activation while an arrow or the track of a scroll bar was held: the
     /// release does not arrive, so the press ends (the system bar ends it when it loses the
     /// capture, `WM_CAPTURECHANGED`).
-    pub(crate) fn cancel_scroll_press(&mut self) {
+    ///
+    /// A drag of the selected text ends too (nothing is dropped), and with it the task that
+    /// scrolls it: it would go on scrolling an inactive window with the last pointer position.
+    pub(crate) fn cancel_scroll_press(&mut self, cx: &mut gpui::Context<Self>) {
         if self.drag == super::Drag::Repeat {
             self.set_drag(super::Drag::None);
         }
+        self.cancel_drag(cx);
         self.end_scroll_repeat();
     }
 }

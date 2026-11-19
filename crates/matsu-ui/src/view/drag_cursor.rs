@@ -60,9 +60,11 @@ pub(crate) fn edge_col_step(x: f32, width: f32, cell: f32) -> i32 {
 
 /// What the shape of the pointer depends on. The memo holds while all of these are equal: the
 /// pointer and the modifiers (the hit test and Ctrl), the drag state, the scroll offsets, the
-/// version of the document and the cursor (what is under the pointer), the places of the parts of
-/// the view, and the drag settings. Settings of the type (the URL colors) are not in it: they
-/// change only through the dialogs, and the next move of the pointer is the next look.
+/// version of the document, the caret and the selection (what is under the pointer), the metrics
+/// (font size) and the layout (rows, so wrapping), the places of the parts of the view, the drag
+/// settings, and whether the type finds URLs at all. Staleness that is accepted: the patterns of
+/// a type's URL keywords and the URL colors change only through the dialogs, and with the same
+/// answer to "finds URLs" the pointer shows the old shape until it moves.
 #[derive(Clone, PartialEq)]
 pub(crate) struct CursorKey {
     pointer: gpui::Point<gpui::Pixels>,
@@ -70,7 +72,17 @@ pub(crate) struct CursorKey {
     drag: Drag,
     scroll: (f32, f32),
     version: u64,
-    cursor: matsu_core::cursor::Cursor,
+    /// The caret, the selection and the columns of a box: a small `Copy` summary of the cursor.
+    cursor: (
+        matsu_core::buffer::Pos,
+        Option<(matsu_core::buffer::Pos, matsu_core::buffer::Pos)>,
+        bool,
+        Option<usize>,
+        Option<usize>,
+    ),
+    /// The line height and the width of a column, and the rows of the layout.
+    metrics: (f32, f32, usize),
+    finds_url: bool,
     paint: Option<(f32, f32, f32)>,
     drag_drop: (bool, bool),
 }
@@ -147,7 +159,19 @@ impl EditorView {
             drag: self.drag,
             scroll: (self.scroll_x, self.scroll_y),
             version: self.document.read(cx).version(),
-            cursor: self.cursor.clone(),
+            cursor: (
+                self.cursor.caret(),
+                self.cursor.selection(),
+                self.cursor.is_box(),
+                self.cursor.box_anchor_col(),
+                self.cursor.box_caret_col(),
+            ),
+            metrics: (
+                self.metrics.line_height,
+                self.metrics.cell_width,
+                self.layout.row_count(),
+            ),
+            finds_url: self.prefs.settings.coloring.finds_url(),
             paint: self
                 .paint
                 .map(|paint| (paint.origin_x, paint.origin_y, paint.scrollbar_left)),

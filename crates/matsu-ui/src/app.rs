@@ -683,7 +683,7 @@ impl Workspace {
                 // (`CSplitBoxWnd::OnMouseMove` and `OnLButtonUp` do nothing once the capture is
                 // lost).
                 for (_, pane) in this.panes().numbered() {
-                    pane.update(cx, |view, _| view.cancel_scroll_press());
+                    pane.update(cx, |view, cx| view.cancel_scroll_press(cx));
                 }
                 this.panes_mut().cancel_split_drag();
                 // An Alt let go in another program (Alt+Tab) is not a lone Alt tap here.

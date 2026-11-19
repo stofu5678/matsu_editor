@@ -1206,3 +1206,37 @@ fn every_end_of_a_drag_of_text_drops_the_scrolling_task(cx: &mut TestAppContext)
         assert!(v.drag_scroll_task.is_none());
     });
 }
+
+#[gpui::test]
+fn losing_the_activation_ends_a_drag_of_text_and_its_scrolling(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdef ghi");
+    select(&f, cx, Pos::new(0, 0), Pos::new(0, 3));
+    down_at(&f, cx, 0, 1, 1, Modifiers::default());
+    drag_at(&f, cx, 0, 8, Modifiers::default());
+    f.view
+        .read_with(cx, |v, _| assert!(v.drag_scroll_task.is_some()));
+    // what `app.rs` does to every pane when the window is deactivated
+    f.view.update(cx, |v, cx| v.cancel_scroll_press(cx));
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.drag, super::Drag::None);
+        assert_eq!(v.drop_caret, None);
+        assert!(v.drag_scroll_task.is_none());
+    });
+    assert_eq!(f.lines(cx), ["abcdef ghi"]);
+}
+
+#[gpui::test]
+fn a_change_of_the_metrics_makes_the_shape_again(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = with_url_color(cx, "x\nsee https://example.com/a now");
+    let on_url = point_of(&f, cx, 1, 10);
+    move_to(cx, on_url, Modifiers::default());
+    assert_eq!(style(&f, cx), gpui::CursorStyle::PointingHand);
+    // taller rows put the same point on the first row, which has no URL
+    let now = f.view.update(cx, |v, cx| {
+        v.metrics.line_height *= 4.0;
+        v.current_cursor(on_url, Modifiers::default(), cx)
+    });
+    assert_eq!(now, gpui::CursorStyle::IBeam);
+}
