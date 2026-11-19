@@ -112,6 +112,9 @@ pub struct InputOptions {
     /// (`CConversionFacade` gets `m_cDocType.GetDocumentAttribute().m_encoding`). UTF-8 and off by
     /// default.
     pub detect: DetectOptions,
+    /// `m_nLineNumWidth` (`nLineNumWidth`): the least number of digits of the line numbers of
+    /// `F_COPYLINESWITHLINENUMBER` (and of the line number area). 2 by default (`LINENUMWIDTH_MIN`).
+    pub line_num_width: usize,
 }
 
 /// The defaults, for a context that is given no options (it borrows this one).
@@ -128,6 +131,7 @@ pub static DEFAULT_INPUT_OPTIONS: InputOptions = InputOptions {
         default_encoding: Encoding::Utf8,
         prefer_cesu8: false,
     },
+    line_num_width: 2,
 };
 
 impl Default for InputOptions {

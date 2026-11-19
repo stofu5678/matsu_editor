@@ -607,6 +607,7 @@ impl ViewSettings {
                 cpp_undo_sep: t.indent_cpp_undo_sep,
                 detect: super::new_document::NewDocumentDefaults::for_type(profile, type_index)
                     .detect_options(),
+                line_num_width: usize::try_from(t.line_num_width).unwrap_or(2),
             },
             detect_indentation: t.detect_indentation_on_load,
             word_wrap: t.word_wrap,

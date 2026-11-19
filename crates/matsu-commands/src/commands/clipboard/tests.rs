@@ -1,14 +1,16 @@
 //! Tests of the clipboard commands, on the in-memory clipboard. The expectations come from
 //! `sakura_core/cmd/CViewCommander_Clipboard.cpp` and the functions it calls (see each command).
 
-use matsu_core::buffer::Document;
+use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
 use matsu_core::model::DocumentModel;
 
-use crate::clipboard::{ClipData, ClipKind};
+use crate::clipboard::{ClipData, ClipKind, MemoryClipboard};
 use crate::command::{Arg, CommandError};
 use crate::context::CommandContext;
-use crate::layout::PlainLayout;
+use crate::context::TextChange;
+use crate::input_options::InputOptions;
+use crate::layout::{Layout, PlainLayout, X};
 use crate::registry::Registry;
 use crate::testing::Editor;
 
@@ -220,7 +222,7 @@ fn copy_lines_as_passage_quotes_each_row_and_ends_the_last_one() {
 fn copy_lines_with_line_number_numbers_the_lines() {
     let mut e = Editor::new("[ab\ncd|");
     e.run("copy_lines_with_line_number");
-    // width: max(2, digits of the line count) + 2
+    // width: max(nLineNumWidth, digits of the row count) + 2
     assert_eq!(clip(&e), normal("  1:ab\n  2:cd\n"));
     let text = vec!["x"; 100].join("\n");
     let mut e = Editor::new(&format!("[{text}|"));
@@ -229,6 +231,160 @@ fn copy_lines_with_line_number_numbers_the_lines() {
     assert!(copied.starts_with("   1:x\n"), "{copied:?}");
     assert!(copied.contains("\n  99:x\n"), "{copied:?}");
     assert!(copied.contains("\n 100:x\n"), "{copied:?}");
+}
+
+#[test]
+fn the_line_number_width_follows_the_type() {
+    // `nLineNumWidth` 5: the numbers are padded to 5 digits plus the blank and the colon
+    let input = InputOptions {
+        line_num_width: 5,
+        ..Default::default()
+    };
+    let mut e = Editor::new("[ab\ncd|").with_input_options(input);
+    e.run("copy_lines_with_line_number");
+    assert_eq!(clip(&e), normal("     1:ab\n     2:cd\n"));
+}
+
+/// The first copied row of `copy_lines_with_line_number` over the whole of `text`.
+fn first_numbered_row(text: &str) -> String {
+    let mut e = Editor::new(&format!("[{text}|"));
+    e.run("copy_lines_with_line_number");
+    clip(&e).0.lines().next().unwrap().to_owned()
+}
+
+#[test]
+fn the_width_changes_at_the_digit_boundaries_of_the_row_count() {
+    // `LINENUMWIDTH_MIN` is 2 digits: 99 rows still have 2, 100 have 3
+    assert_eq!(first_numbered_row(&"x\n".repeat(9)), "  1:x");
+    assert_eq!(first_numbered_row(&"x\n".repeat(10)), "  1:x");
+    assert_eq!(first_numbered_row(&"x\n".repeat(99)), "  1:x");
+    assert_eq!(first_numbered_row(&"x\n".repeat(100)), "   1:x");
+    // the empty row after a final line ending is no row ...
+    assert_eq!(
+        first_numbered_row(&format!("{}x", "x\n".repeat(98))),
+        "  1:x"
+    );
+    // ... but a blank last line is one: 99 lines and a blank one are 100 rows
+    assert_eq!(
+        first_numbered_row(&format!("{}\n", "x\n".repeat(99))),
+        "   1:x"
+    );
+    assert_eq!(
+        first_numbered_row(&format!("{}\n\n", "x\n".repeat(98))),
+        "   1:x"
+    );
+}
+
+/// A layout that wraps every line after three chars (rows "abc", "def", ...).
+struct Wrap3(PlainLayout);
+
+type R<T> = matsu_core::buffer::Result<T>;
+
+impl Layout for Wrap3 {
+    fn edited(&mut self, doc: &Document, change: &TextChange) {
+        self.0.edited(doc, change);
+    }
+    fn reset(&mut self, doc: &Document) {
+        self.0.reset(doc);
+    }
+    fn display_x(&self, _: &Document, pos: Pos) -> R<X> {
+        Ok(X::from_raw((pos.col % 3) as u32))
+    }
+    fn row_start(&self, _: &Document, pos: Pos) -> R<Pos> {
+        Ok(Pos::new(pos.line, pos.col / 3 * 3))
+    }
+    fn row_end(&self, doc: &Document, pos: Pos) -> R<Pos> {
+        let len = doc.line_len(pos.line)?.unwrap_or(0);
+        Ok(Pos::new(pos.line, (pos.col / 3 * 3 + 3).min(len)))
+    }
+    fn next_row_start(&self, doc: &Document, pos: Pos) -> R<Option<Pos>> {
+        let len = doc.line_len(pos.line)?.unwrap_or(0);
+        let next = pos.col / 3 * 3 + 3;
+        if next < len {
+            return Ok(Some(Pos::new(pos.line, next)));
+        }
+        self.0.next_row_start(doc, pos)
+    }
+    fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> R<Pos> {
+        let len = doc.line_len(row_pos.line)?.unwrap_or(0);
+        Ok(Pos::new(
+            row_pos.line,
+            (row_pos.col + x.raw() as usize).min(len),
+        ))
+    }
+    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> R<Pos> {
+        self.0.move_rows(doc, pos, rows, goal)
+    }
+    fn tab_width(&self) -> usize {
+        4
+    }
+    fn tab_x(&self) -> X {
+        self.0.tab_x()
+    }
+    fn column_x(&self) -> X {
+        self.0.column_x()
+    }
+}
+
+/// Runs `id` on `text` with the selection `anchor` to `caret` on the layout that wraps after 3
+/// chars; the text that went to the clipboard.
+fn run_wrapped(id: &str, text: &str, anchor: Pos, caret: Pos) -> Option<String> {
+    let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
+    // the line ending of the document (`GetNewLineCode`); set, as the default follows the OS
+    model.set_new_line(matsu_core::buffer::Eol::Lf);
+    let mut cursor = Cursor::default();
+    cursor.select(anchor, caret);
+    let mut layout = Wrap3(PlainLayout::default());
+    let mut clipboard = MemoryClipboard::default();
+    let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None)
+        .with_clipboard(&mut clipboard);
+    Registry::global().run(id, &mut cx, &[]).unwrap();
+    drop(cx);
+    clipboard.data().map(|d| d.text.clone())
+}
+
+#[test]
+fn copy_lines_with_line_number_numbers_the_rows_of_a_wrapped_line() {
+    // `CopySelectedAllLines`: "nLineNum + 1" is the layout row; every row ends with a line ending
+    let got = run_wrapped(
+        "copy_lines_with_line_number",
+        "abcdefg\nxy",
+        Pos::new(0, 1),
+        Pos::new(1, 1),
+    );
+    assert_eq!(got.as_deref(), Some("  1:abc\n  2:def\n  3:g\n  4:xy\n"));
+}
+
+#[test]
+fn copy_lines_ends_a_wrapped_row_only_with_add_crlf_when_copy() {
+    let (text, anchor, caret) = ("abcdef", Pos::new(0, 1), Pos::new(0, 2));
+    let plain = run_wrapped("copy_lines", text, anchor, caret);
+    assert_eq!(plain.as_deref(), Some("abc"));
+    let options = EditOptions {
+        add_crlf_when_copy: true,
+        ..Default::default()
+    };
+    let with = with_options(options, || run_wrapped("copy_lines", text, anchor, caret));
+    // the line ending of the document (no CR or CRLF in it: LF)
+    assert_eq!(with.as_deref(), Some("abc\n"));
+}
+
+#[test]
+fn copy_lines_take_the_rows_of_a_box() {
+    // the box becomes whole rows, down to the row of its last corner whatever the column
+    let mut e = Editor::new("|ab\ncd\nef\n");
+    e.run("begin_box")
+        .run("cursor_right_box")
+        .run("cursor_down_box");
+    e.run("copy_lines_with_line_number");
+    assert_eq!(clip(&e), normal("  1:ab\n  2:cd\n"));
+    assert!(!e.cursor().is_box());
+    let mut e = Editor::new("|ab\ncd\nef\n");
+    e.run("begin_box")
+        .run("cursor_right_box")
+        .run("cursor_down_box");
+    e.run("copy_lines");
+    assert_eq!(clip(&e), normal("ab\ncd\n"));
 }
 
 #[test]
@@ -364,4 +520,29 @@ fn copy_drops_the_selection_with_copy_and_disable_selection() {
         let mut e = Editor::new("a|bc");
         e.run("copy").assert_marked("a|bc");
     });
+}
+
+#[test]
+fn a_last_line_that_wraps_counts_all_its_rows() {
+    // 98 lines and a last line of 3 rows are 101 rows: 3 digits
+    let text = format!("{}abcdefgh", "x\n".repeat(98));
+    let got = run_wrapped(
+        "copy_lines_with_line_number",
+        &text,
+        Pos::new(0, 0),
+        Pos::new(98, 8),
+    )
+    .unwrap();
+    assert!(got.starts_with("   1:x\n"), "{got:?}");
+    assert!(got.ends_with(" 101:gh\n"), "{got:?}");
+    // 97 lines and 3 rows are 100 ... and 96 lines are 99 rows: 2 digits
+    let text = format!("{}abcdefgh", "x\n".repeat(96));
+    let got = run_wrapped(
+        "copy_lines_with_line_number",
+        &text,
+        Pos::new(0, 0),
+        Pos::new(96, 8),
+    )
+    .unwrap();
+    assert!(got.starts_with("  1:x\n"), "{got:?}");
 }
