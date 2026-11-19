@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, BorrowAppContext as _, Global};
 use matsu_config::Profile;
 use matsu_config::history::update_profile;
-use matsu_config::settings::{KeyList, SearchKeys};
+use matsu_config::settings::{EditableList as _, KeyList, SearchKeys};
 
 use crate::view::EditorView;
 
@@ -136,6 +136,10 @@ impl SearchHistory {
             // What the user now sees and did not see before goes into the file as an addition in
             // front (newest first), so the file has the result.
             add_new(&before, &self.keys, &mut keys);
+            // And what the user removed here (deleted, or the old text of an edit) goes from the
+            // file even when the replay could not do it: an edit into a string the file has
+            // already is refused there, and would leave the old text behind.
+            remove_gone(&before, &self.keys, &mut keys);
             let bytes = profile.to_bytes();
             let written = keys.write_to(profile).is_ok() && profile.to_bytes() != bytes;
             Ok(written)
@@ -150,6 +154,27 @@ fn add_new(before: &SearchKeys, after: &SearchKeys, file: &mut SearchKeys) {
         for text in after.items().iter().rev() {
             if !before.items().contains(text) && !file.items().contains(text) {
                 file.add(text);
+            }
+        }
+    }
+    one(&before.search, &after.search, &mut file.search);
+    one(&before.replace, &after.replace, &mut file.replace);
+    one(&before.grep_file, &after.grep_file, &mut file.grep_file);
+    one(
+        &before.grep_folder,
+        &after.grep_folder,
+        &mut file.grep_folder,
+    );
+}
+
+/// Removes from `file` the strings that `before` had and `after` does not.
+fn remove_gone(before: &SearchKeys, after: &SearchKeys, file: &mut SearchKeys) {
+    fn one(before: &KeyList, after: &KeyList, file: &mut KeyList) {
+        for text in before.items() {
+            if !after.items().contains(text)
+                && let Some(at) = file.items().iter().position(|t| t == text)
+            {
+                file.delete_at(at);
             }
         }
     }

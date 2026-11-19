@@ -1064,6 +1064,65 @@ fn tab_reaches_the_buttons_of_the_panel_and_enter_presses_the_focused_one(cx: &m
 }
 
 #[gpui::test]
+fn editing_into_a_string_the_file_has_already_removes_the_old_one_there(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.0.join("matsu.ini");
+    cx.update(|app| {
+        crate::search::history::install(
+            app,
+            crate::search::history::SearchHistory::load(None, Some(path.clone())),
+        );
+        crate::exec::install(app, crate::exec::ExecPrefs::load(None, Some(path.clone())));
+    });
+    let (dialog, cx) = setup(cx, sample());
+    cx.update(|_, app| {
+        crate::search::history::edit_keys(app, |k| {
+            k.search.append_text("a");
+        });
+        crate::exec::edit_history(app, |h| {
+            h.commands.append_text("a");
+        });
+    });
+    dialog.update(cx, |d, cx| d.reload(cx));
+    // Another process saved `a` and `b`.
+    matsu_config::history::update_profile(&path, |profile| {
+        let mut keys = matsu_config::settings::SearchKeys::default();
+        keys.search.add("a");
+        keys.search.add("b");
+        let mut exec = matsu_config::settings::ExecHistory::default();
+        exec.add_command("a");
+        exec.add_command("b");
+        keys.write_to(profile).unwrap();
+        exec.write_to(profile).unwrap();
+        Ok(true)
+    })
+    .unwrap();
+    // Here only `a` is shown, so `a` can become `b`.
+    for (tab, to) in [(Tab::Search, "b"), (Tab::Command, "b")] {
+        dialog.update(cx, |d, cx| d.select_tab(tab, cx));
+        dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+        dialog.update_in(cx, |d, window, cx| d.begin_edit(window, cx));
+        dialog.update_in(cx, |d, window, cx| {
+            d.finish_edit(Some(to.into()), window, cx)
+        });
+    }
+    // The file has `b` once and no `a`: what the user sees.
+    let profile = matsu_config::Profile::load(&path).unwrap();
+    assert_eq!(
+        matsu_config::settings::SearchKeys::from_profile(&profile)
+            .search
+            .texts(),
+        ["b"]
+    );
+    assert_eq!(
+        matsu_config::settings::ExecHistory::from_profile(&profile)
+            .commands
+            .texts(),
+        ["b"]
+    );
+}
+
+#[gpui::test]
 fn an_answer_that_comes_after_a_tab_change_still_deletes_the_list_that_was_asked_about(
     cx: &mut TestAppContext,
 ) {

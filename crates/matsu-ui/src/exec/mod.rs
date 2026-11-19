@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, Global};
 use matsu_config::Profile;
 use matsu_config::history::update_profile;
-use matsu_config::settings::ExecHistory;
+use matsu_config::settings::{EditableList as _, ExecHistory};
 use matsu_core::exec::ExecFlags;
 
 pub(crate) mod dialog;
@@ -120,6 +120,15 @@ impl ExecPrefs {
                 for text in now.items().iter().rev() {
                     if !was.items().contains(text) && !saved.items().contains(text) {
                         saved.add(text);
+                    }
+                }
+                // What the user removed here goes from the file too, even when the replay could
+                // not do it (an edit into a string the file has already).
+                for text in was.items() {
+                    if !now.items().contains(text)
+                        && let Some(at) = saved.items().iter().position(|t| t == text)
+                    {
+                        saved.delete_at(at);
                     }
                 }
             }
