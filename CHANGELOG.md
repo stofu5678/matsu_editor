@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.22.0](https://github.com/stofu5678/matsu_editor/compare/v0.21.0...v0.22.0) (2026-11-19)
+
+
+### Features
+
+* **view:** add pointer shapes, Esc and edge scrolling for text drags, and the small mouse rules ([#532](https://github.com/stofu5678/matsu_editor/issues/532)) ([899091c](https://github.com/stofu5678/matsu_editor/commit/899091c23e812486583491350fa93cc717ab3b4f))
+
+
+### Bug Fixes
+
+* **plugin:** keep the commands of a disabled plugin in menus, keys and the toolbar ([#534](https://github.com/stofu5678/matsu_editor/issues/534)) ([e4fd89b](https://github.com/stofu5678/matsu_editor/commit/e4fd89b9a504d6250927b08f25058e41b05bd641))
+* **ui:** name the lists and dialogs of the search, grep, diff, exec and one-liner panels for screen readers ([#533](https://github.com/stofu5678/matsu_editor/issues/533)) ([b0061c0](https://github.com/stofu5678/matsu_editor/commit/b0061c093e5f5e34f5443141e3c05185558c94aa))
+
 ## [0.21.0](https://github.com/stofu5678/matsu_editor/compare/v0.20.0...v0.21.0) (2026-11-19)
 
 
