@@ -19,10 +19,13 @@ use matsu_core::bookmarks::TextBreaks;
 use matsu_core::buffer::{Document, Eol, Pos};
 use matsu_core::cursor::Cursor;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
+use matsu_core::file::{
+    Progress, SaveOptions, SaveReport, SaveSnapshot, TextFile, UnmappableReport, Written,
+};
 use matsu_core::model::DocumentModel;
 
 use crate::file_ops::lock::{FileLockState, LockFailure};
+use crate::file_ops::save_job::{JobState, SaveJob};
 use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
 
@@ -134,6 +137,15 @@ pub struct SharedDocument {
     /// The lock that keeps other programs from writing (or reading) the file while it is open
     /// (`crate::file_ops::lock`).
     lock: FileLockState,
+    /// The job (a check or the write of a save) that runs on another thread, while it runs: the
+    /// document is "saving" and refuses edits (`crate::file_ops::save_job`). The document owns it,
+    /// so replacing or dropping the document stops the thread.
+    saving: Option<SaveJob>,
+    /// The cancel flag of the whole save flow, from Ctrl+S to its end (the checks, the questions,
+    /// the hooks, the write): Esc sets it, and every phase looks at it before it starts, so that a
+    /// cancel is not lost in the gaps between the jobs. The flow owns the flag; this only watches,
+    /// so a flow that ended is gone from here.
+    save_flows: Vec<std::sync::Weak<std::sync::atomic::AtomicBool>>,
     /// The number of an untitled document (`EditNode::m_nId`), shown as `(無題)2` in the lists
     /// and as `$n` in the titles. See [`number_untitled`](Self::number_untitled).
     untitled_number: Option<u32>,
@@ -231,6 +243,8 @@ impl SharedDocument {
             file,
             disk: DiskState::default(),
             lock: FileLockState::default(),
+            saving: None,
+            save_flows: Vec::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -381,6 +395,8 @@ impl SharedDocument {
             file,
             disk,
             lock: FileLockState::default(),
+            saving: None,
+            save_flows: Vec::new(),
             untitled_number: None,
             restored: false,
             restored_len: 0,
@@ -545,11 +561,28 @@ impl SharedDocument {
         options: &SaveOptions,
         progress: Progress<'_>,
     ) -> matsu_core::file::Result<SaveReport> {
+        let written = self.save_snapshot()?.write(&path, options, progress)?;
+        Ok(self.finish_save_as(path, options, written))
+    }
+
+    /// A copy of the text for the work of a save that runs elsewhere ([`TextFile::save_snapshot`]).
+    pub(crate) fn save_snapshot(&mut self) -> matsu_core::file::Result<SaveSnapshot> {
+        self.with_file(|file| file.save_snapshot())
+    }
+
+    /// The document takes what [`SaveSnapshot::write`] did ([`save_as`](Self::save_as) after the
+    /// write).
+    pub(crate) fn finish_save_as(
+        &mut self,
+        path: PathBuf,
+        options: &SaveOptions,
+        written: Written,
+    ) -> SaveReport {
         let before = self.path.clone();
         let (report, rebased) = self.with_file(|file| {
-            let report = file.save_as(path, options, progress)?;
-            Ok::<_, matsu_core::file::FileError>((report, file.take_rebased()))
-        })?;
+            let report = file.finish_save_as(path, options, written);
+            (report, file.take_rebased())
+        });
         // A file read by ranges now reads the file that was written (ADR-0020, chapter 4).
         if let Some(doc) = rebased {
             if report.reloaded {
@@ -564,7 +597,67 @@ impl SharedDocument {
         if let Some(eol) = options.eol {
             self.model.set_new_line(eol);
         }
-        Ok(report)
+        report
+    }
+
+    /// The size of the text, to tell a big document from a small one.
+    pub(crate) fn raw_len(&self) -> usize {
+        self.model.doc().raw_len()
+    }
+
+    /// Whether a job of a save runs on another thread: edits are refused.
+    pub(crate) fn is_saving(&self) -> bool {
+        self.saving.is_some()
+    }
+
+    /// A job of a save began; the document owns it, and is saving until it ends
+    /// ([`end_saving`](Self::end_saving)) or the document is replaced.
+    pub(crate) fn begin_saving(&mut self, job: SaveJob) {
+        self.saving = Some(job);
+    }
+
+    /// The job `state` is over. A document that was replaced meanwhile, and maybe is saving with
+    /// another job now, is left alone (`false`).
+    pub(crate) fn end_saving(&mut self, state: &std::sync::Arc<JobState>) -> bool {
+        let ours = self
+            .saving
+            .as_ref()
+            .is_some_and(|job| std::sync::Arc::ptr_eq(&job.state(), state));
+        if ours {
+            self.saving = None;
+        }
+        ours
+    }
+
+    /// A lock that was asked for during the save and not taken (`FileLockState::defer`) is taken
+    /// now, with the setting of this moment.
+    pub(crate) fn take_deferred_lock(&mut self, mode: i32) {
+        if self.lock.take_deferred() {
+            self.lock_file(mode);
+        }
+    }
+
+    /// A save flow begins on this document. (A second one may begin while the first waits at a
+    /// question: each has its own flag, and Esc stops them all.)
+    pub(crate) fn begin_save_flow(&mut self, flag: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        self.save_flows.retain(|f| f.strong_count() > 0);
+        self.save_flows.push(std::sync::Arc::downgrade(flag));
+    }
+
+    /// Whether a save flow runs on this document, in whatever phase it is.
+    pub(crate) fn is_in_save_flow(&self) -> bool {
+        self.save_flows.iter().any(|f| f.strong_count() > 0)
+    }
+
+    /// Esc: stops the save, whatever phase it is in. The flag of each flow is set (every phase
+    /// looks at it before it starts), and the job that runs now is stopped too.
+    pub(crate) fn cancel_saving(&self) {
+        for flag in self.save_flows.iter().filter_map(std::sync::Weak::upgrade) {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if let Some(job) = &self.saving {
+            job.state().cancel();
+        }
     }
 
     /// `CDocVisitor::SetAllEol` (`sakura_core/doc/CDocVisitor.cpp`), which `CSaveAgent::OnBeforeSave`
@@ -600,8 +693,32 @@ impl SharedDocument {
         self.disk = DiskState {
             stamp: self.path.as_deref().and_then(state::modified_time),
             mode,
+            // the pauses of the pausers that are still going
+            pauses: self.disk.pauses,
             ..DiskState::default()
         };
+    }
+
+    /// A save is about to write the file: the check for changes by other programs waits
+    /// (`CAutoReloadAgent::PauseWatching`), because the rename of the writer would be taken for a
+    /// change from outside. The save holds its own pause ([`DiskState::pause`]).
+    pub(crate) fn pause_watching_for_write(&mut self) {
+        self.disk.pause();
+    }
+
+    /// The new time stamp is recorded, or the save failed: the save lifts its own pause. A check
+    /// that holds the watching too keeps it.
+    pub(crate) fn resume_watching_after_write(&mut self) {
+        self.disk.resume();
+    }
+
+    /// The views that show this document and are still there.
+    pub(crate) fn live_views(&self) -> Vec<gpui::WeakEntity<crate::view::EditorView>> {
+        self.views
+            .iter()
+            .filter(|v| v.upgrade().is_some())
+            .cloned()
+            .collect()
     }
 
     /// The file on disk as this editor last saw it.
@@ -629,6 +746,12 @@ impl SharedDocument {
         // A file read by ranges is open behind the document, and on Windows a lock that denies
         // reading cannot be taken while it is: the file is locked against writing only.
         let mode = if self.ranged && mode == 2 { 1 } else { mode };
+        // The one gate of every way to take the lock (the setting changed, view mode toggled, a
+        // lock taken back after a check or a backup): not while a save writes the file.
+        if self.is_saving() {
+            self.lock.defer(mode);
+            return;
+        }
         self.lock.lock(path.as_deref(), mode);
     }
 

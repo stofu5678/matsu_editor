@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use gpui::{AsyncWindowContext, PromptLevel, WeakEntity};
 use matsu_core::buffer::Eol;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{SaveOptions, no_progress};
+use matsu_core::file::{FileError, SaveOptions};
 
 use super::ask::{
     Answer, ask, save_error_message, tell, unify_line_endings_message, unmappable_message,
@@ -170,6 +170,28 @@ pub(crate) async fn save(
     cx: &mut AsyncWindowContext,
     request: SaveRequest,
 ) -> SaveOutcome {
+    // A save that runs on another thread (`save_job`) is the only one: a second one must not
+    // reach the target check, which would take the lock of the file back from the first one's
+    // write (Windows), nor ask anything. Nothing is said: the first save is on the status bar.
+    if view
+        .read_with(cx, |view, app| view.document().read(app).is_saving())
+        .unwrap_or(false)
+    {
+        return SaveOutcome::Cancelled;
+    }
+    // The cancel of the whole flow: Esc, from here to the end of the save, whatever phase it is in
+    // (`save_job`). The flow owns the flag; the document only watches it, so it is gone from there
+    // when this function ends, on any path.
+    let flow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if view
+        .update(cx, |view, cx| {
+            view.document()
+                .update(cx, |shared, _| shared.begin_save_flow(&flow))
+        })
+        .is_err()
+    {
+        return SaveOutcome::Cancelled;
+    }
     let generation = view
         .read_with(cx, |view, app| view.document().read(app).generation())
         .ok();
@@ -343,7 +365,7 @@ pub(crate) async fn save(
     }
 
     // 3 and 4. The questions about the content.
-    if let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request).await {
+    if let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request, &flow).await {
         return outcome;
     }
 
@@ -410,17 +432,90 @@ pub(crate) async fn save(
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok()
         != version;
-    if changed && let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request).await
+    if changed
+        && let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request, &flow).await
     {
         return outcome;
     }
 
     // 5. Write.
     let target = path.clone();
+    // The lock is let go of while the file is written (`CDocLocker::OnBeforeSave`): the save
+    // replaces the file, which a lock would refuse (Windows) or lose (the lock belongs to the old
+    // file). `finish_save_now` takes it again, also after a failure.
+    // A save that began writing since the entry of this one (the hooks above can wait) is the only
+    // one: this one is refused here, before the lock is touched, and nothing runs for it after. No
+    // `await` lies between this look and the start of the job in `run`.
+    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, &flow) else {
+        return SaveOutcome::Cancelled;
+    };
+    let busy = view
+        .update(cx, |view, cx| {
+            view.document().update(cx, |shared, _| {
+                let busy = shared.is_saving();
+                if !busy {
+                    shared.unlock_file();
+                    // Until the new time stamp is recorded; the save holds a pause of its own.
+                    shared.pause_watching_for_write();
+                    // Both are undone by `hold`, on every path out of this flow.
+                    hold.took_for_write();
+                }
+                busy
+            })
+        })
+        .unwrap_or(true);
+    if busy {
+        return SaveOutcome::Cancelled;
+    }
+    // The document this save writes, whatever happens to the view that started it (a split that is
+    // removed drops that view while the document goes on in the other pane): the finish is for the
+    // document.
+    let Ok(document) = view.read_with(cx, |view, _| view.document().downgrade()) else {
+        return SaveOutcome::Cancelled;
+    };
+    let to_write = options.clone();
+    let on_path = path.clone();
+    let write = super::save_job::run(
+        view,
+        cx,
+        "保存",
+        &path,
+        &mut hold,
+        move |snapshot, progress| snapshot.write(&on_path, &to_write, progress),
+    )
+    .await;
+    // The document that was written is gone or was replaced (a close that keeps the window, a
+    // close-and-open): nothing of the finish is for the replacement, whose lock and path are its
+    // own (it may be saving itself). A document that is still there is finished in a view that
+    // shows it, the one that started the save or, if that is gone, another.
+    let finisher = cx
+        .update(|_, app| finishing_view(view, &document, generation, app))
+        .ok()
+        .flatten();
+    let Some(finisher) = finisher else {
+        return SaveOutcome::Cancelled;
+    };
+    let view = &finisher;
     let written = view
-        .update(cx, |view, cx| view.save_now(target, &options, cx))
+        .update(cx, |view, cx| {
+            let finished = view.finish_save_now(target, &options, write, cx);
+            // The new time stamp is recorded (or the save failed and the file is as it was): what
+            // the save changed (the pause of the watching, the lock) is undone now, not when the
+            // flow ends.
+            hold.end_now(cx);
+            finished
+        })
         .ok();
     match written {
+        Some(Err(FileError::Cancelled)) => {
+            super::lock::report_failure(view, cx).await;
+            view.update(cx, |view, cx| {
+                view.notice = Some("保存を中止した".to_owned());
+                cx.notify();
+            })
+            .ok();
+            SaveOutcome::Cancelled
+        }
         Some(Ok(report)) => {
             super::lock::report_failure(view, cx).await;
             let mut notice = format!("{} に保存した", path.display());
@@ -464,6 +559,49 @@ pub(crate) async fn save(
         }
         None => SaveOutcome::Cancelled,
     }
+}
+
+/// The view that finishes a save of `document` (the document the save began on, in `generation`): the
+/// view that started it if it still shows that document, else another view of the document. `None`
+/// when the document is gone or was replaced.
+pub(super) fn finishing_view(
+    view: &WeakEntity<EditorView>,
+    document: &gpui::WeakEntity<crate::document::SharedDocument>,
+    generation: Option<u64>,
+    app: &gpui::App,
+) -> Option<WeakEntity<EditorView>> {
+    let document = document.upgrade()?;
+    let shared = document.read(app);
+    if Some(shared.generation()) != generation {
+        return None;
+    }
+    let shows = |candidate: &WeakEntity<EditorView>| {
+        candidate
+            .upgrade()
+            .is_some_and(|v| v.read(app).document() == &document)
+    };
+    if shows(view) {
+        return Some(view.clone());
+    }
+    shared.live_views().into_iter().find(|v| shows(v))
+}
+
+/// The status bar says that the save was stopped (Esc in a check or in the write), if the view still
+/// shows the document that was being saved: a replacement has its own messages.
+fn said_cancelled(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    hold: &super::save_job::JobEnd,
+) -> SaveOutcome {
+    let generation = hold.generation();
+    view.update(cx, |view, cx| {
+        if view.document().read(cx).generation() == generation {
+            view.notice = Some("保存を中止した".to_owned());
+            cx.notify();
+        }
+    })
+    .ok();
+    SaveOutcome::Cancelled
 }
 
 /// The question before a document that was brought back overwrites a file that has changed since the copy was
@@ -578,6 +716,7 @@ async fn confirm_content(
     path: &std::path::Path,
     options: &mut SaveOptions,
     request: &SaveRequest,
+    flow: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), SaveOutcome> {
     // 3. Mixed line endings, unless the document type turned the question off
     // (`m_bChkEnterAtEnd`, 「保存時に改行コードの混在を警告する」; `CCodeChecker::OnCheckSave`).
@@ -585,14 +724,16 @@ async fn confirm_content(
         .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
         .unwrap_or(true);
     if request.ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
-        let mixed = view
-            .update(cx, |view, cx| {
-                view.document()
-                    .update(cx, |shared, _| shared.has_mixed_line_endings())
+        let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, flow) else {
+            return Err(SaveOutcome::Cancelled);
+        };
+        let mixed =
+            super::save_job::run(view, cx, "検査", path, &mut hold, |snapshot, progress| {
+                snapshot.has_mixed_line_endings(progress)
             })
-            .ok();
-        match mixed {
-            Some(Ok(true)) => {
+            .await;
+        match mixed.map_err(|e| (!matches!(e, FileError::Cancelled)).then_some(e)) {
+            Ok(true) => {
                 let name = view
                     .read_with(cx, |view, app| {
                         crate::status::eol_name(view.document().read(app).new_line()).to_owned()
@@ -617,9 +758,9 @@ async fn confirm_content(
                     Answer::Cancel => return Err(SaveOutcome::Cancelled),
                 }
             }
-            Some(Ok(false)) => {}
-            Some(Err(error)) => return Err(fail(view, cx, path, &error).await),
-            None => return Err(SaveOutcome::Cancelled),
+            Ok(false) => {}
+            Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
+            Err(None) => return Err(said_cancelled(view, cx, &hold)),
         }
     }
 
@@ -631,15 +772,21 @@ async fn confirm_content(
         options.allow_unmappable = true;
         return Ok(());
     }
-    let checked = view
-        .update(cx, |view, cx| {
-            let options = &*options;
-            view.document()
-                .update(cx, |shared, _| shared.check_save(options, &mut no_progress))
-        })
-        .ok();
-    match checked {
-        Some(Ok(report)) if report.total > 0 => {
+    let for_check = options.clone();
+    let Some(mut hold) = super::save_job::JobEnd::for_view(view, cx, flow) else {
+        return Err(SaveOutcome::Cancelled);
+    };
+    let checked = super::save_job::run(
+        view,
+        cx,
+        "検査",
+        path,
+        &mut hold,
+        move |snapshot, progress| snapshot.check_save(&for_check, progress),
+    )
+    .await;
+    match checked.map_err(|e| (!matches!(e, FileError::Cancelled)).then_some(e)) {
+        Ok(report) if report.total > 0 => {
             let (message, detail) =
                 unmappable_message(options.encoding, report.first.first(), report.total);
             match ask(
@@ -662,9 +809,9 @@ async fn confirm_content(
                 }
             }
         }
-        Some(Ok(_)) => {}
-        Some(Err(error)) => return Err(fail(view, cx, path, &error).await),
-        None => return Err(SaveOutcome::Cancelled),
+        Ok(_) => {}
+        Err(Some(error)) => return Err(fail(view, cx, path, &error).await),
+        Err(None) => return Err(said_cancelled(view, cx, &hold)),
     }
     Ok(())
 }

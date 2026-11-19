@@ -19,10 +19,10 @@ use crate::view::EditorView;
 /// `CAutoReloadAgent`), and a second automatic save does not start while the first one asks a
 /// question. A document waits while its file is being looked at: the question may reload the file.
 pub(crate) fn begin(shared: &mut SharedDocument) -> bool {
-    if shared.path().is_none() || !shared.model().is_modified() || shared.disk().pausing {
+    if shared.path().is_none() || !shared.model().is_modified() || shared.disk().is_paused() {
         return false;
     }
-    shared.disk_mut().pausing = true;
+    shared.disk_mut().pause();
     true
 }
 

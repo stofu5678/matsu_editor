@@ -994,10 +994,153 @@ fn progress_is_reported_while_saving() {
             (READ_CHUNK as u64, total),
             (2 * READ_CHUNK as u64, total),
             (total, total),
-            // The last chance to cancel, before the target is replaced.
+            // A chance to cancel, before the temporary file is flushed to the disk.
+            (total, total),
+            // And the last one, right before the target is replaced.
             (total, total)
         ]
     );
+}
+
+/// A cancel at any of the looks of a write (the check that comes first, the start of the write, the
+/// end of the body, right before the rename) keeps the original and leaves no temporary file.
+#[test]
+fn a_cancel_at_every_look_of_a_write_leaves_no_temporary_file() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &vec![b'a'; 2 * READ_CHUNK + 1]);
+    let mut file = open_as(&path, Encoding::Utf8);
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    // the check before the write runs too: the text is not allowed to be unmappable unasked
+    let options = SaveOptions::keep(&file);
+    let snapshot = file.save_snapshot().unwrap();
+    let mut calls = 0;
+    snapshot
+        .write(&path, &options, &mut |_, _| {
+            calls += 1;
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    assert!(calls >= 4, "{calls}");
+    let mut file = open_as(&path, Encoding::Utf8);
+    file.document.insert(Pos::new(0, 0), "y").unwrap();
+    let snapshot = file.save_snapshot().unwrap();
+    let before = fs::read(&path).unwrap();
+    for stop_at in 1..=calls {
+        let mut seen = 0;
+        let error = snapshot
+            .write(&path, &options, &mut |_, _| {
+                seen += 1;
+                if seen == stop_at {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .unwrap_err();
+        assert!(matches!(error, FileError::Cancelled), "{stop_at}: {error}");
+        assert_eq!(fs::read(&path).unwrap(), before, "{stop_at}");
+        assert_eq!(
+            dir.names(),
+            ["a.txt"],
+            "no temporary file at look {stop_at}"
+        );
+    }
+}
+
+#[test]
+fn a_cancel_right_before_the_rename_keeps_the_original() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &vec![b'a'; 2 * READ_CHUNK + 1]);
+    let mut file = open_as(&path, Encoding::Utf8);
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    let options = SaveOptions::keep(&file);
+    let mut calls = 0;
+    file.save_as(&path, &options, &mut |_, _| {
+        calls += 1;
+        ControlFlow::Continue(())
+    })
+    .unwrap();
+    // the same save again, stopped at its last look
+    file.document.insert(Pos::new(0, 0), "y").unwrap();
+    let before = fs::read(&path).unwrap();
+    let mut seen = 0;
+    let error = file
+        .save_as(&path, &options, &mut |_, _| {
+            seen += 1;
+            if seen == calls {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        })
+        .unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        before,
+        "the original is as it was"
+    );
+    assert_eq!(dir.names(), ["a.txt"], "no temporary file");
+}
+
+// ---- a save in two steps (the write can run on another thread) ----
+
+#[test]
+fn a_snapshot_writes_on_another_thread_and_the_file_takes_the_result() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc\r\ndef\r\n");
+    let mut file = open_file(&path, &OpenOptions::default()).unwrap();
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    let options = SaveOptions::keep(&file);
+    let snapshot = file.save_snapshot().unwrap();
+    let target = path.clone();
+    let for_thread = options.clone();
+    let written = std::thread::spawn(move || {
+        assert_eq!(
+            snapshot
+                .check_save(&for_thread, &mut no_progress)
+                .unwrap()
+                .total,
+            0
+        );
+        snapshot.write(&target, &for_thread, &mut no_progress)
+    })
+    .join()
+    .unwrap()
+    .unwrap();
+    let report = file.finish_save_as(path.clone(), &options, written);
+    assert!(report.bytes_written > 0);
+    assert_eq!(fs::read(&path).unwrap(), b"xabc\r\ndef\r\n");
+    assert_eq!(file.path.as_deref(), Some(path.as_path()));
+}
+
+#[test]
+fn a_write_that_is_stopped_leaves_the_target_and_the_folder_as_they_were() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc\n");
+    let mut file = open_file(&path, &OpenOptions::default()).unwrap();
+    file.document.insert(Pos::new(0, 0), "x").unwrap();
+    let options = SaveOptions::keep(&file);
+    let snapshot = file.save_snapshot().unwrap();
+    let error = snapshot
+        .write(&path, &options, &mut |_, _| ControlFlow::Break(()))
+        .unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
+    assert_eq!(fs::read(&path).unwrap(), b"abc\n");
+    assert_eq!(dir.names(), ["a.txt"], "no temporary file");
+}
+
+#[test]
+fn the_scan_for_mixed_line_endings_can_be_stopped() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\r\nb\nc\r\n");
+    let file = open_file(&path, &OpenOptions::default()).unwrap();
+    let snapshot = file.save_snapshot().unwrap();
+    assert!(snapshot.has_mixed_line_endings(&mut no_progress).unwrap());
+    let error = snapshot
+        .has_mixed_line_endings(&mut |_, _| ControlFlow::Break(()))
+        .unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
 }
 
 // ---- speed ----
@@ -1006,6 +1149,12 @@ fn progress_is_reported_while_saving() {
 #[test]
 #[ignore = "slow in debug builds; run with --release --ignored --nocapture to see the numbers"]
 fn large_file_open_and_save_times() {
+    // `MATSU_SAVE_MIB` sets the size (500 by default); 100 is the size of the ledger's question
+    // whether a save keeps the window waiting.
+    let mib = std::env::var("MATSU_SAVE_MIB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(500);
     for (encoding, line) in [
         (
             Encoding::Utf8,
@@ -1018,7 +1167,7 @@ fn large_file_open_and_save_times() {
     ] {
         let dir = TempDir::new();
         let unit = encode(encoding, line);
-        let count = (500 * 1024 * 1024) / unit.len();
+        let count = (mib * 1024 * 1024) / unit.len();
         let mut bytes = Vec::with_capacity(count * unit.len());
         for _ in 0..count {
             bytes.extend_from_slice(&unit);
@@ -1038,6 +1187,10 @@ fn large_file_open_and_save_times() {
 
         let t = Instant::now();
         let options = SaveOptions::keep(&file);
+        file.check_save(&options, &mut no_progress).unwrap();
+        println!("{encoding:?}: check before saving {:?}", t.elapsed());
+
+        let t = Instant::now();
         file.save(&options, &mut no_progress).unwrap();
         println!("{encoding:?}: unedited save {:?}", t.elapsed());
 

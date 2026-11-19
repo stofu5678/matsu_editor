@@ -29,14 +29,32 @@ pub(crate) struct DiskState {
     pub mode: WatchMode,
     /// `CAutoReloadAgent::m_nDelayCount`: the checks since the last automatic reload.
     pub delay_count: i32,
-    /// A check is running (the question is open) or the editor is saving
-    /// (`CAutoReloadAgent::PauseWatching`): no other check starts.
-    pub pausing: bool,
+    /// How many holds pause the watching (`CAutoReloadAgent::PauseWatching`): a check that waits
+    /// for the disk or the user, an automatic save, a save that writes on another thread. While
+    /// there is one, no other check starts. Each pauser lifts only its own hold
+    /// ([`pause`](Self::pause), [`resume`](Self::resume)), so one that ends early does not
+    /// lift the pause of another.
+    pub pauses: u32,
     /// The file exists and cannot be written (`CDocLocker::m_bIsDocWritable` is false).
     pub unwritable: bool,
 }
 
 impl DiskState {
+    /// Whether any pauser holds the watching.
+    pub fn is_paused(&self) -> bool {
+        self.pauses > 0
+    }
+
+    /// A pauser takes its hold.
+    pub fn pause(&mut self) {
+        self.pauses += 1;
+    }
+
+    /// A pauser lifts its own hold.
+    pub fn resume(&mut self) {
+        self.pauses = self.pauses.saturating_sub(1);
+    }
+
     /// The state of a document just read from `path`.
     pub fn of_path(path: Option<&Path>) -> Self {
         let Some(path) = path else {

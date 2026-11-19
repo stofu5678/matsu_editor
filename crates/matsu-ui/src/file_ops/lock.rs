@@ -84,6 +84,9 @@ pub(crate) struct FileLockState {
     mode: i32,
     /// A failure that was not shown yet.
     failure: Option<LockFailure>,
+    /// A lock was asked for while a save wrote the file and was not taken ([`defer`](Self::defer)):
+    /// the end of the save takes it.
+    deferred: bool,
 }
 
 impl FileLockState {
@@ -97,6 +100,7 @@ impl FileLockState {
     pub fn lock(&mut self, path: Option<&Path>, number: i32) {
         self.held = None;
         self.mode = number;
+        self.deferred = false;
         let Some(mode) = share_mode(number) else {
             return;
         };
@@ -112,6 +116,21 @@ impl FileLockState {
                 });
             }
         }
+    }
+
+    /// A lock that is asked for while a save writes the file is not taken (the writer needs the
+    /// file free; on Windows a new handle without delete sharing would stop its final rename): the
+    /// setting is remembered as the one the document locks with, and the save's own end takes the
+    /// lock (`CDocLocker::OnAfterSave`).
+    pub fn defer(&mut self, number: i32) {
+        self.held = None;
+        self.mode = number;
+        self.deferred = true;
+    }
+
+    /// Whether a lock is waiting for the end of a save, once.
+    pub fn take_deferred(&mut self) -> bool {
+        std::mem::take(&mut self.deferred)
     }
 
     /// `CFile::IsFileLocking`.

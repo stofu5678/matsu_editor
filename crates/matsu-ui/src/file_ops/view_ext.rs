@@ -6,7 +6,9 @@ use gpui::{Context, ExternalPaths, Window};
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{FileError, SaveOptions, SaveReport, no_progress};
+#[cfg(test)]
+use matsu_core::file::no_progress;
+use matsu_core::file::{FileError, SaveOptions, SaveReport, Written};
 use matsu_layout::DocumentLayout;
 
 use crate::document::SharedDocument;
@@ -136,12 +138,41 @@ impl EditorView {
         cx.notify();
     }
 
-    /// Writes the document to `path` and marks the undo history as saved.
+    /// Writes the document to `path` on this thread and marks the undo history as saved. The save
+    /// of the window goes through `finish_save_now`, which has the write done elsewhere.
+    #[cfg(test)]
     pub(crate) fn save_now(
         &mut self,
         path: PathBuf,
         options: &SaveOptions,
         cx: &mut Context<Self>,
+    ) -> Result<SaveReport, FileError> {
+        self.after_write(options, cx, |shared| {
+            shared.save_as(path, options, &mut no_progress)
+        })
+    }
+
+    /// [`save_now`](Self::save_now) for a file that [`SaveSnapshot::write`] wrote on another thread
+    /// (`file_ops::save_job`); `written` is what it said, or why it failed.
+    pub(crate) fn finish_save_now(
+        &mut self,
+        path: PathBuf,
+        options: &SaveOptions,
+        written: Result<Written, FileError>,
+        cx: &mut Context<Self>,
+    ) -> Result<SaveReport, FileError> {
+        self.after_write(options, cx, |shared| {
+            Ok(shared.finish_save_as(path, options, written?))
+        })
+    }
+
+    /// What follows a write in the window: the lock, the line endings, the undo history. `write`
+    /// does the document's part of it.
+    fn after_write(
+        &mut self,
+        options: &SaveOptions,
+        cx: &mut Context<Self>,
+        write: impl FnOnce(&mut SharedDocument) -> Result<SaveReport, FileError>,
     ) -> Result<SaveReport, FileError> {
         let cursor = &mut self.cursor;
         let share_mode = super::prefs::prefs(cx).file_share_mode;
@@ -149,7 +180,7 @@ impl EditorView {
             // `CDocLocker::OnBeforeSave`: the save replaces the file, which a lock would refuse
             // (Windows) or lose (the lock belongs to the old file).
             shared.unlock_file();
-            let saved = shared.save_as(path, options, &mut no_progress);
+            let saved = write(shared);
             // `CDocLocker::OnAfterSave`: lock the file that is there, also after a failed save
             // (the old file is as it was).
             shared.lock_file(share_mode);

@@ -253,9 +253,39 @@ impl TextFile {
         progress: Progress<'_>,
     ) -> Result<SaveReport> {
         let path = path.into();
+        let written = self.save_snapshot()?.write(&path, options, progress)?;
+        Ok(self.finish_save_as(path, options, written))
+    }
+
+    /// What a save of the document needs, taken so that the work can run elsewhere (another
+    /// thread, while the window goes on drawing): the check ([`SaveSnapshot::check_save`]) and the
+    /// write ([`SaveSnapshot::write`]) are slow for a big file. The document must not change
+    /// between this and [`TextFile::finish_save_as`]. Fails for a document that shows only the
+    /// scanned start of a file.
+    pub fn save_snapshot(&self) -> Result<SaveSnapshot> {
         self.ensure_complete()?;
-        let (mut report, generation) = self.write(&path, options, progress)?;
-        if let Some(document) = generation {
+        Ok(SaveSnapshot {
+            document: self.document.clone(),
+            source_encoding: self.source_encoding(),
+            ranged: self.ranged,
+            scan_options: self.scan_options,
+        })
+    }
+
+    /// Makes the file what a save did: [`TextFile::save_as`] after the write. The document takes
+    /// the path, the encoding, the BOM and the line ending of `options` for later saves
+    /// (`CSaveAgent::OnSave`).
+    pub fn finish_save_as(
+        &mut self,
+        path: PathBuf,
+        options: &SaveOptions,
+        written: Written,
+    ) -> SaveReport {
+        let Written {
+            mut report,
+            document,
+        } = written;
+        if let Some(document) = document {
             // The document reads the file that was written from now on (ADR-0020, chapter 4,
             // plan A). The old document stays valid for whoever holds it (the undo history).
             // The history is kept only when the new file certainly has the text of the document.
@@ -281,7 +311,7 @@ impl TextFile {
         // The next plain save writes the endings as this one did, unless the document is the file
         // that has them now.
         self.eol_on_save = if report.reloaded { None } else { options.eol };
-        Ok(report)
+        report
     }
 
     /// Writes a copy of the document to `path` and changes nothing of the document: not its path,
@@ -312,15 +342,51 @@ impl TextFile {
     pub fn take_rebased(&mut self) -> Option<Document> {
         std::mem::take(&mut self.rebased).then(|| self.document.clone())
     }
+}
+
+/// What a save needs of a [`TextFile`] ([`TextFile::save_snapshot`]). It owns a cheap copy of the
+/// document (the pieces are shared), so it can be sent to another thread: the slow parts of a save
+/// run on it, and the file takes the result with [`TextFile::finish_save_as`].
+#[derive(Debug)]
+pub struct SaveSnapshot {
+    document: Document,
+    source_encoding: Encoding,
+    ranged: bool,
+    scan_options: ScanOptions,
+}
+
+/// What [`SaveSnapshot::write`] did, for [`TextFile::finish_save_as`].
+#[derive(Debug)]
+pub struct Written {
+    report: SaveReport,
+    document: Option<Document>,
+}
+
+impl SaveSnapshot {
+    /// Finds the characters that `options` cannot write ([`TextFile::check_save`]).
+    pub fn check_save(
+        &self,
+        options: &SaveOptions,
+        progress: Progress<'_>,
+    ) -> Result<UnmappableReport> {
+        check(&self.document, self.source_encoding, options, progress)
+    }
+
+    /// Whether the document has line endings of more than one kind
+    /// ([`TextFile::has_mixed_line_endings`]); `progress` may stop it ([`FileError::Cancelled`]).
+    pub fn has_mixed_line_endings(&self, progress: Progress<'_>) -> Result<bool> {
+        mixed_line_endings(&self.document, self.source_encoding, progress)
+    }
 
     /// Writes the file, and makes the document over it for a file read by ranges when that can be
-    /// done as the bytes are written.
-    fn write(
+    /// done as the bytes are written. `progress` may stop the write (`ControlFlow::Break`): the
+    /// target is then as it was ([`FileError::Cancelled`]).
+    pub fn write(
         &self,
         path: &Path,
         options: &SaveOptions,
         progress: Progress<'_>,
-    ) -> Result<(SaveReport, Option<Document>)> {
+    ) -> Result<Written> {
         // The line endings of the new file are found with the setting that made the lines of the
         // document; a document that has lines of both settings is not made again.
         // A line ending that the setting does not know (NEL, LS, PS with the setting off) would
@@ -336,14 +402,15 @@ impl TextFile {
                 ext_eol,
                 ..self.scan_options
             });
-        write_file(
+        let (report, document) = write_file(
             &self.document,
-            self.source_encoding(),
+            self.source_encoding,
             path,
             options,
             progress,
             rebase,
-        )
+        )?;
+        Ok(Written { report, document })
     }
 }
 
@@ -352,27 +419,29 @@ impl TextFile {
     /// `sakura_core/env/CCodeChecker.cpp`). Sakura asks "unify the line endings?" when this is true
     /// and the save does not convert them. It compares every line ending with the first line's.
     pub fn has_mixed_line_endings(&self) -> Result<bool> {
-        let mut first = None;
-        let mut mixed = false;
-        walk_events(
-            &self.document,
-            self.source_encoding(),
-            0,
-            &mut no_progress,
-            &mut |event| {
-                if let Event::Eol(eol) = event
-                    && !mixed
-                {
-                    match first {
-                        None => first = Some(eol),
-                        Some(f) => mixed = f != eol,
-                    }
-                }
-                Ok(())
-            },
-        )?;
-        Ok(mixed)
+        mixed_line_endings(&self.document, self.source_encoding(), &mut no_progress)
     }
+}
+
+fn mixed_line_endings(
+    document: &Document,
+    source: Encoding,
+    progress: Progress<'_>,
+) -> Result<bool> {
+    let mut first = None;
+    let mut mixed = false;
+    walk_events(document, source, 0, progress, &mut |event| {
+        if let Event::Eol(eol) = event
+            && !mixed
+        {
+            match first {
+                None => first = Some(eol),
+                Some(f) => mixed = f != eol,
+            }
+        }
+        Ok(())
+    })?;
+    Ok(mixed)
 }
 
 /// Whether the unedited original bytes can be copied as they are.
@@ -658,8 +727,19 @@ struct TempFile {
 
 impl Drop for TempFile {
     fn drop(&mut self) {
-        if !self.keep {
-            let _ = fs::remove_file(&self.path);
+        if self.keep {
+            return;
+        }
+        // A file that was just written can be held for a moment by a scanner or an indexer
+        // (Windows refuses the removal then), and a cancelled save must not leave its file in the
+        // folder: try again for a short, bounded time (this runs on the thread of the write).
+        for attempt in 0..20 {
+            match fs::remove_file(&self.path) {
+                Ok(()) => return,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+                Err(_) if attempt == 19 => return,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            }
         }
     }
 }
@@ -905,6 +985,12 @@ fn write_file(
     // Open the new file for reading before it takes the name: the open file goes with it, and
     // nothing can take the name in between.
     let generation = scan.and_then(|scan| new_generation(scan, &temp.path, bom_len as u64));
+    // The flush to the disk and the copy of the permissions can take long on slow storage: one more
+    // look right before the target is replaced, so that a cancel in that time still keeps the
+    // original (the temporary file is removed with `temp`).
+    if progress(written, written).is_break() {
+        return Err(FileError::Cancelled);
+    }
     fs::rename(&temp.path, &real)?;
     temp.keep = true;
     sync_dir(dir);
