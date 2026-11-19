@@ -198,6 +198,7 @@ pub(crate) fn snapshot(cx: &App) -> SearchKeys {
 }
 
 /// Changes the lists by hand ([`SearchHistory::edit`]) and tells the observers.
+#[cfg(test)]
 pub(crate) fn edit_keys(cx: &mut App, change: impl Fn(&mut SearchKeys)) {
     edit_keys_with(cx, true, change);
 }

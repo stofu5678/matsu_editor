@@ -140,6 +140,7 @@ impl ExecPrefs {
 }
 
 /// Changes the commands and folders by hand ([`ExecPrefs::edit`]).
+#[cfg(test)]
 pub(crate) fn edit_history(cx: &mut App, change: impl Fn(&mut ExecHistory)) {
     edit_history_with(cx, true, change);
 }
