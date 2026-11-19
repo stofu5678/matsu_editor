@@ -544,8 +544,8 @@ fn the_excluded_list_adds_edits_and_compares_without_case() {
     assert!(!append_except(&mut h, "TEMP"));
     assert_eq!(h.except, ["cache", "Temp"]);
     assert!(!append_except(&mut h, ""));
-    assert!(!append_except(&mut h, &"x".repeat(260)));
-    assert!(append_except(&mut h, &"x".repeat(259)));
+    assert!(!append_except(&mut h, "x".repeat(260)));
+    assert!(append_except(&mut h, "x".repeat(259)));
     // `EditItemText`: in place; the same text in another case is allowed, another item's is not.
     assert!(edit_except(&mut h, "Temp", "TEMP"));
     assert_eq!(h.except[2], "TEMP");
