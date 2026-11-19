@@ -46,14 +46,27 @@ impl TextLists {
 
 /// Runs `change` on the list of a text tab, in the application and in the settings file. Does
 /// nothing for another tab.
-pub(crate) fn change(cx: &mut App, tab: Tab, change: impl Fn(&mut dyn EditableList)) {
+pub(crate) fn change(
+    cx: &mut App,
+    tab: Tab,
+    removes: bool,
+    change: impl Fn(&mut dyn EditableList),
+) {
     match tab {
-        Tab::Search => crate::search::history::edit_keys(cx, |k| change(&mut k.search)),
-        Tab::Replace => crate::search::history::edit_keys(cx, |k| change(&mut k.replace)),
-        Tab::GrepFile => crate::search::history::edit_keys(cx, |k| change(&mut k.grep_file)),
-        Tab::GrepFolder => crate::search::history::edit_keys(cx, |k| change(&mut k.grep_folder)),
-        Tab::Command => crate::exec::edit_history(cx, |h| change(&mut h.commands)),
-        Tab::CurDir => crate::exec::edit_history(cx, |h| change(&mut h.cur_dirs)),
+        Tab::Search => {
+            crate::search::history::edit_keys_with(cx, removes, |k| change(&mut k.search))
+        }
+        Tab::Replace => {
+            crate::search::history::edit_keys_with(cx, removes, |k| change(&mut k.replace))
+        }
+        Tab::GrepFile => {
+            crate::search::history::edit_keys_with(cx, removes, |k| change(&mut k.grep_file))
+        }
+        Tab::GrepFolder => {
+            crate::search::history::edit_keys_with(cx, removes, |k| change(&mut k.grep_folder))
+        }
+        Tab::Command => crate::exec::edit_history_with(cx, removes, |h| change(&mut h.commands)),
+        Tab::CurDir => crate::exec::edit_history_with(cx, removes, |h| change(&mut h.cur_dirs)),
         Tab::Files | Tab::Folders | Tab::Except => {}
     }
 }

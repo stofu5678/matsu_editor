@@ -1123,6 +1123,69 @@ fn editing_into_a_string_the_file_has_already_removes_the_old_one_there(cx: &mut
 }
 
 #[gpui::test]
+fn adding_to_a_full_list_whose_file_order_differs_loses_only_the_files_oldest(
+    cx: &mut TestAppContext,
+) {
+    use matsu_config::settings::EditableList as _;
+    let dir = TempDir::new();
+    let path = dir.0.join("matsu.ini");
+    cx.update(|app| {
+        crate::search::history::install(
+            app,
+            crate::search::history::SearchHistory::load(None, Some(path.clone())),
+        );
+        crate::exec::install(app, crate::exec::ExecPrefs::load(None, Some(path.clone())));
+    });
+    let (dialog, cx) = setup(cx, sample());
+    // Full lists (30 searches, 32 commands): `1` is the oldest in memory.
+    cx.update(|_, app| {
+        crate::search::history::edit_keys(app, |k| {
+            for i in 1..=30 {
+                k.search.append_text(&i.to_string());
+            }
+        });
+        crate::exec::edit_history(app, |h| {
+            for i in 1..=32 {
+                h.commands.append_text(&i.to_string());
+            }
+        });
+    });
+    // In the file another process used `1` last, so `2` is the oldest there.
+    matsu_config::history::update_profile(&path, |profile| {
+        let mut keys = matsu_config::settings::SearchKeys::default();
+        for i in (2..=30).chain([1]) {
+            keys.search.add(&i.to_string());
+        }
+        let mut exec = matsu_config::settings::ExecHistory::default();
+        for i in (2..=32).chain([1]) {
+            exec.add_command(&i.to_string());
+        }
+        keys.write_to(profile).unwrap();
+        exec.write_to(profile).unwrap();
+        Ok(true)
+    })
+    .unwrap();
+    dialog.update(cx, |d, cx| d.reload(cx));
+    for tab in [Tab::Search, Tab::Command] {
+        dialog.update(cx, |d, cx| d.select_tab(tab, cx));
+        dialog.update_in(cx, |d, window, cx| d.begin_add(window, cx));
+        dialog.update_in(cx, |d, window, cx| {
+            d.finish_edit(Some("new".into()), window, cx)
+        });
+    }
+    let profile = matsu_config::Profile::load(&path).unwrap();
+    let keys = matsu_config::settings::SearchKeys::from_profile(&profile);
+    let exec = matsu_config::settings::ExecHistory::from_profile(&profile);
+    // One addition, one entry lost: the file's own oldest (`2`), not memory's (`1`) as well.
+    for (texts, max) in [(keys.search.texts(), 30), (exec.commands.texts(), 32)] {
+        assert_eq!(texts.len(), max);
+        assert_eq!(texts[0], "new");
+        assert!(texts.contains(&"1".to_owned()));
+        assert!(!texts.contains(&"2".to_owned()));
+    }
+}
+
+#[gpui::test]
 fn an_answer_that_comes_after_a_tab_change_still_deletes_the_list_that_was_asked_about(
     cx: &mut TestAppContext,
 ) {

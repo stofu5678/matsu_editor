@@ -90,7 +90,7 @@ impl ExecPrefs {
     /// is applied to our lists (so strings only we have stay, and can be edited and deleted) and,
     /// under the lock, to the lists the file has now, which are written. Nothing is merged, so a
     /// deleted string does not come back from either side.
-    fn edit(&mut self, change: impl Fn(&mut ExecHistory)) {
+    fn edit(&mut self, removes: bool, change: impl Fn(&mut ExecHistory)) {
         let before = self.history.clone();
         change(&mut self.history);
         // The file takes the change only when our own lists did (see `SearchHistory::edit`).
@@ -124,7 +124,7 @@ impl ExecPrefs {
                 }
                 // What the user removed here goes from the file too, even when the replay could
                 // not do it (an edit into a string the file has already).
-                for text in was.items() {
+                for text in was.items().iter().filter(|_| removes) {
                     if !now.items().contains(text)
                         && let Some(at) = saved.items().iter().position(|t| t == text)
                     {
@@ -141,7 +141,13 @@ impl ExecPrefs {
 
 /// Changes the commands and folders by hand ([`ExecPrefs::edit`]).
 pub(crate) fn edit_history(cx: &mut App, change: impl Fn(&mut ExecHistory)) {
-    cx.default_global::<ExecPrefs>().edit(change);
+    edit_history_with(cx, true, change);
+}
+
+/// [`edit_history`]; `removes` is false for an addition, whose pushing out of a full list is the
+/// capacity rule of each list, not a removal by the user.
+pub(crate) fn edit_history_with(cx: &mut App, removes: bool, change: impl Fn(&mut ExecHistory)) {
+    cx.default_global::<ExecPrefs>().edit(removes, change);
 }
 
 /// Makes the history of the application. Called once at startup.

@@ -116,7 +116,7 @@ impl SearchHistory {
     /// file has *now*, which are then written. Nothing is merged, so a string deleted here is not
     /// brought back from the file, and one deleted elsewhere is not brought back from memory. The
     /// sequence numbers do not move: Sakura counts additions only (`AddToSearchKeyArr`).
-    pub(crate) fn edit(&mut self, change: impl Fn(&mut SearchKeys)) {
+    pub(crate) fn edit(&mut self, removes: bool, change: impl Fn(&mut SearchKeys)) {
         let before = self.keys.clone();
         change(&mut self.keys);
         // The file takes the change only when our own lists did: a change that was refused here
@@ -139,7 +139,9 @@ impl SearchHistory {
             // And what the user removed here (deleted, or the old text of an edit) goes from the
             // file even when the replay could not do it: an edit into a string the file has
             // already is refused there, and would leave the old text behind.
-            remove_gone(&before, &self.keys, &mut keys);
+            if removes {
+                remove_gone(&before, &self.keys, &mut keys);
+            }
             let bytes = profile.to_bytes();
             let written = keys.write_to(profile).is_ok() && profile.to_bytes() != bytes;
             Ok(written)
@@ -197,7 +199,14 @@ pub(crate) fn snapshot(cx: &App) -> SearchKeys {
 
 /// Changes the lists by hand ([`SearchHistory::edit`]) and tells the observers.
 pub(crate) fn edit_keys(cx: &mut App, change: impl Fn(&mut SearchKeys)) {
-    cx.update_default_global(|history: &mut SearchHistory, _| history.edit(change));
+    edit_keys_with(cx, true, change);
+}
+
+/// [`edit_keys`]; `removes` says whether `change` removes strings by the user's wish (a delete, an
+/// edit). An addition does not: what it pushes out of a full list is the list's own capacity
+/// rule, which the file's list applies by itself (see [`SearchHistory::edit`]).
+pub(crate) fn edit_keys_with(cx: &mut App, removes: bool, change: impl Fn(&mut SearchKeys)) {
+    cx.update_default_global(|history: &mut SearchHistory, _| history.edit(removes, change));
 }
 
 /// Makes the history of the application. Called once at startup.

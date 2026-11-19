@@ -666,7 +666,8 @@ impl FavoriteDialog {
             // The change runs on our list first and is replayed on the file's list: only the first
             // result is ours (the replay may not find a string that only memory has).
             let first = Cell::new(true);
-            texts::change(cx, tab, |list| {
+            let removes = !matches!(op, Op::Add(_));
+            texts::change(cx, tab, removes, |list| {
                 let took = apply_to_list(list, tab, op);
                 if first.replace(false) {
                     taken.set(took);
