@@ -12,7 +12,7 @@ exclude = ["third_party"]
 gpui-pre-windows = { path = "third_party/gpui-pre-windows" }
 
 [workspace.package]
-version = "0.20.0"
+version = "0.21.0"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT OR Apache-2.0"

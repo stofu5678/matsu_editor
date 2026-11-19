@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.21.0](https://github.com/stofu5678/matsu_editor/compare/v0.20.0...v0.21.0) (2026-11-19)
+
+
+### Features
+
+* **file:** save a big document on a background thread with progress and cancel ([#519](https://github.com/stofu5678/matsu_editor/issues/519)) ([831578e](https://github.com/stofu5678/matsu_editor/commit/831578ebcc1cdf12fd2710fa027e67186a28dfa6))
+* **help:** add the help buttons of the dialogs and the ReadMe of the plugin options ([#526](https://github.com/stofu5678/matsu_editor/issues/526)) ([07e63bc](https://github.com/stofu5678/matsu_editor/commit/07e63bcc183061bad7cc5198cfb9cbd7752a8355))
+* **history:** add the search, replace, Grep, command and current folder tabs to the history window ([#529](https://github.com/stofu5678/matsu_editor/issues/529)) ([92a2de4](https://github.com/stofu5678/matsu_editor/commit/92a2de44204a0a366598e45f9f6d48eadafe90be))
+* **print:** add the printer button of the preview bar and open the print dialog on the paper of the setting ([#527](https://github.com/stofu5678/matsu_editor/issues/527)) ([2269331](https://github.com/stofu5678/matsu_editor/commit/22693318736cab39b81558686276a463a32339f2))
+* **ui:** add the spin buttons of Sakura's number boxes ([#528](https://github.com/stofu5678/matsu_editor/issues/528)) ([af43e01](https://github.com/stofu5678/matsu_editor/commit/af43e01f8c90f16ffd083e4b917ce00653f8ee00))
+
+
+### Bug Fixes
+
+* **commands:** number the copied lines by layout row with the type's width ([#523](https://github.com/stofu5678/matsu_editor/issues/523)) ([a7bb2ca](https://github.com/stofu5678/matsu_editor/commit/a7bb2cada56bdf315b87c6e8453a56d888d27f1d))
+* **grep:** detect each file's encoding with the settings of its type ([#524](https://github.com/stofu5678/matsu_editor/issues/524)) ([120accc](https://github.com/stofu5678/matsu_editor/commit/120acccf642f560d839392613758819bed0bfd25))
+* **print:** keep the layouts of the macOS print panel and lay out the turned paper ahead ([#530](https://github.com/stofu5678/matsu_editor/issues/530)) ([69f6dc7](https://github.com/stofu5678/matsu_editor/commit/69f6dc734918fafab510e2cdcb368619d33cd8e9))
+* **ui:** name the browse buttons of the file tree dialog ([#525](https://github.com/stofu5678/matsu_editor/issues/525)) ([dcfe22f](https://github.com/stofu5678/matsu_editor/commit/dcfe22f5af4661555b1c8472e48f2aae6867ffe8))
+
 ## [0.20.0](https://github.com/stofu5678/matsu_editor/compare/v0.19.0...v0.20.0) (2026-11-18)
 
 
