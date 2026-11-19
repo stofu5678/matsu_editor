@@ -407,17 +407,19 @@ fn paths_go_to_the_front_of_the_excluded_list_without_repeats() {
 }
 
 #[test]
-fn a_path_too_long_for_the_buffer_is_left_out_as_in_sakura_and_the_rest_goes_in() {
+fn a_300_character_path_goes_into_the_excluded_list_but_not_a_300_character_typed_text() {
     let mut h = sample();
     let long = format!("/{}", "x".repeat(299));
-    // `CMetaPath` is `_MAX_PATH` long: `AppendItemText` refuses such a text, and
-    // `MENU_ADD_EXCEPT` goes on with the next path without saying so.
+    // Sakura's `_MAX_PATH` buffer refuses it (type A: not kept); a path taken from the lists
+    // goes in, and the paths around it too.
     assert!(add_to_except(
         &mut h,
         vec!["/a".into(), long.clone(), "/b".into()]
     ));
-    assert_eq!(h.except, ["/b", "/a"]);
-    assert!(!h.except.contains(&long));
+    assert_eq!(h.except, ["/b", long.clone(), "/a"]);
+    // What is typed in the panel keeps the limit.
+    assert!(!append_except(&mut h, format!("/{}", "y".repeat(299))));
+    assert!(!edit_except(&mut h, "/a", &long.replace('x', "z")));
 }
 
 #[test]

@@ -322,10 +322,15 @@ fn same_except(a: &str, b: &str) -> bool {
 /// old one does not move). A full list drops its oldest text (`AppendItem`; nothing is a
 /// favorite there).
 pub(crate) fn append_except(history: &mut History, text: impl AsRef<str> + Into<String>) -> bool {
+    push_except(history, text, true)
+}
+
+/// [`append_except`]; `limit` says whether the length limit of what is typed applies.
+fn push_except(history: &mut History, text: impl AsRef<str> + Into<String>, limit: bool) -> bool {
     // Checked by borrowing; an accepted text moves into the list (a `String` is not copied).
     let shown = text.as_ref();
     if shown.is_empty()
-        || shown.encode_utf16().count() >= EXCEPT_MAX_UNITS
+        || (limit && shown.encode_utf16().count() >= EXCEPT_MAX_UNITS)
         || history.except.iter().any(|t| same_except(t, shown))
     {
         return false;
@@ -358,10 +363,13 @@ pub(crate) fn edit_except(history: &mut History, from: &str, to: &str) -> bool {
     true
 }
 
-/// A path of 260 UTF-16 units or more is left out without a word, as in Sakura: `MENU_ADD_EXCEPT`
-/// calls `AppendItemText`, whose `ValidateReceiveType` refuses a text that does not fit the
-/// `_MAX_PATH` buffer of `CMetaPath` (`wcsnlen(p, max) < max`, `CRecentImp.h`), and the caller
-/// does not look at the result. The same limit holds for what is typed in the panel.
+/// A path taken from the lists goes in whatever its length (type A, ADR-0018). Sakura refuses a
+/// text of 260 UTF-16 units or more here without a word: `MENU_ADD_EXCEPT` calls `AppendItemText`,
+/// whose `ValidateReceiveType` fails for a text that does not fit the `_MAX_PATH` buffer of
+/// `CMetaPath` (`wcsnlen(p, max) < max`, `CRecentImp.h`), and the caller ignores the result. That
+/// comes only from the fixed buffer, not from an intent, and MATSU's lists hold longer paths (the
+/// history keeps them, and 除外リストに追加 took them before), so excluding one must work. The
+/// limit stays for what is typed in the panel ([`append_except`], [`edit_except`]).
 /// 除外リストに追加 (`MENU_ADD_EXCEPT`): puts the paths in front of `ExceptMRU`, one by one with
 /// [`append_except`] (a text that is there already stays where it is). The list takes
 /// `MAX_EXCEPT_MRU` texts; once it is full the rest is left out, as Sakura does, and the dialog
@@ -372,7 +380,7 @@ pub(crate) fn add_to_except(history: &mut History, paths: Vec<String>) -> bool {
         if history.except.len() >= matsu_config::history::MAX_EXCEPT_MRU {
             all = false;
         } else {
-            append_except(history, path);
+            push_except(history, path, false);
         }
     }
     all
