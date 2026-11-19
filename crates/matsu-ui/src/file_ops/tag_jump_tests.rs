@@ -125,13 +125,13 @@ fn newest(cx: &mut TestAppContext) -> Win {
     window_of(cx, handle)
 }
 
-/// A folder with `target.txt` (a few lines, one with Japanese text and an emoji) and `output.txt`,
+/// A folder with `target.txt` (a few lines, one with Japanese text and an emoji) and `output.grepout` (no type: the basic one, as the type of a real Grep window),
 /// whose text is made from the path of `target.txt`.
 fn project(output: impl Fn(&str) -> String) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("target.txt");
     std::fs::write(&target, "one\ntwo\n日本語😀のテキスト\nfour\n").unwrap();
-    let out = dir.path().join("output.txt");
+    let out = dir.path().join("output.grepout");
     std::fs::write(&out, output(target.to_str().unwrap())).unwrap();
     (dir, out)
 }
@@ -466,4 +466,29 @@ fn the_jump_by_double_click_is_recorded_in_a_key_macro(cx: &mut TestAppContext) 
         .read_with(cx, |v, _| v.recorded_key_macro_text())
         .expect("a macro was recorded");
     assert!(text.contains("TagJump"), "{text}");
+}
+
+#[gpui::test]
+fn a_double_click_on_a_path_that_the_type_colors_as_a_url_opens_it_before_any_jump(
+    cx: &mut TestAppContext,
+) {
+    // `OnLBUTTONDBLCLK` (`view/CEditView_Mouse.cpp`) runs `IsCurrentPositionURL` first and returns
+    // once it has opened a URL; `Command_TAGJUMP` of a Grep window comes after. The type テキスト
+    // has regular expression keywords of the color URL that match a Windows path, on every OS
+    // here because the line is literal and names no file.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("output.txt");
+    std::fs::write(&out, "C:\\dir\\a.txt(2,3): two\n").unwrap();
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, true, true);
+    double_click_on_row(&w, cx, 0);
+    // no jump: no new window
+    assert_eq!(windows(cx), 1);
+    let url = w.cx(cx).opened_url();
+    assert!(
+        url.as_deref()
+            .is_some_and(|u| u.starts_with("C:\\dir\\a.txt")),
+        "{url:?}"
+    );
 }
