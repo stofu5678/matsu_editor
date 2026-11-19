@@ -104,6 +104,43 @@ pub(crate) fn step(
     });
 }
 
+/// One arrow: a button with its name, grey, disabled for assistive technology and without a click
+/// while `enabled` is off.
+fn arrow_button(
+    arrow_id: String,
+    glyph: &'static str,
+    label: &str,
+    enabled: bool,
+    on_step: impl Fn(&mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    use crate::a11y::AriaDisabled as _;
+
+    let text = if enabled { TEXT } else { DISABLED_TEXT };
+    crate::a11y::button(
+        div().id(ElementId::from(SharedString::from(arrow_id.clone()))),
+        label,
+    )
+    .aria_disabled(!enabled)
+    .debug_selector(move || arrow_id)
+    .w(px(ARROW_WIDTH))
+    .flex_1()
+    .min_h_0()
+    .flex()
+    .items_center()
+    .justify_center()
+    .text_size(px(8.))
+    .text_color(rgb(text))
+    .bg(rgb(FACE))
+    .border_1()
+    .border_color(rgb(BORDER))
+    .when(enabled, |d| {
+        d.cursor_pointer()
+            .hover(|d| d.bg(rgb(FACE_HOVER)))
+            .on_click(move |_, window, cx| on_step(window, cx))
+    })
+    .child(glyph)
+}
+
 /// `field` (the box of `input`) with the arrows at its right, and the Up and Down keys of the
 /// box. The arrows are named `name` + 「を増やす」 and 「を減らす」 for a screen reader. `id`
 /// must be unique in the window. With `enabled` off the arrows are grey and do nothing.
@@ -118,30 +155,13 @@ pub(crate) fn spin_box(
     let id: SharedString = id.into();
     let arrow = |part: &'static str, glyph: &'static str, label: String, delta: i32| {
         let input = input.clone();
-        let text = if enabled { TEXT } else { DISABLED_TEXT };
-        let arrow_id = format!("{id}-{part}");
-        crate::a11y::button(
-            div().id(ElementId::from(SharedString::from(arrow_id.clone()))),
+        arrow_button(
+            format!("{id}-{part}"),
+            glyph,
             &label,
+            enabled,
+            move |window, cx| step(&input, delta, min, max, window, cx),
         )
-        .debug_selector(move || arrow_id)
-        .w(px(ARROW_WIDTH))
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(8.))
-        .text_color(rgb(text))
-        .bg(rgb(FACE))
-        .border_1()
-        .border_color(rgb(BORDER))
-        .when(enabled, |d| {
-            d.cursor_pointer()
-                .hover(|d| d.bg(rgb(FACE_HOVER)))
-                .on_click(move |_, window, cx| step(&input, delta, min, max, window, cx))
-        })
-        .child(glyph)
     };
     let up = arrow("up", "▲", format!("{name}を増やす"), 1);
     let down = arrow("down", "▼", format!("{name}を減らす"), -1);
@@ -170,6 +190,30 @@ pub(crate) fn spin_box(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_arrow_is_a_named_button_that_can_be_clicked_only_while_enabled() {
+        use gpui::accesskit::Action;
+
+        let node = |enabled: bool| {
+            crate::a11y::node_of(&arrow_button(
+                "a".to_owned(),
+                "▲",
+                "行数を増やす",
+                enabled,
+                |_, _| {},
+            ))
+            .expect("an id and a role")
+        };
+        let on = node(true);
+        assert_eq!(on.role(), gpui::Role::Button);
+        assert_eq!(on.label(), Some("行数を増やす"));
+        assert!(on.supports_action(Action::Click));
+        // disabled: the click is gone and the node says it is disabled (`aria_disabled`)
+        let off = node(false);
+        assert_eq!(off.label(), Some("行数を増やす"));
+        assert!(!off.supports_action(Action::Click));
+    }
 
     #[test]
     fn a_step_moves_by_one_and_stops_at_the_ends() {
