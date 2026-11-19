@@ -1123,3 +1123,27 @@ fn alt_and_the_line_numbers_start_the_box_at_the_left_edge_when_scrolled_sideway
     });
     up_g(&f, cx, 0, alt());
 }
+
+#[gpui::test]
+fn alt_and_the_line_numbers_beside_a_partly_visible_row_grow_the_box_by_one_row(
+    cx: &mut TestAppContext,
+) {
+    let _o = options();
+    let text = (0..30)
+        .map(|i| format!("l{i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (f, cx) = setup(cx, &text);
+    // the view shows a whole number of rows and a part of the next one
+    let row = f.view.update(cx, |v, _| {
+        v.metrics.view_height = v.metrics.line_height * 4.5;
+        v.metrics.visible_rows()
+    });
+    cx.run_until_parked();
+    down_g(&f, cx, row, 1, alt());
+    f.view.read_with(cx, |v, _| {
+        assert!(v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(row + 1, 0));
+    });
+    up_g(&f, cx, row, alt());
+}

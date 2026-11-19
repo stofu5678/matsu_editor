@@ -22,7 +22,7 @@
 
 use gpui::{
     Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection,
-    Pixels, Point, ScrollWheelEvent, Window, px,
+    Pixels, Point, ScrollWheelEvent, Window,
 };
 use matsu_commands::context::DragSelection;
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
@@ -366,6 +366,19 @@ impl EditorView {
         };
     }
 
+    /// The start of the layout row below the row that contains `pos`; `None` on the last row.
+    fn layout_row_below(&self, pos: Pos, cx: &gpui::App) -> Option<Pos> {
+        let doc = self.document.read(cx).doc();
+        let row = self.layout.pos_to_row(doc, pos).ok()?.row;
+        if row + 1 >= self.layout.row_count() {
+            return None;
+        }
+        self.layout
+            .row_to_pos(doc, row + 1, matsu_layout::X::ZERO)
+            .ok()
+            .map(|r| r.pos)
+    }
+
     /// The first click of a series (`OnLBUTTONDOWN` after the triple click).
     fn single_click(
         &mut self,
@@ -397,23 +410,24 @@ impl EditorView {
             } else {
                 pos
             };
+            // The row below the one pressed, taken before the begin scrolls the view (it brings a
+            // partly visible row into view, which would move a second hit test by a row).
+            let below = if in_gutter {
+                self.layout_row_below(begin, cx)
+            } else {
+                None
+            };
             self.run_with(cx, |command_cx| command_cx.mouse_begin_box(begin))
                 .ok();
             self.drag = Drag::Box;
-            if in_gutter {
+            if let Some(row_start) = below {
                 // Alt and the line number column also move the caret one row down, growing the
                 // box (`Command_DOWN( true, false )` at the end of the Alt branch of
                 // `OnLBUTTONDOWN`). On the last row there is no row below and nothing moves.
-                let below = Point {
-                    x: event.position.x,
-                    y: event.position.y + px(self.metrics.line_height),
-                };
-                if let Some((row, _)) = self.box_corner_for_point(below, cx) {
-                    self.run_with(cx, |command_cx| {
-                        command_cx.mouse_box_to(row, matsu_layout::X::ZERO)
-                    })
-                    .ok();
-                }
+                self.run_with(cx, |command_cx| {
+                    command_cx.mouse_box_to(row_start, matsu_layout::X::ZERO)
+                })
+                .ok();
             }
             return;
         }
