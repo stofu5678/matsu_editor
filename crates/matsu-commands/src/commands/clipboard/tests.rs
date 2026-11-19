@@ -330,6 +330,8 @@ impl Layout for Wrap3 {
 /// chars; the text that went to the clipboard.
 fn run_wrapped(id: &str, text: &str, anchor: Pos, caret: Pos) -> Option<String> {
     let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
+    // the line ending of the document (`GetNewLineCode`); set, as the default follows the OS
+    model.set_new_line(matsu_core::buffer::Eol::Lf);
     let mut cursor = Cursor::default();
     cursor.select(anchor, caret);
     let mut layout = Wrap3(PlainLayout::default());
