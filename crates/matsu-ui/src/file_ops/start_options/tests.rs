@@ -800,6 +800,48 @@ fn the_type_option_gives_the_default_encoding_of_the_read(cx: &mut TestAppContex
     assert!(typed.starts_with("EUC"), "{typed}");
 }
 
+/// The type of the launch (`-TYPE=`) comes before the type the history saved for the file
+/// (`CMruListener::OnBeforeLoad` takes the saved type only when `nType` is not valid yet), and the
+/// saved type decides when the launch gives none.
+#[gpui::test]
+fn the_type_option_wins_over_the_saved_type_for_the_read(cx: &mut TestAppContext) {
+    init(cx);
+    let dir = TempDir::new();
+    let one = dir.write("a.txt", b"abc\r\n");
+    let two = dir.write("b.txt", b"abc\r\n");
+    // the basic type (id 0) reads UTF-8, the text type Shift_JIS, C/C++ EUC-JP
+    let ini = "[Other]\r\nnTypesCount=17\r\n\
+               [Types(0)]\r\neDefaultCodetype=4\r\n\
+               [Types(1)]\r\neDefaultCodetype=0\r\n\
+               [Types(2)]\r\neDefaultCodetype=2\r\n";
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ini.as_bytes());
+    let profile = matsu_config::Profile::from_bytes(&bytes);
+    cx.update(|app| {
+        app.set_global(crate::settings::UserSettings::from_profile(profile, None));
+        app.set_global(crate::history::HistoryState::in_memory(
+            crate::history::HistoryOptions::default(),
+        ));
+        crate::history::update(app, |h| {
+            for path in [&one, &two] {
+                let mut entry = matsu_config::history::FileEntry::new(
+                    crate::history::view::path_text(path),
+                );
+                entry.type_id = 0;
+                h.add_file(entry);
+            }
+        });
+    });
+    launch(cx, &dir, &["a.txt"]);
+    let view = view_of(cx, &one);
+    let saved = view.read_with(cx, |v, app| v.status(app).file_format());
+    assert!(saved.starts_with("UTF-8"), "{saved}");
+    launch(cx, &dir, &["-TYPE=cpp", "b.txt"]);
+    let view = view_of(cx, &two);
+    let typed = view.read_with(cx, |v, app| v.status(app).file_format());
+    assert!(typed.starts_with("EUC"), "{typed}");
+}
+
 #[gpui::test]
 fn a_refused_name_of_the_launch_is_told_in_the_window(cx: &mut TestAppContext) {
     init(cx);
