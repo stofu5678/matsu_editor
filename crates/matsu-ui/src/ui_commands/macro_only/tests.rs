@@ -353,6 +353,86 @@ fn text_wrap_method_agrees_with_the_temporary_wrap_commands(cx: &mut TestAppCont
     assert_eq!(one, two);
 }
 
+// ---- Jump by the rows of the window ----
+
+/// Twelve full-width characters (two columns each) wrap at 10 columns into the rows of 5, 5 and 2
+/// characters; the second line is one more row. So the rows start at (0, 0), (0, 15), (0, 30)
+/// (bytes: 3 per character) and (1, 0).
+const WRAPPED: &str = "あいうえおかきくけこさし\nabc\nxyz";
+
+fn wrapped_fixture(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
+    let (f, cx) = setup(cx, WRAPPED);
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    (f, cx)
+}
+
+/// Where `Jump(number, option)` (`option` is `None` when the macro leaves it out) puts the caret.
+fn jump_to(f: &Fixture, cx: &mut VisualTestContext, number: i64, option: Option<i64>) -> Pos {
+    f.put_caret(cx, Pos::new(2, 1));
+    let mut args = vec![Arg::Int(number)];
+    args.extend(option.map(Arg::Int));
+    assert!(f.run(cx, "F_JUMP", &args));
+    f.caret(cx)
+}
+
+#[gpui::test]
+fn jump_counts_the_rows_of_the_window_without_the_line_break_bit(cx: &mut TestAppContext) {
+    // CMacro.cpp (F_JUMP) and Command_JUMP: the option 0 counts the rows of the layout
+    let (f, cx) = wrapped_fixture(cx);
+    assert_eq!(jump_to(&f, cx, 1, Some(0)), Pos::new(0, 0));
+    assert_eq!(jump_to(&f, cx, 2, Some(0)), Pos::new(0, 15));
+    assert_eq!(jump_to(&f, cx, 3, Some(0)), Pos::new(0, 30));
+    assert_eq!(jump_to(&f, cx, 4, Some(0)), Pos::new(1, 0));
+    assert_eq!(jump_to(&f, cx, 5, Some(0)), Pos::new(2, 0));
+    // below 1 is the first row and past the last is the last row
+    assert_eq!(jump_to(&f, cx, 0, Some(0)), Pos::new(0, 0));
+    assert_eq!(jump_to(&f, cx, -7, Some(0)), Pos::new(0, 0));
+    assert_eq!(jump_to(&f, cx, 99, Some(0)), Pos::new(2, 0));
+}
+
+#[gpui::test]
+fn jump_counts_lines_with_the_line_break_bit_and_by_default(cx: &mut TestAppContext) {
+    let (f, cx) = wrapped_fixture(cx);
+    // the macro leaves the option out: it is 1 (`Argument[1] != nullptr ? _wtoi(..) : 1`)
+    for option in [None, Some(1)] {
+        assert_eq!(jump_to(&f, cx, 1, option), Pos::new(0, 0));
+        assert_eq!(jump_to(&f, cx, 2, option), Pos::new(1, 0));
+        assert_eq!(jump_to(&f, cx, 3, option), Pos::new(2, 0));
+        assert_eq!(jump_to(&f, cx, 0, option), Pos::new(0, 0));
+        assert_eq!(jump_to(&f, cx, -3, option), Pos::new(0, 0));
+        assert_eq!(jump_to(&f, cx, 99, option), Pos::new(2, 0));
+    }
+}
+
+#[gpui::test]
+fn jump_by_rows_is_the_same_in_a_macro_file(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let mac = dir.path().join("jump.mac");
+    // the rows, the lines, and the default
+    std::fs::write(&mac, "Jump(2, 0);\nJump(2);\nJump(4, 0);\n").unwrap();
+    let (f, cx) = wrapped_fixture(cx);
+    f.run(cx, "F_EXECEXTMACRO", &[path_arg(&mac)]);
+    assert_eq!(f.caret(cx), Pos::new(1, 0));
+    std::fs::write(&mac, "Jump(2, 0);\n").unwrap();
+    f.put_caret(cx, Pos::new(2, 1));
+    f.run(cx, "F_EXECEXTMACRO", &[path_arg(&mac)]);
+    assert_eq!(f.caret(cx), Pos::new(0, 15));
+    std::fs::write(&mac, "Jump(2);\n").unwrap();
+    f.run(cx, "F_EXECEXTMACRO", &[path_arg(&mac)]);
+    assert_eq!(f.caret(cx), Pos::new(1, 0));
+}
+
+#[gpui::test]
+fn jump_by_rows_follows_the_layout_as_the_window_shows_it(cx: &mut TestAppContext) {
+    // without a wrap the rows are the lines; a narrower wrap makes more rows
+    let (f, cx) = setup(cx, WRAPPED);
+    assert_eq!(jump_to(&f, cx, 2, Some(0)), Pos::new(1, 0));
+    f.view.update(cx, |v, cx| v.set_wrap_columns(4, cx));
+    cx.run_until_parked();
+    assert_eq!(jump_to(&f, cx, 2, Some(0)), Pos::new(0, 6));
+}
+
 // ---- PutFile ----
 
 #[gpui::test]
