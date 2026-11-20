@@ -222,6 +222,42 @@ fn the_box_half_pages_move_only_the_caret(cx: &mut TestAppContext) {
     );
 }
 
+/// 「矩形選択移動で選択をロックする」 (`m_bBoxSelectLock`) decides whether the box that a box page
+/// begins is locked (`Sub_BoxSelectLock`): with the lock a plain page goes on extending it, without
+/// it the plain page ends the box.
+#[gpui::test]
+fn the_lock_setting_decides_whether_a_plain_page_extends_the_box_a_box_page_begins(
+    cx: &mut TestAppContext,
+) {
+    for (lock, id) in [
+        (true, F_1PAGE_DOWN_BOX),
+        (false, F_1PAGE_DOWN_BOX),
+        (true, F_HALF_PAGE_DOWN_BOX),
+        (false, F_HALF_PAGE_DOWN_BOX),
+    ] {
+        let _options = matsu_commands::edit_options::options_for_this_thread(
+            matsu_commands::edit_options::EditOptions {
+                box_select_lock: lock,
+                ..Default::default()
+            },
+        );
+        let (view, cx) = setup(cx);
+        place(&view, cx, 100, 98);
+        run(&view, cx, id);
+        assert!(
+            view.read_with(cx, |v, _| v.cursor.is_box()
+                && v.cursor.selecting_lock() == lock),
+            "{lock} {id}"
+        );
+        run(&view, cx, F_1PAGE_DOWN);
+        assert_eq!(
+            view.read_with(cx, |v, _| v.cursor.is_box()),
+            lock,
+            "{lock} {id}: the plain page"
+        );
+    }
+}
+
 #[gpui::test]
 fn half_a_page_moves_only_the_caret(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);

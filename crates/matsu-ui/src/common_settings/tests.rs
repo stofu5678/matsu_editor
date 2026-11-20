@@ -1104,6 +1104,27 @@ fn the_overwrite_and_copy_options_reach_the_commands(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_box_select_lock_reaches_the_commands_and_the_file(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    let _restore = RestoreEditOptions::new();
+    assert!(edit_options::get().box_select_lock);
+    run(cx, handle, "F_OPTION_EDIT");
+    // the check box is live (not greyed out) and starts on, Sakura's default
+    assert!(with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("box_select_lock")));
+    check(cx, "box_select_lock", false);
+    ok(cx);
+    assert_eq!(ini.get("bBoxSelectLock").as_deref(), Some("0"));
+    assert!(!edit_options::get().box_select_lock);
+    run(cx, handle, "F_OPTION_EDIT");
+    check(cx, "box_select_lock", true);
+    ok(cx);
+    assert_eq!(ini.get("bBoxSelectLock").as_deref(), Some("1"));
+    assert!(edit_options::get().box_select_lock);
+}
+
+#[gpui::test]
 fn the_scrolling_and_the_confirmations_of_the_general_page_are_taken(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
     assert_eq!(

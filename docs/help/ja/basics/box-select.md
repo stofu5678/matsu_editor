@@ -55,7 +55,6 @@ macOS では `Alt` は `Option` キーです。
 ## サクラエディタとの違い
 
 - 矩形のコピーでは、サクラエディタが行の終わりの 1 文字を削る処理をしますが、マツエディタは、各行を改行なしの文字だけで扱ってから、CRLF を付けます。そのため、CRLF の文書でも、行の終わりに CR が残りません。
-- 共通設定の「編集」の「矩形選択移動で選択をロックする」は、灰色で使えません。
 - 矩形のとき、折り返した画面での矩形ソートの桁が、サクラエディタと違うことがあります（通常の使い方では関係しません）。
 
 ## 根拠
@@ -63,4 +62,4 @@ macOS では `Alt` は `Option` キーです。
 - マツエディタのコード: `crates/matsu-commands/src/context/boxsel.rs`（矩形の選択と移動）、`crates/matsu-commands/src/context/box_edit.rs`（コピー、削除、入力、字下げ、変換、貼り付け）、`crates/matsu-commands/src/commands/box_select/`（`_BOX` の機能）、`crates/matsu-commands/src/commands/clipboard/paste.rs`、`crates/matsu-commands/src/commands/clipboard/pastebox.rs`、`crates/matsu-ui/src/view/mouse.rs`
 - 試験: `crates/matsu-commands/src/context/box_edit_tests.rs` の `copy_gives_the_text_of_each_row_with_the_box_mark`、`copy_never_takes_a_line_ending`、`delete_and_backspace_delete_the_box`、`typing_puts_the_char_before_the_box_in_every_row`、`typing_pads_a_row_that_is_shorter_than_the_box`、`typing_in_overwrite_mode_does_not_delete_the_box`、`enter_deletes_the_box_and_breaks_the_line`、`inserting_text_puts_its_first_line_before_the_box_in_every_row`、`pastebox_pads_short_rows_with_spaces_and_adds_rows`。`crates/matsu-ui/src/view/mouse_tests.rs` の `alt_drag_selects_a_box_and_the_release_of_an_empty_one_ends_it`、`shift_click_extends_a_box_from_the_caret`、`dragging_a_box_moves_it`
 - サクラのソース: `sakura_core/cmd/CViewCommander_Select.cpp`（`Command_BEGIN_BOXSELECT`）、`sakura_core/cmd/CViewCommander_Clipboard.cpp`（`Command_PASTEBOX`）、`sakura_core/cmd/CViewCommander_Edit_advanced.cpp`（`Command_INDENT`）、`sakura_core/view/CEditView.cpp`（`GetSelectedData`、`DeleteData`）
-- 差の記録: `docs/sakura-gaps.md`（「共通設定『編集』の灰色 2 個」、「折り返し表示のときの矩形ソートの桁」の行）
+- 差の記録: `docs/sakura-gaps.md`（「共通設定『編集』の灰色 1 個」、「折り返し表示のときの矩形ソートの桁」の行）
