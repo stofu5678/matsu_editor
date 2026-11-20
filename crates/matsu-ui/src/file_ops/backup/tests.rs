@@ -1,6 +1,7 @@
 //! Tests of the names (with a fixed time), the generations, and the questions of a save.
 
 use std::fs;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -392,8 +393,8 @@ fn the_temporary_file_is_made_exclusively() {
     let dir = TempDir::new();
     let target = dir.write("a.txt", "abc");
     let dest = dir.path("a.bak");
-    let first = copy_to_temporary(&target, &dest).unwrap();
-    let second = copy_to_temporary(&target, &dest).unwrap();
+    let first = copy_to_temporary(&target, &dest, &mut |_, _| ControlFlow::Continue(())).unwrap();
+    let second = copy_to_temporary(&target, &dest, &mut |_, _| ControlFlow::Continue(())).unwrap();
     assert_ne!(first, second);
     assert_eq!(text(&first), "abc");
     assert!(first.file_name().unwrap().to_string_lossy().len() < 60);
@@ -674,4 +675,192 @@ fn the_date_kind_makes_a_name_with_the_date(cx: &mut TestAppContext) {
     );
     assert_eq!(backup.len(), "a_20261018090507.txt".len());
     assert_eq!(text(&dir.path(backup)), "old");
+}
+
+// ---- the copy of a big file, off the UI thread ----
+
+/// A file of a few pieces of the copy, with contents that differ from piece to piece.
+fn big_bytes() -> Vec<u8> {
+    (0..CHUNK * 3 + 12345).map(|i| (i % 251) as u8).collect()
+}
+
+#[test]
+fn the_backup_exists_complete_before_the_original_changes() {
+    let dir = TempDir::new();
+    let target = dir.path("a.txt");
+    let old = big_bytes();
+    fs::write(&target, &old).unwrap();
+    let dest = dir.path("a.bak");
+    let mut reports: Vec<(u64, u64)> = Vec::new();
+    let mut progress = |done: u64, total: u64| {
+        reports.push((done, total));
+        // While the copy runs the original is as it was and no backup name is taken yet: the
+        // copy is a temporary file that gets its name when it is complete.
+        assert_eq!(fs::read(&target).unwrap(), old);
+        assert!(
+            !dest.exists(),
+            "the name appears only when the copy is complete"
+        );
+        ControlFlow::Continue(())
+    };
+    make_backup_with(&prefs(1), &target, &dest, false, &mut progress).unwrap();
+    assert!(reports.len() >= 4, "{reports:?}");
+    assert!(reports.windows(2).all(|w| w[0].0 < w[1].0), "{reports:?}");
+    assert_eq!(reports.last().unwrap().0, old.len() as u64);
+    assert!(reports.iter().all(|r| r.1 == old.len() as u64));
+    assert_eq!(fs::read(&dest).unwrap(), old);
+    assert_eq!(dir.names(), ["a.bak", "a.txt"], "no temporary file is left");
+}
+
+#[test]
+fn stopping_the_copy_leaves_no_file_and_no_generation_moved() {
+    let dir = TempDir::new();
+    let target = dir.write("a.txt", "x");
+    fs::write(&target, big_bytes()).unwrap();
+    let mut p = prefs(3);
+    p.generations = 3;
+    let dest = dir.path("a.b00");
+    dir.write("a.b00", "first");
+    dir.write("a.b01", "second");
+    let mut calls = 0;
+    let stopped = make_backup_with(&p, &target, &dest, false, &mut |_, _| {
+        calls += 1;
+        if calls == 2 {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    assert!(matches!(stopped, Err(Failure::Cancelled)), "{stopped:?}");
+    assert_eq!(calls, 2, "it stops at the report that said so");
+    assert_eq!(text(&dir.path("a.b00")), "first");
+    assert_eq!(text(&dir.path("a.b01")), "second");
+    assert_eq!(dir.names(), ["a.b00", "a.b01", "a.txt"]);
+    assert_eq!(fs::read(&target).unwrap(), big_bytes());
+}
+
+/// Lets the flow go on: the progress loop of a job waits for a timer that the test clock only
+/// passes when it is told to. A bounded number of rounds.
+fn settle(cx: &mut VisualTestContext) {
+    for _ in 0..50 {
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(150));
+    }
+    cx.run_until_parked();
+}
+
+fn run_big(view: &gpui::Entity<EditorView>, cx: &mut VisualTestContext, function: &str) {
+    let code = code_of(function);
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[], window, cx)
+    });
+    settle(cx);
+}
+
+fn setup_big(
+    cx: &mut TestAppContext,
+    settings: BackupPrefs,
+) -> (gpui::Entity<EditorView>, &mut VisualTestContext) {
+    // Every document counts as big: the copy runs as a job.
+    cx.update(|app| app.set_global(super::super::save_job::BackgroundFrom(0)));
+    setup(cx, settings)
+}
+
+#[gpui::test]
+fn a_big_save_makes_the_same_backup_as_a_small_one(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("日本語.txt", "old");
+    let (view, cx) = setup_big(cx, prefs(1));
+    open(&view, cx, &path);
+    cx.simulate_input("new ");
+    run_big(&view, cx, "F_FILESAVE");
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(text(&path), "new old");
+    assert_eq!(text(&dir.path("日本語.bak")), "old");
+    assert_eq!(dir.names(), ["日本語.bak", "日本語.txt"]);
+    // The job is over: the document can be edited again.
+    assert!(!view.read_with(cx, |view, app| view.document().read(app).is_saving()));
+}
+
+#[gpui::test]
+fn a_big_save_asks_and_answers_as_a_small_one(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "old");
+    let mut p = prefs(1);
+    p.confirm = true;
+    let (view, cx) = setup_big(cx, p);
+    open(&view, cx, &path);
+    cx.simulate_input("1 ");
+    run_big(&view, cx, "F_FILESAVE");
+    answer(cx, CANCEL_BUTTON);
+    assert_eq!(text(&path), "old");
+    assert_eq!(dir.names(), ["a.txt"]);
+    run_big(&view, cx, "F_FILESAVE");
+    answer(cx, NO_BUTTON);
+    settle(cx);
+    assert_eq!(text(&path), "1 old");
+    assert_eq!(dir.names(), ["a.txt"]);
+    cx.simulate_input("2 ");
+    run_big(&view, cx, "F_FILESAVE");
+    answer(cx, YES_BUTTON);
+    settle(cx);
+    assert_eq!(text(&path), "1 2 old");
+    assert_eq!(text(&dir.path("a.bak")), "1 old");
+}
+
+#[gpui::test]
+fn a_big_save_whose_backup_fails_asks_before_it_writes(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "old");
+    let blocker = dir.write("blocker", "x");
+    let mut p = prefs(1);
+    p.use_folder = true;
+    p.folder = blocker.display().to_string();
+    let (view, cx) = setup_big(cx, p);
+    open(&view, cx, &path);
+    cx.simulate_input("1 ");
+
+    run_big(&view, cx, "F_FILESAVE");
+    let (message, _) = cx.pending_prompt().unwrap();
+    assert!(message.contains("バックアップの作成に失敗"), "{message}");
+    assert_eq!(text(&path), "old", "nothing is written while it asks");
+    answer(cx, NO_BUTTON);
+    settle(cx);
+    assert_eq!(text(&path), "old");
+
+    run_big(&view, cx, "F_FILESAVE");
+    answer(cx, YES_BUTTON);
+    settle(cx);
+    assert_eq!(text(&path), "1 old");
+    assert_eq!(dir.names(), ["a.txt", "blocker"]);
+}
+
+#[gpui::test]
+fn esc_before_the_backup_of_a_big_save_stops_the_save(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "old");
+    let mut p = prefs(1);
+    p.confirm = true;
+    let (view, cx) = setup_big(cx, p);
+    open(&view, cx, &path);
+    cx.simulate_input("1 ");
+    run_big(&view, cx, "F_FILESAVE");
+    assert!(cx.has_pending_prompt());
+    // Esc while the question is open, then Yes: the copy does not start and nothing is written.
+    view.update(cx, |view, cx| view.document().read(cx).cancel_saving());
+    answer(cx, YES_BUTTON);
+    settle(cx);
+    assert_eq!(text(&path), "old");
+    assert_eq!(dir.names(), ["a.txt"], "no backup, no temporary file");
+    let (notice, in_flow, saving) = view.read_with(cx, |view, app| {
+        let shared = view.document().read(app);
+        (
+            view.notice.clone(),
+            shared.is_in_save_flow(),
+            shared.is_saving(),
+        )
+    });
+    assert_eq!(notice.as_deref(), Some("保存を中止した"));
+    assert!(!in_flow && !saving);
 }

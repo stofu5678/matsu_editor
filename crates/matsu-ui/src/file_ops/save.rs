@@ -382,7 +382,7 @@ pub(crate) async fn save(
             })
             .ok();
         }
-        let allowed = super::backup::before_save(cx, &path).await;
+        let allowed = super::backup::before_save(cx, view, &path, &flow).await;
         if copies {
             view.update(cx, |view, cx| {
                 let share_mode = super::prefs::prefs(cx).file_share_mode;
@@ -588,7 +588,7 @@ pub(super) fn finishing_view(
 
 /// The status bar says that the save was stopped (Esc in a check or in the write), if the view still
 /// shows the document that was being saved: a replacement has its own messages.
-fn said_cancelled(
+pub(super) fn said_cancelled(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
     hold: &super::save_job::JobEnd,
