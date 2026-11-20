@@ -386,9 +386,13 @@ impl EditorView {
                     .ok();
                 })
                 .detach();
+                self.document_open_after_grep(window, cx);
                 return true;
             }
             self.begin_grep(info, cx);
+            if command {
+                self.document_open_after_grep(window, cx);
+            }
             return true;
         }
         // The result goes to a new tab of this window in tab mode, else to a new window
@@ -439,6 +443,20 @@ impl EditorView {
                 false
             }
         }
+    }
+
+    /// `Command_GREP` calls the plugins of `DocumentOpen` after `DoGrep` when the result is written in the
+    /// window (`CViewCommander_Grep.cpp`). The launch of `-GREPDLG` has its own call, in its own order.
+    fn document_open_after_grep(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editor_start_due() {
+            return;
+        }
+        let weak = cx.entity().downgrade();
+        window
+            .spawn(cx, async move |cx| {
+                crate::plugin_events::document_open_after_grep(&weak, cx).await;
+            })
+            .detach();
     }
 
     /// The text of the open document `id` as a search reads it (`GetHwndTitle`,

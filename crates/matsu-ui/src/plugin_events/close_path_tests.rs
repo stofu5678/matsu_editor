@@ -503,3 +503,101 @@ fn a_grep_to_the_standard_output_ends_after_the_events_of_the_start(cx: &mut Tes
     );
     finish(cx);
 }
+
+/// A launch with `-GREPMODE -GREPDLG`: the window and its dialog. The handlers write `[<jack>]`.
+fn grep_dialog_launch(
+    cx: &mut TestAppContext,
+    place: &Place,
+) -> (AnyWindowHandle, Entity<EditorView>) {
+    use matsu_platform::instance::Request;
+    cx.update(gpui_component::init);
+    cx.executor().allow_parking();
+    let user = {
+        let (_, vcx) = super::tests::setup(cx);
+        place.enable(vcx);
+        vcx.update(|_, app| app.global::<crate::settings::UserSettings>().clone())
+    };
+    cx.update(|app| app.set_global(user));
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("a.txt"), "needle here\n").unwrap();
+    let request = crate::launch::OpenRequest::from_launch(&Request {
+        cwd: dir.path().to_owned(),
+        args: [
+            "-GREPMODE",
+            "-GREPDLG",
+            "-GKEY=needle",
+            "-GFILE=*.txt",
+            "-GFOLDER=src",
+            "-GOPT=S",
+        ]
+        .iter()
+        .map(std::ffi::OsString::from)
+        .collect(),
+    });
+    let options = crate::file_ops::start_options::LaunchOptions::from_request(&request);
+    cx.update(|app| crate::file_ops::windows::open_from_outside_with(app, request.paths, &options))
+        .unwrap();
+    // The folder must outlive the search of the OK test, which is over before `wait` returns.
+    std::mem::forget(dir);
+    cx.update(|app| editors(app).pop()).unwrap()
+}
+
+const START_AND_OPEN: &[(&str, &str)] = &[
+    ("EditorStart", "console.log('[EditorStart]');"),
+    ("DocumentOpen", "console.log('[DocumentOpen]');"),
+];
+
+#[gpui::test]
+fn a_grep_dialog_launch_tells_the_events_only_after_the_dialog_is_gone(cx: &mut TestAppContext) {
+    let Some((place, _files)) = begin(cx, START_AND_OPEN) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (handle, view) = grep_dialog_launch(cx, &place);
+    // The dialog is up and nothing has been told: Sakura waits in `DoModal` before the plugins.
+    for _ in 0..50 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(view.read_with(cx, |v, _| v.grep_panel_open()));
+    assert!(told(&view, cx).is_empty(), "{:?}", told(&view, cx));
+    // Cancel: the plugins are told all the same (`CNormalProcess` calls them after `DoModal` either way).
+    let panel = view.read_with(cx, |v, _| v.grep.panel.clone().unwrap());
+    handle
+        .update(cx, |_, window, app| {
+            panel.update(app, |p, cx| p.cancel(window, cx))
+        })
+        .unwrap();
+    wait(cx, "the events did not come after the cancel", |cx| {
+        told(&view, cx).len() >= 2
+    });
+    assert_eq!(told(&view, cx), ["EditorStart", "DocumentOpen"]);
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_grep_dialog_launch_closed_with_ok_tells_the_grep_then_the_start(cx: &mut TestAppContext) {
+    let Some((place, _files)) = begin(cx, START_AND_OPEN) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (handle, view) = grep_dialog_launch(cx, &place);
+    let panel = view.read_with(cx, |v, _| v.grep.panel.clone().unwrap());
+    handle
+        .update(cx, |_, window, app| {
+            panel.update(app, |p, cx| p.ok(window, cx))
+        })
+        .unwrap();
+    wait(cx, "the events did not come after the search", |cx| {
+        told(&view, cx).len() >= 3
+    });
+    // `Command_GREP` (`DoGrep`, `DocumentOpen`), then `CNormalProcess` (`EditorStart`, `DocumentOpen`).
+    assert_eq!(
+        told(&view, cx),
+        ["DocumentOpen", "EditorStart", "DocumentOpen"]
+    );
+    finish(cx);
+}

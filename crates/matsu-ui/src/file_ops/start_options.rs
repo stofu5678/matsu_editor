@@ -334,9 +334,15 @@ impl LaunchOptions {
         );
     }
 
-    /// The launch searches at once (`-GREPMODE`): the window has its events after the search, as in Sakura.
+    /// The launch begins with a Grep (`-GREPMODE`, with or without `-GREPDLG`): the window has its events
+    /// after the search, or after the dialog, as in Sakura (`CNormalProcess`).
     pub(crate) fn greps_at_start(&self) -> bool {
-        self.grep.as_ref().is_some_and(|grep| !grep.dialog)
+        self.grep.is_some()
+    }
+
+    /// `-GREPDLG`: the events wait for the dialog.
+    fn asks_in_dialog(&self) -> bool {
+        self.grep.as_ref().is_some_and(|grep| grep.dialog)
     }
 
     /// `-GREPMODE` with `-GOPT=U`: the Grep writes to the standard output and the application ends.
@@ -346,8 +352,9 @@ impl LaunchOptions {
             .is_some_and(|grep| !grep.dialog && grep.args.stdout)
     }
 
-    /// `CNormalProcess`: after the Grep come `EditorStart` and `DocumentOpen` (the window was made with its
-    /// `EditorStart` deferred, see [`defer_editor_start`]). A search that cannot start is over at once.
+    /// `CNormalProcess`: after the Grep (or, for `-GREPDLG`, after the dialog is closed, with OK or without)
+    /// come `EditorStart` and `DocumentOpen` (the window was made with its `EditorStart` deferred, see
+    /// [`defer_editor_start`]). A search that cannot start is over at once.
     pub(crate) fn events_after_grep(
         &self,
         handle: AnyWindowHandle,
@@ -358,11 +365,12 @@ impl LaunchOptions {
         // `-GOPT=U`: the window closes after the events (`CNormalProcess` posts the close after them),
         // which sends the plugins `DocumentClose` and `EditorEnd` (`MYWM_CLOSE`).
         let quits = self.greps_to_stdout();
+        let dialog = self.asks_in_dialog();
         handle
             .update(cx, |_, window, app| {
                 window
                     .spawn(app, async move |cx| {
-                        crate::plugin_events::start_after_grep(&weak, cx).await;
+                        crate::plugin_events::start_after_grep(&weak, dialog, cx).await;
                         if quits {
                             super::close::quit_after_close_events(cx).await;
                         }

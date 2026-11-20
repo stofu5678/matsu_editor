@@ -36,7 +36,9 @@
 //! of a window) tells each close once ([`CloseLog`]).
 //!
 //! A window that begins with a Grep (`-GREPMODE`) gets `EditorStart` and `DocumentOpen` after the search, as in
-//! `CNormalProcess` ([`start_after_grep`]).
+//! `CNormalProcess` ([`start_after_grep`]); with `-GREPDLG`, after the dialog is closed (cancelled too). A
+//! Grep command that writes its result in the window it was given in calls `DocumentOpen` after the search
+//! ([`document_open_after_grep`]).
 
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -332,22 +334,71 @@ struct EndedWindow {
     first: WeakEntity<EditorView>,
 }
 
+/// How often the wait for the Grep dialog looks again (the user takes their time; a search does not).
+const DIALOG_TICK: Duration = Duration::from_millis(100);
+
 /// The events of a window that began with a Grep (`-GREPMODE`): when the search is over, `EditorStart` (if it
 /// is due) and `DocumentOpen` (`CNormalProcess`: `DoGrep`, then `PP_EDITOR_START`, then `PP_DOCUMENT_OPEN`). The
 /// search does not block the window as it does in Sakura, so this waits for it.
-pub(crate) async fn start_after_grep(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+///
+/// `dialog` (`-GREPDLG`): Sakura shows the dialog first, modally, and calls the same two events when it is
+/// over, whether it was closed with OK (the Grep ran) or cancelled (`CNormalProcess.cpp`, after
+/// `m_cDlgGrep.DoModal`). The dialog of MATSU is a panel, so this waits until it is gone and the search it
+/// started (if any) is over.
+pub(crate) async fn start_after_grep(
+    view: &WeakEntity<EditorView>,
+    dialog: bool,
+    cx: &mut AsyncWindowContext,
+) {
     // The document of the window when the launch began: a file that the user opens meanwhile has its own
     // `DocumentOpen`.
     let generation = view
         .read_with(cx, |view, app| view.document().read(app).generation())
         .ok();
+    if dialog {
+        while view
+            .read_with(cx, |view, _| view.grep_panel_open())
+            .unwrap_or(false)
+        {
+            cx.background_executor().timer(DIALOG_TICK).await;
+        }
+    }
+    // The Grep of the dialog that wrote its result here: `Command_GREP` called `DocumentOpen` already, before
+    // `CNormalProcess` goes on to its own two events (so this launch has three, in this order).
+    let wrote_here = dialog
+        && view
+            .read_with(cx, |view, _| view.is_grep_window() || view.grep_busy())
+            .unwrap_or(false);
+    wait_for_grep(view, cx).await;
+    if wrote_here {
+        fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
+    }
+    start_editor_if_due(view, cx).await;
+    fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
+}
+
+/// Waits until no search runs or is about to run in the window.
+async fn wait_for_grep(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
     while view
         .read_with(cx, |view, _| view.grep_busy())
         .unwrap_or(false)
     {
         cx.background_executor().timer(TICK).await;
     }
-    start_editor_if_due(view, cx).await;
+}
+
+/// `Command_GREP` (the dialog, a key, a macro) that writes its result in this window calls `DocumentOpen` after
+/// `DoGrep` (`CViewCommander_Grep.cpp`). The search does not block the window here, so this waits for it. A
+/// window that is yet to be told `EditorStart` (the launch of `-GREPDLG`) is not given this: [`start_after_grep`]
+/// calls it, in its place in the order.
+pub(crate) async fn document_open_after_grep(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) {
+    let generation = view
+        .read_with(cx, |view, app| view.document().read(app).generation())
+        .ok();
+    wait_for_grep(view, cx).await;
     fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
 }
 
