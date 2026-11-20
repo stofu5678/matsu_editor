@@ -824,9 +824,8 @@ fn the_type_option_wins_over_the_saved_type_for_the_read(cx: &mut TestAppContext
         ));
         crate::history::update(app, |h| {
             for path in [&one, &two] {
-                let mut entry = matsu_config::history::FileEntry::new(
-                    crate::history::view::path_text(path),
-                );
+                let mut entry =
+                    matsu_config::history::FileEntry::new(crate::history::view::path_text(path));
                 entry.type_id = 0;
                 h.add_file(entry);
             }
