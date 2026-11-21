@@ -328,12 +328,11 @@ pub(crate) fn make_backup(
     })
     .map_err(|stop| match stop {
         Stop::Failed(failure) => failure,
-        // Cannot happen here (nothing answers `Break`); not a silent success if it ever does.
-        Stop::Cancelled => Failure::Copy(io::Error::other("stopped")),
+        Stop::Cancelled => unreachable!("no one answers Break"),
     })
 }
 
-/// [`make_backup`] that reports how much of the file is copied (`progress(done, total)`, in bytes)
+/// `make_backup` that reports how much of the file is copied (`progress(done, total)`, in bytes)
 /// and stops with [`Stop::Cancelled`] when it answers `Break`, also after the last byte is
 /// flushed and before any generation is touched.
 pub(crate) fn make_backup_with(
