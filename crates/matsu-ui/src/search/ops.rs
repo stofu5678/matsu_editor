@@ -15,7 +15,7 @@ use std::ops::Range;
 
 use gpui::{Context, PromptLevel, Window};
 use matsu_commands::command::CommandError;
-use matsu_commands::commands::cursor::jump::{DEFAULT_OPTION, jump_to_line};
+use matsu_commands::commands::cursor::jump::jump_to_line;
 use matsu_commands::context::CommandContext;
 use matsu_core::buffer::{Document, Eol, Pos};
 use matsu_core::model::eol_text;
@@ -24,6 +24,8 @@ use matsu_core::search::{
     replace_and_find_next, replacement_for, start_after,
 };
 use matsu_regex::{RegexReplacer, ReplaceAllMode};
+
+use crate::saved_state::other::JumpUnit;
 
 use super::state::{
     REGEX_ERROR_TITLE, REPLACED_TO_END_MESSAGE, ReplaceSettings, SearchState, not_found_message,
@@ -519,20 +521,23 @@ impl EditorView {
         }
     }
 
-    /// The go-to-line dialog's jump: `F_JUMP` with the option the dialog gives, line breaks
-    /// (Sakura's default, `m_bLineNumIsCRLF_ForJump`).
-    pub fn go_to_line(&mut self, number: usize, cx: &mut Context<Self>) {
+    /// The go-to-line dialog's jump: `F_JUMP` with the option the dialog gives, the unit the user
+    /// chose (`m_bLineNumIsCRLF_ForJump`, bit 0x01 of the option).
+    pub(crate) fn go_to_line(&mut self, number: usize, unit: JumpUnit, cx: &mut Context<Self>) {
         let number = i64::try_from(number).unwrap_or(i64::MAX);
+        let option = unit.option();
         // A line the scan of a huge file has not reached is shown from a window on the file,
         // or waits for the scan, as `F_JUMP` does.
         if let Some(reg) = matsu_commands::registry::Registry::global().get("jump") {
-            let args = [matsu_commands::command::Arg::Int(number)];
+            let args = [
+                matsu_commands::command::Arg::Int(number),
+                matsu_commands::command::Arg::Int(option),
+            ];
             if self.jump_in_scan(reg, &args, cx) || self.defer_for_scan(reg, &args, cx) {
                 return;
             }
         }
-        self.run_with(cx, |c| jump_to_line(c, number, DEFAULT_OPTION))
-            .ok();
+        self.run_with(cx, |c| jump_to_line(c, number, option)).ok();
     }
 }
 
