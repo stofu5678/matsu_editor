@@ -381,7 +381,8 @@ fn move_cursor(doc: &mut dyn MacroDocument, args: &Args) -> Result<Value, RpcErr
     Ok(Value::Null)
 }
 
-/// CViewCommander::Command_JUMP with the line break unit (flag bit 0): below 1 is the first
+/// The host without a window: `Command_JUMP` with the line break unit (flag bit 0) only. A macro run by
+/// the editor reaches the registered `F_JUMP` command instead, which has rows and PL/SQL too. Below 1 is the first
 /// line, and past the last line is the last one. The default flag is 1 (CMacro.cpp, F_JUMP).
 fn jump(doc: &mut dyn MacroDocument, args: &Args) -> Result<Value, RpcError> {
     let flag = args.int_or(1, 1);
@@ -392,7 +393,7 @@ fn jump(doc: &mut dyn MacroDocument, args: &Args) -> Result<Value, RpcError> {
     }
     if flag & 0x01 == 0 {
         return Err(RpcError::invalid_params(
-            "Jump: wrapped lines are not supported yet; use flag 1 (line break unit)",
+            "Jump: wrapped rows need the layout of a window; use flag 1 (line break unit) here",
         ));
     }
     let count = logical_line_count(doc);
