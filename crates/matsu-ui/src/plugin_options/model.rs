@@ -106,7 +106,7 @@ impl Form {
             })
             .collect();
         Form {
-            name: def.name.clone(),
+            name: def.header_name().to_owned(),
             entries,
             option_file: option_file.to_owned(),
         }
@@ -134,7 +134,7 @@ impl Form {
                 .is_ok();
         }
         if missing {
-            options.save_for_plugin(&def.name).ok();
+            options.save_for_plugin(def.header_name()).ok();
         }
         Self::load(def, option_file)
     }
@@ -163,7 +163,8 @@ impl Form {
                 .set_option(&entry.def, &entry.value)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
         }
-        // The first line of the file names the plugin (`CDlgPluginOption::GetData`).
+        // The first line of the file names the plugin (`CDlgPluginOption::GetData`); `name` is
+        // `PluginDef::header_name`.
         options.save_for_plugin(&self.name)
     }
 }

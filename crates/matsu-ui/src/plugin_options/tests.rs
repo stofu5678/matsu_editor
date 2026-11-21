@@ -590,3 +590,30 @@ fn cancel_after_opening_keeps_the_defaults_that_opening_wrote(cx: &mut TestAppCo
         .unwrap();
     assert_eq!(fs::read(place.file()).unwrap(), after_open);
 }
+
+/// A plugin with no `Name`: Sakura writes `;` and the suffix with nothing before it (`m_sName` has no fallback).
+/// The dialog and `Plugin.SetOption` write the same line, so it does not flip between them.
+#[test]
+fn a_plugin_without_a_name_has_one_stable_header_from_both_writers() {
+    let place = Place::new();
+    let mut def = place.def();
+    def.name.clear();
+    let dirs = place.dirs();
+    let header = "; プラグイン設定ファイル";
+    // The dialog opens: the defaults are written with the header.
+    let mut form = Form::open(&def, &place.file());
+    assert_eq!(first_lines(&place, 2), [header, ""]);
+    // A plugin writes an option.
+    let mut api = crate::macros::plugin_call::DefApi::new(&dirs, "Opt", def.clone(), 1);
+    api.call("Plugin.SetOption", &[json!("Free"), json!("K"), json!("v")])
+        .unwrap();
+    assert_eq!(first_lines(&place, 2), [header, ""]);
+    // OK writes the dialog's values (and the line again).
+    form.set(1, "5");
+    form.save().unwrap();
+    assert_eq!(first_lines(&place, 2), [header, ""]);
+    let text = fs::read_to_string(place.file()).unwrap();
+    assert_eq!(text.matches("プラグイン設定ファイル").count(), 1, "{text}");
+    assert_eq!(place.written().get("Free", "K"), Some("v"));
+    assert_eq!(place.written().get("Main", "Level"), Some("5"));
+}
