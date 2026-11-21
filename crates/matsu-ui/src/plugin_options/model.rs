@@ -112,6 +112,33 @@ impl Form {
         }
     }
 
+    /// [`Form::load`] for a dialog that opens (`CDlgPluginOption::SetData`): an option that the file has no value
+    /// for, and that has a default, gets the default written into the file at once, with the header line, when
+    /// the dialog opens. Cancelling does not take it back. A file whose options all have values (an empty value
+    /// counts) is not written, and an option with no default or with no section or key is not written.
+    /// A write that fails is not told (Sakura does not look at the result).
+    pub(crate) fn open(def: &PluginDef, option_file: &Path) -> Self {
+        let mut options = PluginOptions::load(option_file);
+        let mut missing = false;
+        for option in &def.options {
+            if option.section.is_empty()
+                || option.key.is_empty()
+                || option.default.is_empty()
+                || options.get(&option.section, &option.key).is_some()
+            {
+                continue;
+            }
+            // The default as the definition has it, not made to fit the type: the file keeps the text.
+            missing |= options
+                .set(&option.section, &option.key, &option.default)
+                .is_ok();
+        }
+        if missing {
+            options.save_for_plugin(&def.name).ok();
+        }
+        Self::load(def, option_file)
+    }
+
     /// The title of the dialog (`STR_DLGPLUGINOPT_TITLE`).
     pub(crate) fn title(&self) -> String {
         format!("{} プラグインの設定", self.name)

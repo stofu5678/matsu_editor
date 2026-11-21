@@ -710,7 +710,7 @@ pub(crate) fn open(
             .ok();
         return None;
     }
-    let form = Form::load(def, option_file);
+    let form = Form::open(def, option_file);
     let title = form.title();
     let bounds = Bounds::centered(None, size(px(480.), px(420.)), cx);
     let options = WindowOptions {
