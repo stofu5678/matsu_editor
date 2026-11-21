@@ -1185,8 +1185,13 @@ impl EditorView {
         let replacement = self.search.replace.text.clone();
         let panel = match &self.panel {
             Some(panel) => {
-                panel.update(cx, |p, _| {
+                panel.update(cx, |p, cx| {
                     p.mode = mode;
+                    // The panel's unit is a copy of the remembered choice: take it again each
+                    // time the panel shows the jump mode (another window may have changed it).
+                    if mode == PanelMode::Jump {
+                        p.unit = jump_unit(cx);
+                    }
                     p.dropdown = None;
                     p.pending_start = Some(caret);
                 });

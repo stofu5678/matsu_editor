@@ -89,3 +89,22 @@ fn the_choice_is_made_with_a_click_too(cx: &mut TestAppContext) {
     cx.simulate_click(lines.center(), gpui::Modifiers::none());
     assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
 }
+
+#[gpui::test]
+fn a_panel_that_is_reused_for_the_jump_takes_the_remembered_choice(cx: &mut TestAppContext) {
+    let (f, cx) = wrapped(cx);
+    // the find panel is open; the choice is made elsewhere (another window)
+    cx.simulate_keystrokes("ctrl-f");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
+    cx.update(|_, app| crate::saved_state::other::remember_jump_unit(app, JumpUnit::Rows));
+    f.run(cx, "F_JUMP_DIALOG");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Jump));
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+    // a choice that was not committed is dropped when the panel goes through another mode
+    cx.simulate_keystrokes("alt-w");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
+    f.run(cx, "F_SEARCH_DIALOG");
+    f.run(cx, "F_JUMP_DIALOG");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Jump));
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+}
