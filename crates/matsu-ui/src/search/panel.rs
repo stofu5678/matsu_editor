@@ -33,6 +33,7 @@ use matsu_core::search::{Direction, ReplaceTarget};
 use super::history;
 use super::ops::SearchOutcome;
 use super::state::{NO_PATTERN_MESSAGE, ReplaceSettings, SearchOptions};
+use crate::saved_state::other::{JumpUnit, jump_unit, remember_jump_unit};
 use crate::view::EditorView;
 
 /// The labels with their access keys (Alt+letter, [`SearchPanel::use_access_key`]). They are Sakura's
@@ -60,6 +61,9 @@ const HELP: &str = crate::support::help::BUTTON_LABEL;
 const BEFORE_LABEL: &str = "置換前(N)";
 const AFTER_LABEL: &str = "置換後(P)";
 const LINE_LABEL: &str = "行番号(N)";
+// `IDC_RADIO_LINENUM_LAYOUT` and `IDC_RADIO_LINENUM_CRLF` (`IDD_JUMP`)
+const UNIT_ROWS: &str = "折り返し単位の行番号(R)";
+const UNIT_LINES: &str = "改行単位の行番号(W)";
 
 /// A check box of the options.
 #[derive(Clone, Copy, Debug)]
@@ -105,6 +109,8 @@ enum Use {
     FocusSearch,
     FocusReplacement,
     FocusLine,
+    /// The unit of the line number of the go-to-line panel.
+    Unit(JumpUnit),
 }
 
 /// Which dialog the panel is.
@@ -154,6 +160,9 @@ pub struct SearchPanel {
     text: Entity<InputState>,
     replacement: Entity<InputState>,
     line: Entity<InputState>,
+    /// The unit chosen in the go-to-line panel. The dialog's own copy, as in Sakura: the choice
+    /// goes to `m_bLineNumIsCRLF_ForJump` when ジャンプ is pressed (`GetData`) and Cancel drops it.
+    unit: JumpUnit,
     /// Where the caret was when the panel opened: the search start position that
     /// `F_JUMP_SRCHSTARTPOS` returns to, registered with the first search (`m_bSearch`,
     /// `m_ptEscCaretPos_PHY` in `CDlgFind.cpp`).
@@ -219,9 +228,16 @@ impl SearchPanel {
             text,
             replacement,
             line,
+            unit: jump_unit(cx),
             pending_start: Some(pending_start),
             _subscriptions: subscriptions,
         }
+    }
+
+    /// The unit that the go-to-line panel has chosen.
+    #[cfg(test)]
+    pub(crate) fn unit(&self) -> JumpUnit {
+        self.unit
     }
 
     pub fn mode(&self) -> PanelMode {
@@ -482,6 +498,12 @@ impl SearchPanel {
         cx.notify();
     }
 
+    /// 折り返し単位 / 改行単位 of the go-to-line panel.
+    pub(crate) fn set_unit(&mut self, unit: JumpUnit, cx: &mut Context<Self>) {
+        self.unit = unit;
+        cx.notify();
+    }
+
     /// Alt with the letter of a label (`IsDialogMessage`): switches the check box, chooses the radio
     /// button, presses the button, or moves the focus to the box after the label. Returns whether the
     /// letter was one of the dialog's (then the key is not typed into the box). The find and replace
@@ -542,6 +564,16 @@ impl SearchPanel {
             Entry::labelled(BEFORE_LABEL, replacing, Use::FocusSearch),
             Entry::labelled(AFTER_LABEL, replacing, Use::FocusReplacement),
             Entry::labelled(LINE_LABEL, mode == PanelMode::Jump, Use::FocusLine),
+            Entry::labelled(
+                UNIT_ROWS,
+                mode == PanelMode::Jump,
+                Use::Unit(JumpUnit::Rows),
+            ),
+            Entry::labelled(
+                UNIT_LINES,
+                mode == PanelMode::Jump,
+                Use::Unit(JumpUnit::Lines),
+            ),
         ];
         let used = match pick(letter, &entries) {
             Found::Nothing => return false,
@@ -562,6 +594,7 @@ impl SearchPanel {
             Use::FocusSearch => focus_selecting(&self.text, window, cx),
             Use::FocusReplacement => focus_selecting(&self.replacement, window, cx),
             Use::FocusLine => focus_selecting(&self.line, window, cx),
+            Use::Unit(unit) => self.set_unit(unit, cx),
         }
         true
     }
@@ -674,13 +707,17 @@ impl SearchPanel {
         self.register_start(cx);
     }
 
-    fn jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // `CDlgJump::GetData` takes the choice of the unit before it reads the number, so it is
+        // kept even when the number is not valid.
+        let unit = self.unit;
+        remember_jump_unit(cx, unit);
         let value = self.line.read(cx).value().to_string();
         let Ok(number) = value.trim().parse::<usize>() else {
             return;
         };
         self.editor
-            .update(cx, |editor, cx| editor.go_to_line(number, cx))
+            .update(cx, |editor, cx| editor.go_to_line(number, unit, cx))
             .ok();
         self.close(window, cx);
     }
@@ -756,6 +793,22 @@ impl SearchPanel {
                 cx,
             ))
             .child(self.option_box("search-wrap", WRAP, options.wrap, |o, v| o.wrap = v, cx))
+    }
+
+    /// A radio button of the unit of the line number.
+    fn unit_choice(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        unit: JumpUnit,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div().debug_selector(|| id.to_owned()).child(
+            Button::new(id)
+                .labelled(label)
+                .selected(self.unit == unit)
+                .on_click(cx.listener(move |this, _, _, cx| this.set_unit(unit, cx))),
+        )
     }
 
     fn render_replace_targets(
@@ -989,6 +1042,22 @@ impl Render for SearchPanel {
                                 )),
                         )
                         .child(
+                            v_flex()
+                                .gap_1()
+                                .child(self.unit_choice(
+                                    "jump-unit-rows",
+                                    UNIT_ROWS,
+                                    JumpUnit::Rows,
+                                    cx,
+                                ))
+                                .child(self.unit_choice(
+                                    "jump-unit-lines",
+                                    UNIT_LINES,
+                                    JumpUnit::Lines,
+                                    cx,
+                                )),
+                        )
+                        .child(
                             h_flex()
                                 .gap_2()
                                 .child(Button::new("jump-ok").labelled("OK").on_click(
@@ -1116,8 +1185,13 @@ impl EditorView {
         let replacement = self.search.replace.text.clone();
         let panel = match &self.panel {
             Some(panel) => {
-                panel.update(cx, |p, _| {
+                panel.update(cx, |p, cx| {
                     p.mode = mode;
+                    // The panel's unit is a copy of the remembered choice: take it again each
+                    // time the panel shows the jump mode (another window may have changed it).
+                    if mode == PanelMode::Jump {
+                        p.unit = jump_unit(cx);
+                    }
                     p.dropdown = None;
                     p.pending_start = Some(caret);
                 });
