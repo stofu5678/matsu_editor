@@ -22,6 +22,11 @@
 //! with the button or with the close box is the same (Sakura dropped the cancel in 2010,
 //! `IDCANCEL` of `OnBnClicked`).
 //!
+//! A click on a column header sorts the list by that column (`LVN_COLUMNCLICK`, [`Sort`]); the sort is
+//! only how the list is shown, the history keeps its order. A right click on the list opens a menu
+//! with the items of `CDlgFavorite::RightMenu`. When another window changed a history, a line under
+//! the buttons says which (`STR_DLGFAV_FAV_REFRESH`, [`refreshed_message`]).
+//!
 //! The dialog is a window of its own, as in Sakura, with the window of the editor behind it. Its
 //! place and size are kept when it is closed and used by the next one (`rcFavoriteDialog`,
 //! [`crate::saved_state::dialog_rect`]).
@@ -40,6 +45,7 @@ use gpui::{
 };
 use gpui_component::Root;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use matsu_config::history::{History, Recent};
 use matsu_config::settings::EditableList;
 
@@ -86,6 +92,11 @@ impl Tab {
         Tab::Command,
         Tab::CurDir,
     ];
+
+    /// The place of the tab in [`Tab::ALL`].
+    pub(crate) fn index(self) -> usize {
+        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
+    }
 
     /// The next tab, going round (Ctrl+PageDown in Sakura; here Tab).
     pub(crate) fn next(self) -> Tab {
@@ -182,6 +193,79 @@ pub(crate) fn key_column(index: usize, shown: bool) -> String {
         .map(|c| c.to_ascii_uppercase())
         .unwrap_or('0');
     format!("{key} {}", if shown { "  " } else { "(非表示)" })
+}
+
+/// The two columns of the list: the check box with the access key (the header says お気に入り,
+/// `STR_DLGFAV_FAVORITE`) and the text of the item (the header says the name of the tab).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Column {
+    Key,
+    Text,
+}
+
+/// How the list of a tab is sorted (`ListViewSortInfo`: `nSortColumn`, `bSortAscending`). It is how the
+/// rows are shown and nothing else: `ListView_SortItems` only moves the rows of the list view, and the
+/// history behind it (`CRecent`) is not touched, so the saved order does not change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Sort {
+    pub column: Column,
+    pub ascending: bool,
+}
+
+impl Sort {
+    /// The sort after a click on the header of `column` (`ListViewSort` with `bReverse`): the first
+    /// click on a column sorts it ascending, a click on the column that is sorted turns the order.
+    pub(crate) fn clicked(current: Option<Sort>, column: Column) -> Sort {
+        match current {
+            Some(sort) if sort.column == column => Sort {
+                column,
+                ascending: !sort.ascending,
+            },
+            _ => Sort {
+                column,
+                ascending: true,
+            },
+        }
+    }
+
+    /// The text that the header of the sorted column ends with (`ListViewSort` adds `▼` for ascending
+    /// and `▲` for descending to the header).
+    pub(crate) fn mark(self) -> &'static str {
+        if self.ascending { "▼" } else { "▲" }
+    }
+}
+
+/// The numbers of the rows in the order the list shows them (`CompareListViewFunc`): the first column
+/// compares the numbers the rows had (the order of the history), the second compares the texts
+/// without regard to case (`wmemicmp`); descending is the same turned round. Without a sort the order
+/// is that of the history.
+pub(crate) fn display_order(rows: &[Row], sort: Option<Sort>) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    if let Some(sort) = sort {
+        if sort.column == Column::Text {
+            order.sort_by_cached_key(|&i| {
+                rows[i]
+                    .text
+                    .to_lowercase()
+                    .encode_utf16()
+                    .collect::<Vec<_>>()
+            });
+        }
+        if !sort.ascending {
+            order.reverse();
+        }
+    }
+    order
+}
+
+/// The line under the buttons when another window changed the lists of `tabs`
+/// (`STR_DLGFAV_FAV_REFRESH`, the captions joined with `STR_DLGFAV_DELIMITER`).
+pub(crate) fn refreshed_message(tabs: &[Tab]) -> String {
+    let names: Vec<&str> = tabs.iter().map(|t| t.caption()).collect();
+    format!(
+        "履歴({})が更新されたため編集中情報を破棄し再表示しました。",
+        names.join("、")
+    )
 }
 
 /// The rows of a tab.
@@ -562,6 +646,15 @@ pub(crate) struct FavoriteDialog {
     notice_task: Option<gpui::Task<()>>,
     /// The panel of 追加 and 編集, when it is open.
     edit: Option<EditPanel>,
+    /// The sort of each tab's list, by [`Tab::index`]. Each tab keeps its own while the dialog is
+    /// open (`m_aListViewInfo`); none of it is saved.
+    sorts: [Option<Sort>; Tab::ALL.len()],
+    /// The line under the buttons (`IDC_STATIC_FAVORITE_MSG`).
+    message: String,
+    /// Whether the user has not been in front of the dialog since `message` was set. Sakura shows the
+    /// message of a refresh when the dialog is activated and clears it at the next activation, so a
+    /// message set while the dialog is in the back stays through the next activation.
+    message_unseen: bool,
 }
 
 /// The rectangle of the window as the dialog opens it: the restored one when it is maximized,
@@ -592,6 +685,9 @@ impl FavoriteDialog {
                             return;
                         }
                         this.reload(cx);
+                        if window.is_window_active() {
+                            this.message_unseen = false;
+                        }
                     })
                     .is_ok();
                 if !alive {
@@ -602,6 +698,18 @@ impl FavoriteDialog {
         .detach();
         cx.observe_window_bounds(window, |this, window, _| this.rect = window_rect(window))
             .detach();
+        // `OnActivate` shows the message of the refresh it has just made and clears the one of the
+        // time before.
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                if !this.message_unseen {
+                    this.message.clear();
+                }
+                this.message_unseen = false;
+                cx.notify();
+            }
+        })
+        .detach();
         // Whichever way the dialog is closed, its place is kept (`OnDestroy`).
         cx.on_release(|this, cx| remember_favorite(cx, this.rect))
             .detach();
@@ -617,7 +725,34 @@ impl FavoriteDialog {
             rect: window_rect(window),
             notice_task: None,
             edit: None,
+            sorts: [None; Tab::ALL.len()],
+            message: String::new(),
+            message_unseen: false,
         }
+    }
+
+    /// The line under the buttons.
+    #[cfg(test)]
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// The sort of the tab that is shown.
+    #[cfg(test)]
+    pub(crate) fn sort(&self) -> Option<Sort> {
+        self.sorts[self.tab.index()]
+    }
+
+    /// A click on the header of a column (`LVN_COLUMNCLICK`).
+    pub(crate) fn click_header(&mut self, column: Column, cx: &mut Context<Self>) {
+        let slot = &mut self.sorts[self.tab.index()];
+        *slot = Some(Sort::clicked(*slot, column));
+        cx.notify();
+    }
+
+    /// The numbers of the rows of the tab that is shown, in the order the list shows them.
+    pub(crate) fn order(&self) -> Vec<usize> {
+        display_order(&self.rows(), self.sorts[self.tab.index()])
     }
 
     #[cfg(test)]
@@ -626,11 +761,32 @@ impl FavoriteDialog {
     }
 
     pub(crate) fn rows(&self) -> Vec<Row> {
-        if self.tab.is_text_list() {
-            text_rows(&self.texts, self.tab)
+        self.rows_of(self.tab)
+    }
+
+    fn rows_of(&self, tab: Tab) -> Vec<Row> {
+        if tab.is_text_list() {
+            text_rows(&self.texts, tab)
         } else {
-            rows(&self.history, self.tab)
+            rows(&self.history, tab)
         }
+    }
+
+    /// What `RefreshListOne` compares to see that a list changed: the texts in their order and the
+    /// number of the items the menu shows.
+    fn fingerprint(&self) -> Vec<(Vec<String>, usize)> {
+        Tab::ALL
+            .iter()
+            .map(|&tab| {
+                let shown = match tab {
+                    Tab::Files => self.history.files.view_count(),
+                    Tab::Folders => self.history.folders.view_count(),
+                    _ => 0,
+                };
+                let texts = self.rows_of(tab).into_iter().map(|r| r.text).collect();
+                (texts, shown)
+            })
+            .collect()
     }
 
     #[cfg(test)]
@@ -652,11 +808,23 @@ impl FavoriteDialog {
             return;
         }
         let before = self.paths();
+        let old = self.fingerprint();
         if let Some(history) = history {
             self.history = history;
         }
         if let Some(texts) = texts {
             self.texts = texts;
+        }
+        // The lists that differ are named in the line under the buttons (`RefreshList`).
+        let changed: Vec<Tab> = Tab::ALL
+            .iter()
+            .zip(old.iter().zip(self.fingerprint()))
+            .filter(|(_, (old, new))| **old != *new)
+            .map(|(&tab, _)| tab)
+            .collect();
+        if !changed.is_empty() {
+            self.message = refreshed_message(&changed);
+            self.message_unseen = true;
         }
         let same_rows = before == self.paths();
         self.keep_selection(same_rows);
@@ -720,6 +888,8 @@ impl FavoriteDialog {
     }
 
     pub(crate) fn select_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        // `TabSelectChange` clears the line.
+        self.message.clear();
         if self.tab != tab {
             self.tab = tab;
             self.selected.clear();
@@ -739,11 +909,20 @@ impl FavoriteDialog {
         cx: &mut Context<Self>,
     ) {
         if shift {
-            let (from, to) = (self.anchor.min(index), self.anchor.max(index));
+            // The range is of the rows between the two as the list shows them.
+            let order = self.order();
+            let place = |row: usize| order.iter().position(|&r| r == row).unwrap_or(row);
+            let (from, to) = (
+                place(self.anchor).min(place(index)),
+                place(self.anchor).max(place(index)),
+            );
             if !control {
                 self.selected.clear();
             }
-            self.selected.extend(from..=to);
+            match order.get(from..=to) {
+                Some(rows) => self.selected.extend(rows.iter().copied()),
+                None => self.selected.extend(from..=to),
+            }
         } else if control {
             if !self.selected.remove(&index) {
                 self.selected.insert(index);
@@ -799,6 +978,7 @@ impl FavoriteDialog {
 
     /// "すべて".
     pub(crate) fn ask_delete_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.message.clear();
         if !self.rows().is_empty() {
             self.confirm_then(&confirm_all(self.tab), window, cx, Op::DeleteAll);
         }
@@ -806,6 +986,7 @@ impl FavoriteDialog {
 
     /// "お気に入り以外".
     pub(crate) fn ask_delete_non_favorites(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.message.clear();
         if self.tab.has_favorites() && !self.rows().is_empty() {
             let message = confirm_non_favorites(self.tab);
             self.confirm_then(&message, window, cx, Op::DeleteNonFavorites);
@@ -814,6 +995,7 @@ impl FavoriteDialog {
 
     /// "存在しない項目".
     pub(crate) fn ask_delete_missing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.message.clear();
         if self.tab.is_path_list() && !self.rows().is_empty() {
             let message = confirm_missing(self.tab);
             self.confirm_then(&message, window, cx, Op::DeleteMissing);
@@ -832,17 +1014,25 @@ impl FavoriteDialog {
 
     /// "選択項目": no question (Sakura asks none).
     pub(crate) fn delete_selected_rows(&mut self, cx: &mut Context<Self>) {
+        self.message.clear();
         if self.selected.is_empty() {
             return;
         }
         let paths = self.selected_texts();
-        let next = self.selected.iter().next_back().copied().unwrap_or(0) + 1 - self.selected.len();
+        // The place (in the order the list shows) of the item after the last one deleted.
+        let last = self
+            .order()
+            .iter()
+            .rposition(|row| self.selected.contains(row))
+            .unwrap_or(0);
+        let next = last + 1 - self.selected.len();
         self.selected.clear();
         self.run(cx, &Op::DeleteRows(paths));
         // The item after the last one deleted is selected, or the last item.
-        let count = self.rows().len();
+        let order = self.order();
+        let count = order.len();
         if count > 0 {
-            let at = next.min(count - 1);
+            let at = order[next.min(count - 1)];
             self.selected = BTreeSet::from([at]);
             self.focus_row = at;
             self.anchor = at;
@@ -853,6 +1043,7 @@ impl FavoriteDialog {
     /// 除外リストに追加: the selected files or folders go into the list of excluded paths. A list
     /// that is full says so and takes what fits.
     pub(crate) fn add_selected_to_except(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.message.clear();
         if !self.tab.can_add_except() || self.selected.is_empty() {
             return;
         }
@@ -1093,8 +1284,19 @@ impl FavoriteDialog {
             self.on_panel_key(event, window, cx);
             return;
         }
+        // A key that reaches here from the right-click menu (which is inside the dialog and has the
+        // focus while it is open) is the menu's, not the list's.
+        if !self.focus.is_focused(window) {
+            return;
+        }
         let count = self.rows().len();
         let modifiers = event.keystroke.modifiers;
+        // The keys move through the rows as the list shows them.
+        let order = self.order();
+        let place = order
+            .iter()
+            .position(|&row| row == self.focus_row)
+            .unwrap_or(self.focus_row);
         let target = match key {
             "escape" | "enter" => {
                 self.close(window);
@@ -1106,7 +1308,6 @@ impl FavoriteDialog {
                 return;
             }
             "f2" => {
-                // There is no right-click menu with 編集(E) here.
                 self.begin_edit(window, cx);
                 cx.stop_propagation();
                 return;
@@ -1129,14 +1330,14 @@ impl FavoriteDialog {
                 cx.stop_propagation();
                 return;
             }
-            "up" => self.focus_row.saturating_sub(1),
-            "down" => (self.focus_row + 1).min(count.saturating_sub(1)),
+            "up" => place.saturating_sub(1),
+            "down" => (place + 1).min(count.saturating_sub(1)),
             "home" => 0,
             "end" => count.saturating_sub(1),
             _ => return,
         };
         if count > 0 {
-            self.click_row(target, false, modifiers.shift, cx);
+            self.click_row(order[target], false, modifiers.shift, cx);
             self.scroll.scroll_to_item(target);
         }
         cx.stop_propagation();
@@ -1152,16 +1353,22 @@ impl Focusable for FavoriteDialog {
 impl Render for FavoriteDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
+        let menu_owner = this.clone();
         let panel = self.render_panel(window, cx);
         // The field of the panel of 追加 and 編集 has the focus while the panel is open.
-        if self.edit.is_none() && !self.focus.is_focused(window) {
+        // (Only when nothing has the focus: the right-click menu takes it, and the frame that opens
+        // the menu does not have it in the tree yet, so asking whether the dialog contains the focus
+        // would take it back from the menu at once.)
+        if self.edit.is_none() && window.focused(cx).is_none() {
             window.focus(&self.focus, cx);
         }
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let rows = self.rows();
-        let items: Vec<_> = rows
-            .iter()
-            .enumerate()
+        let sort = self.sorts[self.tab.index()];
+        let items: Vec<_> = self
+            .order()
+            .into_iter()
+            .map(|i| (i, &rows[i]))
             .map(|(i, row)| {
                 let selected = self.selected.contains(&i);
                 let mut item = crate::a11y::list_row(
@@ -1296,16 +1503,27 @@ impl Render for FavoriteDialog {
             )
             .child(
                 div()
-                    .id("favorite-rows")
-                    .role(gpui::Role::ListBox)
-                    .aria_label("一覧")
                     .flex_1()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
                     .bg(rgb(0xffffff))
                     .border_1()
                     .border_color(rgb(0xaaaaaa))
-                    .children(items),
+                    .child(self.render_header(sort, cx))
+                    .child(
+                        div()
+                            .id("favorite-rows")
+                            .debug_selector(|| "favorite-rows".to_owned())
+                            .role(gpui::Role::ListBox)
+                            .aria_label("一覧")
+                            .flex_1()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll)
+                            .children(items)
+                            // `NM_RCLICK`: the menu of `RightMenu`, over the list.
+                            .context_menu(move |menu, _, cx| right_menu(menu, &menu_owner, cx)),
+                    ),
             )
             .child(
                 div()
@@ -1360,7 +1578,159 @@ impl Render for FavoriteDialog {
                             .on_click(|_: &ClickEvent, _, cx| open_help(cx)),
                     ),
             )
+            .child(
+                div()
+                    .id("favorite-message")
+                    .min_h(px(18.))
+                    .child(self.message.clone()),
+            )
             .when_some(panel, |root, panel| root.child(panel))
+    }
+}
+
+/// What an item of the menu of a right click does: what the button or key of the same name does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RightAct {
+    Edit,
+    Add,
+    AddExcept,
+    DeleteAll,
+    DeleteNonFavorites,
+    DeleteMissing,
+    DeleteSelected,
+}
+
+/// A row of the menu of a right click.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RightRow {
+    Separator,
+    Item {
+        label: &'static str,
+        enabled: bool,
+        act: RightAct,
+    },
+}
+
+/// The rows of the menu of a right click on the list (`CDlgFavorite::RightMenu`): 編集, 新規追加,
+/// 除外リストに追加 (only for the tabs that can add to the excluded list), and the four deletes. What is
+/// gray is what Sakura grays; `any` is whether the tab has an item (`GetItemCount`). 除外リストに追加 is gray in
+/// Sakura when the list is over its size, which cannot be (`GetItemCount() <= GetArrayCount()`), so it
+/// is not gray here; a full list is told when the item is used.
+pub(crate) fn right_rows(tab: Tab, any: bool) -> Vec<RightRow> {
+    let item = |label, enabled, act| RightRow::Item {
+        label,
+        enabled,
+        act,
+    };
+    let mut rows = vec![
+        item("編集", tab.is_editable() && any, RightAct::Edit),
+        RightRow::Separator,
+        item("新規追加", tab.is_editable(), RightAct::Add),
+    ];
+    if tab.can_add_except() {
+        rows.push(item("除外リストに追加", true, RightAct::AddExcept));
+    }
+    rows.extend([
+        RightRow::Separator,
+        item("すべて削除", any, RightAct::DeleteAll),
+        item(
+            "お気に入り以外削除",
+            tab.has_favorites() && any,
+            RightAct::DeleteNonFavorites,
+        ),
+        item(
+            "存在しない項目削除",
+            tab.is_path_list() && any,
+            RightAct::DeleteMissing,
+        ),
+        item("選択項目削除", any, RightAct::DeleteSelected),
+    ]);
+    rows
+}
+
+impl FavoriteDialog {
+    /// Runs the item of the right-click menu.
+    pub(crate) fn right_act(&mut self, act: RightAct, window: &mut Window, cx: &mut Context<Self>) {
+        match act {
+            RightAct::Edit => self.begin_edit(window, cx),
+            RightAct::Add => self.begin_add(window, cx),
+            RightAct::AddExcept => self.add_selected_to_except(window, cx),
+            RightAct::DeleteAll => self.ask_delete_all(window, cx),
+            RightAct::DeleteNonFavorites => self.ask_delete_non_favorites(window, cx),
+            RightAct::DeleteMissing => self.ask_delete_missing(window, cx),
+            RightAct::DeleteSelected => self.delete_selected_rows(cx),
+        }
+    }
+}
+
+/// The popup of the right click. The access keys of the items (`&E` and the like) are not there:
+/// the menu belongs to gpui-component, which has no way for the dialog to give it letters.
+fn right_menu(menu: PopupMenu, owner: &Entity<FavoriteDialog>, cx: &App) -> PopupMenu {
+    let dialog = owner.read(cx);
+    let rows = right_rows(dialog.tab, !dialog.rows().is_empty());
+    rows.into_iter().fold(menu, |menu, row| match row {
+        RightRow::Separator => menu.separator(),
+        RightRow::Item {
+            label,
+            enabled,
+            act,
+        } => {
+            let owner = owner.clone();
+            menu.item(PopupMenuItem::new(label).disabled(!enabled).on_click(
+                move |_, window, cx| {
+                    owner.update(cx, |dialog, cx| dialog.right_act(act, window, cx));
+                },
+            ))
+        }
+    })
+}
+
+impl FavoriteDialog {
+    /// The header of the list (`LVS_REPORT`): the two columns, which sort the list when clicked. The
+    /// sorted column ends with `▼` or `▲` (`ListViewSort`).
+    fn render_header(&self, sort: Option<Sort>, cx: &mut Context<Self>) -> impl IntoElement {
+        let title = |column: Column, name: &str| {
+            let mark = sort.filter(|s| s.column == column).map_or("", Sort::mark);
+            format!("{name}{mark}")
+        };
+        let key_width = if self.tab.has_favorites() { 104. } else { 80. };
+        let cell = |id: &'static str, column: Column, text: String| {
+            crate::a11y::button(div().id(id), &text)
+                .debug_selector(move || id.to_owned())
+                .cursor_pointer()
+                .child(text)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.click_header(column, cx);
+                }))
+        };
+        div()
+            .id("favorite-header")
+            .flex()
+            .gap_2()
+            .px_2()
+            .h(px(22.))
+            .items_center()
+            .flex_none()
+            .bg(rgb(0xf0f0f0))
+            .border_b_1()
+            .border_color(rgb(0xaaaaaa))
+            .child(
+                cell(
+                    "favorite-header-key",
+                    Column::Key,
+                    title(Column::Key, "お気に入り"),
+                )
+                .w(px(key_width))
+                .flex_none(),
+            )
+            .child(
+                cell(
+                    "favorite-header-text",
+                    Column::Text,
+                    title(Column::Text, self.tab.caption()),
+                )
+                .flex_1(),
+            )
     }
 }
 

@@ -39,7 +39,7 @@
 | 印刷 | 2 | プリンターを名前で指定すること（macOS・Linux。型 B）、macOS の印刷パネルで、先に割り付けていない用紙を選ぶときの割り付け（UI スレッド。型 B） |
 | OS との結び付き | 7 | タスクトレイ、署名、Wayland のアイコン、Linux の HTML クリップボード |
 | アクセシビリティ | 4 | ポップアップメニュー、本文へのキーボードのフォーカス、`Button`・`Input` の disabled（いずれも gpui-component と GPUI の限界） |
-| そのほか | 8 | `-GROUP`、`-NOWIN` |
+| そのほか | 7 | `-GROUP`、`-NOWIN` |
 
 ### 次のラウンドに勧める順番
 
@@ -199,7 +199,6 @@
 |---|---|---|---|---|---|
 | コマンドラインの `-GROUP=`（タブのグループ指定）、`-NOWIN`、`-DEBUGMODE`、`-PROFMGR` | `CCommandLine.cpp`、`CNormalProcess.cpp`、`CProcessFactory.cpp` | 読んで無視する（`command_line.rs`）。`-DEBUGMODE` はタイプだけ変える。理由: `-GROUP=` は、サクラが自分で起動する子プロセス（`CControlTray.cpp` 1113 行あたり、`CPropComPlugin.cpp` 575 行）にグループ番号（`GetFreeGroupId`）を渡す内部の取り決めで、利用者には見えない。MATSU のグループはウィンドウ（ADR-0015）で、番号がなく、1 つのプロセスが作るので、渡す相手がいない。`-NOWIN` は、トレイだけのコントロールプロセスを起こす（`IsStartingControlProcess`）。トレイがない MATSU で窓なしで起動すると、見えず終えられないプロセスになる。`-DEBUGMODE` は `OutputDebugString` を見せる窓（Windows のデバッグ出力）。`-PROFMGR` は、プロファイルマネージャー（下の「プロファイル」の行、ユーザーの判断が要る）に頼る | B | S | 同上 |
 | コマンドラインの細部の残り: 長すぎるパスの箱（`STR_ERR_FILEPATH_TOO_LONG`）、起動を実行中の MATSU Editor に渡したときのプログラム名の数字 | `CCommandLine.cpp` | 空白入りで引用符のない名前の探索（作業フォルダーで、つなげて存在するもの）、使えない文字（`* ? " < > |`）の確認の箱（Windows のみ。ほかでは使える文字なので型 B）、プログラム名の数字による文字コード（`-CODE=` が勝つ）、`-TYPE` の既定の文字コードを読み込みに使うことは入った。長すぎるパスの箱は、MATSU のパスの長さに上限がない（`wcsncpy_s` の `_TRUNCATE` に当たる所がない）ので出す場面がなく、型 B。渡す側のプログラム名の数字は `Request`（`matsu-platform/src/instance/request.rs`）に載らない。載せるには、プロセス間の取り決めの新しい版が要る。ユーザーが、取り決めを変えず、効かせずに閉じると決めた（2026-11-19。`-CODE=` で同じことができる） | B | S | なし |
-| 最近使ったファイル・フォルダー: 履歴の管理の残り（列の見出しのクリックによる並べ替え、項目を右クリックしたときのメニュー、別の窓が履歴を変えたときの知らせの行） | `CDlgFavorite.cpp` | 入った: 履歴の管理の 9 つのタブすべて（ファイル・フォルダー・ファイル・フォルダー除外・検索・置換・GREPファイル・GREPフォルダー・コマンド・カレントディレクトリ。`m_aFavoriteInfo` のとおりに、タブごとのボタンの使える・使えない、「追加」と、ダブルクリックと F2 による編集、`ExceptMRU` の追加・編集。`history/dialog.rs`、`history/texts.rs`）と「除外リストに追加」。右クリックのメニューの代わりに F2 と各ボタン、Ctrl+PageDown の代わりに Tab（型 B）。開くときのタイプの復元（履歴の `.nType` にタイプ ID を書き、開くときに `GetDocumentTypeOfId` と同じにタイプ ID から探して使う。`-TYPE=` が先。ロックはしない。タイプは読む前に決め、文字コードの自動判定にそのタイプの既定を使う。ID のタイプがもうなければ、ファイル名のタイプ。`CMruListener::OnBeforeLoad`、`load.rs`）。残り: 新しいウィンドウの開始フォルダー（`GetDlgInitialDir`。MATSU は 1 つのプロセスで、ウィンドウごとのカレントフォルダーがないので型 B） | C | S | なし |
 | 一覧のアクセスキーのうち、一覧にフォーカスを移す仕組みが要るもの、ダイアログの表示言語（`szLanguageDll`） | `CPropComKeybind.cpp`、`CSelectLang.cpp` | なし | 言語: ユーザーの判断が要る（ADR） | M | なし |
 
 ## 調整役の宿題と今のラウンド
