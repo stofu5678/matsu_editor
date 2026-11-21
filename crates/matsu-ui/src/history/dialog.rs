@@ -40,8 +40,8 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, Global, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PromptLevel,
-    Render, ScrollHandle, StatefulInteractiveElement, Styled, Window, WindowBounds, WindowOptions,
-    div, px, rgb, size,
+    Render, ScrollHandle, StatefulInteractiveElement, Styled, WeakEntity, Window, WindowBounds,
+    WindowOptions, div, px, rgb, size,
 };
 use gpui_component::Root;
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -649,12 +649,56 @@ pub(crate) struct FavoriteDialog {
     /// The sort of each tab's list, by [`Tab::index`]. Each tab keeps its own while the dialog is
     /// open (`m_aListViewInfo`); none of it is saved.
     sorts: [Option<Sort>; Tab::ALL.len()],
-    /// The line under the buttons (`IDC_STATIC_FAVORITE_MSG`).
-    message: String,
-    /// Whether the user has not been in front of the dialog since `message` was set. Sakura shows the
-    /// message of a refresh when the dialog is activated and clears it at the next activation, so a
-    /// message set while the dialog is in the back stays through the next activation.
-    message_unseen: bool,
+    /// The line under the buttons.
+    notice: Notice,
+}
+
+/// The line under the buttons (`IDC_STATIC_FAVORITE_MSG`, `m_szMsg`), and the one place that knows its
+/// rules. Sakura shows the message of a refresh when the dialog is activated and clears it at the
+/// next activation, so a message set while the dialog is in the back stays through the next
+/// activation: that is `Unseen`; `Seen` is on the screen and goes at the next activation. The
+/// buttons and the tabs clear it (`DlgItem_SetText(.., L"")`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Notice {
+    #[default]
+    None,
+    Unseen(String),
+    Seen(String),
+}
+
+impl Notice {
+    /// A refresh has just made this message; nobody has seen it.
+    pub(crate) fn set(&mut self, text: String) {
+        *self = Notice::Unseen(text);
+    }
+
+    /// An action of the user clears it.
+    pub(crate) fn clear(&mut self) {
+        *self = Notice::None;
+    }
+
+    /// The dialog is in front (a look at the history while it is the active window).
+    pub(crate) fn in_front(&mut self) {
+        if let Notice::Unseen(text) = self {
+            *self = Notice::Seen(std::mem::take(text));
+        }
+    }
+
+    /// The window was activated (`OnActivate`): a message not seen yet is shown now, the one that
+    /// was shown before goes.
+    pub(crate) fn activate(&mut self) {
+        match self {
+            Notice::Unseen(text) => *self = Notice::Seen(std::mem::take(text)),
+            _ => *self = Notice::None,
+        }
+    }
+
+    pub(crate) fn text(&self) -> &str {
+        match self {
+            Notice::None => "",
+            Notice::Unseen(text) | Notice::Seen(text) => text,
+        }
+    }
 }
 
 /// The rectangle of the window as the dialog opens it: the restored one when it is maximized,
@@ -686,7 +730,7 @@ impl FavoriteDialog {
                         }
                         this.reload(cx);
                         if window.is_window_active() {
-                            this.message_unseen = false;
+                            this.notice.in_front();
                         }
                     })
                     .is_ok();
@@ -702,10 +746,7 @@ impl FavoriteDialog {
         // time before.
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
-                if !this.message_unseen {
-                    this.message.clear();
-                }
-                this.message_unseen = false;
+                this.notice.activate();
                 cx.notify();
             }
         })
@@ -726,15 +767,14 @@ impl FavoriteDialog {
             notice_task: None,
             edit: None,
             sorts: [None; Tab::ALL.len()],
-            message: String::new(),
-            message_unseen: false,
+            notice: Notice::None,
         }
     }
 
     /// The line under the buttons.
     #[cfg(test)]
     pub(crate) fn message(&self) -> &str {
-        &self.message
+        self.notice.text()
     }
 
     /// The sort of the tab that is shown.
@@ -750,9 +790,15 @@ impl FavoriteDialog {
         cx.notify();
     }
 
-    /// The numbers of the rows of the tab that is shown, in the order the list shows them.
+    /// The numbers of the rows of the tab that is shown, in the order the list shows them. Builds
+    /// the rows: a caller that has them uses [`order_of`](Self::order_of).
     pub(crate) fn order(&self) -> Vec<usize> {
-        display_order(&self.rows(), self.sorts[self.tab.index()])
+        self.order_of(&self.rows())
+    }
+
+    /// [`order`](Self::order) for `rows`, the rows of the tab that is shown.
+    fn order_of(&self, rows: &[Row]) -> Vec<usize> {
+        display_order(rows, self.sorts[self.tab.index()])
     }
 
     #[cfg(test)]
@@ -794,6 +840,15 @@ impl FavoriteDialog {
         &self.selected
     }
 
+    /// The text the panel of 編集 started from.
+    #[cfg(test)]
+    pub(crate) fn editing_text(&self) -> Option<&str> {
+        match self.edit.as_ref()?.target {
+            EditTarget::Edit(ref text) => Some(text),
+            EditTarget::Add => None,
+        }
+    }
+
     /// Whether the panel of 追加 and 編集 is open.
     #[cfg(test)]
     pub(crate) fn is_editing(&self) -> bool {
@@ -823,8 +878,7 @@ impl FavoriteDialog {
             .map(|(&tab, _)| tab)
             .collect();
         if !changed.is_empty() {
-            self.message = refreshed_message(&changed);
-            self.message_unseen = true;
+            self.notice.set(refreshed_message(&changed));
         }
         let same_rows = before == self.paths();
         self.keep_selection(same_rows);
@@ -889,7 +943,7 @@ impl FavoriteDialog {
 
     pub(crate) fn select_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         // `TabSelectChange` clears the line.
-        self.message.clear();
+        self.notice.clear();
         if self.tab != tab {
             self.tab = tab;
             self.selected.clear();
@@ -908,9 +962,22 @@ impl FavoriteDialog {
         shift: bool,
         cx: &mut Context<Self>,
     ) {
+        // Only a range needs the order the list shows.
+        let order = if shift { self.order() } else { Vec::new() };
+        self.click_row_in(&order, index, control, shift, cx);
+    }
+
+    /// [`click_row`](Self::click_row) with the order the list shows (needed for `shift`).
+    fn click_row_in(
+        &mut self,
+        order: &[usize],
+        index: usize,
+        control: bool,
+        shift: bool,
+        cx: &mut Context<Self>,
+    ) {
         if shift {
             // The range is of the rows between the two as the list shows them.
-            let order = self.order();
             let place = |row: usize| order.iter().position(|&r| r == row).unwrap_or(row);
             let (from, to) = (
                 place(self.anchor).min(place(index)),
@@ -978,7 +1045,7 @@ impl FavoriteDialog {
 
     /// "すべて".
     pub(crate) fn ask_delete_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.message.clear();
+        self.notice.clear();
         if !self.rows().is_empty() {
             self.confirm_then(&confirm_all(self.tab), window, cx, Op::DeleteAll);
         }
@@ -986,7 +1053,7 @@ impl FavoriteDialog {
 
     /// "お気に入り以外".
     pub(crate) fn ask_delete_non_favorites(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.message.clear();
+        self.notice.clear();
         if self.tab.has_favorites() && !self.rows().is_empty() {
             let message = confirm_non_favorites(self.tab);
             self.confirm_then(&message, window, cx, Op::DeleteNonFavorites);
@@ -995,26 +1062,27 @@ impl FavoriteDialog {
 
     /// "存在しない項目".
     pub(crate) fn ask_delete_missing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.message.clear();
+        self.notice.clear();
         if self.tab.is_path_list() && !self.rows().is_empty() {
             let message = confirm_missing(self.tab);
             self.confirm_then(&message, window, cx, Op::DeleteMissing);
         }
     }
 
-    /// The texts of the selected rows.
+    /// The texts of the selected rows, in the order the list shows them (`ListView_GetNextItem` with
+    /// `LVNI_SELECTED` goes through the list view's order): 編集 takes the first of them.
     fn selected_texts(&self) -> Vec<String> {
-        self.rows()
+        let rows = self.rows();
+        self.order_of(&rows)
             .into_iter()
-            .enumerate()
-            .filter(|(i, _)| self.selected.contains(i))
-            .map(|(_, r)| r.text)
+            .filter(|i| self.selected.contains(i))
+            .map(|i| rows[i].text.clone())
             .collect()
     }
 
     /// "選択項目": no question (Sakura asks none).
     pub(crate) fn delete_selected_rows(&mut self, cx: &mut Context<Self>) {
-        self.message.clear();
+        self.notice.clear();
         if self.selected.is_empty() {
             return;
         }
@@ -1043,7 +1111,7 @@ impl FavoriteDialog {
     /// 除外リストに追加: the selected files or folders go into the list of excluded paths. A list
     /// that is full says so and takes what fits.
     pub(crate) fn add_selected_to_except(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.message.clear();
+        self.notice.clear();
         if !self.tab.can_add_except() || self.selected.is_empty() {
             return;
         }
@@ -1289,10 +1357,11 @@ impl FavoriteDialog {
         if !self.focus.is_focused(window) {
             return;
         }
-        let count = self.rows().len();
+        let rows = self.rows();
+        let count = rows.len();
         let modifiers = event.keystroke.modifiers;
         // The keys move through the rows as the list shows them.
-        let order = self.order();
+        let order = self.order_of(&rows);
         let place = order
             .iter()
             .position(|&row| row == self.focus_row)
@@ -1337,7 +1406,7 @@ impl FavoriteDialog {
             _ => return,
         };
         if count > 0 {
-            self.click_row(order[target], false, modifiers.shift, cx);
+            self.click_row_in(&order, order[target], false, modifiers.shift, cx);
             self.scroll.scroll_to_item(target);
         }
         cx.stop_propagation();
@@ -1353,7 +1422,7 @@ impl Focusable for FavoriteDialog {
 impl Render for FavoriteDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
-        let menu_owner = this.clone();
+        let menu_owner = this.downgrade();
         let panel = self.render_panel(window, cx);
         // The field of the panel of 追加 and 編集 has the focus while the panel is open.
         // (Only when nothing has the focus: the right-click menu takes it, and the frame that opens
@@ -1366,7 +1435,7 @@ impl Render for FavoriteDialog {
         let rows = self.rows();
         let sort = self.sorts[self.tab.index()];
         let items: Vec<_> = self
-            .order()
+            .order_of(&rows)
             .into_iter()
             .map(|i| (i, &rows[i]))
             .map(|(i, row)| {
@@ -1582,7 +1651,7 @@ impl Render for FavoriteDialog {
                 div()
                     .id("favorite-message")
                     .min_h(px(18.))
-                    .child(self.message.clone()),
+                    .child(self.notice.text().to_owned()),
             )
             .when_some(panel, |root, panel| root.child(panel))
     }
@@ -1649,7 +1718,9 @@ pub(crate) fn right_rows(tab: Tab, any: bool) -> Vec<RightRow> {
 }
 
 impl FavoriteDialog {
-    /// Runs the item of the right-click menu.
+    /// Runs the item of the right-click menu. Each method it calls checks the state of the dialog
+    /// when it runs (the tab can do it, the list has an item, something is selected), so a menu that
+    /// was built from an older state cannot make the dialog do what the tab does not allow.
     pub(crate) fn right_act(&mut self, act: RightAct, window: &mut Window, cx: &mut Context<Self>) {
         match act {
             RightAct::Edit => self.begin_edit(window, cx),
@@ -1664,9 +1735,15 @@ impl FavoriteDialog {
 }
 
 /// The popup of the right click. The access keys of the items (`&E` and the like) are not there:
-/// the menu belongs to gpui-component, which has no way for the dialog to give it letters.
-fn right_menu(menu: PopupMenu, owner: &Entity<FavoriteDialog>, cx: &App) -> PopupMenu {
-    let dialog = owner.read(cx);
+/// the menu belongs to gpui-component, which has no way for the dialog to give it letters. Which
+/// items are gray is how the tab looked when the menu opened, for display only: an item runs through
+/// [`FavoriteDialog::right_act`], which looks at the dialog as it is then (a reload from another window
+/// may have changed it). The menu does not keep the dialog alive.
+fn right_menu(menu: PopupMenu, owner: &WeakEntity<FavoriteDialog>, cx: &App) -> PopupMenu {
+    let Some(dialog) = owner.upgrade() else {
+        return menu;
+    };
+    let dialog = dialog.read(cx);
     let rows = right_rows(dialog.tab, !dialog.rows().is_empty());
     rows.into_iter().fold(menu, |menu, row| match row {
         RightRow::Separator => menu.separator(),
@@ -1678,7 +1755,9 @@ fn right_menu(menu: PopupMenu, owner: &Entity<FavoriteDialog>, cx: &App) -> Popu
             let owner = owner.clone();
             menu.item(PopupMenuItem::new(label).disabled(!enabled).on_click(
                 move |_, window, cx| {
-                    owner.update(cx, |dialog, cx| dialog.right_act(act, window, cx));
+                    owner
+                        .update(cx, |dialog, cx| dialog.right_act(act, window, cx))
+                        .ok();
                 },
             ))
         }

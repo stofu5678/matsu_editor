@@ -6,10 +6,11 @@
 
 use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext};
 use matsu_config::history::{FileEntry, History};
+use matsu_config::settings::EditableList as _;
 
 use super::dialog::{
-    Column, FavoriteDialog, RightAct, RightRow, Row, Sort, Tab, display_order, refreshed_message,
-    right_rows,
+    Column, FavoriteDialog, Notice, RightAct, RightRow, Row, Sort, Tab, display_order,
+    refreshed_message, right_rows,
 };
 use super::{HistoryOptions, HistoryState, current};
 use crate::document::SharedDocument;
@@ -371,4 +372,63 @@ fn each_item_of_the_menu_does_what_its_button_does(cx: &mut TestAppContext) {
     dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
     dialog.update_in(cx, |d, window, cx| d.right_act(RightAct::Add, window, cx));
     assert!(dialog.read_with(cx, |d, _| d.is_editing()));
+}
+
+#[test]
+fn the_notice_follows_the_rules_of_on_activate_in_one_place() {
+    let mut n = Notice::None;
+    n.set("m".to_owned());
+    // Set while the dialog is in the back: the next activation shows it, the one after clears it.
+    assert_eq!(n, Notice::Unseen("m".to_owned()));
+    n.activate();
+    assert_eq!(n, Notice::Seen("m".to_owned()));
+    assert_eq!(n.text(), "m");
+    n.activate();
+    assert_eq!(n, Notice::None);
+    // Set while the dialog is in front: it is seen at once, and the next activation clears it.
+    n.set("m".to_owned());
+    n.in_front();
+    assert_eq!(n, Notice::Seen("m".to_owned()));
+    n.activate();
+    assert_eq!(n.text(), "");
+    // A button clears it, and nothing of the unseen state is left for the next activation to skip.
+    n.set("m".to_owned());
+    n.clear();
+    n.set("later".to_owned());
+    n.activate();
+    assert_eq!(n, Notice::Seen("later".to_owned()));
+    n.clear();
+    n.activate();
+    assert_eq!(n, Notice::None);
+}
+
+#[gpui::test]
+fn edit_takes_the_first_selected_row_as_the_list_shows_it(cx: &mut TestAppContext) {
+    let (dialog, cx) = setup(cx, sample());
+    cx.update(|_, app| {
+        crate::search::history::edit_keys(app, |k| {
+            // The newest first: the history is ["z", "a"].
+            k.search.append_text("a");
+            k.search.append_text("z");
+        });
+    });
+    dialog.update(cx, |d, cx| d.reload(cx));
+    dialog.update(cx, |d, cx| d.select_tab(Tab::Search, cx));
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d
+            .rows()
+            .into_iter()
+            .map(|r| r.text)
+            .collect::<Vec<_>>()),
+        ["z", "a"]
+    );
+    click_header(cx, "favorite-header-text");
+    // Shown "a", "z"; both selected.
+    dialog.update(cx, |d, cx| d.click_row(0, false, false, cx));
+    dialog.update(cx, |d, cx| d.click_row(1, true, false, cx));
+    dialog.update_in(cx, |d, window, cx| d.begin_edit(window, cx));
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.editing_text().map(str::to_owned)),
+        Some("a".to_owned())
+    );
 }
