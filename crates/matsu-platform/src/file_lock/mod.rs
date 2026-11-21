@@ -65,6 +65,8 @@ impl FileLock {
 /// * macOS and Linux: there is no share mode, so after the open an exclusive `flock` is tried
 ///   and given back at once. It fails (`WouldBlock`) while another program, another MATSU Editor
 ///   for example, holds the file locked in either mode. A program that does not lock is not seen.
+///   A refused try is repeated for a short time first (see `try_lock_retrying`), so that a child
+///   process of this program does not look like another program.
 pub fn check_writable(path: &Path) -> io::Result<()> {
     // Only a regular file is probed. Opening a FIFO for appending blocks until a reader comes, and
     // a dangling symlink would get its target made; the save itself reports what it cannot write.
@@ -85,14 +87,7 @@ pub fn check_writable(path: &Path) -> io::Result<()> {
         Err(error) => return Err(error),
     };
     #[cfg(not(windows))]
-    let locked = {
-        use std::fs::TryLockError;
-        match file.try_lock() {
-            Ok(()) => Ok(()),
-            Err(TryLockError::WouldBlock) => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-            Err(TryLockError::Error(error)) => Err(error),
-        }
-    };
+    let locked = try_lock_retrying(&file, LOCK_RETRY_FOR, |file| file.try_lock());
     #[cfg(windows)]
     let locked = Ok(());
     drop(file);
@@ -144,16 +139,49 @@ fn open(path: &Path, mode: ShareMode) -> io::Result<File> {
 
 #[cfg(not(windows))]
 fn open(path: &Path, mode: ShareMode) -> io::Result<File> {
-    use std::fs::TryLockError;
     let file = File::open(path)?;
-    let locked = match mode {
+    try_lock_retrying(&file, LOCK_RETRY_FOR, |file| match mode {
         ShareMode::DenyWrite => file.try_lock_shared(),
         ShareMode::DenyReadWrite => file.try_lock(),
-    };
-    match locked {
-        Ok(()) => Ok(file),
-        Err(TryLockError::WouldBlock) => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        Err(TryLockError::Error(error)) => Err(error),
+    })?;
+    Ok(file)
+}
+
+/// How long a refused `flock` is tried again before it is reported.
+#[cfg(not(windows))]
+const LOCK_RETRY_FOR: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// The pause between two tries.
+#[cfg(not(windows))]
+const LOCK_RETRY_EVERY: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Calls `try_lock` and, while it answers `WouldBlock`, again every [`LOCK_RETRY_EVERY`] for up to
+/// `within`, then reports `WouldBlock`.
+///
+/// A `flock` belongs to the open file description, and a child that this process starts on another
+/// thread (a plugin host, the shell of a terminal tab, an external command) holds a copy of every
+/// descriptor from the fork until its exec closes the `O_CLOEXEC` ones. A lock this program has just
+/// let go of is therefore still held for that short window, and would be taken for another
+/// program's. A lock that another program really holds is still reported, only `within` later.
+#[cfg(not(windows))]
+fn try_lock_retrying(
+    file: &File,
+    within: std::time::Duration,
+    try_lock: impl Fn(&File) -> Result<(), std::fs::TryLockError>,
+) -> io::Result<()> {
+    use std::fs::TryLockError;
+    let start = std::time::Instant::now();
+    loop {
+        match try_lock(file) {
+            Ok(()) => return Ok(()),
+            Err(TryLockError::WouldBlock) => {
+                if start.elapsed() >= within {
+                    return Err(io::Error::from(io::ErrorKind::WouldBlock));
+                }
+                std::thread::sleep(LOCK_RETRY_EVERY);
+            }
+            Err(TryLockError::Error(error)) => return Err(error),
+        }
     }
 }
 
@@ -338,6 +366,42 @@ mod tests {
             drop(lock);
             check_writable(&path).unwrap();
         }
+    }
+
+    /// A lock held through another open file description (what a forked child keeps for a moment)
+    /// that is let go of within the bound does not refuse the check, nor a new lock.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_lock_let_go_of_soon_does_not_refuse_the_check() {
+        let (_dir, path) = file();
+        let lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            drop(lock);
+        });
+        check_writable(&path).unwrap();
+        releaser.join().unwrap();
+        let lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            drop(lock);
+        });
+        FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
+        releaser.join().unwrap();
+    }
+
+    /// A lock held longer than the bound is reported as `WouldBlock`, after the wait.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_lock_held_longer_than_the_bound_refuses_the_check() {
+        let (_dir, path) = file();
+        let _lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
+        let start = std::time::Instant::now();
+        let error = check_writable(&path).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert!(start.elapsed() >= LOCK_RETRY_FOR);
+        let error = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
     }
 
     /// The lock is advisory on macOS and Linux: a program that does not lock still writes.
