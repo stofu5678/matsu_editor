@@ -135,6 +135,30 @@ pub(crate) fn clipboard_replacement(cx: &mut App) -> Option<String> {
     Some(text)
 }
 
+/// The events of a `-GREPDLG` launch that wait for the dialog of the window. The window owns the task: it ends
+/// with the window (the wait only matters while the window lives).
+#[derive(Default)]
+enum LaunchEvents {
+    #[default]
+    None,
+    /// The dialog is open. The launch tells the plugins `DocumentOpen` of the Grep itself, in its own place in
+    /// the order (`plugin_events::start_after_grep`), so the Grep that the dialog starts does not tell it.
+    /// `panel`: the dialog of the launch. It is told apart from another Grep dialog that opens later (a new panel
+    /// is another entity), so the wait is for this one only.
+    Waiting {
+        task: gpui::Task<()>,
+        panel: Option<gpui::EntityId>,
+    },
+    /// The dialog is gone; the task goes on to tell the events (it must not be dropped before it ends).
+    /// `started_here`: the Grep of the dialog started in this window and left its `DocumentOpen` to the launch.
+    /// It is recorded by the step that ends the wait, not worked out again later from the state of the window
+    /// (a Grep that the user starts meanwhile is not the dialog's).
+    Settled {
+        _task: gpui::Task<()>,
+        started_here: bool,
+    },
+}
+
 /// What a window knows about Grep.
 #[derive(Default)]
 pub struct GrepWindow {
@@ -146,6 +170,8 @@ pub struct GrepWindow {
     /// The macro of タイプ変更後 runs before a search that is about to begin here: the window is
     /// taken, as if the search ran.
     starting: bool,
+    /// The launch of `-GREPDLG` and its wait for this window's dialog.
+    launch: LaunchEvents,
     /// The file being searched and the hits so far, for the bar that stops the search.
     progress: Option<(String, usize)>,
     /// The line where the result of the search that runs (or ran last) begins.
@@ -361,6 +387,10 @@ impl EditorView {
                 .as_ref()
                 .is_some_and(|w| w.id == self.document.entity_id().as_u64());
         if !new_window && !replaces_here && self.grep_output_here(cx) {
+            // Whether `DocumentOpen` follows is decided now, before the macro of タイプ変更後 takes the window:
+            // the Grep is the user's (or a macro's) as it starts, not as the macro ends.
+            let claimed = command && self.claim_launch_grep();
+            let tells_open = command && !claimed && self.document_open_due(cx);
             if command
                 && self.use_grep_type(cx)
                 && self.run_auto_macro(crate::macros::Auto::TypeChanged, None, window, cx)
@@ -386,9 +416,15 @@ impl EditorView {
                     .ok();
                 })
                 .detach();
+                if tells_open {
+                    self.tell_document_open_after_grep(window, cx);
+                }
                 return true;
             }
             self.begin_grep(info, cx);
+            if tells_open {
+                self.tell_document_open_after_grep(window, cx);
+            }
             return true;
         }
         // The result goes to a new tab of this window in tab mode, else to a new window
@@ -439,6 +475,109 @@ impl EditorView {
                 false
             }
         }
+    }
+
+    /// The launch of `-GREPDLG` takes the events of this window: `task` waits for the dialog and tells them.
+    pub(crate) fn hold_launch_events(&mut self, task: gpui::Task<()>) {
+        let panel = self.grep.panel.as_ref().map(gpui::Entity::entity_id);
+        self.grep.launch = LaunchEvents::Waiting { task, panel };
+    }
+
+    /// Whether the dialog of the launch is gone: it is not the panel of the window any more (closed, or
+    /// another dialog took the place; a Grep dialog that opens later is another panel).
+    fn launch_dialog_gone(&self) -> bool {
+        match &self.grep.launch {
+            LaunchEvents::Waiting { panel, .. } => {
+                panel.is_none() || self.grep.panel.as_ref().map(gpui::Entity::entity_id) != *panel
+            }
+            _ => false,
+        }
+    }
+
+    /// For the task of the launch: a dialog that went without a Grep of its own (replaced by another dialog)
+    /// settles the launch, so the wait is led by the recorded state and not by whether some Grep panel is open.
+    pub(crate) fn settle_launch_if_dialog_gone(&mut self) {
+        if self.launch_dialog_gone() {
+            self.settle_launch(false);
+        }
+    }
+
+    /// Whether the launch still waits for its dialog.
+    pub(crate) fn launch_waits(&self) -> bool {
+        matches!(self.grep.launch, LaunchEvents::Waiting { .. })
+    }
+
+    /// The dialog of the launch is gone and no Grep of it started here (it was cancelled, or went another way:
+    /// a window that replaced it): a Grep of this window tells its own `DocumentOpen` again.
+    pub(crate) fn release_launch_open(&mut self) {
+        self.settle_launch(false);
+    }
+
+    /// A waiting launch becomes a settled one, with the outcome. A settled one keeps its task and its outcome
+    /// (dropping the task would cancel the events).
+    fn settle_launch(&mut self, started_here: bool) {
+        if matches!(self.grep.launch, LaunchEvents::Waiting { .. })
+            && let LaunchEvents::Waiting { task, .. } = std::mem::take(&mut self.grep.launch)
+        {
+            self.grep.launch = LaunchEvents::Settled {
+                _task: task,
+                started_here,
+            };
+        }
+    }
+
+    /// The Grep that starts now is the one of the dialog of the launch (the dialog has just closed with OK):
+    /// the launch takes its `DocumentOpen`, and records that the Grep started here (`LaunchEvents::Settled`).
+    /// Returns whether it is.
+    fn claim_launch_grep(&mut self) -> bool {
+        if self.launch_dialog_gone() {
+            self.settle_launch(true);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether the Grep of the dialog of the launch started in this window (see `LaunchEvents::Settled`).
+    pub(crate) fn launch_grep_started_here(&self) -> bool {
+        matches!(
+            self.grep.launch,
+            LaunchEvents::Settled {
+                started_here: true,
+                ..
+            }
+        )
+    }
+
+    /// The launch has told all its events: the window lets go of its task. The last thing the task does.
+    pub(crate) fn finish_launch_events(&mut self) {
+        self.grep.launch = LaunchEvents::None;
+    }
+
+    /// Whether `DocumentOpen` follows the Grep that starts now in this window (`Command_GREP` calls the plugins
+    /// after `DoGrep`, `CViewCommander_Grep.cpp`; `CJackManager::InvokePlugins` has no guard of its own).
+    ///
+    /// Not told (the state is looked at when the Grep starts, not when it ends):
+    /// * while the dialog of a `-GREPDLG` launch waits: the launch tells the events of its window in its own
+    ///   place (`LaunchEvents`, `claim_launch_grep`);
+    /// * a Grep that a macro or a plugin command (or an event handler) starts: MATSU gives no event to what
+    ///   one of them does (`Turn::Taken`, `plugin_events`), so a handler of `DocumentOpen` that greps does not
+    ///   call itself again.
+    fn document_open_due(&self, cx: &Context<Self>) -> bool {
+        !matches!(self.grep.launch, LaunchEvents::Waiting { .. })
+            && self.event_turn(cx) == crate::macros::plugin_call::Turn::Free
+    }
+
+    /// Tells the plugins `DocumentOpen` when the search of this window is over.
+    fn tell_document_open_after_grep(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let weak = cx.entity().downgrade();
+        // Detached on purpose: the task holds the view only weakly and its loop ends when the view is gone
+        // or the search is over, so it needs no owner.
+        window
+            .spawn(cx, async move |cx| {
+                crate::plugin_events::document_open_after_grep(&weak, cx).await;
+            })
+            .detach();
     }
 
     /// The text of the open document `id` as a search reads it (`GetHwndTitle`,

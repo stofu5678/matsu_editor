@@ -808,7 +808,11 @@ impl GrepPanel {
         self.read_boxes(cx);
         remember(cx, self.settings.clone());
         self.editor
-            .update(cx, |editor, cx| editor.close_grep_panel(window, cx))
+            .update(cx, |editor, cx| {
+                editor.close_grep_panel(window, cx);
+                // No Grep follows: the launch of `-GREPDLG` (if this is its dialog) does not wait for one.
+                editor.release_launch_open();
+            })
             .ok();
     }
 
