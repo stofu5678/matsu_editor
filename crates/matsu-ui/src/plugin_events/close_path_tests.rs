@@ -854,3 +854,34 @@ fn a_grep_started_right_after_the_cancel_of_the_dialog_is_not_counted_for_the_di
     assert_eq!(told.iter().filter(|e| *e == "EditorStart").count(), 1);
     finish(cx);
 }
+
+/// The dialog of `-GREPDLG` is cancelled and another Grep dialog opens at once (before the launch looks again):
+/// the launch does not wait for that one; its events come while it is still open.
+#[gpui::test]
+fn another_grep_dialog_opened_right_after_the_cancel_does_not_hold_back_the_start_events(
+    cx: &mut TestAppContext,
+) {
+    let Some((place, _files)) = begin(cx, START_AND_OPEN) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (handle, view) = grep_dialog_launch(cx, &place);
+    let panel = view.read_with(cx, |v, _| v.grep.panel.clone().unwrap());
+    handle
+        .update(cx, |_, window, app| {
+            panel.update(app, |p, cx| p.cancel(window, cx));
+            // No turn of the clock between: the launch has not looked yet.
+            view.update(app, |view, cx| view.open_grep_panel(window, cx));
+        })
+        .unwrap();
+    assert!(view.read_with(cx, |v, _| v.grep_panel_open()));
+    wait(cx, "the start events waited for the other dialog", |cx| {
+        told(&view, cx).len() >= 2
+    });
+    assert_eq!(told(&view, cx), ["EditorStart", "DocumentOpen"]);
+    assert!(
+        view.read_with(cx, |v, _| v.grep_panel_open()),
+        "the other dialog is still open"
+    );
+    finish(cx);
+}

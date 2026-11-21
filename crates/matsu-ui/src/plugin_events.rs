@@ -357,14 +357,13 @@ pub(crate) async fn start_after_grep(
         .read_with(cx, |view, app| view.document().read(app).generation())
         .ok();
     if dialog {
+        // Led by the state the window recorded for the launch (the dialog of the launch, not any Grep panel).
         while view
-            .read_with(cx, |view, _| view.grep_panel_open())
+            .update(cx, |view, _| view.launch_still_waits())
             .unwrap_or(false)
         {
             cx.background_executor().timer(DIALOG_TICK).await;
         }
-        // The Grep of the dialog (if it started) did not tell `DocumentOpen`; this launch does, below.
-        view.update(cx, |view, _| view.release_launch_open()).ok();
     }
     // The Grep of the dialog that wrote its result here: `Command_GREP` called `DocumentOpen` already, before
     // `CNormalProcess` goes on to its own two events (so this launch has three, in this order).
