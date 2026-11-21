@@ -704,8 +704,11 @@ fn the_backup_exists_complete_before_the_original_changes() {
         ControlFlow::Continue(())
     };
     make_backup_with(&prefs(1), &target, &dest, false, &mut progress).unwrap();
-    assert!(reports.len() >= 4, "{reports:?}");
-    assert!(reports.windows(2).all(|w| w[0].0 < w[1].0), "{reports:?}");
+    // One report per piece, and one more after the data is flushed (the last look for Esc).
+    assert!(reports.len() >= 5, "{reports:?}");
+    let (flushed, pieces) = reports.split_last().unwrap();
+    assert_eq!(flushed, pieces.last().unwrap(), "{reports:?}");
+    assert!(pieces.windows(2).all(|w| w[0].0 < w[1].0), "{reports:?}");
     assert_eq!(reports.last().unwrap().0, old.len() as u64);
     assert!(reports.iter().all(|r| r.1 == old.len() as u64));
     assert_eq!(fs::read(&dest).unwrap(), old);
@@ -731,7 +734,7 @@ fn stopping_the_copy_leaves_no_file_and_no_generation_moved() {
             ControlFlow::Continue(())
         }
     });
-    assert!(matches!(stopped, Err(Failure::Cancelled)), "{stopped:?}");
+    assert!(matches!(stopped, Err(Stop::Cancelled)), "{stopped:?}");
     assert_eq!(calls, 2, "it stops at the report that said so");
     assert_eq!(text(&dir.path("a.b00")), "first");
     assert_eq!(text(&dir.path("a.b01")), "second");
@@ -863,4 +866,40 @@ fn esc_before_the_backup_of_a_big_save_stops_the_save(cx: &mut TestAppContext) {
     });
     assert_eq!(notice.as_deref(), Some("保存を中止した"));
     assert!(!in_flow && !saving);
+}
+
+/// The report after the data is flushed is the last look before the generations move: a stop there
+/// leaves the generations, the original and the folder as they were.
+#[test]
+fn a_stop_after_the_flush_leaves_the_generations_and_the_original_alone() {
+    let dir = TempDir::new();
+    let target = dir.path("a.txt");
+    let old = big_bytes();
+    fs::write(&target, &old).unwrap();
+    let mut p = prefs(3);
+    p.generations = 3;
+    let dest = dir.path("a.b00");
+    dir.write("a.b00", "first");
+    dir.write("a.b01", "second");
+    // The first report of the full size is the last chunk; the second is the one after the flush.
+    let mut full_reports = 0;
+    let stopped = make_backup_with(&p, &target, &dest, false, &mut |done, total| {
+        if done == total {
+            full_reports += 1;
+            if full_reports == 2 {
+                return ControlFlow::Break(());
+            }
+        }
+        ControlFlow::Continue(())
+    });
+    assert!(matches!(stopped, Err(Stop::Cancelled)), "{stopped:?}");
+    assert_eq!(full_reports, 2);
+    assert_eq!(text(&dir.path("a.b00")), "first");
+    assert_eq!(text(&dir.path("a.b01")), "second");
+    assert_eq!(fs::read(&target).unwrap(), old);
+    assert_eq!(
+        dir.names(),
+        ["a.b00", "a.b01", "a.txt"],
+        "no temporary file"
+    );
 }

@@ -288,9 +288,22 @@ pub(crate) enum Failure {
     Move(PathBuf),
     /// The copy failed (`MakeBackUp` returns 3): ask whether to save anyway.
     Copy(io::Error),
-    /// The user stopped the copy (Esc) of a big file. The copy goes to a temporary file that is
-    /// removed, and no generation was touched: nothing is left, and the save stops.
+}
+
+/// Why [`make_backup_with`] did not make the backup: the user stopped it (Esc), or it failed. The
+/// stop has this one owner; it is not a [`Failure`], so a caller must say what a stop means.
+/// A stop leaves nothing: the copy goes to a temporary file that is removed, and no generation was
+/// touched.
+#[derive(Debug)]
+pub(crate) enum Stop {
     Cancelled,
+    Failed(Failure),
+}
+
+impl From<Failure> for Stop {
+    fn from(failure: Failure) -> Self {
+        Self::Failed(failure)
+    }
 }
 
 /// `dest` with its last two characters replaced by `number`.
@@ -313,17 +326,23 @@ pub(crate) fn make_backup(
     make_backup_with(prefs, target, dest, to_trash, &mut |_, _| {
         std::ops::ControlFlow::Continue(())
     })
+    .map_err(|stop| match stop {
+        Stop::Failed(failure) => failure,
+        // Cannot happen here (nothing answers `Break`); not a silent success if it ever does.
+        Stop::Cancelled => Failure::Copy(io::Error::other("stopped")),
+    })
 }
 
 /// [`make_backup`] that reports how much of the file is copied (`progress(done, total)`, in bytes)
-/// and stops with [`Failure::Cancelled`] when it answers `Break`.
+/// and stops with [`Stop::Cancelled`] when it answers `Break`, also after the last byte is
+/// flushed and before any generation is touched.
 pub(crate) fn make_backup_with(
     prefs: &BackupPrefs,
     target: &Path,
     dest: &Path,
     to_trash: bool,
     progress: save_job::Progress<'_>,
-) -> Result<(), Failure> {
+) -> Result<(), Stop> {
     // The file must not be one of the files that the backup deletes, moves or overwrites: the name
     // itself (`a.bak` saved with the kind 1), or a generation (`a.b01` saved with the kind 3, which
     // the rotation would move away). The files are compared as the OS sees them, so a hard link to
@@ -349,9 +368,9 @@ pub(crate) fn make_backup_with(
         .iter()
         .any(|path| matsu_platform::file_id::same_file(target, path))
     {
-        return Err(Failure::Copy(io::Error::other(
-            "the backup would replace the file itself",
-        )));
+        return Err(
+            Failure::Copy(io::Error::other("the backup would replace the file itself")).into(),
+        );
     }
     // `CreateDirectory` of the folder of the backup, one level.
     if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty())
@@ -364,13 +383,13 @@ pub(crate) fn make_backup_with(
     let temp = copy_to_temporary(target, dest, progress)?;
     if generations && let Err(failure) = rotate_generations(prefs, dest) {
         let _ = fs::remove_file(&temp);
-        return Err(failure);
+        return Err(failure.into());
     }
     // The name is replaced, not the contents: a file that shares the data of the old backup (a hard
     // link) is not written to.
     if let Err(error) = fs::rename(&temp, dest) {
         let _ = fs::remove_file(&temp);
-        return Err(Failure::Copy(error));
+        return Err(Failure::Copy(error).into());
     }
     if to_trash {
         // The result is not looked at (`SHFileOperation` in Sakura).
@@ -387,10 +406,12 @@ fn copy_to_temporary(
     target: &Path,
     dest: &Path,
     progress: save_job::Progress<'_>,
-) -> Result<PathBuf, Failure> {
+) -> Result<PathBuf, Stop> {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let mut source = fs::File::open(target).map_err(Failure::Copy)?;
-    let metadata = source.metadata().map_err(Failure::Copy)?;
+    let mut source = fs::File::open(target).map_err(|e| Stop::from(Failure::Copy(e)))?;
+    let metadata = source
+        .metadata()
+        .map_err(|e| Stop::from(Failure::Copy(e)))?;
     let permissions = metadata.permissions();
     let total = metadata.len();
     let nanos = std::time::SystemTime::now()
@@ -410,12 +431,18 @@ fn copy_to_temporary(
         let mut file = match options.open(&temp) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(Failure::Copy(e)),
+            Err(e) => return Err(Failure::Copy(e).into()),
         };
-        let copied = copy_chunks(&mut source, &mut file, total, progress).and_then(|()| {
+        let copied = copy_chunks(&mut source, &mut file, total, progress).and_then(|done| {
             matsu_core::file::sync_file(&file)
                 .and_then(|()| fs::set_permissions(&temp, permissions.clone()))
-                .map_err(Failure::Copy)
+                .map_err(|e| Stop::from(Failure::Copy(e)))?;
+            // Esc may have come while the data was flushed (slow storage): look once more before
+            // the copy is handed on, because after this the generations are moved.
+            if progress(done, total.max(done)).is_break() {
+                return Err(Stop::Cancelled);
+            }
+            Ok(())
         });
         return match copied {
             Ok(()) => Ok(temp),
@@ -425,34 +452,34 @@ fn copy_to_temporary(
             }
         };
     }
-    Err(Failure::Copy(io::Error::other(
-        "no unique name for the temporary file",
-    )))
+    Err(Failure::Copy(io::Error::other("no unique name for the temporary file")).into())
 }
 
 /// The size of a piece of the copy: the progress is reported, and Esc looked at, after each.
 const CHUNK: usize = 1024 * 1024;
 
-/// `io::copy` in pieces of [`CHUNK`], reporting `progress(done, total)` after each.
+/// `io::copy` in pieces of [`CHUNK`], reporting `progress(done, total)` after each. Returns the
+/// number of bytes copied.
 fn copy_chunks(
     source: &mut impl Read,
     file: &mut impl Write,
     total: u64,
     progress: save_job::Progress<'_>,
-) -> Result<(), Failure> {
+) -> Result<u64, Stop> {
     let mut buffer = vec![0u8; CHUNK];
     let mut done = 0u64;
     loop {
         let read = match source.read(&mut buffer) {
-            Ok(0) => return Ok(()),
+            Ok(0) => return Ok(done),
             Ok(read) => read,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(Failure::Copy(e)),
+            Err(e) => return Err(Failure::Copy(e).into()),
         };
-        file.write_all(&buffer[..read]).map_err(Failure::Copy)?;
+        file.write_all(&buffer[..read])
+            .map_err(|e| Stop::from(Failure::Copy(e)))?;
         done += read as u64;
         if progress(done, total.max(done)).is_break() {
-            return Err(Failure::Cancelled);
+            return Err(Stop::Cancelled);
         }
     }
 }
@@ -634,8 +661,9 @@ pub(crate) async fn before_save(
         let (settings, target, dest) = (settings.clone(), target.to_owned(), dest.clone());
         move |_: &matsu_core::file::SaveSnapshot, progress: save_job::Progress<'_>| {
             match make_backup_with(&settings, &target, &dest, to_trash, progress) {
-                Err(Failure::Cancelled) => Err(FileError::Cancelled),
-                other => Ok(other),
+                Err(Stop::Cancelled) => Err(FileError::Cancelled),
+                Err(Stop::Failed(failure)) => Ok(Err(failure)),
+                Ok(()) => Ok(Ok(())),
             }
         }
     };
@@ -650,8 +678,6 @@ pub(crate) async fn before_save(
     };
     match made {
         Ok(()) => true,
-        // Said above; `make_backup_with` returns it only through `FileError::Cancelled`.
-        Err(Failure::Cancelled) => false,
         Err(Failure::Delete(path)) => {
             tell(
                 cx,
