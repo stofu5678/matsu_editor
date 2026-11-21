@@ -366,16 +366,24 @@ impl LaunchOptions {
         // which sends the plugins `DocumentClose` and `EditorEnd` (`MYWM_CLOSE`).
         let quits = self.greps_to_stdout();
         let dialog = self.asks_in_dialog();
+        let view = view.clone();
         handle
             .update(cx, |_, window, app| {
-                window
-                    .spawn(app, async move |cx| {
-                        crate::plugin_events::start_after_grep(&weak, dialog, cx).await;
-                        if quits {
-                            super::close::quit_after_close_events(cx).await;
-                        }
-                    })
-                    .detach();
+                let task = window.spawn(app, async move |cx| {
+                    crate::plugin_events::start_after_grep(&weak, dialog, cx).await;
+                    if quits {
+                        super::close::quit_after_close_events(cx).await;
+                    }
+                });
+                if dialog {
+                    // The wait for the dialog can be long (it polls at 10 Hz) and only matters while the
+                    // window lives: the window owns the task and it ends with the window.
+                    view.update(app, |view, _| view.hold_launch_events(task));
+                } else {
+                    // Detached on purpose: it ends when the search is over (the weak view tells if the
+                    // window went), and `-GOPT=U` needs it to run on to the end of the process.
+                    task.detach();
+                }
             })
             .ok();
     }

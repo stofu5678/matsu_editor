@@ -504,20 +504,10 @@ fn a_grep_to_the_standard_output_ends_after_the_events_of_the_start(cx: &mut Tes
     finish(cx);
 }
 
-/// A launch with `-GREPMODE -GREPDLG`: the window and its dialog. The handlers write `[<jack>]`.
-fn grep_dialog_launch(
-    cx: &mut TestAppContext,
-    place: &Place,
-) -> (AnyWindowHandle, Entity<EditorView>) {
+/// A launch with `-GREPMODE -GREPDLG` (the request only). The temporary folder lives as long as the test
+/// needs it: the search of an OK test is over before `wait` returns.
+fn request_grep_dialog(cx: &mut TestAppContext) {
     use matsu_platform::instance::Request;
-    cx.update(gpui_component::init);
-    cx.executor().allow_parking();
-    let user = {
-        let (_, vcx) = super::tests::setup(cx);
-        place.enable(vcx);
-        vcx.update(|_, app| app.global::<crate::settings::UserSettings>().clone())
-    };
-    cx.update(|app| app.set_global(user));
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("src");
     std::fs::create_dir_all(&src).unwrap();
@@ -539,8 +529,23 @@ fn grep_dialog_launch(
     let options = crate::file_ops::start_options::LaunchOptions::from_request(&request);
     cx.update(|app| crate::file_ops::windows::open_from_outside_with(app, request.paths, &options))
         .unwrap();
-    // The folder must outlive the search of the OK test, which is over before `wait` returns.
     std::mem::forget(dir);
+}
+
+/// A launch with `-GREPMODE -GREPDLG`: the window and its dialog. The handlers write `[<jack>]`.
+fn grep_dialog_launch(
+    cx: &mut TestAppContext,
+    place: &Place,
+) -> (AnyWindowHandle, Entity<EditorView>) {
+    cx.update(gpui_component::init);
+    cx.executor().allow_parking();
+    let user = {
+        let (_, vcx) = super::tests::setup(cx);
+        place.enable(vcx);
+        vcx.update(|_, app| app.global::<crate::settings::UserSettings>().clone())
+    };
+    cx.update(|app| app.set_global(user));
+    request_grep_dialog(cx);
     cx.update(|app| editors(app).pop()).unwrap()
 }
 
@@ -599,5 +604,73 @@ fn a_grep_dialog_launch_closed_with_ok_tells_the_grep_then_the_start(cx: &mut Te
         told(&view, cx),
         ["DocumentOpen", "EditorStart", "DocumentOpen"]
     );
+    finish(cx);
+}
+
+/// Bound tabs, one window that was there before the plugins: the launch makes a tab in it, which has no
+/// `EditorStart` of its own. Sakura's sequence for the document stays: the `DocumentOpen` of `Command_GREP`
+/// (OK only), then the one of `CNormalProcess` (in Sakura the launch is a process of its own, which also tells
+/// `EditorStart`; here the window has had it).
+fn grep_dialog_launch_in_a_tab(cx: &mut TestAppContext) -> Option<(Window, Place)> {
+    let (place, _files) = begin(cx, START_AND_OPEN)?;
+    tab_mode(cx);
+    let first = windows(cx, &place, 1).remove(0);
+    cx.executor().allow_parking();
+    request_grep_dialog(cx);
+    let tabs = tab_views(cx, first.0);
+    assert_eq!(tabs.len(), 2, "the launch made a tab");
+    let shown = tabs
+        .into_iter()
+        .find(|tab| tab.read_with(cx, |v, _| v.grep_panel_open()))
+        .expect("a tab has the dialog");
+    Some(((first.0, shown), place))
+}
+
+#[gpui::test]
+fn a_grep_dialog_launch_in_a_tab_closed_with_ok_tells_two_document_opens(cx: &mut TestAppContext) {
+    let Some(((handle, view), _place)) = grep_dialog_launch_in_a_tab(cx) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let panel = view.read_with(cx, |v, _| v.grep.panel.clone().unwrap());
+    handle
+        .update(cx, |_, window, app| {
+            panel.update(app, |p, cx| p.ok(window, cx))
+        })
+        .unwrap();
+    wait(cx, "the events did not come", |cx| {
+        told(&view, cx).len() >= 2
+    });
+    // Time to show that no third one comes.
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(told(&view, cx), ["DocumentOpen", "DocumentOpen"]);
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_grep_dialog_launch_in_a_tab_cancelled_tells_one_document_open(cx: &mut TestAppContext) {
+    let Some(((handle, view), _place)) = grep_dialog_launch_in_a_tab(cx) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let panel = view.read_with(cx, |v, _| v.grep.panel.clone().unwrap());
+    handle
+        .update(cx, |_, window, app| {
+            panel.update(app, |p, cx| p.cancel(window, cx))
+        })
+        .unwrap();
+    wait(cx, "the event did not come", |cx| {
+        !told(&view, cx).is_empty()
+    });
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(told(&view, cx), ["DocumentOpen"]);
     finish(cx);
 }

@@ -146,6 +146,13 @@ pub struct GrepWindow {
     /// The macro of タイプ変更後 runs before a search that is about to begin here: the window is
     /// taken, as if the search ran.
     starting: bool,
+    /// The launch of `-GREPDLG` waits for this window's dialog and tells the plugins `DocumentOpen` of the
+    /// Grep itself, in its own place in the order (`plugin_events::start_after_grep`): the Grep that the
+    /// dialog starts does not tell it. Set when the launch takes the window, cleared when the dialog is gone.
+    launch_owns_open: bool,
+    /// The task of that launch. The window owns it: it ends with the window (the wait only matters while
+    /// the window lives).
+    launch_events: Option<gpui::Task<()>>,
     /// The file being searched and the hits so far, for the bar that stops the search.
     progress: Option<(String, usize)>,
     /// The line where the result of the search that runs (or ran last) begins.
@@ -445,10 +452,21 @@ impl EditorView {
         }
     }
 
+    /// The launch of `-GREPDLG` takes the events of this window: `task` waits for the dialog and tells them.
+    pub(crate) fn hold_launch_events(&mut self, task: gpui::Task<()>) {
+        self.grep.launch_owns_open = true;
+        self.grep.launch_events = Some(task);
+    }
+
+    /// The dialog of the launch is gone: a Grep of this window tells its own `DocumentOpen` again.
+    pub(crate) fn release_launch_open(&mut self) {
+        self.grep.launch_owns_open = false;
+    }
+
     /// `Command_GREP` calls the plugins of `DocumentOpen` after `DoGrep` when the result is written in the
-    /// window (`CViewCommander_Grep.cpp`). The launch of `-GREPDLG` has its own call, in its own order.
+    /// window (`CViewCommander_Grep.cpp`). The launch of `-GREPDLG` has its own call, in its own order (`launch_owns_open`).
     fn document_open_after_grep(&self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.editor_start_due() {
+        if self.grep.launch_owns_open {
             return;
         }
         let weak = cx.entity().downgrade();

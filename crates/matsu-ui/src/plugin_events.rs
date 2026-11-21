@@ -344,7 +344,8 @@ const DIALOG_TICK: Duration = Duration::from_millis(100);
 /// `dialog` (`-GREPDLG`): Sakura shows the dialog first, modally, and calls the same two events when it is
 /// over, whether it was closed with OK (the Grep ran) or cancelled (`CNormalProcess.cpp`, after
 /// `m_cDlgGrep.DoModal`). The dialog of MATSU is a panel, so this waits until it is gone and the search it
-/// started (if any) is over.
+/// started (if any) is over. It polls at 10 Hz while the dialog is open, and ends when the panel is gone or
+/// the window is (the view is held weakly, and the window owns the task: `hold_launch_events`).
 pub(crate) async fn start_after_grep(
     view: &WeakEntity<EditorView>,
     dialog: bool,
@@ -362,6 +363,8 @@ pub(crate) async fn start_after_grep(
         {
             cx.background_executor().timer(DIALOG_TICK).await;
         }
+        // The Grep of the dialog (if it started) did not tell `DocumentOpen`; this launch does, below.
+        view.update(cx, |view, _| view.release_launch_open()).ok();
     }
     // The Grep of the dialog that wrote its result here: `Command_GREP` called `DocumentOpen` already, before
     // `CNormalProcess` goes on to its own two events (so this launch has three, in this order).
