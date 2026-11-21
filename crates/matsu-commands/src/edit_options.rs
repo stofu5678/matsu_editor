@@ -60,6 +60,10 @@ pub struct EditOptions {
     /// `GetCaretType() == 1` (`nCaretType`, the low 4 bits): the MS-DOS style caret, a block (half
     /// as high in insert mode) instead of the thin bar of the Windows style. Off by default.
     pub dos_caret: bool,
+    /// `m_bBoxSelectLock` (`bBoxSelectLock`): a box that a box move (`F_UP_BOX` and the others)
+    /// begins is locked, so that the plain moves go on extending it. Off, the next plain move ends
+    /// the box. On by default (`CShareData::InitShareData`).
+    pub box_select_lock: bool,
 }
 
 impl EditOptions {
@@ -81,6 +85,7 @@ impl EditOptions {
         overwrite_box_delete: false,
         free_cursor: false,
         dos_caret: false,
+        box_select_lock: true,
     };
 }
 
@@ -147,5 +152,6 @@ mod tests {
         assert!(d.enable_no_select_copy && d.enable_line_mode_paste);
         assert!(!d.add_crlf_when_copy && !d.copy_and_disable_selection);
         assert!(d.not_overwrite_crlf && !d.overwrite_fix_mode && !d.overwrite_box_delete);
+        assert!(d.box_select_lock);
     }
 }

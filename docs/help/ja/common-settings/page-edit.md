@@ -52,10 +52,10 @@ MATSU Editor のファイルダイアログは GPUI が出し、Windows では�
 | 項目 | キー | 既定 | 動き |
 |---|---|---|---|
 | 改行コードNEL, PS, LSを有効にする | `bEnableExtEol` | オフ | NEL・PS・LS を改行として扱います |
-| 矩形選択移動で選択をロックする | `bBoxSelectLock` | オン | 未対応 |
+| 矩形選択移動で選択をロックする | `bBoxSelectLock` | オン | 矩形選択のキー（「(矩形選択)カーソル上移動」など）が矩形選択を始めるときに、選択をロックするかを決めます。オンなら、そのあとの普通の移動（Shift なしの矢印キーなど）も矩形を広げます。オフなら、普通の移動が矩形選択を終わらせます。矩形選択の途中のキーや、マウス（Alt を押したドラッグ）、「矩形範囲選択開始」には効きません |
 
 ## 根拠
 
-- サクラのソース: `sakura_core/prop/CPropComEdit.cpp`、`IDD_PROP_EDIT`（`sakura_core/sakura_rc.rc`）
+- サクラのソース: `sakura_core/cmd/CViewCommander.cpp` の `Sub_BoxSelectLock`（`m_bBoxSelectLock` を読むのはここだけ）、`sakura_core/prop/CPropComEdit.cpp`、`IDD_PROP_EDIT`（`sakura_core/sakura_rc.rc`）
 - MATSU のコード: `crates/matsu-ui/src/common_settings/pages/edit.rs`、`crates/matsu-config/src/dialog_dir.rs`（`DEFAULT_SELECTED`）
-- `docs/sakura-gaps.md` の「共通設定「編集」の灰色 2 個」の行
+- `docs/sakura-gaps.md` の「共通設定「編集」の灰色 1 個」の行

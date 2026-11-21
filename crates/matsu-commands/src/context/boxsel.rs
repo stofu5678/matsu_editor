@@ -20,6 +20,7 @@ use matsu_core::cursor::char_left;
 
 use super::CommandContext;
 use crate::command::Result;
+use crate::edit_options;
 use crate::layout::X;
 
 impl CommandContext<'_> {
@@ -32,14 +33,16 @@ impl CommandContext<'_> {
     }
 
     /// What a box move does first: starts a box at the caret unless one is going on (Sakura:
-    /// `Sub_BoxSelectLock`, with the "lock on box moves" option, which is on by default,
-    /// `m_bBoxSelectLock` in `sakura_core/env/CShareData.cpp`; the macro arguments that change it
-    /// are not supported). A normal selection is dropped, as Sakura does since 2014.
+    /// `Sub_BoxSelectLock`). The box is locked as the setting 「矩形選択移動で選択をロックする」
+    /// says (`m_bBoxSelectLock`, [`edit_options::EditOptions::box_select_lock`]; on by default), which is what
+    /// `Sub_BoxSelectLock` does with the flags 0. A box that is going on keeps its lock. The
+    /// macro arguments that give the lock (1: on, 2: off) are not supported. A normal selection
+    /// is dropped, as Sakura does since 2014.
     pub fn ensure_box(&mut self) -> Result<()> {
         if self.cursor.is_box() {
             Ok(())
         } else {
-            self.start_box(true)
+            self.start_box(edit_options::get().box_select_lock)
         }
     }
 

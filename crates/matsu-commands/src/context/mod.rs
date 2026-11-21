@@ -19,6 +19,8 @@ mod box_edit;
 #[cfg(test)]
 mod box_edit_tests;
 mod boxsel;
+#[cfg(test)]
+mod boxsel_tests;
 mod clipboard;
 mod convert;
 mod diff;

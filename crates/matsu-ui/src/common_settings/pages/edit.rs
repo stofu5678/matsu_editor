@@ -202,7 +202,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bBoxSelectLock",
                         true,
                     )
-                    .unavailable()
                     .into(),
                 ],
             ),
@@ -244,5 +243,7 @@ pub(in crate::common_settings) fn apply(_env: &mut Env, after: &Values, _before:
     options.not_overwrite_crlf = after.bool("not_overwrite_crlf");
     options.overwrite_fix_mode = after.bool("overwrite_fix_mode");
     options.overwrite_box_delete = after.bool("overwrite_box_delete");
+    // The box moves read it when they begin a box (`CommandContext::ensure_box`).
+    options.box_select_lock = after.bool("box_select_lock");
     edit_options::set(options);
 }
