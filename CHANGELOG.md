@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.23.0](https://github.com/stofu5678/matsu_editor/compare/v0.22.0...v0.23.0) (2026-11-21)
+
+
+### Features
+
+* **edit:** make the box select lock setting work ([#541](https://github.com/stofu5678/matsu_editor/issues/541)) ([7e60aac](https://github.com/stofu5678/matsu_editor/commit/7e60aac2a26e43a62d3b6a551c69a9c8beab9829))
+* **ui:** repeat a held spin arrow, and access keys that move the focus to combo and list boxes ([#547](https://github.com/stofu5678/matsu_editor/issues/547)) ([a5c8bbc](https://github.com/stofu5678/matsu_editor/commit/a5c8bbc0a6228212ba7f3068ea5a7e7bafcb74a0))
+* **view:** draw the background image in the minimap ([#544](https://github.com/stofu5678/matsu_editor/issues/544)) ([3f6e728](https://github.com/stofu5678/matsu_editor/commit/3f6e728a9b47e82ed4b78ed7e4a6106a406b9c73))
+
+
+### Bug Fixes
+
+* **file:** copy the backup of a big save off the UI thread ([#542](https://github.com/stofu5678/matsu_editor/issues/542)) ([e140761](https://github.com/stofu5678/matsu_editor/commit/e140761739947910feef19a34fe5bfac4fe30cfb))
+* **history:** decide the type from the history before the file is read ([#539](https://github.com/stofu5678/matsu_editor/issues/539)) ([04dee04](https://github.com/stofu5678/matsu_editor/commit/04dee049f68fc7fb7616b863db8ec7c29e29d759))
+* **plugin:** call the plugin events after the Grep dialog of -GREPDLG ([#543](https://github.com/stofu5678/matsu_editor/issues/543)) ([7a9a3d8](https://github.com/stofu5678/matsu_editor/commit/7a9a3d86ef9bc398e40787ee74448b07e88cd643))
+
 ## [0.22.0](https://github.com/stofu5678/matsu_editor/compare/v0.21.0...v0.22.0) (2026-11-19)
 
 
