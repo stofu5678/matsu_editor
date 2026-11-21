@@ -18,6 +18,7 @@ use super::huge_tests::{
 };
 use super::tests::{active_view, run};
 use crate::document::ScanWindowInfo;
+use crate::saved_state::other::JumpUnit;
 use crate::view::EditorView;
 
 /// How far the "about" line numbers may be from the true ones: the estimate comes from the first
@@ -226,7 +227,7 @@ fn the_bookmarks_of_the_file_are_not_shown_in_a_window_and_come_back_with_the_wh
 fn the_go_to_line_dialog_shows_a_line_beyond_the_scan_too(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);
-    view.update(cx, |v, cx| v.go_to_line(90_000, cx));
+    view.update(cx, |v, cx| v.go_to_line(90_000, JumpUnit::Lines, cx));
     assert!(window_of(cx, &view).is_some());
     assert_eq!(status_line(cx, &view), (90_000, true));
     wait_for_scan(cx, &view);
@@ -319,7 +320,7 @@ fn another_pane_of_the_document_follows_the_window_to_the_same_place(cx: &mut Te
     // A second view of the same document, as a split pane is.
     let document = view.read_with(cx, |v, _| v.document().clone());
     let pane = cx.new(|cx| EditorView::new(document.clone(), cx));
-    pane.update(cx, |v, cx| v.go_to_line(95_000, cx));
+    pane.update(cx, |v, cx| v.go_to_line(95_000, JumpUnit::Lines, cx));
     cx.run_until_parked();
     assert!(window_of(cx, &pane).is_some());
     // (The pane that has the focus may move the window meanwhile, which makes a new estimate.)

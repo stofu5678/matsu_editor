@@ -516,3 +516,33 @@ fn a_place_off_the_screen_is_brought_back(cx: &mut TestAppContext) {
         "{rect:?} is inside {areas:?}"
     );
 }
+
+// ---- the go-to-line panel ----
+
+#[gpui::test]
+fn the_jump_panel_starts_with_the_unit_of_the_file_and_the_button_writes_it(
+    cx: &mut TestAppContext,
+) {
+    use crate::saved_state::other::JumpUnit;
+    let (ini, handle) = setup(cx, "[Other]\r\nbLineNumIsCRLF=0\r\n");
+    run(cx, handle, "F_JUMP_DIALOG");
+    let panel = view_of(cx, handle).read_with(cx, |v, _| v.panel.clone().unwrap());
+    assert_eq!(panel.read_with(cx, |p, _| p.unit()), JumpUnit::Rows);
+    // a choice that is not followed by ジャンプ writes nothing
+    let before = ini.bytes();
+    handle
+        .update(cx, |_, _, app| {
+            panel.update(app, |p, cx| p.set_unit(JumpUnit::Lines, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(ini.bytes(), before);
+    // ジャンプ writes it, as 1 for the lines
+    handle
+        .update(cx, |_, window, app| {
+            panel.update(app, |p, cx| p.jump(window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(ini.profile().get("Other", "bLineNumIsCRLF"), Some("1"));
+}

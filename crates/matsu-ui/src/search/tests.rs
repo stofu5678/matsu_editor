@@ -565,6 +565,7 @@ fn the_selection_lock_extends_the_selection_to_the_match(cx: &mut TestAppContext
 }
 
 mod access_keys;
+mod jump_unit;
 
 #[gpui::test]
 fn the_up_and_down_keys_of_the_jump_panel_step_the_line_number(cx: &mut TestAppContext) {
