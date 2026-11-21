@@ -1,0 +1,6 @@
+// input: ascii.regex.lf
+// code: 0
+SearchNext('bar45\r?\nFoo', 4);
+Replace('bar45\r?\nFoo', 'X\nY', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

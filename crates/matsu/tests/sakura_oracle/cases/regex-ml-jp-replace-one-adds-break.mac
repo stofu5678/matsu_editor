@@ -1,0 +1,6 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+SearchNext('ABC', 4);
+Replace('ABC', 'A\nB', 4);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

@@ -1,0 +1,5 @@
+// input: jp.sjis.crlf
+// code: 0
+ReplaceAll('\R', '<BR>', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();
