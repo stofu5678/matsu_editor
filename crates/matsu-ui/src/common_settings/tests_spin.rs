@@ -145,7 +145,7 @@ fn the_arrows_of_a_number_box_move_the_number(cx: &mut TestAppContext) {
 const HOLD_BOX: &str = "drop_file_num_max";
 const HOLD_UP: &str = "cs-drop_file_num_max-spin-up";
 
-/// Moves the test clock by `ms` (a multiple of 50) in steps of the repeat interval, running what
+/// Moves the test clock by `ms` (a multiple of 50) in steps of 50 ms, running what
 /// is ready after each step: a timer that a step fires makes the next one.
 fn advance(cx: &mut gpui::VisualTestContext, ms: u64) {
     for _ in 0..ms / 50 {
@@ -192,30 +192,32 @@ fn a_held_arrow_steps_at_the_press_waits_and_then_repeats(cx: &mut TestAppContex
     assert_eq!(text_in(cx, HOLD_BOX), "2");
     advance(cx, 50);
     assert_eq!(text_in(cx, HOLD_BOX), "3");
-    // then one step every 50 ms
+    // then one step every 100 ms
+    advance(cx, 50);
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
     advance(cx, 50);
     assert_eq!(text_in(cx, HOLD_BOX), "4");
     advance(cx, 200);
-    assert_eq!(text_in(cx, HOLD_BOX), "8");
+    assert_eq!(text_in(cx, HOLD_BOX), "6");
     // the release ends it, and nothing comes after it
     let at = cx.debug_bounds(HOLD_UP).expect("the arrow").center();
     release_at(cx, at);
     advance(cx, 1000);
-    assert_eq!(text_in(cx, HOLD_BOX), "8");
+    assert_eq!(text_in(cx, HOLD_BOX), "6");
 }
 
 #[gpui::test]
 fn a_held_arrow_goes_faster_after_two_seconds_and_after_five(cx: &mut TestAppContext) {
     let cx = hold_setup(cx, "1");
     press(cx, HOLD_UP);
-    // 1 + a step at 500 ms and one every 50 ms up to 1950 ms: 30 repeats of 1
-    advance(cx, 1950);
-    assert_eq!(text_in(cx, HOLD_BOX), "32");
-    // held for 2 s: the steps are 5 (the `UDACCEL` table, `increment_after`)
-    advance(cx, 50);
-    assert_eq!(text_in(cx, HOLD_BOX), "37");
-    advance(cx, 50);
-    assert_eq!(text_in(cx, HOLD_BOX), "42");
+    // 2 after the press, then a step at 500 ms and one every 100 ms up to 1900 ms: 15 repeats of 1
+    advance(cx, 1900);
+    assert_eq!(text_in(cx, HOLD_BOX), "17");
+    // held for 2 s: the steps are 5 (the table of the measurement in `spin.rs`)
+    advance(cx, 100);
+    assert_eq!(text_in(cx, HOLD_BOX), "22");
+    advance(cx, 100);
+    assert_eq!(text_in(cx, HOLD_BOX), "27");
     // the range stops it at its end (1 to 99), not wrapping
     advance(cx, 3000);
     assert_eq!(text_in(cx, HOLD_BOX), "99");
@@ -230,8 +232,8 @@ fn the_down_arrow_repeats_downwards(cx: &mut TestAppContext) {
     press(cx, "cs-drop_file_num_max-spin-down");
     assert_eq!(text_in(cx, HOLD_BOX), "49");
     advance(cx, 600);
-    // at 500, 550 and 600 ms
-    assert_eq!(text_in(cx, HOLD_BOX), "46");
+    // at 500 and 600 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "47");
 }
 
 #[gpui::test]
@@ -239,12 +241,12 @@ fn a_release_off_the_arrow_ends_the_repeat(cx: &mut TestAppContext) {
     let cx = hold_setup(cx, "1");
     press(cx, HOLD_UP);
     advance(cx, 550);
-    // at 500 and 550 ms
-    assert_eq!(text_in(cx, HOLD_BOX), "4");
+    // at 500 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
     // the pointer left the arrow and let go over something else
     release_at(cx, gpui::point(gpui::px(2.), gpui::px(2.)));
     advance(cx, 1000);
-    assert_eq!(text_in(cx, HOLD_BOX), "4");
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
 }
 
 #[gpui::test]
@@ -252,12 +254,12 @@ fn the_repeat_ends_when_the_box_loses_the_focus(cx: &mut TestAppContext) {
     let cx = hold_setup(cx, "1");
     press(cx, HOLD_UP);
     advance(cx, 550);
-    // at 500 and 550 ms
-    assert_eq!(text_in(cx, HOLD_BOX), "4");
+    // at 500 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
     // Tab takes the focus to the next control while the button is still down
     cx.simulate_keystrokes("tab");
     advance(cx, 1000);
-    assert_eq!(text_in(cx, HOLD_BOX), "4");
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
 }
 
 #[gpui::test]
@@ -265,12 +267,12 @@ fn the_repeat_ends_when_the_window_is_deactivated(cx: &mut TestAppContext) {
     let cx = hold_setup(cx, "1");
     press(cx, HOLD_UP);
     advance(cx, 550);
-    // at 500 and 550 ms
-    assert_eq!(text_in(cx, HOLD_BOX), "4");
+    // at 500 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
     // the release in another program never arrives
     cx.deactivate_window();
     advance(cx, 1000);
-    assert_eq!(text_in(cx, HOLD_BOX), "4");
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
 }
 
 #[gpui::test]
@@ -286,7 +288,7 @@ fn a_hold_ends_when_the_box_is_drawn_disabled(cx: &mut TestAppContext) {
         vcx.run_until_parked();
         press(vcx, "cs-autoload_delay-spin-up");
         advance(vcx, 550);
-        assert_eq!(text_in(vcx, "autoload_delay"), "8");
+        assert_eq!(text_in(vcx, "autoload_delay"), "7");
     }
     with_dialog(cx, |d, _, dcx| {
         d.set_bool("check_file_time_stamp", false, dcx)
@@ -294,7 +296,7 @@ fn a_hold_ends_when_the_box_is_drawn_disabled(cx: &mut TestAppContext) {
     let vcx = visual(cx, window);
     vcx.run_until_parked();
     advance(vcx, 1000);
-    assert_eq!(text_in(vcx, "autoload_delay"), "8");
+    assert_eq!(text_in(vcx, "autoload_delay"), "7");
 }
 
 #[gpui::test]

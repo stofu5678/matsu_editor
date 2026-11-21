@@ -17,14 +17,18 @@
 //! the operating system's key repeat (the box gets the key again and again), one step each, so the
 //! acceleration is only for the arrows.
 //!
-//! The delays and steps are those of the system's up-down control, which Sakura does not change (no
-//! `UDM_SETACCEL` in `sakura_core`): a wait of [`FIRST_DELAY`] (500 ms), then a step every
-//! [`INTERVAL`] (50 ms), and the default acceleration table of `UDM_SETACCEL` (`UDACCEL`: a step of 1
-//! from the start, 5 after 2 seconds, 20 after 5 seconds). The numbers are those of Wine's
-//! `updown.c` (`INITIAL_DELAY`, `REPEAT_DELAY` and its default `UDACCEL` table, which imitate the
-//! system's control), written from memory of it, not read again, and not measured on Windows: the
-//! coordinator measures them there. Microsoft's documentation of `UDACCEL` says what the fields
-//! mean (`nSec` seconds of holding before `nInc` is used) but gives no default table.
+//! The delays and steps are those of the system's up-down control (`msctls_updown32`), which Sakura
+//! does not change (no `UDM_SETACCEL` in `sakura_core`). They were measured on Windows 11 (arm64,
+//! 2026-11-21, in Windows Sandbox) with a native control made with `UDS_SETBUDDYINT`,
+//! `UDS_ALIGNRIGHT`, `UDS_AUTOBUDDY` and `UDS_ARROWKEYS`, range 0 to 100000: the up arrow held with
+//! the mouse for 8 seconds, the position read every 5 ms. The control steps by 1 at the press
+//! (40 ms), makes the first repeat at 554 ms, and then one every 111 to 112 ms (554, 666, 778, 889,
+//! 1017, 1129, 1240 ms and so on). The steps are 1 until 2 seconds, 5 from 2 seconds (the position
+//! was 12 at 1.686 s, 45 at 2.691 s, 95 at 3.825 s, 145 at 4.924 s) and 20 from 5 seconds (340 at
+//! 6.039 s, 540 at 7.184 s, then +20 every 111 ms). So: a wait of [`FIRST_DELAY`] (500 ms), then a
+//! step every [`INTERVAL`] (100 ms: the system's timer of 100 ms is rounded up to its 15.6 ms
+//! tick, which is why it shows as about 110 ms there), and a step of 1, 5 after 2 seconds, 20 after
+//! 5 seconds.
 
 use std::time::Duration;
 
@@ -80,18 +84,18 @@ const DISABLED_TEXT: u32 = 0xaaaaaa;
 /// The width of the column of arrows.
 const ARROW_WIDTH: f32 = 18.;
 
-/// The wait before the first repeat of a held arrow (`INITIAL_DELAY` of Wine's `updown.c`).
+/// The wait before the first repeat of a held arrow (measured: 554 ms on Windows, see the top of this file).
 pub(crate) const FIRST_DELAY: Duration = Duration::from_millis(500);
-/// The wait between the repeats after that (`REPEAT_DELAY` of Wine's `updown.c`).
-pub(crate) const INTERVAL: Duration = Duration::from_millis(50);
+/// The wait between the repeats after that (measured: about 110 ms on Windows, a timer of 100 ms).
+pub(crate) const INTERVAL: Duration = Duration::from_millis(100);
 
 /// The wait before the `n`th repeat (0 for the first), after the press, which stepped by itself.
 pub(crate) fn delay_before(n: u32) -> Duration {
     if n == 0 { FIRST_DELAY } else { INTERVAL }
 }
 
-/// How many steps one repeat takes after the arrow has been held for `held`: the default table of
-/// `UDM_SETACCEL` (`UDACCEL { nSec, nInc }`: `{0, 1}`, `{2, 5}`, `{5, 20}`).
+/// How many steps one repeat takes after the arrow has been held for `held`: the table measured on
+/// Windows (1 until 2 seconds, 5 until 5 seconds, then 20).
 pub(crate) fn increment_after(held: Duration) -> i32 {
     match held.as_secs() {
         0..=1 => 1,
@@ -365,8 +369,8 @@ mod tests {
     #[test]
     fn it_waits_longer_before_the_first_repeat_than_between_the_others() {
         assert_eq!(delay_before(0), Duration::from_millis(500));
-        assert_eq!(delay_before(1), Duration::from_millis(50));
-        assert_eq!(delay_before(100), Duration::from_millis(50));
+        assert_eq!(delay_before(1), Duration::from_millis(100));
+        assert_eq!(delay_before(100), Duration::from_millis(100));
     }
 
     #[test]
@@ -384,11 +388,12 @@ mod tests {
     fn the_time_held_is_counted_from_the_waits() {
         // the first repeat comes after the first delay, the others one interval apart
         assert_eq!(held_at(1), Duration::from_millis(500));
-        assert_eq!(held_at(2), Duration::from_millis(550));
-        assert_eq!(held_at(31), Duration::from_millis(2000));
-        assert_eq!(increment_after(held_at(30)), 1);
-        assert_eq!(increment_after(held_at(31)), 5);
-        assert_eq!(increment_after(held_at(91)), 20);
+        assert_eq!(held_at(2), Duration::from_millis(600));
+        assert_eq!(held_at(16), Duration::from_millis(2000));
+        assert_eq!(increment_after(held_at(15)), 1);
+        assert_eq!(increment_after(held_at(16)), 5);
+        assert_eq!(increment_after(held_at(45)), 5);
+        assert_eq!(increment_after(held_at(46)), 20);
     }
 
     #[test]
