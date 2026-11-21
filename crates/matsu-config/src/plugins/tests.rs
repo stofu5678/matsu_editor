@@ -793,3 +793,122 @@ fn es_module_typescript_cjs_and_python_handlers_are_supported() {
     );
     assert_eq!(ok.unsupported(), None);
 }
+
+// ---- the header line of the options file ----
+
+/// The lines of a file as written (the byte order mark and the kind of line end do not matter here).
+fn lines_of(file: &std::path::Path) -> Vec<String> {
+    let text = String::from_utf8(std::fs::read(file).unwrap()).unwrap();
+    text.trim_start_matches('\u{feff}')
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn a_new_options_file_starts_with_the_header_line_and_an_empty_line() {
+    let root = tempfile::tempdir().unwrap();
+    let file = dirs(root.path()).option_file("Sample");
+    let mut opts = PluginOptions::load(&file);
+    opts.set("Main", "Level", "12").unwrap();
+    opts.save_for_plugin("サンプル 拡張").unwrap();
+    // `CProfile::WriteProfile`: `;` and the comment, an empty line, then the sections.
+    assert_eq!(
+        lines_of(&file),
+        [
+            ";サンプル 拡張 プラグイン設定ファイル",
+            "",
+            "[Main]",
+            "Level=12"
+        ]
+    );
+}
+
+#[test]
+fn a_second_save_does_not_write_the_header_again() {
+    let root = tempfile::tempdir().unwrap();
+    let file = dirs(root.path()).option_file("Sample");
+    let mut opts = PluginOptions::load(&file);
+    opts.set("Main", "Level", "1").unwrap();
+    opts.save_for_plugin("Sample").unwrap();
+    let first = std::fs::read(&file).unwrap();
+    let mut again = PluginOptions::load(&file);
+    again.save_for_plugin("Sample").unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), first);
+    again.set("Main", "Level", "2").unwrap();
+    again.save_for_plugin("Sample").unwrap();
+    assert_eq!(
+        lines_of(&file),
+        [";Sample プラグイン設定ファイル", "", "[Main]", "Level=2"]
+    );
+}
+
+#[test]
+fn a_file_without_the_header_gets_it_and_keeps_every_other_line() {
+    let root = tempfile::tempdir().unwrap();
+    let file = dirs(root.path()).option_file("Sample");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "\u{feff}[Main]\nLevel=3\n; mine\n[Free]\nKey=値\n").unwrap();
+    let mut opts = PluginOptions::load(&file);
+    opts.set("Main", "Level", "4").unwrap();
+    opts.save_for_plugin("Sample").unwrap();
+    // The file had LF line ends and a byte order mark: both stay.
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "\u{feff};Sample プラグイン設定ファイル\n\n[Main]\nLevel=4\n; mine\n[Free]\nKey=値\n"
+    );
+}
+
+#[test]
+fn a_first_comment_of_the_user_stays_under_the_header() {
+    let root = tempfile::tempdir().unwrap();
+    let file = dirs(root.path()).option_file("Sample");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "\u{feff}; my notes\n[Main]\nLevel=3\n").unwrap();
+    PluginOptions::load(&file)
+        .save_for_plugin("Sample")
+        .unwrap();
+    assert_eq!(
+        lines_of(&file),
+        [
+            ";Sample プラグイン設定ファイル",
+            "",
+            "; my notes",
+            "[Main]",
+            "Level=3"
+        ]
+    );
+    // Written again: still one header.
+    PluginOptions::load(&file)
+        .save_for_plugin("Sample")
+        .unwrap();
+    assert_eq!(lines_of(&file).len(), 5);
+}
+
+#[test]
+fn a_header_of_another_name_is_replaced_not_added() {
+    let root = tempfile::tempdir().unwrap();
+    let file = dirs(root.path()).option_file("Sample");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    // What Sakura wrote, under the old name of the plugin.
+    std::fs::write(
+        &file,
+        "\u{feff};旧名 プラグイン設定ファイル\r\n\r\n[Main]\r\nLevel=3\r\n",
+    )
+    .unwrap();
+    PluginOptions::load(&file).save_for_plugin("新名").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "\u{feff};新名 プラグイン設定ファイル\r\n\r\n[Main]\r\nLevel=3\r\n"
+    );
+}
+
+#[test]
+fn a_header_is_written_to_a_file_of_one_line_without_a_line_end() {
+    let root = tempfile::tempdir().unwrap();
+    let file = dirs(root.path()).option_file("Sample");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "\u{feff}[Main]").unwrap();
+    PluginOptions::load(&file).save_for_plugin("S").unwrap();
+    assert_eq!(lines_of(&file), [";S プラグイン設定ファイル", "", "[Main]"]);
+}

@@ -138,6 +138,14 @@ fn setting_an_option_writes_the_options_file_of_the_plugin_at_once() {
     assert_eq!(file, place.dir.path().join("plugins").join("HelloJs.ini"));
     let written = Profile::load(&file).unwrap();
     assert_eq!(written.get("Hello", "Greeting"), Some("こんにちは"));
+    // `Plugin.SetOption` of Sakura writes the header line first (`CPluginIfObj.h`); the file is written once more
+    // below and still has one.
+    let text = std::fs::read_to_string(&file).unwrap();
+    let first = text.trim_start_matches('\u{feff}').lines().next().unwrap();
+    assert!(
+        first.starts_with(';') && first.ends_with(" プラグイン設定ファイル"),
+        "{first}"
+    );
     // A new reading sees it, and the default is not used any more.
     let mut again = def_api(&place);
     assert_eq!(
@@ -156,6 +164,8 @@ fn setting_an_option_writes_the_options_file_of_the_plugin_at_once() {
     )
     .unwrap();
     assert_eq!(Profile::load(&file).unwrap().get("S", "N"), Some("5"));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(text.matches("プラグイン設定ファイル").count(), 1, "{text}");
 }
 
 #[test]

@@ -151,6 +151,12 @@ fn save_writes_every_option_with_the_section_and_key_of_the_definition() {
     assert_eq!(file.get("Other", "Mode"), Some("0"));
     assert_eq!(file.get("Other", "Dir"), Some("D:\\x\\"));
     assert_eq!(file.get("Other", "Name"), Some("新しい"));
+    // The first line names the plugin (`CDlgPluginOption.cpp`, `STR_DLGPLUGINOPT_INIHEAD`), once.
+    form.save().unwrap();
+    let text = fs::read_to_string(place.file()).unwrap();
+    let lines: Vec<&str> = text.trim_start_matches('\u{feff}').lines().collect();
+    assert_eq!(lines[..2], [";オプション プラグイン設定ファイル", ""]);
+    assert_eq!(text.matches("プラグイン設定ファイル").count(), 1, "{text}");
     // What is written reads back as the same values.
     assert_eq!(
         shown(&place.form()),
@@ -491,4 +497,123 @@ fn the_readme_button_works_only_when_the_plugin_has_a_readme_file(cx: &mut TestA
             .map(std::path::Path::to_owned)),
         Some(readme)
     );
+}
+
+// ---- what opening writes ----
+
+fn first_lines(place: &Place, count: usize) -> Vec<String> {
+    let text = fs::read_to_string(place.file()).unwrap();
+    text.trim_start_matches('\u{feff}')
+        .lines()
+        .take(count)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `CDlgPluginOption::SetData`: an option the file has no value for gets its default written when the dialog
+/// opens, with the header line; one without a default (`Dir`) is not written.
+#[test]
+fn opening_writes_the_defaults_of_the_missing_options_with_the_header() {
+    let place = Place::new();
+    assert!(!place.file().exists());
+    let form = Form::open(&place.def(), &place.file());
+    assert_eq!(
+        first_lines(&place, 2),
+        [";オプション プラグイン設定ファイル", ""]
+    );
+    let file = place.written();
+    assert_eq!(file.get("Main", "Flag"), Some("1"));
+    assert_eq!(file.get("Main", "Level"), Some("3"));
+    assert_eq!(file.get("Other", "Mode"), Some("1"));
+    assert_eq!(file.get("Other", "Name"), Some("既定"));
+    assert_eq!(file.get("Other", "Dir"), None);
+    // The dialog shows what was written.
+    assert_eq!(form.entries[1].value, "3");
+}
+
+/// A file that has a value for each option with a default is not written (Sakura writes only when a default
+/// was taken): its bytes stay, and no header is added.
+#[test]
+fn opening_does_not_rewrite_a_file_that_has_every_value() {
+    let place = Place::new();
+    let mut options = PluginOptions::load(&place.file());
+    for (section, key, value) in [
+        ("Main", "Flag", "0"),
+        ("Main", "Level", "9"),
+        ("Other", "Mode", "0"),
+        ("Other", "Name", ""),
+    ] {
+        options.set(section, key, value).unwrap();
+    }
+    options.save().unwrap();
+    let before = fs::read(place.file()).unwrap();
+    let _ = Form::open(&place.def(), &place.file());
+    assert_eq!(fs::read(place.file()).unwrap(), before);
+}
+
+/// Only the missing options are written; the values the file has and its other lines stay, the header is
+/// added once, and opening again writes nothing more.
+#[test]
+fn opening_adds_only_the_missing_defaults_and_keeps_the_rest() {
+    let place = Place::new();
+    let mut options = PluginOptions::load(&place.file());
+    options.set("Main", "Level", "9").unwrap();
+    options.set("Free", "Key", "値").unwrap();
+    options.save().unwrap();
+    let _ = Form::open(&place.def(), &place.file());
+    let file = place.written();
+    assert_eq!(file.get("Main", "Level"), Some("9"));
+    assert_eq!(file.get("Main", "Flag"), Some("1"));
+    assert_eq!(file.get("Free", "Key"), Some("値"));
+    assert_eq!(
+        first_lines(&place, 1),
+        [";オプション プラグイン設定ファイル"]
+    );
+    let written = fs::read(place.file()).unwrap();
+    let _ = Form::open(&place.def(), &place.file());
+    assert_eq!(fs::read(place.file()).unwrap(), written);
+}
+
+/// Cancel does not take back what opening wrote (Sakura's `OnCancel` only closes), and writes nothing more.
+#[gpui::test]
+fn cancel_after_opening_keeps_the_defaults_that_opening_wrote(cx: &mut TestAppContext) {
+    let place = Place::new();
+    cx.update(gpui_component::init);
+    assert!(cx.update(|app| super::open(app, &place.dirs(), "Opt")));
+    let after_open = fs::read(place.file()).unwrap();
+    assert_eq!(place.written().get("Main", "Level"), Some("3"));
+    let (dialog, window) = cx.update(|app| current(app)).expect("the dialog is open");
+    window
+        .update(cx, |_, window, app| {
+            dialog.update(app, |d, _| d.cancel(window))
+        })
+        .unwrap();
+    assert_eq!(fs::read(place.file()).unwrap(), after_open);
+}
+
+/// A plugin with no `Name`: Sakura writes `;` and the suffix with nothing before it (`m_sName` has no fallback).
+/// The dialog and `Plugin.SetOption` write the same line, so it does not flip between them.
+#[test]
+fn a_plugin_without_a_name_has_one_stable_header_from_both_writers() {
+    let place = Place::new();
+    let mut def = place.def();
+    def.name.clear();
+    let dirs = place.dirs();
+    let header = "; プラグイン設定ファイル";
+    // The dialog opens: the defaults are written with the header.
+    let mut form = Form::open(&def, &place.file());
+    assert_eq!(first_lines(&place, 2), [header, ""]);
+    // A plugin writes an option.
+    let mut api = crate::macros::plugin_call::DefApi::new(&dirs, "Opt", def.clone(), 1);
+    api.call("Plugin.SetOption", &[json!("Free"), json!("K"), json!("v")])
+        .unwrap();
+    assert_eq!(first_lines(&place, 2), [header, ""]);
+    // OK writes the dialog's values (and the line again).
+    form.set(1, "5");
+    form.save().unwrap();
+    assert_eq!(first_lines(&place, 2), [header, ""]);
+    let text = fs::read_to_string(place.file()).unwrap();
+    assert_eq!(text.matches("プラグイン設定ファイル").count(), 1, "{text}");
+    assert_eq!(place.written().get("Free", "K"), Some("v"));
+    assert_eq!(place.written().get("Main", "Level"), Some("5"));
 }

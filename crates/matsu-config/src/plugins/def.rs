@@ -218,6 +218,14 @@ fn text(main: &Profile, l10n: Option<&Profile>, section: &str, key: &str) -> Opt
 }
 
 impl PluginDef {
+    /// The name that the first line of the options file carries (`m_sName` in `CDlgPluginOption.cpp` and
+    /// `CPluginIfObj.h`): the `Name` of `plugin.def` as it is. Sakura has no fallback for an empty one, so the
+    /// line is `; プラグイン設定ファイル`; the dialog of the options and `Plugin.SetOption` both take the name
+    /// from here, so the line is the same whichever of them writes last.
+    pub fn header_name(&self) -> &str {
+        &self.name
+    }
+
     /// Reads a definition from the bytes of `plugin.def` and, if there is one, of the language file.
     pub fn from_bytes(def: &[u8], l10n: Option<&[u8]>) -> Self {
         let main = Profile::from_bytes(def);

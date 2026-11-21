@@ -334,8 +334,10 @@ impl PluginApi for DefApi {
                 self.options
                     .set(section, key, &value)
                     .map_err(|e| RpcError::invalid_params(format!("{name}: {e}")))?;
+                // The first line names the plugin as the dialog of the options does (`PluginDef::header_name`;
+                // `Plugin.SetOption` of Sakura writes the same header, `CPluginIfObj.h`).
                 self.options
-                    .save()
+                    .save_for_plugin(self.def.header_name())
                     .map_err(|e| RpcError::new(plugin_host_error(), format!("{name}: {e}")))?;
                 Ok(Value::Null)
             }
