@@ -542,3 +542,25 @@ fn the_keyword_help_page_has_sakuras_defaults(cx: &mut TestAppContext) {
     assert!(rows_of(cx, KEYHELP_LIST).is_empty());
     cancel(cx);
 }
+
+// The access key of the list of colors (`色指定(&L)`, the group box of `IDD_PROP_COLOR`).
+#[gpui::test]
+fn the_access_key_of_the_group_of_the_color_list_moves_the_focus_to_it_and_keeps_the_item(
+    cx: &mut TestAppContext,
+) {
+    let _ini = open_page(cx, "", 1);
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    choose(cx, COLOR_SEL, 5);
+    assert!(!with_dialog(cx, |d, w, _| d.list_has_focus(COLOR_SEL, w)));
+    // Win32 moves the focus to the next control of the group box, the list; it does not go to the
+    // next item (it did here)
+    cx.simulate_keystrokes(window, "alt-l");
+    assert!(with_dialog(cx, |d, w, _| d.list_has_focus(COLOR_SEL, w)));
+    assert_eq!(value(cx, COLOR_SEL), Value::Int(5));
+    cx.simulate_keystrokes(window, "alt-l");
+    assert_eq!(value(cx, COLOR_SEL), Value::Int(5));
+    // and then the arrow keys of the list move the item
+    cx.simulate_keystrokes(window, "down");
+    assert_eq!(value(cx, COLOR_SEL), Value::Int(6));
+    cancel(cx);
+}

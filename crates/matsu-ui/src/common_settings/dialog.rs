@@ -94,6 +94,10 @@ pub(crate) struct CommonSettingsDialog {
     /// own and ignores one that is given to it). Made before the page is drawn
     /// ([`ensure_choice_focus`](Self::ensure_choice_focus)).
     choice_focus: HashMap<(&'static str, i32), FocusHandle>,
+    /// The focus of each list box that shows all its rows (`Kind::List`) by control id: the access
+    /// key of its label or of its group box moves the focus here and keeps the chosen row. Made
+    /// with the choices' ([`ensure_choice_focus`](Self::ensure_choice_focus)).
+    list_focus: HashMap<&'static str, FocusHandle>,
     focus: FocusHandle,
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
@@ -311,6 +315,7 @@ impl CommonSettingsDialog {
             table_selected,
             opener,
             choice_focus: HashMap::new(),
+            list_focus: HashMap::new(),
             focus: cx.focus_handle(),
             focused: false,
             body_scroll: ScrollHandle::default(),
@@ -396,6 +401,14 @@ impl CommonSettingsDialog {
         self.inputs
             .get(id)
             .map(|input| input.read(cx).value().to_string())
+    }
+
+    /// Whether the list box `id` has the keyboard focus.
+    #[cfg(test)]
+    pub(crate) fn list_has_focus(&self, id: &str, window: &Window) -> bool {
+        self.list_focus
+            .get(id)
+            .is_some_and(|handle| handle.is_focused(window))
     }
 
     /// Whether the button of choice `value` of the list `id` has the keyboard focus.
@@ -938,7 +951,7 @@ impl CommonSettingsDialog {
             }
             _ => {}
         }
-        let entries: Vec<_> = self
+        let mut entries: Vec<_> = self
             .page_controls()
             .into_iter()
             .map(|c| Entry {
@@ -947,6 +960,18 @@ impl CommonSettingsDialog {
                 what: c,
             })
             .collect();
+        // the title of a group box that holds a list box
+        if let Some(items) = self.pages[self.page].items.as_deref() {
+            entries.extend(
+                super::model::group_keys(items)
+                    .into_iter()
+                    .map(|(key, c)| Entry {
+                        key: Some(key),
+                        usable: self.is_usable(&c),
+                        what: c,
+                    }),
+            );
+        }
         let control = match pick(key, &entries) {
             Found::One(control) => control,
             Found::Nothing => return self.use_table_key(key, window, cx),
@@ -982,11 +1007,13 @@ impl CommonSettingsDialog {
                     }
                 }
             }
-            Kind::List { options } => {
-                let now = self.values.int(control.id);
-                let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
-                let next = options[(at + 1) % options.len()].1;
-                self.set_int(control.id, next, cx);
+            // The label (or the group box) of a list box: the focus goes to the list and the chosen
+            // row stays (`IsDialogMessage` moves the focus to the next control; a list box does not
+            // take the letter for itself). A list that is not drawn has no focus to move.
+            Kind::List { .. } => {
+                if let Some(handle) = self.list_focus.get(control.id).cloned() {
+                    window.focus(&handle, cx);
+                }
             }
             Kind::Number { .. } | Kind::Text => {
                 if let Some(input) = self.inputs.get(control.id).cloned() {
@@ -1042,6 +1069,12 @@ impl CommonSettingsDialog {
             .map(super::model::drawn_controls)
             .unwrap_or_default();
         for control in drawn {
+            if matches!(control.kind, Kind::List { .. }) {
+                self.list_focus
+                    .entry(control.id)
+                    .or_insert_with(|| cx.focus_handle().tab_stop(true));
+                continue;
+            }
             let current = self.values.int(control.id);
             let values: Vec<i32> = match control.kind {
                 Kind::Choice { options } => options.iter().map(|(_, v)| *v).collect(),
@@ -1114,7 +1147,12 @@ impl CommonSettingsDialog {
             .child(NOT_AVAILABLE)
     }
 
-    fn control_element(&self, control: &Control, cx: &mut Context<Self>) -> AnyElement {
+    fn control_element(
+        &self,
+        control: &Control,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let usable = self.is_usable(control);
         let (label, _) = parse_label(control.label);
         let name = control.accessible_name();
@@ -1185,6 +1223,10 @@ impl CommonSettingsDialog {
                     .when(!label.is_empty(), |this| this.child(label.clone()))
                     .child(
                         semantics::list_box(div().id(Self::element_id(control)), &name)
+                            .when_some(self.list_focus.get(id).filter(|_| usable), |d, focus| {
+                                d.track_focus(focus)
+                            })
+                            .focus(|style| style.border_color(rgb(SELECTED_BG)))
                             .h(px(150.))
                             .overflow_y_scroll()
                             .bg(rgb(0xffffff))
@@ -1310,6 +1352,8 @@ impl CommonSettingsDialog {
                         range,
                         usable,
                         field,
+                        window,
+                        cx,
                     )
                     .into_any_element(),
                     None => field.into_any_element(),
@@ -1481,9 +1525,9 @@ impl CommonSettingsDialog {
             .into_any_element()
     }
 
-    fn item_element(&self, item: &Item, cx: &mut Context<Self>) -> AnyElement {
+    fn item_element(&self, item: &Item, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match item {
-            Item::Control(control) => self.control_element(control, cx),
+            Item::Control(control) => self.control_element(control, window, cx),
             Item::Label(text) => div()
                 .text_color(rgb(MUTED))
                 .child(parse_label(text).0)
@@ -1493,7 +1537,7 @@ impl CommonSettingsDialog {
             Item::Group(title, items) => {
                 let children: Vec<AnyElement> = items
                     .iter()
-                    .map(|item| self.item_element(item, cx))
+                    .map(|item| self.item_element(item, window, cx))
                     .collect();
                 semantics::group(
                     v_flex().id(SharedString::from(format!("cs-group-{:p}", items.as_ptr()))),
@@ -1518,7 +1562,7 @@ impl CommonSettingsDialog {
                     .map(|column| {
                         let children: Vec<AnyElement> = column
                             .iter()
-                            .map(|item| self.item_element(item, cx))
+                            .map(|item| self.item_element(item, window, cx))
                             .collect();
                         v_flex()
                             .flex_1()
@@ -1536,7 +1580,7 @@ impl CommonSettingsDialog {
             Item::Row(items) => {
                 let children: Vec<AnyElement> = items
                     .iter()
-                    .map(|item| self.item_element(item, cx))
+                    .map(|item| self.item_element(item, window, cx))
                     .collect();
                 h_flex()
                     .gap_3()
@@ -1548,12 +1592,12 @@ impl CommonSettingsDialog {
         }
     }
 
-    fn page_element(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn page_element(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match self.pages[self.page].items.as_deref() {
             Some(items) => {
                 let children: Vec<AnyElement> = items
                     .iter()
-                    .map(|item| self.item_element(item, cx))
+                    .map(|item| self.item_element(item, window, cx))
                     .collect();
                 v_flex().gap_2().children(children).into_any_element()
             }
@@ -1609,7 +1653,7 @@ impl Render for CommonSettingsDialog {
                 .into_any_element()
             })
             .collect();
-        let body = self.page_element(cx);
+        let body = self.page_element(window, cx);
         let dialog_name = match self.target {
             Target::Common => "共通設定",
             Target::Type(_) => "タイプ別設定",

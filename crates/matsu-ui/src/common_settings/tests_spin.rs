@@ -139,6 +139,184 @@ fn the_arrows_of_a_number_box_move_the_number(cx: &mut TestAppContext) {
     assert_eq!(text_in(cx, "repeated_scroll_lines"), "2");
 }
 
+// ---- an arrow held down (`spin.rs`, `Hold`) ----
+
+/// 一度にドロップするファイル数: range 1 to 99, always usable.
+const HOLD_BOX: &str = "drop_file_num_max";
+const HOLD_UP: &str = "cs-drop_file_num_max-spin-up";
+
+/// Moves the test clock by `ms` (a multiple of 50) in steps of 50 ms, running what
+/// is ready after each step: a timer that a step fires makes the next one.
+fn advance(cx: &mut gpui::VisualTestContext, ms: u64) {
+    for _ in 0..ms / 50 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(50));
+        cx.run_until_parked();
+    }
+}
+
+fn press(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("no {selector}"));
+    cx.simulate_mouse_down(bounds.center(), gpui::MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+}
+
+fn release_at(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+}
+
+/// The file page with `start` in the box, drawn.
+fn hold_setup<'a>(cx: &'a mut TestAppContext, start: &str) -> &'a mut gpui::VisualTestContext {
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_FILE");
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    type_in(cx, HOLD_BOX, start);
+    let cx = visual(cx, window);
+    // a window of the test platform is not the active one until it is told to be
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    cx
+}
+
+#[gpui::test]
+fn a_held_arrow_steps_at_the_press_waits_and_then_repeats(cx: &mut TestAppContext) {
+    let cx = hold_setup(cx, "1");
+    press(cx, HOLD_UP);
+    // the press itself steps (Win32 does not wait for the release)
+    assert_eq!(text_in(cx, HOLD_BOX), "2");
+    // nothing before the first delay (500 ms)
+    advance(cx, 450);
+    assert_eq!(text_in(cx, HOLD_BOX), "2");
+    advance(cx, 50);
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+    // then one step every 100 ms
+    advance(cx, 50);
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+    advance(cx, 50);
+    assert_eq!(text_in(cx, HOLD_BOX), "4");
+    advance(cx, 200);
+    assert_eq!(text_in(cx, HOLD_BOX), "6");
+    // the release ends it, and nothing comes after it
+    let at = cx.debug_bounds(HOLD_UP).expect("the arrow").center();
+    release_at(cx, at);
+    advance(cx, 1000);
+    assert_eq!(text_in(cx, HOLD_BOX), "6");
+}
+
+#[gpui::test]
+fn a_held_arrow_goes_faster_after_two_seconds_and_after_five(cx: &mut TestAppContext) {
+    let cx = hold_setup(cx, "1");
+    press(cx, HOLD_UP);
+    // 2 after the press, then a step at 500 ms and one every 100 ms up to 1900 ms: 15 repeats of 1
+    advance(cx, 1900);
+    assert_eq!(text_in(cx, HOLD_BOX), "17");
+    // held for 2 s: the steps are 5 (the table of the measurement in `spin.rs`)
+    advance(cx, 100);
+    assert_eq!(text_in(cx, HOLD_BOX), "22");
+    advance(cx, 100);
+    assert_eq!(text_in(cx, HOLD_BOX), "27");
+    // the range stops it at its end (1 to 99), not wrapping
+    advance(cx, 3000);
+    assert_eq!(text_in(cx, HOLD_BOX), "99");
+    // a step that would go past the end ends at it
+    let at = cx.debug_bounds(HOLD_UP).expect("the arrow").center();
+    release_at(cx, at);
+}
+
+#[gpui::test]
+fn the_down_arrow_repeats_downwards(cx: &mut TestAppContext) {
+    let cx = hold_setup(cx, "50");
+    press(cx, "cs-drop_file_num_max-spin-down");
+    assert_eq!(text_in(cx, HOLD_BOX), "49");
+    advance(cx, 600);
+    // at 500 and 600 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "47");
+}
+
+#[gpui::test]
+fn a_release_off_the_arrow_ends_the_repeat(cx: &mut TestAppContext) {
+    let cx = hold_setup(cx, "1");
+    press(cx, HOLD_UP);
+    advance(cx, 550);
+    // at 500 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+    // the pointer left the arrow and let go over something else
+    release_at(cx, gpui::point(gpui::px(2.), gpui::px(2.)));
+    advance(cx, 1000);
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+}
+
+#[gpui::test]
+fn the_repeat_ends_when_the_box_loses_the_focus(cx: &mut TestAppContext) {
+    let cx = hold_setup(cx, "1");
+    press(cx, HOLD_UP);
+    advance(cx, 550);
+    // at 500 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+    // Tab takes the focus to the next control while the button is still down
+    cx.simulate_keystrokes("tab");
+    advance(cx, 1000);
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+}
+
+#[gpui::test]
+fn the_repeat_ends_when_the_window_is_deactivated(cx: &mut TestAppContext) {
+    let cx = hold_setup(cx, "1");
+    press(cx, HOLD_UP);
+    advance(cx, 550);
+    // at 500 ms
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+    // the release in another program never arrives
+    cx.deactivate_window();
+    advance(cx, 1000);
+    assert_eq!(text_in(cx, HOLD_BOX), "3");
+}
+
+#[gpui::test]
+fn a_hold_ends_when_the_box_is_drawn_disabled(cx: &mut TestAppContext) {
+    // 自動読込時遅延 is greyed out while the file is not watched: turn the watch off during a hold
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_FILE");
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    type_in(cx, "autoload_delay", "5");
+    {
+        let vcx = visual(cx, window);
+        vcx.update(|window, _| window.activate_window());
+        vcx.run_until_parked();
+        press(vcx, "cs-autoload_delay-spin-up");
+        advance(vcx, 550);
+        assert_eq!(text_in(vcx, "autoload_delay"), "7");
+    }
+    with_dialog(cx, |d, _, dcx| {
+        d.set_bool("check_file_time_stamp", false, dcx)
+    });
+    let vcx = visual(cx, window);
+    vcx.run_until_parked();
+    advance(vcx, 1000);
+    assert_eq!(text_in(vcx, "autoload_delay"), "7");
+}
+
+#[gpui::test]
+fn a_disabled_arrow_does_not_repeat(cx: &mut TestAppContext) {
+    // 自動読込時遅延 is greyed out while the file is not watched
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_FILE");
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    with_dialog(cx, |d, _, dcx| {
+        d.set_bool("check_file_time_stamp", false, dcx)
+    });
+    type_in(cx, "autoload_delay", "5");
+    let cx = visual(cx, window);
+    cx.run_until_parked();
+    let before = text_in(cx, "autoload_delay");
+    press(cx, "cs-autoload_delay-spin-up");
+    advance(cx, 1000);
+    assert_eq!(text_in(cx, "autoload_delay"), before);
+}
+
 #[gpui::test]
 fn a_number_box_without_a_spin_has_no_arrows(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "");

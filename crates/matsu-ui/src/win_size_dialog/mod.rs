@@ -365,26 +365,32 @@ impl Render for WinSizeDialog {
                 .gap_1()
                 .children(radios)
         };
-        let number =
-            |label: &'static str, input: &Entity<InputState>, range: (i32, i32), usable: bool| {
-                let (shown, name) = radio_texts(label);
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(div().w(px(72.)).child(shown))
-                    // `IDC_SPIN_WX`, `_WY`, `_SX`, `_SY`
-                    .child(crate::spin::spin_box(
-                        format!("win-size-spin-{label}"),
-                        input,
-                        &name,
-                        range,
-                        usable,
-                        div()
-                            .w(px(110.))
-                            .child(Input::new(input).aria_label(name.clone()).disabled(!usable)),
-                    ))
-            };
+        let number = |label: &'static str,
+                      input: &Entity<InputState>,
+                      range: (i32, i32),
+                      usable: bool,
+                      window: &mut Window,
+                      cx: &mut App| {
+            let (shown, name) = radio_texts(label);
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(div().w(px(72.)).child(shown))
+                // `IDC_SPIN_WX`, `_WY`, `_SX`, `_SY`
+                .child(crate::spin::spin_box(
+                    format!("win-size-spin-{label}"),
+                    input,
+                    &name,
+                    range,
+                    usable,
+                    div()
+                        .w(px(110.))
+                        .child(Input::new(input).aria_label(name.clone()).disabled(!usable)),
+                    window,
+                    cx,
+                ))
+        };
         let kinds = KINDS
             .into_iter()
             .map(|(label, kind)| {
@@ -437,8 +443,22 @@ impl Render for WinSizeDialog {
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(number(X_LABEL, &self.x, POSITION_RANGE, pos_set))
-                                .child(number(Y_LABEL, &self.y, POSITION_RANGE, pos_set)),
+                                .child(number(
+                                    X_LABEL,
+                                    &self.x,
+                                    POSITION_RANGE,
+                                    pos_set,
+                                    window,
+                                    cx,
+                                ))
+                                .child(number(
+                                    Y_LABEL,
+                                    &self.y,
+                                    POSITION_RANGE,
+                                    pos_set,
+                                    window,
+                                    cx,
+                                )),
                         ),
                 ),
             )
@@ -462,8 +482,22 @@ impl Render for WinSizeDialog {
                                         .gap_1()
                                         .children(kinds),
                                 )
-                                .child(number(WIDTH_LABEL, &self.width, SIZE_RANGE, size_set))
-                                .child(number(HEIGHT_LABEL, &self.height, SIZE_RANGE, size_set)),
+                                .child(number(
+                                    WIDTH_LABEL,
+                                    &self.width,
+                                    SIZE_RANGE,
+                                    size_set,
+                                    window,
+                                    cx,
+                                ))
+                                .child(number(
+                                    HEIGHT_LABEL,
+                                    &self.height,
+                                    SIZE_RANGE,
+                                    size_set,
+                                    window,
+                                    cx,
+                                )),
                         ),
                 ),
             )

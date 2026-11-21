@@ -14,7 +14,7 @@ fn the_keys_move_in_the_list_of_the_settings_and_enter_chooses(cx: &mut TestAppC
     let (view, cx) = setup(cx, "abc");
     let dialog = open(&view, cx);
     // ページ設定(1) opens the list, with the setting that is shown under the keys
-    cx.simulate_keystrokes("alt-1");
+    cx.simulate_keystrokes("alt-1 f4");
     assert_eq!(
         dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
         Some((List::Setting, 0))
@@ -31,7 +31,7 @@ fn the_keys_move_in_the_list_of_the_settings_and_enter_chooses(cx: &mut TestAppC
     assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
     assert!(dialog_of(&view, cx).is_some(), "the dialog is still open");
     // Home, End, Up and the pages stay inside the list
-    cx.simulate_keystrokes("alt-1");
+    cx.simulate_keystrokes("alt-1 f4");
     assert_eq!(
         dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
         Some((List::Setting, 2))
@@ -82,8 +82,8 @@ fn the_keys_choose_the_paper(cx: &mut TestAppContext) {
             .position(|p| p.id == d.shown().print_paper_size)
             .unwrap()
     });
-    // 用紙サイズ(Z): the list opens on the paper of the setting
-    cx.simulate_keystrokes("alt-z");
+    // 用紙サイズ(Z) moves the focus to the box and F4 opens the list, on the paper of the setting
+    cx.simulate_keystrokes("alt-z f4");
     assert_eq!(
         dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
         Some((List::Paper, at))
@@ -101,13 +101,13 @@ fn the_fonts_have_their_lists_with_the_keys_too(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, "abc");
     let dialog = open(&view, cx);
     // 半角フォント(F) and 全角フォント(K)
-    cx.simulate_keystrokes("alt-f");
+    cx.simulate_keystrokes("alt-f f4");
     assert!(matches!(
         dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
         Some((List::FontHan, _))
     ));
     // another list replaces the open one
-    cx.simulate_keystrokes("alt-k");
+    cx.simulate_keystrokes("alt-k f4");
     assert!(matches!(
         dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
         Some((List::FontZen, _))
@@ -213,7 +213,7 @@ fn the_list_closes_when_the_focus_goes_to_a_box_and_enter_then_belongs_to_the_bo
 ) {
     let (view, cx) = setup(cx, "abc");
     let dialog = open(&view, cx);
-    cx.simulate_keystrokes("alt-1 down");
+    cx.simulate_keystrokes("alt-1 f4 down");
     assert_eq!(
         dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
         Some((List::Setting, 1))
@@ -242,4 +242,108 @@ fn the_help_is_alt_h_and_f1_and_opens_the_page_of_the_page_setup(cx: &mut TestAp
     cx.simulate_keystrokes("f1");
     assert_eq!(take(), [page_of_function("F_PRINT_PAGESETUP")]);
     assert!(dialog_of(&view, cx).is_some(), "the dialog is still open");
+}
+
+#[gpui::test]
+fn the_access_key_of_a_combo_box_moves_the_focus_to_it_and_leaves_the_list_closed(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    let at = dialog.read_with(cx, |d, _| {
+        PAPER_INFO
+            .iter()
+            .position(|p| p.id == d.shown().print_paper_size)
+            .unwrap()
+    });
+    // 用紙サイズ(Z): `IsDialogMessage` moves the focus to the combo box; the paper stays
+    cx.simulate_keystrokes("alt-z");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+    assert!(dialog.update_in(cx, |d, window, _| d.combo_has_focus(List::Paper, window)));
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[at].id
+    );
+    // the arrow keys of a closed combo box choose at once (`CBN_SELCHANGE`), without a list
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[at + 1].id
+    );
+    cx.simulate_keystrokes("end");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[PAPER_INFO.len() - 1].id
+    );
+    cx.simulate_keystrokes("home");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[0].id
+    );
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+    // F4 and Alt+Down open the list, with the cursor on the paper
+    cx.simulate_keystrokes("f4");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
+        Some((List::Paper, 0))
+    );
+    cx.simulate_keystrokes("escape alt-z alt-down");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
+        Some((List::Paper, 0))
+    );
+}
+
+#[gpui::test]
+fn the_access_key_of_the_fonts_and_the_settings_also_leave_the_list_closed(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    for (keys, list) in [
+        ("alt-f", List::FontHan),
+        ("alt-k", List::FontZen),
+        ("alt-1", List::Setting),
+    ] {
+        cx.simulate_keystrokes(keys);
+        assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+        assert!(dialog.update_in(cx, |d, window, _| d.combo_has_focus(list, window)));
+    }
+    // the arrow keys of the first one show another setting
+    cx.simulate_keystrokes("down");
+    assert_eq!(dialog.read_with(cx, |d, _| d.current()), 1);
+}
+
+#[gpui::test]
+fn the_focus_returns_to_the_combo_box_when_its_list_closes(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    let at = dialog.read_with(cx, |d, _| {
+        PAPER_INFO
+            .iter()
+            .position(|p| p.id == d.shown().print_paper_size)
+            .unwrap()
+    });
+    // Escape: the box has the focus again, and Down changes the paper without a list
+    cx.simulate_keystrokes("alt-z f4 escape");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+    assert!(dialog.update_in(cx, |d, window, _| d.combo_has_focus(List::Paper, window)));
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[at + 1].id
+    );
+    // Enter takes the row and gives the focus back too; F4 opens the list again
+    cx.simulate_keystrokes("f4 down enter");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+    assert!(dialog.update_in(cx, |d, window, _| d.combo_has_focus(List::Paper, window)));
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[at + 2].id
+    );
+    cx.simulate_keystrokes("f4");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
+        Some((List::Paper, at + 2))
+    );
 }
