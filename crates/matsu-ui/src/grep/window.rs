@@ -494,13 +494,16 @@ impl EditorView {
         }
     }
 
-    /// For the task of the launch: whether it still waits for the dialog. A dialog that went without a Grep of
-    /// its own (replaced by another dialog) settles the launch here, so the wait is led by the recorded state and
-    /// not by whether some Grep panel is open.
-    pub(crate) fn launch_still_waits(&mut self) -> bool {
+    /// For the task of the launch: a dialog that went without a Grep of its own (replaced by another dialog)
+    /// settles the launch, so the wait is led by the recorded state and not by whether some Grep panel is open.
+    pub(crate) fn settle_launch_if_dialog_gone(&mut self) {
         if self.launch_dialog_gone() {
             self.settle_launch(false);
         }
+    }
+
+    /// Whether the launch still waits for its dialog.
+    pub(crate) fn launch_waits(&self) -> bool {
         matches!(self.grep.launch, LaunchEvents::Waiting { .. })
     }
 

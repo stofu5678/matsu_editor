@@ -358,10 +358,15 @@ pub(crate) async fn start_after_grep(
         .ok();
     if dialog {
         // Led by the state the window recorded for the launch (the dialog of the launch, not any Grep panel).
-        while view
-            .update(cx, |view, _| view.launch_still_waits())
-            .unwrap_or(false)
-        {
+        loop {
+            view.update(cx, |view, _| view.settle_launch_if_dialog_gone())
+                .ok();
+            if !view
+                .read_with(cx, |view, _| view.launch_waits())
+                .unwrap_or(false)
+            {
+                break;
+            }
             cx.background_executor().timer(DIALOG_TICK).await;
         }
     }
