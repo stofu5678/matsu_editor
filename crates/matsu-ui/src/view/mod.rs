@@ -16,7 +16,7 @@
 
 mod a11y_text;
 pub(crate) mod autoscroll;
-mod back_paint;
+pub(crate) mod back_paint;
 mod bracket_marks;
 mod caret_shape;
 mod colors;

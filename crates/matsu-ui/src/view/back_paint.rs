@@ -50,7 +50,7 @@ use crate::back_image::{BackBitmap, BackImageSpec};
 
 /// The image and how the type wants it placed.
 #[derive(Clone)]
-pub(super) struct BackPaint {
+pub(crate) struct BackPaint {
     pub bitmap: Arc<BackBitmap>,
     pub spec: BackImageSpec,
 }
@@ -74,7 +74,7 @@ struct DrawnImage {
 /// Call it once for each paint of a view with the image it is going to draw (`None` if it draws
 /// none): notes the picture for this window, and drops from the atlas the pictures of this window
 /// that no view holds any more. The pictures of windows that are closed are forgotten.
-pub(super) fn track(window: &mut Window, cx: &mut App, current: Option<&BackPaint>) {
+pub(crate) fn track(window: &mut Window, cx: &mut App, current: Option<&BackPaint>) {
     let id = window.window_handle().window_id();
     let open: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
     let drawn = cx.default_global::<Drawn>();
@@ -104,7 +104,7 @@ pub(super) fn track(window: &mut Window, cx: &mut App, current: Option<&BackPain
 /// `bounds` with each edge on a whole device pixel (rounded in the window, as `plan` and GPUI
 /// round the edges of an image). A rectangle given such bounds is painted whole, without the
 /// partly painted edge row that GPUI gives a rectangle whose edge is between two pixels.
-pub(super) fn snapped(bounds: Bounds<Pixels>, scale: f32) -> Bounds<Pixels> {
+pub(crate) fn snapped(bounds: Bounds<Pixels>, scale: f32) -> Bounds<Pixels> {
     let round = |v: Pixels| px((f32::from(v) * scale).round() / scale);
     Bounds::from_corners(
         point(round(bounds.left()), round(bounds.top())),
@@ -114,7 +114,7 @@ pub(super) fn snapped(bounds: Bounds<Pixels>, scale: f32) -> Bounds<Pixels> {
 
 /// The view the image is placed in, in GPUI pixels.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Frame {
+pub(crate) struct Frame {
     /// The whole view.
     pub bounds: Bounds<Pixels>,
     /// The width of the line number area (the text area starts there).
@@ -142,7 +142,7 @@ pub(super) struct Frame {
 /// pixels, but the picture must not move with it). The edges of the clip are rounded as GPUI
 /// rounds the edges of a rectangle (each edge by itself, in the window), so that the clip is
 /// the same device pixels as a rectangle painted over the same `Bounds`.
-pub(super) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Vec<Rect>, Rect) {
+pub(crate) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Vec<Rect>, Rect) {
     let dev = |v: f32| (v * frame.scale).round() as i64;
     let width = f32::from(frame.bounds.size.width);
     let height = f32::from(frame.bounds.size.height);
@@ -187,7 +187,7 @@ pub(super) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Ve
 
 /// [`plan`]'s tiles, for a clip given from the top left of the view.
 #[cfg(test)]
-pub(super) fn tiles(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> Vec<Rect> {
+pub(crate) fn tiles(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> Vec<Rect> {
     plan(back, frame, shifted(frame, clip)).0
 }
 
@@ -205,7 +205,7 @@ fn shifted(frame: &Frame, clip: Bounds<Pixels>) -> Bounds<Pixels> {
 
 /// Paints the image in the part `clip` of the window (the `Bounds` of the rectangle the caller
 /// paints the background in). The background color is painted by the caller, under this.
-pub(super) fn paint(window: &mut Window, back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) {
+pub(crate) fn paint(window: &mut Window, back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) {
     let (tiles, painted) = plan(back, frame, clip);
     let scale = frame.scale;
     // The view starts at a whole device pixel (as the pictures are placed from it).

@@ -16,6 +16,7 @@ use super::current;
 use super::geometry::{self, LEFT_MARGIN};
 use super::panel::{Drag, MiniMap};
 use crate::geometry::{SCROLLBAR_WIDTH, XScale};
+use crate::view::back_paint::{self, BackPaint, Frame};
 use crate::view::minimap::MiniLook;
 
 /// What the prepaint decided to draw.
@@ -30,6 +31,8 @@ pub(super) struct Painted {
     rows: Vec<PaintedRow>,
     /// The pixels of the layout's `X` in the minimap's font.
     scale: XScale,
+    /// The background image of the type, drawn as the view draws it (not scaled).
+    back: Option<BackPaint>,
 }
 
 struct PaintedRow {
@@ -116,6 +119,7 @@ fn prepaint(
         page: editor.minimap_page(),
         rows,
         scale: editor.x_scale_for(cell),
+        back: editor.back_paint(),
     })
 }
 
@@ -134,6 +138,18 @@ fn paint(
     entity.update(cx, |minimap, _| minimap.top_row = p.top);
 
     window.paint_quad(fill(bounds, rgb(p.look.background)));
+    // The background image, under the rows (`OnPaint`: `DrawBackImage` first). The minimap is a
+    // `CEditView` with `m_bMiniMap` and nothing there leaves the image out: the picture keeps its
+    // size in pixels, goes where the type says in the text area of the minimap (it starts after
+    // `LEFT_MARGIN`, `CTextArea::DetectWidthOfLineNumberArea` gives 4; no ruler, no line numbers),
+    // and scrolls with the rows of the minimap (`GetViewTopLine()` times the height of a row; the
+    // minimap has no sideways scroll). The rows paint only what is not the background of the text,
+    // so the image shows through them.
+    back_paint::track(window, cx, p.back.as_ref());
+    if let Some(back) = &p.back {
+        let frame = back_frame(bounds, p.top, p.row_height, window.scale_factor());
+        back_paint::paint(window, back, &frame, bounds);
+    }
     let lh = px(p.row_height);
     let text_bounds = Bounds::new(
         bounds.origin,
@@ -222,4 +238,85 @@ fn paint(
         }
         released.update(cx, |minimap, cx| minimap.mouse_released(cx));
     });
+}
+
+/// Where the image of the type is placed in the minimap: see [`paint`].
+fn back_frame(bounds: Bounds<Pixels>, top_row: usize, row_height: f32, scale: f32) -> Frame {
+    Frame {
+        bounds,
+        gutter_width: LEFT_MARGIN,
+        top_margin: 0.0,
+        ruler_px: 0.0,
+        right_bar: SCROLLBAR_WIDTH,
+        bottom_bar: 0.0,
+        scroll: (0.0, top_row as f32 * row_height),
+        scale,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::back_image::placement::Rect;
+    use crate::back_image::{BackBitmap, BackImageSpec, Decoded};
+    use matsu_config::settings::types::back_img_pos;
+
+    fn back(position: i32, scroll: (bool, bool)) -> BackPaint {
+        let decoded = Decoded {
+            width: 40,
+            height: 30,
+            bgra: vec![0; 40 * 30 * 4],
+            copies: (1, 1),
+        };
+        BackPaint {
+            bitmap: std::sync::Arc::new(BackBitmap::from_decoded(decoded).unwrap()),
+            spec: BackImageSpec {
+                path: std::path::PathBuf::new(),
+                position,
+                offset: (0, 0),
+                repeat: (false, false),
+                scroll,
+                opacity: 255,
+            },
+        }
+    }
+
+    fn area() -> Bounds<Pixels> {
+        Bounds::new(point(px(500.), px(20.)), size(px(150.), px(300.)))
+    }
+
+    fn whole() -> Bounds<Pixels> {
+        Bounds::new(point(px(0.), px(0.)), area().size)
+    }
+
+    #[test]
+    fn the_image_keeps_its_size_and_starts_after_the_left_margin() {
+        // `CTextArea`: the left of the text area of a minimap is 4; no ruler above it.
+        let frame = back_frame(area(), 0, 4.0, 1.0);
+        let tiles = back_paint::tiles(&back(back_img_pos::TOP_LEFT, (true, true)), &frame, whole());
+        assert_eq!(tiles, [Rect::new(4, 0, 44, 30)]);
+        // bottom right: the right edge of the area is the pane without its scroll bar
+        let tiles = back_paint::tiles(
+            &back(back_img_pos::BOTTOM_RIGHT, (true, true)),
+            &frame,
+            whole(),
+        );
+        let right = 150 - SCROLLBAR_WIDTH as i64;
+        assert_eq!(tiles, [Rect::new(right - 40, 270, right, 300)]);
+    }
+
+    #[test]
+    fn the_image_scrolls_with_the_rows_of_the_minimap_only_where_the_type_says() {
+        // `DrawBackImage`: `GetViewTopLine()` times the height of a row, and no sideways scroll.
+        let frame = back_frame(area(), 3, 4.0, 1.0);
+        let moving =
+            back_paint::tiles(&back(back_img_pos::TOP_LEFT, (true, true)), &frame, whole());
+        assert_eq!(moving, [Rect::new(4, -12, 44, 18)]);
+        let fixed = back_paint::tiles(
+            &back(back_img_pos::TOP_LEFT, (false, false)),
+            &frame,
+            whole(),
+        );
+        assert_eq!(fixed, [Rect::new(4, 0, 44, 30)]);
+    }
 }
