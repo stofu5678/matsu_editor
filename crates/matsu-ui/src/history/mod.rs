@@ -200,4 +200,6 @@ mod dialog_tests;
 #[cfg(test)]
 mod menu_tests;
 #[cfg(test)]
+mod sort_tests;
+#[cfg(test)]
 mod tests;
