@@ -885,3 +885,146 @@ fn another_grep_dialog_opened_right_after_the_cancel_does_not_hold_back_the_star
     );
     finish(cx);
 }
+
+/// Lets the clock and the windows run for a while, so that an event that should not come has had its time.
+fn settle(cx: &mut TestAppContext) {
+    for _ in 0..50 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// The window that is not `old`.
+fn other_window(cx: &mut TestAppContext, old: AnyWindowHandle) -> Window {
+    let views = cx.update(editors);
+    views
+        .into_iter()
+        .find(|(handle, _)| *handle != old)
+        .expect("a new window opened")
+}
+
+fn grep_into(
+    cx: &mut TestAppContext,
+    (handle, view): &Window,
+    info: crate::grep::engine::GrepInfo,
+    new_window: bool,
+) {
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.start_grep(info, new_window, window, cx)
+            })
+        })
+        .unwrap();
+}
+
+/// A Grep that writes its result into a new window: Sakura starts a `-GREPMODE` process for it, which tells
+/// `EditorStart` and then `DocumentOpen` after the search (`CNormalProcess.cpp`), once each. The window that
+/// asked is told nothing.
+#[gpui::test]
+fn a_grep_into_a_new_window_tells_editor_start_and_then_document_open_once(
+    cx: &mut TestAppContext,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle here\n").unwrap();
+    let Some((place, _files)) = begin(cx, START_AND_OPEN) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let from = windows(cx, &place, 1).remove(0);
+    cx.executor().allow_parking();
+    grep_into(cx, &from, grep_of(dir.path()), true);
+    let new = other_window(cx, from.0);
+    wait(cx, "the events of the new window did not come", |cx| {
+        told(&new.1, cx).len() >= 2
+    });
+    settle(cx);
+    assert_eq!(told(&new.1, cx), ["EditorStart", "DocumentOpen"]);
+    assert!(told(&from.1, cx).is_empty(), "{:?}", told(&from.1, cx));
+    finish(cx);
+}
+
+/// The events wait for the search: the new window's `EditorStart` sees the finished result.
+#[gpui::test]
+fn the_start_of_a_new_grep_window_sees_the_result(cx: &mut TestAppContext) {
+    let script = "console.log('[EditorStart]'); console.log('lines=' + Editor.GetLineCount(0));";
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle here\n").unwrap();
+    let Some((place, _files)) = begin(cx, &[("EditorStart", script)]) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let from = windows(cx, &place, 1).remove(0);
+    cx.executor().allow_parking();
+    grep_into(cx, &from, grep_of(dir.path()), true);
+    let new = other_window(cx, from.0);
+    wait(cx, "EditorStart did not print the lines", |cx| {
+        new.1
+            .read_with(cx, |v, _| v.macro_output_text())
+            .contains("lines=")
+    });
+    let output = new.1.read_with(cx, |v, _| v.macro_output_text());
+    let seen: usize = output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("lines=")?.parse().ok())
+        .expect("the handler printed the number of lines");
+    assert!(seen >= 3, "the window was empty when it was told: {output}");
+    finish(cx);
+}
+
+/// In the tab mode the result goes to a new tab: MATSU tells `EditorStart` to a window (it had it), so the tab
+/// is told `DocumentOpen` once, after the search.
+#[gpui::test]
+fn a_grep_into_a_new_tab_tells_document_open_once(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle here\n").unwrap();
+    let Some((place, _files)) = begin(cx, START_AND_OPEN) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let from = windows(cx, &place, 1).remove(0);
+    tab_mode(cx);
+    cx.executor().allow_parking();
+    // A window with changes: the result cannot go there.
+    from.1.update(cx, |view, cx| view.type_char('x', cx));
+    grep_into(cx, &from, grep_of(dir.path()), false);
+    wait(cx, "the tab did not open", |cx| {
+        tab_views(cx, from.0).len() == 2
+    });
+    let tab = tab_views(cx, from.0)
+        .into_iter()
+        .find(|tab| *tab != from.1)
+        .unwrap();
+    wait(cx, "the event of the tab did not come", |cx| {
+        !told(&tab, cx).is_empty()
+    });
+    settle(cx);
+    assert_eq!(told(&tab, cx), ["DocumentOpen"]);
+    assert!(told(&from.1, cx).is_empty(), "{:?}", told(&from.1, cx));
+    finish(cx);
+}
+
+/// A Grep that a macro or a plugin command starts gets no `DocumentOpen` for its new window (the new window
+/// has its `EditorStart` as any window does, when it opens), so a handler that greps cannot call itself.
+#[gpui::test]
+fn a_grep_a_call_starts_into_a_new_window_tells_only_the_start(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle here\n").unwrap();
+    let Some((place, _files)) = begin(cx, START_AND_OPEN) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let from = windows(cx, &place, 1).remove(0);
+    cx.executor().allow_parking();
+    from.1.update(cx, |view, _| view.pretend_plugin_call(true));
+    grep_into(cx, &from, grep_of(dir.path()), true);
+    from.1.update(cx, |view, _| view.pretend_plugin_call(false));
+    let new = other_window(cx, from.0);
+    wait(cx, "EditorStart did not come", |cx| {
+        !told(&new.1, cx).is_empty()
+    });
+    settle(cx);
+    assert_eq!(told(&new.1, cx), ["EditorStart"]);
+    finish(cx);
+}
