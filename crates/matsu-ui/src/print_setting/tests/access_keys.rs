@@ -313,3 +313,37 @@ fn the_access_key_of_the_fonts_and_the_settings_also_leave_the_list_closed(
     cx.simulate_keystrokes("down");
     assert_eq!(dialog.read_with(cx, |d, _| d.current()), 1);
 }
+
+#[gpui::test]
+fn the_focus_returns_to_the_combo_box_when_its_list_closes(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    let at = dialog.read_with(cx, |d, _| {
+        PAPER_INFO
+            .iter()
+            .position(|p| p.id == d.shown().print_paper_size)
+            .unwrap()
+    });
+    // Escape: the box has the focus again, and Down changes the paper without a list
+    cx.simulate_keystrokes("alt-z f4 escape");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+    assert!(dialog.update_in(cx, |d, window, _| d.combo_has_focus(List::Paper, window)));
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[at + 1].id
+    );
+    // Enter takes the row and gives the focus back too; F4 opens the list again
+    cx.simulate_keystrokes("f4 down enter");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list_and_cursor()), None);
+    assert!(dialog.update_in(cx, |d, window, _| d.combo_has_focus(List::Paper, window)));
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.shown().print_paper_size),
+        PAPER_INFO[at + 2].id
+    );
+    cx.simulate_keystrokes("f4");
+    assert_eq!(
+        dialog.read_with(cx, |d, _| d.open_list_and_cursor()),
+        Some((List::Paper, at + 2))
+    );
+}

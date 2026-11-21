@@ -283,6 +283,11 @@ pub(crate) fn spin_box(
     let hold = window.use_keyed_state(ElementId::from(id.clone()), cx, |window, cx| {
         Hold::new(window, cx)
     });
+    // A press that was on when the arrows went grey has no release handler any more: the owner
+    // that sees the state ends it.
+    if !enabled {
+        hold.update(cx, |hold, _| hold.end());
+    }
     let arrow = |part: &'static str, glyph: &'static str, label: String, delta: i32| {
         let input = input.clone();
         let press_hold = hold.clone();

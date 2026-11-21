@@ -484,11 +484,22 @@ impl PrintSettingDialog {
 
     fn toggle_list(&mut self, list: List, window: &mut Window, cx: &mut Context<Self>) {
         if self.list == Some(list) {
-            self.list = None;
-            cx.notify();
+            self.close_list(window, cx);
         } else {
             self.open_list(list, window, cx);
         }
+    }
+
+    /// Closes the open list and gives the focus back to its combo box (`open_list` took it to the
+    /// dialog), so that the arrow keys and F4 go on there. A list that a click or Tab has left
+    /// (the focus is elsewhere) keeps the focus where it is.
+    fn close_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(list) = self.list.take()
+            && self.focus.is_focused(window)
+        {
+            window.focus(&self.combo_focus[list.index()], cx);
+        }
+        cx.notify();
     }
 
     /// Opens the list with the row of the value that is set under the keys.
@@ -654,8 +665,8 @@ impl PrintSettingDialog {
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.keystroke.key == "escape" {
-            if self.list.take().is_some() {
-                cx.notify();
+            if self.list.is_some() {
+                self.close_list(window, cx);
             } else {
                 self.cancel(window, cx);
             }
@@ -729,7 +740,12 @@ impl PrintSettingDialog {
     ) {
         match list {
             List::Setting => {
+                // `select_setting` closes the list
+                let had_focus = self.focus.is_focused(window);
                 self.select_setting(row, window, cx);
+                if had_focus {
+                    window.focus(&self.combo_focus[list.index()], cx);
+                }
                 return;
             }
             List::FontHan => {
@@ -754,8 +770,7 @@ impl PrintSettingDialog {
                 }
             }
         }
-        self.list = None;
-        cx.notify();
+        self.close_list(window, cx);
     }
 
     fn list_view(&self, list: List, cx: &mut Context<Self>) -> impl IntoElement {

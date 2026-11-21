@@ -274,6 +274,30 @@ fn the_repeat_ends_when_the_window_is_deactivated(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_hold_ends_when_the_box_is_drawn_disabled(cx: &mut TestAppContext) {
+    // 自動読込時遅延 is greyed out while the file is not watched: turn the watch off during a hold
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_FILE");
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    type_in(cx, "autoload_delay", "5");
+    {
+        let vcx = visual(cx, window);
+        vcx.update(|window, _| window.activate_window());
+        vcx.run_until_parked();
+        press(vcx, "cs-autoload_delay-spin-up");
+        advance(vcx, 550);
+        assert_eq!(text_in(vcx, "autoload_delay"), "8");
+    }
+    with_dialog(cx, |d, _, dcx| {
+        d.set_bool("check_file_time_stamp", false, dcx)
+    });
+    let vcx = visual(cx, window);
+    vcx.run_until_parked();
+    advance(vcx, 1000);
+    assert_eq!(text_in(vcx, "autoload_delay"), "8");
+}
+
+#[gpui::test]
 fn a_disabled_arrow_does_not_repeat(cx: &mut TestAppContext) {
     // 自動読込時遅延 is greyed out while the file is not watched
     let (_ini, handle) = setup(cx, "");
