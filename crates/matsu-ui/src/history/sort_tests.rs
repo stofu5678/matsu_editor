@@ -6,7 +6,6 @@
 
 use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext};
 use matsu_config::history::{FileEntry, History};
-use matsu_config::settings::EditableList as _;
 
 use super::dialog::{
     Column, FavoriteDialog, RightAct, RightRow, Row, Sort, Tab, display_order, refreshed_message,
