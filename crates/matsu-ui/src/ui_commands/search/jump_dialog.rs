@@ -1,7 +1,7 @@
 //! `F_JUMP_DIALOG`: opens the go-to-line panel (指定行へジャンプ).
 //!
 //! Sakura: `CViewCommander::Command_JUMP_DIALOG` (`sakura_core/cmd/CViewCommander_Bookmark.cpp`). Lines are
-//! counted by line breaks only; the 折り返し単位 choice of Sakura's dialog is not there yet.
+//! counted by the unit that the panel has chosen (改行単位 or 折り返し単位, `m_bLineNumIsCRLF_ForJump`).
 
 use crate::search::PanelMode;
 use gpui::{Context, Window};
