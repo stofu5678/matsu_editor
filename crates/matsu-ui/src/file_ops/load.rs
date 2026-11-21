@@ -56,15 +56,16 @@ async fn read_file(
     cx: &mut AsyncWindowContext,
     path: &Path,
     encoding: Option<Encoding>,
+    saved_type: Option<i32>,
 ) -> Result<TextFile, FileError> {
-    match read_file_asking(view, cx, path, encoding, true).await {
+    match read_file_asking(view, cx, path, encoding, saved_type, true).await {
         Err(FileError::WholeReadNeeded {
             len,
             encoding: found,
         }) => {
             let (message, detail) = whole_read_message(path, len, found);
             if confirm(cx, &message, Some(&detail), ["読み込む(Y)", "キャンセル"]).await {
-                read_file_asking(view, cx, path, encoding, false).await
+                read_file_asking(view, cx, path, encoding, saved_type, false).await
             } else {
                 Err(FileError::Cancelled)
             }
@@ -94,6 +95,7 @@ async fn read_file_asking(
     cx: &mut AsyncWindowContext,
     path: &Path,
     encoding: Option<Encoding>,
+    saved_type: Option<i32>,
     ask: bool,
 ) -> Result<TextFile, FileError> {
     let size = std::fs::metadata(path).map_or(0, |m| m.len());
@@ -102,15 +104,19 @@ async fn read_file_asking(
     let target = path.to_owned();
     // The settings of the type of this file name: the encoding and the line ending to fall back on.
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-    // A launch with `-TYPE=` reads the file with the type it chose, not the type of the file name
-    // (`CLoadAgent::OnLoad` sets `sLoadInfo.nType` before the read).
+    // The type is decided before the read, in the order of `CMruListener::OnBeforeLoad`: the type
+    // `-TYPE=` chose (`CLoadAgent::OnLoad` sets `sLoadInfo.nType`), else the one the history saved
+    // for the file (`GetDocumentTypeOfId`; an ID that no type has any more is skipped), else the
+    // type of the file name. Its defaults are used when the encoding is detected.
     let defaults = cx
-        .update(
-            |_, app| match super::start_options::expected_type(app, path) {
-                Some(ext) => crate::settings::new_document_defaults_for_ext(app, &ext),
-                None => crate::settings::new_document_defaults(app, name.as_deref()),
-            },
-        )
+        .update(|_, app| {
+            if let Some(ext) = super::start_options::expected_type(app, path) {
+                return crate::settings::new_document_defaults_for_ext(app, &ext);
+            }
+            saved_type
+                .and_then(|id| crate::settings::new_document_defaults_for_id(app, id))
+                .unwrap_or_else(|| crate::settings::new_document_defaults(app, name.as_deref()))
+        })
         .unwrap_or_default();
     // A big file is opened by ranges (ADR-0020, chapter 7).
     let huge = cx
@@ -161,6 +167,7 @@ async fn settle_encoding(
     path: &Path,
     file: TextFile,
     old: Encoding,
+    saved_type: Option<i32>,
 ) -> Result<TextFile, FileError> {
     if old == file.encoding {
         return Ok(file);
@@ -183,7 +190,7 @@ async fn settle_encoding(
         return Ok(file);
     }
     // If the file cannot be read in that encoding, the detected one stays.
-    match read_file(view, cx, path, Some(old)).await {
+    match read_file(view, cx, path, Some(old), saved_type).await {
         Ok(again) => Ok(again),
         // The user said no to the question before a huge file is read whole in that encoding:
         // nothing is opened.
@@ -273,12 +280,15 @@ async fn load_here_inner(
     // Reading the file again (reopen, reload): its own lock would refuse the read, so it is let
     // go of until the file is read (`CLoadAgent::OnCheckLoad`).
     let unlocked = super::lock::release_for_reading(view, cx, path);
-    let mut result = read_file(view, cx, path, encoding).await;
+    // The type the history saved decides the defaults of the read (`read_file_asking` lets `-TYPE=`
+    // come first).
+    let saved_type = previous.as_ref().map(|entry| entry.type_id);
+    let mut result = read_file(view, cx, path, encoding, saved_type).await;
     if encoding.is_none()
         && let Some(old) = previous.as_ref().and_then(encoding_of)
     {
         result = match result {
-            Ok(file) => settle_encoding(view, cx, path, file, old).await,
+            Ok(file) => settle_encoding(view, cx, path, file, old, saved_type).await,
             error => error,
         };
     }

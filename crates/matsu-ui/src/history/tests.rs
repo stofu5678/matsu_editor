@@ -404,6 +404,78 @@ fn an_id_that_is_no_type_gives_the_type_of_the_name(cx: &mut TestAppContext) {
     assert_eq!(now, by_name);
 }
 
+/// Settings in which the basic type (id 0) and the type of `a.txt` (index 1) have these default
+/// encodings (Sakura's codes: 0 Shift_JIS, 2 EUC-JP, 4 UTF-8).
+fn set_type_defaults(cx: &mut VisualTestContext, basic: i32, text: i32) {
+    let ini = format!(
+        "[Other]\r\nnTypesCount=17\r\n\
+         [Types(0)]\r\neDefaultCodetype={basic}\r\n\
+         [Types(1)]\r\neDefaultCodetype={text}\r\n"
+    );
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ini.as_bytes());
+    let profile = matsu_config::Profile::from_bytes(&bytes);
+    cx.update(|_, app| {
+        app.set_global(crate::settings::UserSettings::from_profile(profile, None));
+    });
+}
+
+/// Opens the ASCII-only file `a.txt`, which the history remembers with type `type_id`, and gives
+/// the encoding it was read in, the bytes on disk before and after. `code` is the encoding
+/// argument of F_FILEOPEN (like `-CODE=`).
+fn open_ascii_with_saved_type(
+    cx: &mut TestAppContext,
+    (basic, text): (i32, i32),
+    type_id: i32,
+    code: Option<i64>,
+) -> (Encoding, Vec<u8>, Vec<u8>) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc\r\n");
+    let before = std::fs::read(&path).unwrap();
+    let (f, cx) = setup(cx);
+    set_type_defaults(cx, basic, text);
+    set_history(cx, |h| {
+        let mut entry = FileEntry::new(path_text(&path));
+        entry.type_id = type_id;
+        h.add_file(entry);
+    });
+    f.open(cx, &path, code);
+    assert!(!cx.has_pending_prompt());
+    (f.encoding(cx), before, std::fs::read(&path).unwrap())
+}
+
+/// `CMruListener::OnBeforeLoad` decides the type from the history before the encoding is detected
+/// with the defaults of that type: the name says the text type (Shift_JIS), the history says the
+/// basic type (UTF-8), and the history wins. The file is only read.
+#[gpui::test]
+fn the_saved_type_gives_the_default_encoding_of_the_read(cx: &mut TestAppContext) {
+    let (encoding, before, after) = open_ascii_with_saved_type(cx, (4, 0), 0, None);
+    assert_eq!(encoding, Encoding::Utf8);
+    assert_eq!(before, after, "reading does not write");
+}
+
+#[gpui::test]
+fn the_saved_type_gives_the_default_encoding_the_other_way(cx: &mut TestAppContext) {
+    let (encoding, _, _) = open_ascii_with_saved_type(cx, (0, 4), 0, None);
+    assert_eq!(encoding, Encoding::ShiftJis);
+}
+
+#[gpui::test]
+fn a_saved_type_that_is_gone_leaves_the_type_of_the_name_to_the_read(cx: &mut TestAppContext) {
+    // The type of `a.txt` defaults to Shift_JIS; no type has the ID 9999 (or -1, "none").
+    for id in [9999, -1] {
+        let (encoding, _, _) = open_ascii_with_saved_type(cx, (4, 0), id, None);
+        assert_eq!(encoding, Encoding::ShiftJis, "id {id}");
+    }
+}
+
+#[gpui::test]
+fn the_code_of_the_open_wins_over_the_defaults_of_the_saved_type(cx: &mut TestAppContext) {
+    // The saved type would read UTF-8; the argument of F_FILEOPEN says EUC-JP.
+    let (encoding, _, _) = open_ascii_with_saved_type(cx, (4, 0), 0, Some(2));
+    assert_eq!(encoding, Encoding::EucJp);
+}
+
 #[gpui::test]
 fn reopen_keeps_the_caret_and_does_not_ask(cx: &mut TestAppContext) {
     let dir = TempDir::new();

@@ -93,6 +93,17 @@ pub fn new_document_defaults_for_ext(cx: &gpui::App, ext: &str) -> NewDocumentDe
     defaults
 }
 
+/// [`new_document_defaults`] for the document type with this ID (the `.nType` that the history
+/// wrote, `CDocTypeManager::GetDocumentTypeOfId`). `None` when no type has the ID any more.
+pub fn new_document_defaults_for_id(cx: &gpui::App, id: i32) -> Option<NewDocumentDefaults> {
+    let mut defaults = crate::doc_types::with_user(cx, |user| {
+        let index = user.document_types().iter().position(|t| t.id == id)?;
+        Some(user.new_document_defaults_of_type(index))
+    })?;
+    defaults.mime_decode = crate::file_ops::prefs::prefs(cx).auto_mime_decode;
+    Some(defaults)
+}
+
 /// The message of the migration from the old settings, with the time it was made.
 ///
 /// Kept for the thread that starts the application, which is the one that draws the windows; so the tests,
