@@ -182,6 +182,14 @@ fn empty_matches_at_the_end_of_a_line_take_one_replacement_each() {
 }
 
 #[test]
+fn a_look_behind_at_the_end_of_the_subject_is_replaced() {
+    // The real Sakura (regex-ml-lookbehind-newline-lf): `(?<=\n)` replaced by `|` puts one after
+    // every line ending, the last one at the very end of the document
+    assert_eq!(all("(?<=\\n)", "|", "ab\ncd\n").0, "ab\n|cd\n|");
+    assert_eq!(all("(?<=\\n)", "|", "ab\r\ncd\r\n").0, "ab\r\n|cd\r\n|");
+}
+
+#[test]
 fn backward_search_finds_the_last_line_break() {
     let text = "ab\ncd\nef\n";
     // from [EOF]: the line break of the last line

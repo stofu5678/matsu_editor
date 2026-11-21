@@ -202,8 +202,8 @@ pub(crate) fn scan<M: Matcher + ?Sized>(
         let Some(m) = matcher.find_at(line, pos)? else {
             break;
         };
-        // no match begins at the very end of the subject (see `find_in_line`)
-        if m.start >= line.len() && matcher.sees_line_ending() {
+        // no match begins at the very end of a subject without a line ending (see `find_in_line`)
+        if m.start >= line.len() && body == line.len() && matcher.sees_line_ending() {
             break;
         }
         // A matcher may report a match that starts before `pos` (whole-word search); skip those
