@@ -368,9 +368,10 @@ pub(crate) async fn start_after_grep(
     }
     // The Grep of the dialog that wrote its result here: `Command_GREP` called `DocumentOpen` already, before
     // `CNormalProcess` goes on to its own two events (so this launch has three, in this order).
+    // Recorded by the step that ended the wait for the dialog (`EditorView::launch_grep_started_here`).
     let wrote_here = dialog
         && view
-            .read_with(cx, |view, _| view.is_grep_window() || view.grep_busy())
+            .read_with(cx, |view, _| view.launch_grep_started_here())
             .unwrap_or(false);
     wait_for_grep(view, cx).await;
     if wrote_here {

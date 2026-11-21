@@ -61,7 +61,7 @@ impl Place {
         Self { dir }
     }
 
-    fn settings(&self) -> PathBuf {
+    pub(super) fn settings(&self) -> PathBuf {
         self.dir.path().join("matsu.ini")
     }
 
