@@ -19,14 +19,18 @@
 //! in the folder before it; on macOS and Linux the backslash of the settings is a `/`.
 
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use chrono::{Datelike, Local, NaiveDateTime, Timelike};
-use gpui::{App, AsyncWindowContext, Global, PromptLevel};
+use gpui::{App, AsyncWindowContext, Global, PromptLevel, WeakEntity};
+use matsu_core::file::FileError;
 
 use super::ask::tell;
+use super::save_job::{self, JobEnd};
+use crate::view::EditorView;
 
 /// `BKUP_YEAR` .. `BKUP_SEC` (`EBackupOptionFlag`), the bits of `bBackUpType2_Opt1`.
 pub(crate) const YEAR: i32 = 32;
@@ -286,6 +290,22 @@ pub(crate) enum Failure {
     Copy(io::Error),
 }
 
+/// Why [`make_backup_with`] did not make the backup: the user stopped it (Esc), or it failed. The
+/// stop has this one owner; it is not a [`Failure`], so a caller must say what a stop means.
+/// A stop leaves nothing: the copy goes to a temporary file that is removed, and no generation was
+/// touched.
+#[derive(Debug)]
+pub(crate) enum Stop {
+    Cancelled,
+    Failed(Failure),
+}
+
+impl From<Failure> for Stop {
+    fn from(failure: Failure) -> Self {
+        Self::Failed(failure)
+    }
+}
+
 /// `dest` with its last two characters replaced by `number`.
 fn numbered(dest: &Path, number: usize) -> PathBuf {
     let text = dest.to_string_lossy();
@@ -296,12 +316,32 @@ fn numbered(dest: &Path, number: usize) -> PathBuf {
 /// The rest of `MakeBackUp` after the questions: the generations, the copy, the recycle bin.
 ///
 /// `to_trash`: the copy is moved to the recycle bin (`bBackUpDustBox` on a local drive).
+#[cfg(test)]
 pub(crate) fn make_backup(
     prefs: &BackupPrefs,
     target: &Path,
     dest: &Path,
     to_trash: bool,
 ) -> Result<(), Failure> {
+    make_backup_with(prefs, target, dest, to_trash, &mut |_, _| {
+        std::ops::ControlFlow::Continue(())
+    })
+    .map_err(|stop| match stop {
+        Stop::Failed(failure) => failure,
+        Stop::Cancelled => unreachable!("no one answers Break"),
+    })
+}
+
+/// `make_backup` that reports how much of the file is copied (`progress(done, total)`, in bytes)
+/// and stops with [`Stop::Cancelled`] when it answers `Break`, also after the last byte is
+/// flushed and before any generation is touched.
+pub(crate) fn make_backup_with(
+    prefs: &BackupPrefs,
+    target: &Path,
+    dest: &Path,
+    to_trash: bool,
+    progress: save_job::Progress<'_>,
+) -> Result<(), Stop> {
     // The file must not be one of the files that the backup deletes, moves or overwrites: the name
     // itself (`a.bak` saved with the kind 1), or a generation (`a.b01` saved with the kind 3, which
     // the rotation would move away). The files are compared as the OS sees them, so a hard link to
@@ -327,9 +367,9 @@ pub(crate) fn make_backup(
         .iter()
         .any(|path| matsu_platform::file_id::same_file(target, path))
     {
-        return Err(Failure::Copy(io::Error::other(
-            "the backup would replace the file itself",
-        )));
+        return Err(
+            Failure::Copy(io::Error::other("the backup would replace the file itself")).into(),
+        );
     }
     // `CreateDirectory` of the folder of the backup, one level.
     if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty())
@@ -339,16 +379,16 @@ pub(crate) fn make_backup(
     }
     // The copy is made first, into a temporary file, so that a copy that fails changes nothing
     // (no generation has been deleted or moved yet).
-    let temp = copy_to_temporary(target, dest).map_err(Failure::Copy)?;
+    let temp = copy_to_temporary(target, dest, progress)?;
     if generations && let Err(failure) = rotate_generations(prefs, dest) {
         let _ = fs::remove_file(&temp);
-        return Err(failure);
+        return Err(failure.into());
     }
     // The name is replaced, not the contents: a file that shares the data of the old backup (a hard
     // link) is not written to.
     if let Err(error) = fs::rename(&temp, dest) {
         let _ = fs::remove_file(&temp);
-        return Err(Failure::Copy(error));
+        return Err(Failure::Copy(error).into());
     }
     if to_trash {
         // The result is not looked at (`SHFileOperation` in Sakura).
@@ -360,11 +400,19 @@ pub(crate) fn make_backup(
 /// Copies `target` into a new temporary file in the folder of `dest` and returns its path. The
 /// file is made exclusively under a short unique name (it never follows or overwrites what is
 /// there, a symbolic link included), and gets the permissions of `target` as `fs::copy` gives them.
-/// On a failure nothing is left.
-fn copy_to_temporary(target: &Path, dest: &Path) -> io::Result<PathBuf> {
+/// On a failure, or when `progress` stops it, nothing is left.
+fn copy_to_temporary(
+    target: &Path,
+    dest: &Path,
+    progress: save_job::Progress<'_>,
+) -> Result<PathBuf, Stop> {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let mut source = fs::File::open(target)?;
-    let permissions = source.metadata()?.permissions();
+    let mut source = fs::File::open(target).map_err(|e| Stop::from(Failure::Copy(e)))?;
+    let metadata = source
+        .metadata()
+        .map_err(|e| Stop::from(Failure::Copy(e)))?;
+    let permissions = metadata.permissions();
+    let total = metadata.len();
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos());
@@ -382,20 +430,57 @@ fn copy_to_temporary(target: &Path, dest: &Path) -> io::Result<PathBuf> {
         let mut file = match options.open(&temp) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
+            Err(e) => return Err(Failure::Copy(e).into()),
         };
-        let copied = io::copy(&mut source, &mut file)
-            .and_then(|_| matsu_core::file::sync_file(&file))
-            .and_then(|()| fs::set_permissions(&temp, permissions.clone()));
+        let copied = copy_chunks(&mut source, &mut file, total, progress).and_then(|done| {
+            matsu_core::file::sync_file(&file)
+                .and_then(|()| fs::set_permissions(&temp, permissions.clone()))
+                .map_err(|e| Stop::from(Failure::Copy(e)))?;
+            // Esc may have come while the data was flushed (slow storage): look once more before
+            // the copy is handed on, because after this the generations are moved.
+            if progress(done, total.max(done)).is_break() {
+                return Err(Stop::Cancelled);
+            }
+            Ok(())
+        });
         return match copied {
             Ok(()) => Ok(temp),
-            Err(e) => {
+            Err(failure) => {
                 let _ = fs::remove_file(&temp);
-                Err(e)
+                Err(failure)
             }
         };
     }
-    Err(io::Error::other("no unique name for the temporary file"))
+    Err(Failure::Copy(io::Error::other("no unique name for the temporary file")).into())
+}
+
+/// The size of a piece of the copy: the progress is reported, and Esc looked at, after each.
+const CHUNK: usize = 1024 * 1024;
+
+/// `io::copy` in pieces of [`CHUNK`], reporting `progress(done, total)` after each. Returns the
+/// number of bytes copied.
+fn copy_chunks(
+    source: &mut impl Read,
+    file: &mut impl Write,
+    total: u64,
+    progress: save_job::Progress<'_>,
+) -> Result<u64, Stop> {
+    let mut buffer = vec![0u8; CHUNK];
+    let mut done = 0u64;
+    loop {
+        let read = match source.read(&mut buffer) {
+            Ok(0) => return Ok(done),
+            Ok(read) => read,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(Failure::Copy(e).into()),
+        };
+        file.write_all(&buffer[..read])
+            .map_err(|e| Stop::from(Failure::Copy(e)))?;
+        done += read as u64;
+        if progress(done, total.max(done)).is_break() {
+            return Err(Stop::Cancelled);
+        }
+    }
 }
 
 /// Step 1 to 3 of `MakeBackUp` for the kinds 3 and 6: `.b00` becomes `.b01` and so on, and the
@@ -506,7 +591,17 @@ async fn question(
 
 /// `OnPreBeforeSave`: makes the backup of the file at `target` before it is overwritten. Returns
 /// whether the save goes on.
-pub(crate) async fn before_save(cx: &mut AsyncWindowContext, target: &Path) -> bool {
+///
+/// The copy runs like the other slow parts of a save ([`save_job::run`]): a document of
+/// [`save_job::BACKGROUND_FROM`] or more is copied on another thread, with the progress in the
+/// status bar and Esc to stop it (the save then stops, and no backup file is left); a smaller one
+/// is copied here at once. The questions stay on this thread, with the same buttons.
+pub(crate) async fn before_save(
+    cx: &mut AsyncWindowContext,
+    view: &WeakEntity<EditorView>,
+    target: &Path,
+    flow: &Arc<AtomicBool>,
+) -> bool {
     let Ok(settings) = cx.update(|_, app| prefs(app)) else {
         return true;
     };
@@ -558,7 +653,29 @@ pub(crate) async fn before_save(cx: &mut AsyncWindowContext, target: &Path) -> b
         }
     }
 
-    match make_backup(&settings, target, &dest, to_trash) {
+    let Some(mut hold) = JobEnd::for_view(view, cx, flow) else {
+        return false;
+    };
+    let work = {
+        let (settings, target, dest) = (settings.clone(), target.to_owned(), dest.clone());
+        move |_: &matsu_core::file::SaveSnapshot, progress: save_job::Progress<'_>| {
+            match make_backup_with(&settings, &target, &dest, to_trash, progress) {
+                Err(Stop::Cancelled) => Err(FileError::Cancelled),
+                Err(Stop::Failed(failure)) => Ok(Err(failure)),
+                Ok(()) => Ok(Ok(())),
+            }
+        }
+    };
+    let made = match save_job::run(view, cx, "バックアップ", target, &mut hold, work).await {
+        Ok(made) => made,
+        Err(FileError::Cancelled) => {
+            super::save::said_cancelled(view, cx, &hold);
+            return false;
+        }
+        // The thread stopped by an internal error: the copy did not work.
+        Err(error) => Err(Failure::Copy(io::Error::other(error.to_string()))),
+    };
+    match made {
         Ok(()) => true,
         Err(Failure::Delete(path)) => {
             tell(
