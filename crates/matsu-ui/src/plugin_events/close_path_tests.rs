@@ -959,8 +959,10 @@ fn the_start_of_a_new_grep_window_sees_the_result(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     grep_into(cx, &from, grep_of(dir.path()), true);
     let new = other_window(cx, from.0);
-    wait(cx, "EditorStart did not come", |cx| {
-        !told(&new.1, cx).is_empty()
+    wait(cx, "EditorStart did not print the lines", |cx| {
+        new.1
+            .read_with(cx, |v, _| v.macro_output_text())
+            .contains("lines=")
     });
     let output = new.1.read_with(cx, |v, _| v.macro_output_text());
     let seen: usize = output
