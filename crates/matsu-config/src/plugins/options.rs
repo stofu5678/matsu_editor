@@ -13,6 +13,9 @@ use std::path::{Path, PathBuf};
 use super::def::{OptionDef, OptionType};
 use crate::profile::{Profile, ProfileError};
 
+/// What follows the name of the plugin in the first line of the file (`STR_DLGPLUGINOPT_INIHEAD`).
+const HEADER_SUFFIX: &str = " プラグイン設定ファイル";
+
 /// The options file of one plugin.
 #[derive(Clone, Debug, Default)]
 pub struct PluginOptions {
@@ -60,7 +63,24 @@ impl PluginOptions {
         self.set(&def.section, &def.key, &value)
     }
 
-    /// Writes the file (the folder is made if it is not there).
+    /// Writes the file the way a plugin's options are written (the dialog of the options, `Plugin.SetOption`):
+    /// with the first line `;<plugin name> プラグイン設定ファイル` and an empty line, as Sakura writes it
+    /// (`CDlgPluginOption.cpp`, `CPluginIfObj.h`, `CProfile::WriteProfile`; the Japanese text is in both
+    /// places). The line is there once however often the file is written: a first line that is such a header
+    /// (of this plugin or, after a rename, of another name) is replaced and any other first line stays under it.
+    /// The values and the other lines are as they were.
+    pub fn save_for_plugin(&self, plugin_name: &str) -> io::Result<()> {
+        let mut profile = self.profile.clone();
+        profile.put_first_comment(&format!("{plugin_name}{HEADER_SUFFIX}"), |line| {
+            line.ends_with(HEADER_SUFFIX)
+        });
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        profile.save(&self.path)
+    }
+
+    /// Writes the file (the folder is made if it is not there), without the header line.
     pub fn save(&self) -> io::Result<()> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir)?;

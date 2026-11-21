@@ -151,6 +151,12 @@ fn save_writes_every_option_with_the_section_and_key_of_the_definition() {
     assert_eq!(file.get("Other", "Mode"), Some("0"));
     assert_eq!(file.get("Other", "Dir"), Some("D:\\x\\"));
     assert_eq!(file.get("Other", "Name"), Some("新しい"));
+    // The first line names the plugin (`CDlgPluginOption.cpp`, `STR_DLGPLUGINOPT_INIHEAD`), once.
+    form.save().unwrap();
+    let text = fs::read_to_string(place.file()).unwrap();
+    let lines: Vec<&str> = text.trim_start_matches('\u{feff}').lines().collect();
+    assert_eq!(lines[..2], [";オプション プラグイン設定ファイル", ""]);
+    assert_eq!(text.matches("プラグイン設定ファイル").count(), 1, "{text}");
     // What is written reads back as the same values.
     assert_eq!(
         shown(&place.form()),

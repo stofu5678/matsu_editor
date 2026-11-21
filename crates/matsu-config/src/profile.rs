@@ -404,6 +404,39 @@ impl Profile {
             .map(|(_, v)| v)
     }
 
+    /// Puts `comment` (without the `;`) as the first line, followed by an empty line, like the comment that
+    /// `CProfile::WriteProfile` writes first. A first line that is already that comment stays as it is; one
+    /// for which `replaces` says yes (an older comment of the same kind, for example under another name) is
+    /// replaced; any other first line stays and the comment goes before it (Sakura rewrites the whole file
+    /// and drops all comments, MATSU keeps the lines it does not own).
+    pub fn put_first_comment(&mut self, comment: &str, replaces: impl Fn(&str) -> bool) {
+        let text = format!(";{comment}");
+        if let Some(Line {
+            kind: LineKind::Comment(first),
+            ..
+        }) = self.lines.first_mut()
+        {
+            if *first == text {
+                return;
+            }
+            if replaces(first) {
+                *first = text;
+                self.lines[0].raw = None;
+                return;
+            }
+        }
+        let eol = self.default_eol();
+        // A file of one line without a line end: the added lines need one, and so does the line after them.
+        if let Some(last) = self.lines.last_mut()
+            && last.eol == LineEnding::None
+        {
+            last.eol = eol;
+        }
+        self.lines.insert(0, Line::new(LineKind::Blank, eol));
+        self.lines
+            .insert(0, Line::new(LineKind::Comment(text), eol));
+    }
+
     /// Sets a value, as `CProfile::SetProfileData` does: the section is added if it is missing, and the entry is
     /// replaced or added. An existing entry keeps its place and an added one goes after the last entry of its
     /// section. Setting the value an entry already has leaves its bytes untouched.

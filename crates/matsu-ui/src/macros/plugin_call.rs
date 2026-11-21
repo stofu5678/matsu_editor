@@ -334,8 +334,15 @@ impl PluginApi for DefApi {
                 self.options
                     .set(section, key, &value)
                     .map_err(|e| RpcError::invalid_params(format!("{name}: {e}")))?;
+                // The first line names the plugin as the command list does (`Plugin.SetOption` of Sakura writes
+                // the same header, `CPluginIfObj.h`).
+                let plugin_name = if self.def.name.is_empty() {
+                    &self.def.id
+                } else {
+                    &self.def.name
+                };
                 self.options
-                    .save()
+                    .save_for_plugin(plugin_name)
                     .map_err(|e| RpcError::new(plugin_host_error(), format!("{name}: {e}")))?;
                 Ok(Value::Null)
             }

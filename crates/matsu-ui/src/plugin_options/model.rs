@@ -136,7 +136,8 @@ impl Form {
                 .set_option(&entry.def, &entry.value)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
         }
-        options.save()
+        // The first line of the file names the plugin (`CDlgPluginOption::GetData`).
+        options.save_for_plugin(&self.name)
     }
 }
 
