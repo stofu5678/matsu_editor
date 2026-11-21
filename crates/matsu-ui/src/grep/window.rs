@@ -159,6 +159,27 @@ enum LaunchEvents {
     },
 }
 
+/// The events of a new window that a Grep fills (`CNormalProcess.cpp`): after the search, `EditorStart` and then
+/// `DocumentOpen`. The window was made with its `EditorStart` deferred.
+fn tell_events_after_grep(
+    handle: gpui::AnyWindowHandle,
+    target: &gpui::Entity<EditorView>,
+    cx: &mut gpui::App,
+) {
+    let weak = target.downgrade();
+    handle
+        .update(cx, |_, window, app| {
+            // Detached on purpose: it holds the window's view weakly and ends when the search is over or the
+            // window is gone.
+            window
+                .spawn(app, async move |cx| {
+                    crate::plugin_events::start_after_grep(&weak, false, cx).await;
+                })
+                .detach();
+        })
+        .ok();
+}
+
 /// What a window knows about Grep.
 #[derive(Default)]
 pub struct GrepWindow {
@@ -434,6 +455,7 @@ impl EditorView {
         if crate::tabs::settings::current(cx).bound() && !new_window {
             // A macro that called this waits for the tab to be made and the search to begin.
             let tracked = crate::macros::track(cx);
+            let tells_open = self.new_target_events_due(command, cx);
             window.defer(cx, move |window, app| {
                 let _tracked = tracked;
                 let opened = crate::tabs::flows::open_document(
@@ -449,11 +471,31 @@ impl EditorView {
                         view.use_grep_type(cx);
                         view.begin_grep(info, cx);
                     });
+                    // A tab gets `DocumentOpen` only: MATSU tells `EditorStart` to a window, and the window
+                    // has had it (a file opened in a tab is told the same way).
+                    if tells_open {
+                        let weak = target.downgrade();
+                        // Detached on purpose: it holds the tab weakly and ends when the search is over or
+                        // the tab is gone.
+                        window
+                            .spawn(app, async move |cx| {
+                                crate::plugin_events::document_open_after_grep(&weak, cx).await;
+                            })
+                            .detach();
+                    }
                 }
             });
             return true;
         }
-        match open_editor_window(cx, SharedDocument::empty(), None) {
+        // The new window has its events after the search, as the `-GREPMODE` process of Sakura has
+        // (`CNormalProcess.cpp`: `DoGrep`, `EditorStart`, `DocumentOpen`): its `EditorStart` waits for the search.
+        let tells_events = self.new_target_events_due(command, cx);
+        if tells_events {
+            crate::file_ops::start_options::defer_editor_start(cx);
+        }
+        let opened = open_editor_window(cx, SharedDocument::empty(), None);
+        crate::file_ops::start_options::take_deferred_editor_start(cx);
+        match opened {
             Ok(handle) => {
                 let target = editors(cx)
                     .into_iter()
@@ -464,6 +506,9 @@ impl EditorView {
                         view.use_grep_type(cx);
                         view.begin_grep(info, cx);
                     });
+                    if tells_events {
+                        tell_events_after_grep(handle, &target, cx);
+                    }
                     true
                 } else {
                     false
@@ -566,6 +611,15 @@ impl EditorView {
     fn document_open_due(&self, cx: &Context<Self>) -> bool {
         !matches!(self.grep.launch, LaunchEvents::Waiting { .. })
             && self.event_turn(cx) == crate::macros::plugin_call::Turn::Free
+    }
+
+    /// Whether the events of a window or tab that the Grep makes for its result are due: the Grep is the user's
+    /// (the command, not a launch), and not one that a macro or a plugin command (or an event handler) starts,
+    /// since MATSU gives no event to what those do (`Turn::Taken`), so a handler that greps does not call itself
+    /// again. Not led by the wait of a `-GREPDLG` launch: Sakura's launch has its own events whatever its Grep
+    /// does with its result, and the new window is another process there.
+    fn new_target_events_due(&self, command: bool, cx: &Context<Self>) -> bool {
+        command && self.event_turn(cx) == crate::macros::plugin_call::Turn::Free
     }
 
     /// Tells the plugins `DocumentOpen` when the search of this window is over.
