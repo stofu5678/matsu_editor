@@ -359,9 +359,11 @@ fn resize_changes_the_screen_and_the_child_sees_it() {
     let (terminal, events) = start(if cfg!(windows) {
         long_running()
     } else {
-        // Prints the size at start and again at every SIGWINCH (the trap runs between the short sleeps).
+        // Prints the size at start and again at every SIGWINCH (the trap runs between the short sleeps). The trap
+        // comes first: the test resizes as soon as it sees the first size, and a SIGWINCH that came before the trap
+        // was set would be lost (its default is to be ignored), which happened on a busy machine.
         command(
-            "stty size; trap 'stty size' WINCH; while :; do sleep 0.2; done",
+            "trap 'stty size' WINCH; stty size; while :; do sleep 0.2; done",
             &[],
         )
     });
