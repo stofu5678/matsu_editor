@@ -145,7 +145,7 @@ enum LaunchEvents {
     /// the order (`plugin_events::start_after_grep`), so the Grep that the dialog starts does not tell it.
     Waiting(gpui::Task<()>),
     /// The dialog is gone; the task goes on to tell the events (it must not be dropped before it ends).
-    Settled(gpui::Task<()>),
+    Settled { _task: gpui::Task<()> },
 }
 
 /// What a window knows about Grep.
@@ -473,7 +473,7 @@ impl EditorView {
         if matches!(self.grep.launch, LaunchEvents::Waiting(_))
             && let LaunchEvents::Waiting(task) = std::mem::take(&mut self.grep.launch)
         {
-            self.grep.launch = LaunchEvents::Settled(task);
+            self.grep.launch = LaunchEvents::Settled { _task: task };
         }
     }
 
