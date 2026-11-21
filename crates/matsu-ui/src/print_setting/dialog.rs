@@ -73,7 +73,7 @@ mod labels {
 /// What an access key does in the dialog.
 #[derive(Clone, Copy)]
 enum Use {
-    /// The list of a drop-down list opens (Sakura moves the focus to the combo box).
+    /// The focus goes to the combo box, and its list stays closed (`IsDialogMessage`).
     List(List),
     Rename,
     /// The focus goes to the box of the number.
@@ -119,6 +119,18 @@ pub(crate) enum List {
     Paper,
 }
 
+impl List {
+    /// The place of the list in the dialog's per-list arrays.
+    const fn index(self) -> usize {
+        match self {
+            Self::Setting => 0,
+            Self::FontHan => 1,
+            Self::FontZen => 2,
+            Self::Paper => 3,
+        }
+    }
+}
+
 /// The header or the footer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Part {
@@ -149,6 +161,12 @@ pub(crate) struct PrintSettingDialog {
     /// The row of the open list that the keys are on (`CB_SETCURSEL` of the list of a combo box).
     list_cursor: usize,
     list_scroll: ScrollHandle,
+    /// The focus of each combo box with its list closed, by [`List::index`]: the access key of
+    /// its label moves the focus here without opening the list, and the arrow keys then change the
+    /// choice, as in a combo box. The handle belongs to the element that holds the button (the
+    /// button of gpui-component keeps a focus handle of its own and ignores one that is given to
+    /// it); keys of the button reach this element too.
+    combo_focus: [FocusHandle; 4],
     result: Option<async_channel::Sender<Option<Answer>>>,
     focus: FocusHandle,
     /// The scroll position of the dialog, which the scroll bar draws from.
@@ -199,6 +217,7 @@ impl PrintSettingDialog {
             list: None,
             list_cursor: 0,
             list_scroll: ScrollHandle::default(),
+            combo_focus: std::array::from_fn(|_| cx.focus_handle()),
             result: Some(result),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::default(),
@@ -270,6 +289,12 @@ impl PrintSettingDialog {
     /// The name of the setting `index` as the list shows it.
     fn name_ref(&self, index: usize) -> &str {
         &self.settings.get(index).name
+    }
+
+    /// Whether the combo box of `list` has the focus (the list closed or open).
+    #[cfg(test)]
+    pub(crate) fn combo_has_focus(&self, list: List, window: &Window) -> bool {
+        self.combo_focus[list.index()].is_focused(window)
     }
 
     #[cfg(test)]
@@ -541,9 +566,10 @@ impl PrintSettingDialog {
     }
 
     /// Alt with the access key of a label (`IsDialogMessage`). The label of a drop-down list
-    /// opens the list (Sakura moves the focus to the combo box, which a button of ours cannot
-    /// take from outside), so that the keys can choose from it. Returns whether the letter was
-    /// one of the dialog's.
+    /// moves the focus to its combo box and leaves the list closed, as Sakura's dialog does
+    /// (`CDlgPrintSetting`: the labels of `IDC_COMBO_SETTINGNAME`, `IDC_COMBO_FONT_HAN`,
+    /// `IDC_COMBO_FONT_ZEN` and `IDC_COMBO_PAPER` in `sakura_rc.rc`, which the dialog manager
+    /// handles). Returns whether the letter was one of the dialog's.
     pub(crate) fn use_access_key(
         &mut self,
         letter: char,
@@ -595,11 +621,9 @@ impl PrintSettingDialog {
             Found::One(what) => what,
         };
         // a key in the dialog closes the list that is open, as a click elsewhere does
-        if !matches!(what, Use::List(_)) {
-            self.list = None;
-        }
+        self.list = None;
         match what {
-            Use::List(list) => self.open_list(list, window, cx),
+            Use::List(list) => window.focus(&self.combo_focus[list.index()], cx),
             Use::Rename => self.rename(window, cx),
             Use::Number(number) => {
                 let at = Number::ALL.iter().position(|n| *n == number).unwrap_or(0);
@@ -781,6 +805,53 @@ impl PrintSettingDialog {
         view
     }
 
+    /// A key on a combo box with its list closed (the box has the focus, or its button does):
+    /// the arrows, Home, End, PageUp and PageDown choose another row at once (`CBN_SELCHANGE`), F4
+    /// and Alt+Down open the list, and so does Space when the box itself has the focus (the
+    /// button of the box opens it by its own on Space).
+    fn on_combo_key(
+        &mut self,
+        list: List,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.list.is_some() {
+            return;
+        }
+        let modifiers = event.keystroke.modifiers;
+        let key = event.keystroke.key.as_str();
+        let own_focus = self.combo_focus[list.index()].is_focused(window);
+        if key == "f4" && !modifiers.modified()
+            || key == "down" && modifiers.alt
+            || key == "space" && own_focus && !modifiers.modified()
+        {
+            self.open_list(list, window, cx);
+            cx.stop_propagation();
+            return;
+        }
+        if modifiers.modified() {
+            return;
+        }
+        let Some(last) = self.list_len(list).checked_sub(1) else {
+            return;
+        };
+        let at = self.list_selected(list).unwrap_or(0).min(last);
+        let to = match key {
+            "up" => at.saturating_sub(1),
+            "down" => (at + 1).min(last),
+            "home" => 0,
+            "end" => last,
+            "pageup" => at.saturating_sub(LIST_PAGE),
+            "pagedown" => (at + LIST_PAGE).min(last),
+            _ => return,
+        };
+        if to != at {
+            self.pick(list, to, window, cx);
+        }
+        cx.stop_propagation();
+    }
+
     fn combo(
         &self,
         id: &'static str,
@@ -788,14 +859,20 @@ impl PrintSettingDialog {
         list: List,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div().flex_1().child(
-            Button::new(id)
-                .label(format!("{text}  v"))
-                .w_full()
-                .on_click(
-                    cx.listener(move |this, _, window, cx| this.toggle_list(list, window, cx)),
-                ),
-        )
+        div()
+            .flex_1()
+            .track_focus(&self.combo_focus[list.index()])
+            .on_key_down(cx.listener(move |this, event, window, cx| {
+                this.on_combo_key(list, event, window, cx);
+            }))
+            .child(
+                Button::new(id)
+                    .label(format!("{text}  v"))
+                    .w_full()
+                    .on_click(
+                        cx.listener(move |this, _, window, cx| this.toggle_list(list, window, cx)),
+                    ),
+            )
     }
 
     /// A number box with its label and the unit after it.
@@ -804,6 +881,8 @@ impl PrintSettingDialog {
         label: &'static str,
         number: Number,
         unit: &'static str,
+        window: &mut Window,
+        cx: &mut gpui::App,
     ) -> impl IntoElement {
         let index = Number::ALL.iter().position(|n| *n == number).unwrap_or(0);
         h_flex()
@@ -819,6 +898,8 @@ impl PrintSettingDialog {
                 div()
                     .w(px(64.))
                     .child(Input::new(&self.numbers[index]).aria_label(number.name())),
+                window,
+                cx,
             ))
             .child(unit)
     }
@@ -972,12 +1053,18 @@ impl Render for PrintSettingDialog {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(self.number_row(labels::FONT_HEIGHT, Number::FontHeight, "(1/10mm)"))
+                    .child(self.number_row(
+                        labels::FONT_HEIGHT,
+                        Number::FontHeight,
+                        "(1/10mm)",
+                        window,
+                        cx,
+                    ))
                     .child(model::font_points_text(now.print_font_height)),
             )
-            .child(self.number_row(labels::LINE_SPACING, Number::LineSpacing, "(%)"))
-            .child(self.number_row(labels::DANSUU, Number::Dansuu, ""))
-            .child(self.number_row(labels::DAN_SPACE, Number::DanSpace, "(mm)"))
+            .child(self.number_row(labels::LINE_SPACING, Number::LineSpacing, "(%)", window, cx))
+            .child(self.number_row(labels::DANSUU, Number::Dansuu, "", window, cx))
+            .child(self.number_row(labels::DAN_SPACE, Number::DanSpace, "(mm)", window, cx))
             .child(
                 h_flex()
                     .gap_2()
@@ -1012,10 +1099,22 @@ impl Render for PrintSettingDialog {
                             })),
                     ),
             )
-            .child(self.number_row(labels::MARGIN_TOP, Number::MarginTop, "(mm)"))
-            .child(self.number_row(labels::MARGIN_BOTTOM, Number::MarginBottom, "(mm)"))
-            .child(self.number_row(labels::MARGIN_LEFT, Number::MarginLeft, "(mm)"))
-            .child(self.number_row(labels::MARGIN_RIGHT, Number::MarginRight, "(mm)"));
+            .child(self.number_row(labels::MARGIN_TOP, Number::MarginTop, "(mm)", window, cx))
+            .child(self.number_row(
+                labels::MARGIN_BOTTOM,
+                Number::MarginBottom,
+                "(mm)",
+                window,
+                cx,
+            ))
+            .child(self.number_row(labels::MARGIN_LEFT, Number::MarginLeft, "(mm)", window, cx))
+            .child(self.number_row(
+                labels::MARGIN_RIGHT,
+                Number::MarginRight,
+                "(mm)",
+                window,
+                cx,
+            ));
 
         let (columns, lines) = printable.map_or(("-".to_owned(), "-".to_owned()), |(c, l)| {
             (c.to_string(), l.to_string())

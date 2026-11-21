@@ -528,6 +528,36 @@ fn walk_controls(items: &[Item], hidden: bool) -> Vec<Control> {
     out
 }
 
+/// The group boxes of the items whose title shows an access key, with the control that the key
+/// goes to when it is a list box (`色指定(&L)` round the list of colors). In a Windows dialog the
+/// key of a group box moves the focus to the next control in the tab order, which is the first
+/// control inside the box (`IsDialogMessage`, `sakura_rc.rc` `IDD_PROP_COLOR`: a `GROUPBOX` with
+/// `(&L)`, then `IDC_LIST_COLORS`). Boxes that start with another kind of control are left out:
+/// this dialog moves the focus only to a list box, an edit box and the choices of a list.
+pub(crate) fn group_keys(items: &[Item]) -> Vec<(char, Control)> {
+    fn walk(items: &[Item], out: &mut Vec<(char, Control)>) {
+        for item in items {
+            match item {
+                Item::Group(title, inner) => {
+                    if let (Some(key), Some(first)) =
+                        (parse_label(title).1, drawn_controls(inner).first().copied())
+                        && matches!(first.kind, Kind::List { .. })
+                    {
+                        out.push((key, first));
+                    }
+                    walk(inner, out);
+                }
+                Item::Row(inner) => walk(inner, out),
+                Item::Columns(columns) => columns.iter().for_each(|c| walk(c, out)),
+                Item::Control(_) | Item::Label(_) | Item::Custom(_) | Item::Hidden(_) => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(items, &mut out);
+    out
+}
+
 /// The label of a control as it is drawn, and its access key: `フリーカーソル(&F)` is
 /// `フリーカーソル(F)` with the key F; `&URL` is `URL` with U; `&&` is `&`. The key is lowercased.
 pub(crate) fn parse_label(label: &str) -> (String, Option<char>) {

@@ -848,7 +848,7 @@ impl Focusable for SearchPanel {
 }
 
 impl Render for SearchPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
         let (options, replace) = self
             .editor
@@ -984,6 +984,8 @@ impl Render for SearchPanel {
                                     (1, i32::MAX),
                                     true,
                                     Input::new(&self.line).aria_label("行番号"),
+                                    window,
+                                    cx,
                                 )),
                         )
                         .child(
