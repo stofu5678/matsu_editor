@@ -1,0 +1,7 @@
+// input: ascii.regex.crlf
+// code: 0
+GoFileEnd();
+SearchPrev('^', 4);
+InsText('|');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

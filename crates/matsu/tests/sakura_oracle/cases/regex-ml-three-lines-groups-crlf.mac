@@ -1,0 +1,5 @@
+// input: ascii.regex.crlf
+// code: 0
+ReplaceAll('(\w+)\r\n(\w+)\r\n(\w+)', '$3\r\n$2\r\n$1', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

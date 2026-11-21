@@ -1,0 +1,6 @@
+// input: ascii.regex.lf
+// code: 0
+SearchNext('$', 4);
+Replace('$', '|', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();
