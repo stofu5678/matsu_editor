@@ -48,6 +48,17 @@ pub(crate) struct MiniLook {
 }
 
 impl EditorView {
+    /// The background image of the type, if one is loaded and visible: what the view paints under the
+    /// text, and the minimap too (`IsBkBitmap`; the `CMiniMapView` is a `CEditView` and paints with
+    /// `OnPaint`, `DrawBackImage`).
+    pub(crate) fn back_paint(&self) -> Option<super::back_paint::BackPaint> {
+        self.back_bitmap
+            .clone()
+            .zip(self.prefs.settings.back_image.clone())
+            .filter(|(_, spec)| spec.is_visible())
+            .map(|(bitmap, spec)| super::back_paint::BackPaint { bitmap, spec })
+    }
+
     /// The colors of the minimap.
     pub(crate) fn minimap_look(&self) -> MiniLook {
         let colors = &self.prefs.settings.colors;

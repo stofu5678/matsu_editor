@@ -1402,12 +1402,7 @@ impl Element for EditorElement {
             total_rows: layout.row_count(),
             hbar_height,
             selection_edge,
-            back_image: editor
-                .back_bitmap
-                .clone()
-                .zip(settings.back_image.clone())
-                .filter(|(_, spec)| spec.is_visible())
-                .map(|(bitmap, spec)| super::back_paint::BackPaint { bitmap, spec }),
+            back_image: editor.back_paint(),
         }
     }
 
