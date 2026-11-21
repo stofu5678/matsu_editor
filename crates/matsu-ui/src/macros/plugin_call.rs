@@ -800,6 +800,12 @@ pub(crate) enum Turn {
 }
 
 impl EditorView {
+    /// For tests: the window looks as if a plugin command runs on it (what a macro or a handler has).
+    #[cfg(test)]
+    pub(crate) fn pretend_plugin_call(&mut self, on: bool) {
+        self.macros.plugin_running = on;
+    }
+
     /// See [`Turn`].
     pub(crate) fn event_turn(&self, cx: &gpui::App) -> Turn {
         if !(self.macros.busy() || self.plugin_in_call(cx)) {

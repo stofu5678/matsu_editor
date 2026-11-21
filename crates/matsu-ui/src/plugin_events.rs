@@ -378,6 +378,10 @@ pub(crate) async fn start_after_grep(
     }
     start_editor_if_due(view, cx).await;
     fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
+    // All told: the window lets go of this task (nothing is left to do after this).
+    if dialog {
+        view.update(cx, |view, _| view.finish_launch_events()).ok();
+    }
 }
 
 /// Waits until no search runs or is about to run in the window.

@@ -674,3 +674,60 @@ fn a_grep_dialog_launch_in_a_tab_cancelled_tells_one_document_open(cx: &mut Test
     assert_eq!(told(&view, cx), ["DocumentOpen"]);
     finish(cx);
 }
+
+/// A Grep that a macro or a plugin command starts is its own action: MATSU gives no event to what a macro or a
+/// plugin does (`Turn::Taken`, `plugin_events`; `CJackManager::InvokePlugins` of Sakura has no guard, the rule
+/// is MATSU's). The state is looked at when the Grep starts: the call may be over when the search ends, and a
+/// handler of `DocumentOpen` that ran a Grep would otherwise call itself again and again.
+#[gpui::test]
+fn a_grep_that_a_call_starts_tells_no_document_open_even_when_the_call_is_over_first(
+    cx: &mut TestAppContext,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle second\n").unwrap();
+    let folder = dir.path().to_string_lossy().replace('\\', "/");
+    let Some((place, _files)) = begin(cx, START_AND_OPEN) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (handle, view) = windows(cx, &place, 1).remove(0);
+    cx.executor().allow_parking();
+    let args = crate::command_line::parse(&[
+        "-GKEY=needle".into(),
+        "-GFILE=*.txt".into(),
+        format!("-GFOLDER={folder}").into(),
+        "-GOPT=S".into(),
+    ])
+    .grep;
+    let info = crate::file_ops::start_options::grep_info(&args, dir.path(), None);
+    // The call has the window when the Grep starts, and is over before the search ends.
+    view.update(cx, |view, _| view.pretend_plugin_call(true));
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.start_grep(info.clone(), false, window, cx)
+            })
+        })
+        .unwrap();
+    view.update(cx, |view, _| view.pretend_plugin_call(false));
+    wait(cx, "the search did not end", |cx| {
+        view.read_with(cx, |v, _| v.grep_key().is_some() && !v.grep_busy())
+    });
+    for _ in 0..50 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(told(&view, cx).is_empty(), "{:?}", told(&view, cx));
+    // The same Grep of a user, with nothing else on the window, tells it once.
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.start_grep(info, false, window, cx))
+        })
+        .unwrap();
+    wait(cx, "the event of the user's grep did not come", |cx| {
+        !told(&view, cx).is_empty()
+    });
+    assert_eq!(told(&view, cx), ["DocumentOpen"]);
+    finish(cx);
+}
