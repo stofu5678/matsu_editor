@@ -359,12 +359,14 @@ fn match_line(
     let Some(start) = ceil_boundary(&subject.text, col) else {
         return Ok(None);
     };
-    // A search never finds a match that begins at the very end of the subject (the real Sakura
-    // does not replace `$` at the end of a last line without a line ending, though the global
-    // replacement of `x*` does reach the end).
+    // A search never finds a match that begins at the very end of a subject that has no line
+    // ending (the real Sakura does not replace `$` at the end of a last line without one, though
+    // the global replacement of `x*` does reach the end). After a line ending it does find one:
+    // `(?<=\n)` replaced by `|` puts a `|` after every line ending, at the end of the document too
+    // (the oracle case regex-ml-lookbehind-newline-lf).
     Ok(matcher
         .find_at(&subject.text, start)?
-        .filter(|m| !(subject.sees_eol && m.start >= subject.text.len()))
+        .filter(|m| !(subject.sees_eol && subject.eol.is_empty() && m.start >= subject.text.len()))
         .map(|m| Found::new(line, m, wrapped, &subject)))
 }
 

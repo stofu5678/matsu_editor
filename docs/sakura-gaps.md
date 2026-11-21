@@ -138,7 +138,7 @@
 |---|---|---|---|---|---|
 | Migemo（インクリメンタル検索、検索ダイアログの Migemo） | `CMigemo.cpp` | なし | ユーザーの判断が要る: ライセンス | M | 止まっているもの |
 | 正規表現ライブラリの指定（`szRegexpLib`） | `CPropComSearch.cpp` | 画面は灰色。ライブラリは自前（`matsu-regex`）なので指定は意味がない。設定ファイルの値は残す。「他のビューの条件を引き継ぐ」の切り替えは入った（`search/history.rs` の `change_cur_regexp`） | B | － | なし |
-| 正規表現: 複数行の照合の細部、bregonig との互換テスト（Windows で bregonig.dll を動かした期待値）、一致の中断（Onigmo の fork が要る）、Unicode の表の更新 | `CBregexp.cpp` ほか（読まない。説明書と実物の結果で） | #197 で改行の照合を直した。ほかは未確認 | A | M | bregonig.dll の実物（oracle の CI） |
+| 正規表現: 一致の中断（Onigmo の fork が要る）、Unicode の表の更新 | `CBregexp.cpp` ほか（読まない。説明書と実物の結果で） | 複数行の照合は oracle で確かめた（`regex-ml-*` の約 130 件: 行頭・行末・文書の末尾の空の一致、`\r\n`・`\R`・`\s`・`.` と改行、行をまたぐ一致、改行を足す・消す置換、CRLF・LF・CR・混在・空の文書、日本語）。違いは 1 件だけで、改行の直後（照合する文字列の末尾）での先読み・後読みの一致を見つけなかったのを直した（#197 のあと）。残りは、一致の中断（Onigmo の fork が要る）と Unicode の表の更新（Onigmo 自身の表） | A | M | Onigmo の fork（中断）、Onigmo 自身の表（Unicode） |
 
 ### ファイルと文字コード
 
