@@ -605,13 +605,27 @@ fn a_list_the_user_closed_does_not_start_the_calls_that_are_left(cx: &mut TestAp
     assert_eq!(state(&view, cx).0.map(|(_, shown)| shown), Some(true));
     cx.simulate_keystrokes("escape");
     assert_eq!(state(&view, cx).0, None);
-    for _ in 0..100 {
+    // The slow first call ends after the list was closed. Wait for its output instead of a fixed time (about 10
+    // seconds at most): on a busy machine the plugin host and the 500 ms loop took longer than the 1 second this
+    // test used to wait, and it failed with an empty output (2026-11-21).
+    let mut output = String::new();
+    for _ in 0..1000 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        output = view.read_with(cx, |v, _| v.macro_output_text());
+        if output.contains("[global]") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(output.contains("[global]"), "{output}");
+    // A call that is left would start right after the first one: give it the time to show.
+    for _ in 0..30 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
         std::thread::sleep(Duration::from_millis(10));
     }
     let output = view.read_with(cx, |v, _| v.macro_output_text());
-    assert!(output.contains("[global]"), "{output}");
     assert!(!output.contains("[typed]"), "{output}");
     finish(cx);
 }
