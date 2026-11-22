@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.24.0](https://github.com/stofu5678/matsu_editor/compare/v0.23.0...v0.24.0) (2026-11-21)
+
+
+### Features
+
+* **history:** sort the history list by column, add its right-click menu and the refresh notice ([#553](https://github.com/stofu5678/matsu_editor/issues/553)) ([228f4b5](https://github.com/stofu5678/matsu_editor/commit/228f4b5a7c9b0b86534b4ffca3a5e4f99f110ea4))
+* **search:** choose the unit of the line number in the jump panel ([#551](https://github.com/stofu5678/matsu_editor/issues/551)) ([9ab753a](https://github.com/stofu5678/matsu_editor/commit/9ab753a814b8fc8766dba0072d1317ab090d11d5))
+
+
+### Bug Fixes
+
+* **platform:** retry a refused flock briefly before reporting another program's lock ([#549](https://github.com/stofu5678/matsu_editor/issues/549)) ([90b20ea](https://github.com/stofu5678/matsu_editor/commit/90b20eae3eacbb3b2f6e669823f500513f09c26c))
+* **plugin:** call the plugin events for the window or tab that a Grep fills ([#550](https://github.com/stofu5678/matsu_editor/issues/550)) ([09cc14e](https://github.com/stofu5678/matsu_editor/commit/09cc14e0f3870c596dd9722023c3d33de6f60f96))
+* **plugin:** write Sakura's header line in the plugin option file ([#552](https://github.com/stofu5678/matsu_editor/issues/552)) ([594a74d](https://github.com/stofu5678/matsu_editor/commit/594a74d7d5709b7303b56df8c3bea8c7ae2212a1))
+
 ## [0.23.0](https://github.com/stofu5678/matsu_editor/compare/v0.22.0...v0.23.0) (2026-11-21)
 
 
