@@ -2,8 +2,8 @@
 //!
 //! Sakura: `CViewCommander::HandleCommand` (`sakura_core/cmd/CViewCommander.cpp`) runs
 //! `Sub_BoxSelectLock` (begins a box if there is none) and then `Command_GOLINETOP` with `bSelect` set
-//! (`sakura_core/cmd/CViewCommander_Cursor.cpp`). The first macro argument (the flags of the line moves) is passed on; the second (the lock option, `Sub_BoxSelectLock`) is not supported, as for
-//! the other box commands.
+//! (`sakura_core/cmd/CViewCommander_Cursor.cpp`). The first macro argument (the flags of the line moves) is passed on; the second is the lock option (`Sub_BoxSelectLock`: 1 locks the box, 2 does not, 0 is the
+//! setting).
 //!
 //! The rules of the box are in `context/boxsel.rs`.
 
@@ -19,7 +19,7 @@ impl Command for GoLineTopBox {
     const SAKURA: &'static str = "F_GOLINETOP_BOX";
 
     fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
-        cx.ensure_box()?;
+        cx.ensure_box(Arg::int_at(args, 1))?;
         cx.move_line_top_flags(true, Arg::first_int(args))
     }
 }

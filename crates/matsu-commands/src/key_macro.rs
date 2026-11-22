@@ -637,10 +637,59 @@ impl KeyMacroRecorder {
             return self.record(F_CHGMOD_EOL, &args);
         }
         match macro_names::by_code(code) {
-            Some(row) if row.key_macro => self.steps.push(code, args).is_ok(),
+            Some(row) if row.key_macro => match with_recorded_box_lock(row.function, args) {
+                Some(args) => self.steps.push(code, &args).is_ok(),
+                None => self.steps.push(code, args).is_ok(),
+            },
             _ => false,
         }
     }
+}
+
+/// The box moves whose lock argument is the first one, and the ones whose lock argument is the
+/// second (after the flags of the line moves or the number of rows): `CMacro::AddLParam`.
+const BOX_MOVES_LOCK_FIRST: &[&str] = &[
+    "F_UP_BOX",
+    "F_DOWN_BOX",
+    "F_LEFT_BOX",
+    "F_RIGHT_BOX",
+    "F_UP2_BOX",
+    "F_DOWN2_BOX",
+    "F_WORDLEFT_BOX",
+    "F_WORDRIGHT_BOX",
+    "F_GOFILETOP_BOX",
+    "F_GOFILEEND_BOX",
+];
+const BOX_MOVES_LOCK_SECOND: &[&str] = &[
+    "F_GOLOGICALLINETOP_BOX",
+    "F_GOLINETOP_BOX",
+    "F_GOLINEEND_BOX",
+    "F_HalfPageUp_BOX",
+    "F_HalfPageDown_BOX",
+    "F_1PageUp_BOX",
+    "F_1PageDown_BOX",
+];
+
+/// The arguments a key macro keeps for a box move: the lock argument 0 ("the setting") is
+/// replaced by what the setting is now, 1 (locked) or 2 (not locked), so that the macro does the
+/// same when the setting changes (`CMacro::AddLParam`: `nParamOption`, `m_bBoxSelectLock`).
+/// `None` for any other function. Sakura also writes the row count in place of 0 for the page
+/// moves; that is not done here.
+fn with_recorded_box_lock(function: &str, args: &[Arg]) -> Option<Vec<Arg>> {
+    let lock_at = if BOX_MOVES_LOCK_FIRST.contains(&function) {
+        0
+    } else if BOX_MOVES_LOCK_SECOND.contains(&function) {
+        1
+    } else {
+        return None;
+    };
+    let mut kept: Vec<Arg> = args.iter().take(lock_at + 1).cloned().collect();
+    kept.resize(lock_at + 1, Arg::Int(0));
+    if Arg::int_at(&kept, lock_at) == 0 {
+        let locked = crate::edit_options::get().box_select_lock;
+        kept[lock_at] = Arg::Int(if locked { 1 } else { 2 });
+    }
+    Some(kept)
 }
 
 /// `F_CHGMOD_EOL`.

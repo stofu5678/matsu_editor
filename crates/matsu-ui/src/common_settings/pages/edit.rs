@@ -5,7 +5,8 @@
 //! endings in a paste, the copy of wrapped rows with a line ending, the deselection after a copy,
 //! the options of the overwrite mode, drag and drop inside the window, selecting a URL by a click,
 //! and where the file dialogs start (`eOpenDialogDir`, `szOpenDialogSelDir`, read by
-//! `crate::file_dialog`). Not available yet: the lock of the box selection, and the Vista style
+//! `crate::file_dialog`), the lock of the box selection and, from the settings file only, the paste of
+//! a box copy as a box (`bAutoColmnPaste`). Not available: the Vista style
 //! dialog: MATSU asks GPUI for the dialogs, which on Windows are always the Vista style (the
 //! `IFileOpenDialog` in gpui-pre-windows 0.3.8, `platform.rs`), so the old style that the box
 //! would switch to does not exist.
@@ -205,6 +206,15 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     .into(),
                 ],
             ),
+            // Sakura has no control for it, only the key in the settings file (`bAutoColmnPaste`,
+            // `CShareData_IO.cpp`; not in `IDD_PROP_EDIT`). The dialog keeps the value and
+            // writes it back, and the paste reads it.
+            Item::Hidden(vec![Control::check(
+                "auto_column_paste",
+                "矩形コピーのテキストは常に矩形貼り付け",
+                "bAutoColmnPaste",
+                true,
+            )]),
         ],
     ])]
 }
@@ -245,5 +255,7 @@ pub(in crate::common_settings) fn apply(_env: &mut Env, after: &Values, _before:
     options.overwrite_box_delete = after.bool("overwrite_box_delete");
     // The box moves read it when they begin a box (`CommandContext::ensure_box`).
     options.box_select_lock = after.bool("box_select_lock");
+    // Paste reads it (`CommandContext::paste`); the key has no control (`bAutoColmnPaste`).
+    options.auto_column_paste = after.bool("auto_column_paste");
     edit_options::set(options);
 }

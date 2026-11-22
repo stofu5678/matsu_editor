@@ -33,16 +33,21 @@ impl CommandContext<'_> {
     }
 
     /// What a box move does first: starts a box at the caret unless one is going on (Sakura:
-    /// `Sub_BoxSelectLock`). The box is locked as the setting 「矩形選択移動で選択をロックする」
-    /// says (`m_bBoxSelectLock`, [`edit_options::EditOptions::box_select_lock`]; on by default), which is what
-    /// `Sub_BoxSelectLock` does with the flags 0. A box that is going on keeps its lock. The
-    /// macro arguments that give the lock (1: on, 2: off) are not supported. A normal selection
-    /// is dropped, as Sakura does since 2014.
-    pub fn ensure_box(&mut self) -> Result<()> {
+    /// `Sub_BoxSelectLock`). `lock_arg` is the lock argument of the macro function: 1 locks the
+    /// box, 2 does not, 0 uses the setting 「矩形選択移動で選択をロックする」
+    /// (`m_bBoxSelectLock`, [`edit_options::EditOptions::box_select_lock`]; on by default), and any
+    /// other value does not lock (`bSelLock` starts as false). A box that is going on keeps its
+    /// lock and ignores the argument. A normal selection is dropped, as Sakura does since 2014.
+    pub fn ensure_box(&mut self, lock_arg: i64) -> Result<()> {
         if self.cursor.is_box() {
             Ok(())
         } else {
-            self.start_box(edit_options::get().box_select_lock)
+            let lock = match lock_arg {
+                0 => edit_options::get().box_select_lock,
+                1 => true,
+                _ => false,
+            };
+            self.start_box(lock)
         }
     }
 

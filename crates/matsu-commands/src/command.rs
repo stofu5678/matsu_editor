@@ -45,7 +45,13 @@ impl Arg {
     /// The first argument as the number a macro passes (`_wtoi` of the text in Sakura's
     /// `CMacro::HandleCommand`): 0 when it is missing or not a number.
     pub fn first_int(args: &[Arg]) -> i64 {
-        match args.first() {
+        Self::int_at(args, 0)
+    }
+
+    /// The argument at `index` as a number (`lparam1`, `lparam2`, ...): 0 when it is missing or
+    /// not a number.
+    pub fn int_at(args: &[Arg], index: usize) -> i64 {
+        match args.get(index) {
             Some(Arg::Int(n)) => *n,
             _ => 0,
         }

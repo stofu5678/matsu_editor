@@ -64,6 +64,10 @@ pub struct EditOptions {
     /// begins is locked, so that the plain moves go on extending it. Off, the next plain move ends
     /// the box. On by default (`CShareData::InitShareData`).
     pub box_select_lock: bool,
+    /// `m_bAutoColumnPaste` (`bAutoColmnPaste`, 「矩形コピーのテキストは常に矩形貼り付け」): the text
+    /// of a box copy is pasted as a box. Sakura has no control for it; only the settings file.
+    /// On by default (`CShareData::InitShareData`).
+    pub auto_column_paste: bool,
 }
 
 impl EditOptions {
@@ -86,6 +90,7 @@ impl EditOptions {
         free_cursor: false,
         dos_caret: false,
         box_select_lock: true,
+        auto_column_paste: true,
     };
 }
 

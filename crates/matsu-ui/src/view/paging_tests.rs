@@ -258,6 +258,66 @@ fn the_lock_setting_decides_whether_a_plain_page_extends_the_box_a_box_page_begi
     }
 }
 
+/// The lock argument of the macro (the second one of the box page functions, `Sub_BoxSelectLock`):
+/// 1 locks the box and 2 does not, whatever the setting says; 0 takes the setting.
+#[gpui::test]
+fn the_lock_argument_of_a_box_page_decides_the_lock_of_the_box(cx: &mut TestAppContext) {
+    for setting in [true, false] {
+        for (lock, expected) in [(0, setting), (1, true), (2, false), (3, false)] {
+            for id in [
+                F_1PAGE_DOWN_BOX,
+                F_1PAGE_UP_BOX,
+                F_HALF_PAGE_DOWN_BOX,
+                F_HALF_PAGE_UP_BOX,
+            ] {
+                let _options = matsu_commands::edit_options::options_for_this_thread(
+                    matsu_commands::edit_options::EditOptions {
+                        box_select_lock: setting,
+                        ..Default::default()
+                    },
+                );
+                let (view, cx) = setup(cx);
+                place(&view, cx, 100, 98);
+                let v = view.clone();
+                cx.update(|window, cx| {
+                    v.update(cx, |v, cx| {
+                        v.run_function(id, &[Arg::Int(0), Arg::Int(lock)], window, cx)
+                    })
+                });
+                assert!(
+                    view.read_with(cx, |v, _| v.cursor.is_box()),
+                    "{id}: setting {setting}, argument {lock}"
+                );
+                assert_eq!(
+                    view.read_with(cx, |v, _| v.cursor.selecting_lock()),
+                    expected,
+                    "{id}: setting {setting}, argument {lock}"
+                );
+            }
+        }
+    }
+}
+
+/// The row count stays the first argument: with the lock argument after it, the box moves by it.
+#[gpui::test]
+fn a_box_page_takes_the_row_count_and_the_lock_together(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    place(&view, cx, 100, 98);
+    let v = view.clone();
+    cx.update(|window, cx| {
+        v.update(cx, |v, cx| {
+            v.run_function(
+                F_HALF_PAGE_DOWN_BOX,
+                &[Arg::Int(7), Arg::Int(2)],
+                window,
+                cx,
+            )
+        })
+    });
+    assert_eq!(caret_line(&view, cx), 107);
+    assert!(view.read_with(cx, |v, _| v.cursor.is_box() && !v.cursor.selecting_lock()));
+}
+
 #[gpui::test]
 fn half_a_page_moves_only_the_caret(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);

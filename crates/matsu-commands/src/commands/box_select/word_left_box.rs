@@ -2,8 +2,8 @@
 //!
 //! Sakura: `CViewCommander::HandleCommand` (`sakura_core/cmd/CViewCommander.cpp`) runs
 //! `Sub_BoxSelectLock` (begins a box if there is none) and then `Command_WORDLEFT` with `bSelect` set
-//! (`sakura_core/cmd/CViewCommander_Cursor.cpp`). The macro arguments (the lock option and the
-//! flags of the line moves) are not supported, as for the other cursor commands.
+//! (`sakura_core/cmd/CViewCommander_Cursor.cpp`). The macro argument is the lock option
+//! (`Sub_BoxSelectLock`: 1 locks the box, 2 does not, 0 is the setting).
 //!
 //! The rules of the box are in `context/boxsel.rs`.
 
@@ -18,8 +18,8 @@ impl Command for WordLeftBox {
     const ID: &'static str = "word_left_box";
     const SAKURA: &'static str = "F_WORDLEFT_BOX";
 
-    fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.ensure_box()?;
+    fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
+        cx.ensure_box(Arg::int_at(args, 0))?;
         cx.move_word_left(true)
     }
 }

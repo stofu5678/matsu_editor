@@ -546,3 +546,81 @@ fn a_last_line_that_wraps_counts_all_its_rows() {
     .unwrap();
     assert!(got.starts_with("  1:x\n"), "{got:?}");
 }
+
+/// The text of the document, without the marks of the cursor.
+fn plain(e: &Editor) -> String {
+    // The final line ending is not what these tests are about.
+    e.marked()
+        .replace(['[', '|'], "")
+        .trim_end_matches(['\r', '\n'])
+        .to_owned()
+}
+
+/// `bAutoColumnPaste` (`bAutoColmnPaste`) and the bits 0x10 / 0x20 of the argument of `Paste`
+/// (`Command_PASTE`): the bit decides, and without one the setting does.
+#[test]
+fn the_text_of_a_box_copy_is_pasted_as_a_box_by_the_setting_and_the_paste_bits() {
+    use crate::edit_options::{EditOptions, with_options};
+    for setting in [true, false] {
+        for (option, as_box) in [
+            (0, setting),
+            (0x10, true),
+            (0x20, false),
+            (0x10 | 0x20, true),
+            (0x01, setting),
+            (0x10 | 0x01, true),
+        ] {
+            let mut e = Editor::new("ab|\ncd").with_clipboard("X\nY", ClipKind::Box);
+            with_options(
+                EditOptions {
+                    auto_column_paste: setting,
+                    ..EditOptions::default()
+                },
+                || {
+                    e.run_with("paste", &[Arg::Int(option)]);
+                },
+            );
+            let text = plain(&e);
+            let expected = if as_box { "abX\ncdY" } else { "abX\nY\ncd" };
+            assert_eq!(
+                text.replace("\r\n", "\n"),
+                expected,
+                "setting {setting}, option {option:#x}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_setting_does_not_touch_the_paste_of_other_text() {
+    use crate::edit_options::{EditOptions, with_options};
+    for setting in [true, false] {
+        let mut e = Editor::new("ab|\ncd").with_clipboard("X\nY", ClipKind::Normal);
+        with_options(
+            EditOptions {
+                auto_column_paste: setting,
+                ..EditOptions::default()
+            },
+            || {
+                e.run_with("paste", &[Arg::Int(0x10)]);
+            },
+        );
+        assert_eq!(plain(&e).replace("\r\n", "\n"), "abX\nY\ncd", "{setting}");
+    }
+}
+
+#[test]
+fn pastebox_pastes_as_a_box_whatever_the_setting_is() {
+    use crate::edit_options::{EditOptions, with_options};
+    let mut e = Editor::new("ab|\ncd").with_clipboard("X\nY", ClipKind::Box);
+    with_options(
+        EditOptions {
+            auto_column_paste: false,
+            ..EditOptions::default()
+        },
+        || {
+            e.run("pastebox");
+        },
+    );
+    assert_eq!(plain(&e).replace("\r\n", "\n"), "abX\ncdY");
+}

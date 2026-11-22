@@ -28,8 +28,11 @@ fn enable_line_mode_paste() -> bool {
 fn convert_eol_paste() -> bool {
     crate::edit_options::get().convert_eol_paste
 }
-/// `bAutoColumnPaste`: the text of a box copy is pasted as a box. Default on.
-const AUTO_COLUMN_PASTE: bool = true;
+/// `bAutoColumnPaste` (`bAutoColmnPaste` in the file): the text of a box copy is pasted as a box.
+/// Default on.
+fn auto_column_paste() -> bool {
+    crate::edit_options::get().auto_column_paste
+}
 /// `m_szInyouKigou`: the quote of `F_COPYLINESASPASSAGE` (`m_sFormat`). Default `"> "`.
 pub(crate) const QUOTE: &str = "> ";
 
@@ -487,7 +490,7 @@ impl CommandContext<'_> {
         } else if option & paste_option::NO_BOX != 0 {
             false
         } else {
-            AUTO_COLUMN_PASTE
+            auto_column_paste()
         };
         // The text of a box copy is pasted as a box (`Command_PASTE`, `bAutoColumnPaste`). The
         // line endings are not converted.

@@ -358,7 +358,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     assert_eq!(count(Page::Window), 25);
     // (and the font of the tabs, which the button and the label use)
     assert_eq!(count(Page::Tab), 15);
-    assert_eq!(count(Page::Edit), 19);
+    // (and `bAutoColmnPaste`, which Sakura has in the file only: the dialog keeps its value)
+    assert_eq!(count(Page::Edit), 20);
 }
 
 // ---- opening ----
@@ -1122,6 +1123,19 @@ fn the_box_select_lock_reaches_the_commands_and_the_file(cx: &mut TestAppContext
     ok(cx);
     assert_eq!(ini.get("bBoxSelectLock").as_deref(), Some("1"));
     assert!(edit_options::get().box_select_lock);
+}
+
+/// `bAutoColmnPaste` has no control in Sakura's dialog: the file's value reaches the paste when the
+/// application starts, and OK keeps it.
+#[gpui::test]
+fn the_auto_column_paste_key_of_the_file_reaches_the_paste_and_stays(cx: &mut TestAppContext) {
+    let _restore = RestoreEditOptions::new();
+    let (ini, handle) = setup(cx, "[Common]\r\nbAutoColmnPaste=0\r\n");
+    assert!(!edit_options::get().auto_column_paste);
+    run(cx, handle, "F_OPTION_EDIT");
+    ok(cx);
+    assert_ne!(ini.get("bAutoColmnPaste").as_deref(), Some("1"));
+    assert!(!edit_options::get().auto_column_paste);
 }
 
 #[gpui::test]
