@@ -30,7 +30,7 @@
 |---|---|---|
 | コマンドと関数 | 3 | 関数コードのあるコマンド 477 個のうち未登録は 3 つ（`F_PROFILEMGR` と Migemo の 2 つ。どれもユーザーの判断が要る） |
 | マクロ | 1 | `Jump` の画面なしの実行（折り返し行と PL/SQL）、ジャンプのパネルのキーマクロへの記録、マクロの `Jump` がパネルの単位を書き換えること、PL/SQL の欄 |
-| 設定 | 7 | 共通設定の灰色の部品 15 個とタイプ別設定の灰色の部品 3 個（IME の状態・入力モード・文書アイコンが Windows 以外。型 B）。読んでいない ini のキー（左右キーの押しっぱなしの桁数 `nRepeatedMoveCaretNum`、`bAutoColmnPaste`、`_BOX` のマクロ引数）、`sakura.exe.ini` と `bIniReadOnly` |
+| 設定 | 7 | 共通設定の灰色の部品 15 個とタイプ別設定の灰色の部品 3 個（IME の状態・入力モード・文書アイコンが Windows 以外。型 B）。読んでいない ini のキー（`bAutoColmnPaste`、`_BOX` のマクロ引数）、`sakura.exe.ini` と `bIniReadOnly` |
 | ダイアログ | 7 | プロファイル、タイプ一覧のファイルの関連付け、欄の `↑` `↓` の加速、モーダルでないこと |
 | プラグイン | 3 | ADR-0026 の PR は入った。残りは細部（マクロが保存・読み込みをする間のイベントは型 D、OS が直接終わらせる道と新しいタブの `EditorStart` は型 B、スマートインデントを呼ぶ時機は型 B） |
 | 検索 | 4 | Migemo、置換ダイアログを自動的に閉じる設定、細部（`:HWND:` の Grep 置換）、一致の中断と Unicode の表 |
@@ -47,15 +47,14 @@
 
 | 順 | 項目 | 大きさ | 台帳の表 |
 |---|---|---|---|
-| 1 | 押しっぱなしの左右キーの桁数（`nRepeatedMoveCaretNum`） | S | 設定（「全般」の行） |
-| 2 | 置換ダイアログを自動的に閉じる（`bAutoCloseDlgReplace`） | S | 検索と置換、Grep |
-| 3 | `Jump` の残り（パネルのジャンプをキーマクロに `Jump` として記録する、マクロの `Jump` がパネルの単位を書き換える） | S | マクロ |
-| 4 | `_BOX` の移動のマクロ引数（ロックの 1・2）と、記録時の 0 の置き換え。`bAutoColmnPaste` と `Paste` の 0x10・0x20 | S〜M | 設定（「編集」の行） |
-| 5 | `:HWND:` の Grep 置換の差分の当て直し | S | 検索と置換、Grep |
-| 6 | 欄の `↑` `↓` の加速（先に実物を測る） | S | ダイアログとプロパティシート |
-| 7 | マクロが保存・読み込みをする間のプラグインのイベント（イベント専用の窓の状態を作る。型 D） | M | プラグイン |
-| 8 | 折り返し行の途中の隙間のフリーカーソル（`Pos` に印を足す。型 D） | M | 表示と編集 |
-| 9 | 巨大ファイルの残り（行数の表を持たないレイアウト、長い行の IME。ADR-0020）、ブロックの大きさの測定（型 E） | L / M | ファイルと文字コード |
+| 1 | 置換ダイアログを自動的に閉じる（`bAutoCloseDlgReplace`） | S | 検索と置換、Grep |
+| 2 | `Jump` の残り（パネルのジャンプをキーマクロに `Jump` として記録する、マクロの `Jump` がパネルの単位を書き換える） | S | マクロ |
+| 3 | `_BOX` の移動のマクロ引数（ロックの 1・2）と、記録時の 0 の置き換え。`bAutoColmnPaste` と `Paste` の 0x10・0x20 | S〜M | 設定（「編集」の行） |
+| 4 | `:HWND:` の Grep 置換の差分の当て直し | S | 検索と置換、Grep |
+| 5 | 欄の `↑` `↓` の加速（先に実物を測る） | S | ダイアログとプロパティシート |
+| 6 | マクロが保存・読み込みをする間のプラグインのイベント（イベント専用の窓の状態を作る。型 D） | M | プラグイン |
+| 7 | 折り返し行の途中の隙間のフリーカーソル（`Pos` に印を足す。型 D） | M | 表示と編集 |
+| 8 | 巨大ファイルの残り（行数の表を持たないレイアウト、長い行の IME。ADR-0020）、ブロックの大きさの測定（型 E） | L / M | ファイルと文字コード |
 
 ユーザーの判断が先に要る（上の表の外）: Migemo、プロファイルと `sakura.exe.ini`・`bIniReadOnly`、ファイルの関連付け、表示の言語、ベストフィット表、CP51932/20932、署名、比例フォントの印刷（ADR-0034 の段階 6）。タスクトレイとダークモードは、GPUI でできるかを先に調べる（型 B）。「止まっているもの」に理由を書いた。
 
@@ -97,14 +96,14 @@
 
 ### 設定
 
-画面に出ていて、効かない部品（`Control::unavailable()`、コードでは「未対応」の灰色）は、共通設定 15 個（「全般」5、「ウィンドウ」2、「編集」1、「検索」1、「マクロ」2、「支援」の Migemo 4）、タイプ別設定 3 個ある（IME の状態・入力モード・文書アイコン。Windows だけで効く。型 B）。サクラのキー（`CShareData_IO.cpp` の `IOProfileData` の 301 キー）のうち、キー名の文字列が `crates/` のコードに出てこないものは 30 個（2026-11-22 に数えた）。そのうち連番や別の形で組み立てるもの（`nKeywordSelect4`〜`10`、`rc*Dialog` の 5 個、`_MRU_Counts` `_MRUFOLDER_Counts` `ExceptMRU`）は動いている。本当に読んでいないものは、`nRepeatedMoveCaretNum`、`bAutoColmnPaste`、`bAutoCloseDlgReplace`、`bAutoCloseDlgFuncList`、`bFunclistSetFocusOnJump`、`bDispExitingDialog`、`bIniReadOnly`、`bIsINSMode`、`wTrayMenuHotKeyCode` `wTrayMenuHotKeyMods`、`szLanguageDll` で、下の行に書いた。設定ファイルの値は、読み書きは壊さずに残している（ADR-0010）ので、「動かない」だけで「消える」ことはない。
+画面に出ていて、効かない部品（`Control::unavailable()`、コードでは「未対応」の灰色）は、共通設定 15 個（「全般」5、「ウィンドウ」2、「編集」1、「検索」1、「マクロ」2、「支援」の Migemo 4）、タイプ別設定 3 個ある（IME の状態・入力モード・文書アイコン。Windows だけで効く。型 B）。サクラのキー（`CShareData_IO.cpp` の `IOProfileData` の 301 キー）のうち、キー名の文字列が `crates/` のコードに出てこないものは 30 個（2026-11-22 に数えた）。そのうち連番や別の形で組み立てるもの（`nKeywordSelect4`〜`10`、`rc*Dialog` の 5 個、`_MRU_Counts` `_MRUFOLDER_Counts` `ExceptMRU`）は動いている。本当に読んでいないものは、`bAutoColmnPaste`、`bAutoCloseDlgReplace`、`bAutoCloseDlgFuncList`、`bFunclistSetFocusOnJump`、`bDispExitingDialog`、`bIniReadOnly`、`bIsINSMode`、`wTrayMenuHotKeyCode` `wTrayMenuHotKeyMods`、`szLanguageDll` で、下の行に書いた。設定ファイルの値は、読み書きは壊さずに残している（ADR-0010）ので、「動かない」だけで「消える」ことはない。
 
 `bIsINSMode`（起動時の挿入・上書き）は、サクラ自身が読み書きしていない（`CShareData_IO.cpp` の `ShareData_IO_Common` でコメントアウト、2005-10-02 genta「初期値を挿入モードに固定する」）。画面の部品も無い。MATSU もいつも挿入で始まるので、不足ではない。
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
 | 共通設定「編集」の灰色 1 個: Vista スタイルのファイルダイアログ（GPUI の Windows 版は常に Vista スタイルの `IFileOpenDialog` を使うため、切り替える先が無い。型 B） | `CPropComEdit.cpp`、`CommonSetting.h` | コピー・上書きモードの設定はコマンドが読む（`edit_options`、`context/clipboard.rs`、`context/mod.rs` の `type_text`、`context/box_edit.rs`）。ドラッグ&ドロップと URL の選択は #236 でつながる。「矩形選択移動で選択をロックする」（`m_bBoxSelectLock`、#541）は、サクラが読む `Sub_BoxSelectLock` だけにつないだ（`context/boxsel.rs` の `ensure_box`。マウスは読まない: Alt のドラッグはいつもロックなし）。残りは灰色の 1 個と、次の 2 つ。(1) `_BOX` の移動のマクロの第 1 引数（1 でロックあり、2 でロックなし。`CViewCommander.cpp` 383〜400 行、`Sub_BoxSelectLock`）と、記録時に 0 を 1・2 にすること（`CMacro.cpp` 134 行）は読まない（`ensure_box` は引数なしで設定の値だけを見る。型 D: 記録の仕組みが要る）。(2) 矩形コピーのテキストを常に矩形貼り付けにする `bAutoColmnPaste`（サクラの画面に部品はなく、ini だけ。既定は入。`CViewCommander_Clipboard.cpp` 185〜191 行、`CViewCommander_Search.cpp` 892 行）は、MATSU がいつも入にしていて（`context/clipboard.rs` の `AUTO_COLUMN_PASTE`）、ini の値を読まない。`Paste` の第 1 引数の 0x10・0x20 も読まない | B/D | S | なし |
-| 共通設定「全般」の灰色 5 個: タスクトレイ（使う、常駐、ショートカットキー）、少し滑らかにする（途中の再描画だけの違いで、GPUI ではコマンドの途中に描けない。動きの結果は同じ。型 B）、画面キャッシュ（GPUI が描くので、持つ対象が無い。型 B） | `CPropComGeneral.cpp` | ホイールの行数・ページスクロール・横スクロールの組み合わせ（`view/paging.rs`）、全終了と複数ウィンドウを閉じる確認（`window_ops`、`file_ops/close.rs`）、押しっぱなしの上下キーの行数（`view/paging.rs` の `key_repeat_count`。対象は `F_UP` `F_DOWN` とその選択・矩形版だけ）、フリーカーソルとキャレットの形（下の「フリーカーソルの残り」）、マウスクリックでのアクティブ化でキャレットを動かさない（`view/mouse.rs`。GPUI の Windows 版は最初のクリックを教えないので、ウィンドウが有効になった直後 150 ミリ秒以内の押下をそう扱う。macOS と Wayland は `first_mouse` を使う。型 B）はつないだ。ホイール 1 目盛りの行数は OS の値のまま（サクラもレジストリの値）。残りは灰色と、押しっぱなしの左右キー: サクラは `F_LEFT` `F_RIGHT`（と `_SEL`、`_BOX`）が押しっぱなしの繰り返しのとき `nRepeatedMoveCaretNum`（既定 2。サクラの画面に部品はなく、ini だけ）の桁数だけ動く（`Command_LEFT` `Command_RIGHT`、`CViewCommander_Cursor.cpp` 166・271 行。`HandleCommand` が `bRepeat` を渡す）。MATSU は `key_repeat_count` が上下だけを数えるので、左右は 1 桁ずつで、ini のキーも読まない（見つけた不足。型 A/C、S）。終了中ダイアログ `bDispExitingDialog`（既定 off。ini だけ。`CControlTray.cpp` 1754 行は、トレイのプロセスが設定を保存する間に出す箱）は、トレイがないので出さない（型 B） | A/C | M | トレイは GPUI の API |
+| 共通設定「全般」の灰色 5 個: タスクトレイ（使う、常駐、ショートカットキー）、少し滑らかにする（途中の再描画だけの違いで、GPUI ではコマンドの途中に描けない。動きの結果は同じ。型 B）、画面キャッシュ（GPUI が描くので、持つ対象が無い。型 B） | `CPropComGeneral.cpp` | ホイールの行数・ページスクロール・横スクロールの組み合わせ（`view/paging.rs`）、全終了と複数ウィンドウを閉じる確認（`window_ops`、`file_ops/close.rs`）、押しっぱなしの上下キーの行数と左右キーの桁数（`view/paging.rs` の `key_repeat_count`。左右の桁数は `nRepeatedMoveCaretNum`、既定 2。ini だけのキーで、共通設定の「全般」が見えない部品に持つ）、フリーカーソルとキャレットの形（下の「フリーカーソルの残り」）、マウスクリックでのアクティブ化でキャレットを動かさない（`view/mouse.rs`。GPUI の Windows 版は最初のクリックを教えないので、ウィンドウが有効になった直後 150 ミリ秒以内の押下をそう扱う。macOS と Wayland は `first_mouse` を使う。型 B）はつないだ。ホイール 1 目盛りの行数は OS の値のまま（サクラもレジストリの値）。残りは灰色と、終了中ダイアログ `bDispExitingDialog`（既定 off。ini だけ。`CControlTray.cpp` 1754 行は、トレイのプロセスが設定を保存する間に出す箱）は、トレイがないので出さない（型 B） | A/C | M | トレイは GPUI の API |
 | 共通設定「ウィンドウ」の灰色 2 個: ダークモード、言語 | `CPropComWin.cpp` | ルーラーの高さ・隙間と行番号の隙間（`settings/view_settings.rs`、`view/element.rs`）、位置と大きさの設定のダイアログ（`win_size_dialog/`）、水平スクロールバー（`view/hscroll.rs`。範囲・ページ・矢印・つまみは `CEditView_Scroll.cpp` どおり）、縦のバーの矢印・矢印とトラックの押し続けの繰り返し（`view/vscroll.rs`、`view/scroll_repeat.rs`）、右下の角と分割ボックス（`view/split_box.rs`、`panes/mod.rs`）はつないだ。残りは灰色 | C | M | 言語は ADR 要（利用者向けの文言の多言語化） |
 | 共通設定「検索」の灰色 1 個（正規表現ライブラリ `szRegexpLib`。MATSU は自前の正規表現エンジン `matsu-regex` を使うので指定先がない。設定ファイルの値は残す。型 B）。「マクロ」の Python フォルダー（2 個。マクロのホストが Python を自分で探す。ADR-0007）。「支援」の Migemo の DLL と辞書（4 個。「止まっているもの」の Migemo） | `CPropComSearch.cpp` ほか | ツールバーのフラットなボタン（`bars/toolbar.rs`。フラットでないときは、ボタンをいつも枠付きで描く。型 B）、Grep のリアルタイム表示、Enter とダブルクリックのタグジャンプ、マクロのキャンセル確認の待ち時間（スクリプトの開始から待ってから、箱で聞く）、「他のビューの検索条件変更を引き継ぐ」（`m_bInheritKeyOtherView`。次・前検索の頭で `ChangeCurRegexp` と同じに、新しい検索文字列とオプションを取る。検索ボックスの表示も同じ）はつないだ。残りは灰色 | B | S | なし |
 | タイプ別設定「ウィンドウ」の灰色: IME の状態と入力モード、文書アイコン（Windows 以外） | `CPropTypesWindow.cpp` | 文字コードの既定、CP、CESU-8 優先、折り返し単位、桁数、縦線、背景画像（パス、位置、繰り返し、スクロール、透明度）は入った。IME の状態・入力モードと文書アイコンは Windows だけで効き、macOS・Linux は灰色のまま（型 B。理由は画面に書いた） | B | － | なし |

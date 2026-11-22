@@ -765,9 +765,9 @@ fn a_held_down_key_moves_the_rows_of_the_setting(cx: &mut TestAppContext) {
     );
     key_down(&view, cx, "down", true);
     assert_eq!(caret_line(&view, cx), 8);
-    // a key that is not up or down is not repeated by the setting
-    key_down(&view, cx, "right", true);
-    assert_eq!(view.read_with(cx, |v, _| v.cursor.caret().col), 1);
+    // left and right have their own setting (`repeat_keys_tests.rs`); other keys are not repeated
+    key_down(&view, cx, "pagedown", true);
+    assert_eq!(caret_line(&view, cx), 8 + rows(&view, cx) - 1);
 }
 
 #[gpui::test]

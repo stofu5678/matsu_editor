@@ -216,24 +216,30 @@ impl EditorView {
     // ---- the keys ----
 
     /// How many times a key that is held runs its function. A held up or down key moves
-    /// `nRepeatedScrollLineNum` rows (3 by default) a time, not one: `Command_UP` and
-    /// `Command_DOWN` (`sakura_core/cmd/CViewCommander_Cursor.cpp`) take `bRepeat`, which
-    /// `HandleCommand` sets when the same function runs again without a key up in between
-    /// (`m_bPrevCommand`, reset by `WM_KEYUP`); a held key is the auto repeat of the OS. While a
-    /// key macro is recorded `bRepeat` is false, so that the macro has the function once.
+    /// `nRepeatedScrollLineNum` rows (3 by default) a time, not one, and a held left or right key
+    /// `nRepeatedMoveCaretNum` columns (2 by default): `Command_UP`, `Command_DOWN`,
+    /// `Command_LEFT` and `Command_RIGHT` (`sakura_core/cmd/CViewCommander_Cursor.cpp`) take
+    /// `bRepeat`, which `HandleCommand` sets when the same function runs again without a key up in
+    /// between (`m_bPrevCommand`, reset by `WM_KEYUP`); a held key is the auto repeat of the OS.
+    /// While a key macro is recorded `bRepeat` is false, so that the macro has the function once.
+    ///
+    /// Left and right run their move that many times, as Sakura's loop does. When there is a
+    /// selection that the key drops, the first run drops it and takes one of the repeats
+    /// (`Command_CANCEL_MODE` then `continue`), so the others move from the end of that.
     pub(crate) fn key_repeat_count(&self, function: &str, held: bool, cx: &Context<Self>) -> usize {
-        if !held
-            || !matches!(
-                function,
-                "F_UP" | "F_DOWN" | "F_UP_SEL" | "F_DOWN_SEL" | "F_UP_BOX" | "F_DOWN_BOX"
-            )
-            || self.macros.is_recording()
-        {
+        if !held || self.macros.is_recording() {
             return 1;
         }
-        crate::common_settings::scroll_options(cx)
-            .repeated_lines
-            .max(1)
+        let options = crate::common_settings::scroll_options(cx);
+        match function {
+            "F_UP" | "F_DOWN" | "F_UP_SEL" | "F_DOWN_SEL" | "F_UP_BOX" | "F_DOWN_BOX" => {
+                options.repeated_lines.max(1)
+            }
+            "F_LEFT" | "F_RIGHT" | "F_LEFT_SEL" | "F_RIGHT_SEL" | "F_LEFT_BOX" | "F_RIGHT_BOX" => {
+                options.repeated_columns.max(1)
+            }
+            _ => 1,
+        }
     }
 
     // ---- the wheel ----

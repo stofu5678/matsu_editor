@@ -57,6 +57,9 @@ pub(crate) fn close_confirm(cx: &App) -> CloseConfirm {
 pub(crate) struct ScrollOptions {
     /// `m_nRepeatedScrollLineNum`: the rows that a held up or down key moves (3 by default).
     pub repeated_lines: usize,
+    /// `m_nRepeatedMoveCaretNum`: the columns that a held left or right key moves (2 by default).
+    /// The key is in the file only: the page has no control for it (Sakura has none either).
+    pub repeated_columns: usize,
     /// `m_nPageScrollByWheel`: the key or button that makes the wheel scroll by pages
     /// ([`WHEEL_COMBINATIONS`]; 0 for none).
     pub page_by_wheel: i32,
@@ -68,6 +71,7 @@ impl Default for ScrollOptions {
     fn default() -> Self {
         Self {
             repeated_lines: 3,
+            repeated_columns: 2,
             page_by_wheel: 0,
             hscroll_by_wheel: 0,
         }
@@ -75,6 +79,17 @@ impl Default for ScrollOptions {
 }
 
 impl Global for ScrollOptions {}
+
+/// The most columns that a held left or right key moves at a time: a larger value from the file
+/// would make one key repeat run for as long as a hang.
+const MAX_REPEATED_COLUMNS: i32 = 1000;
+
+/// `nRepeatedMoveCaretNum` as a count. Sakura runs the move that many times, so 0 or less moves
+/// nothing and a held left or right key does nothing (`Command_LEFT`: `for nRepCount < nRepeat`);
+/// MATSU moves at least once, as it does for `nRepeatedScrollLineNum`.
+fn repeated_columns(value: i32) -> usize {
+    value.clamp(1, MAX_REPEATED_COLUMNS) as usize
+}
 
 /// The scrolling options now.
 pub(crate) fn scroll_options(cx: &App) -> ScrollOptions {
@@ -198,6 +213,16 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             ),
         ],
         vec![
+            // `nRepeatedMoveCaretNum`: in the file only (it has no control in Sakura). The page holds
+            // it so that it is read when the settings are applied and stays in the file on OK.
+            Item::Hidden(vec![Control::number(
+                "repeated_move_caret",
+                "",
+                "nRepeatedMoveCaretNum",
+                2,
+                i32::MIN,
+                i32::MAX,
+            )]),
             Item::Group(
                 "スクロール",
                 vec![
@@ -332,6 +357,7 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     edit_options::set(general_options(edit_options::get(), after));
     env.cx.set_global(ScrollOptions {
         repeated_lines: after.int("repeated_scroll_lines").clamp(1, 10) as usize,
+        repeated_columns: repeated_columns(after.int("repeated_move_caret")),
         page_by_wheel: after.int("wheel_page_scroll"),
         hscroll_by_wheel: after.int("wheel_hscroll"),
     });
