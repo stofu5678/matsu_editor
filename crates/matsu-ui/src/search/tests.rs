@@ -624,16 +624,16 @@ fn the_replace_panel_stays_after_replace_all_when_the_box_is_off_and_keeps_the_c
 #[gpui::test]
 fn the_replace_panel_stays_open_after_replace_one_and_a_wrong_pattern(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "aa a");
-    open_replace(&f, cx, "a", "b");
+    open_replace(&f, cx, "a", "x");
     cx.simulate_keystrokes("alt-r");
-    assert_eq!(f.text(cx), "ba a");
+    assert_eq!(f.text(cx), "xa a");
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
     // 正規表現 with a pattern that does not parse
     cx.simulate_keystrokes("alt-e");
     cx.simulate_keystrokes("alt-n secondary-a");
     cx.simulate_input("(");
     press_replace_all(&f, cx);
-    assert_eq!(f.text(cx), "ba a");
+    assert_eq!(f.text(cx), "xa a");
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
 }
 
