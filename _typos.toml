@@ -59,6 +59,8 @@ CodeCnvUNICODEtoSJIS = "CodeCnvUNICODEtoSJIS"
 CodeCnvUNICODEBEtoSJIS = "CodeCnvUNICODEBEtoSJIS"
 # The key of Sakura's settings file for "copy, then drop the selection" (CShareData_IO.cpp), spelled so.
 bCopyAndDisablSelection = "bCopyAndDisablSelection"
+# The key of Sakura's settings file for "always paste a box copy as a box" (CShareData_IO.cpp), spelled so.
+bAutoColmnPaste = "bAutoColmnPaste"
 # The key of the file tree item option 読み取り専用ファイルを除く in Sakura's settings file (CDataProfile.cpp), spelled so.
 bIgnoreReadOny = "bIgnoreReadOny"
 # The page of Sakura's help that holds its license (help/sakura/res/HLP_LISENCE.html), spelled so.
