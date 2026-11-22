@@ -996,7 +996,7 @@ impl Render for SearchPanel {
                     )
                     .child(self.render_find_options(options, cx))
                     .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
-                    // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
+                    // `IDC_CHECK_bAutoCloseDlgReplace`
                     .child(self.option_box(
                         "replace-auto-close",
                         AUTO_CLOSE_REPLACE,
@@ -1004,6 +1004,7 @@ impl Render for SearchPanel {
                         |o, v| o.auto_close_replace = v,
                         cx,
                     ))
+                    // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
                     .child(
                         Checkbox::new("replace-consecutive")
                             .labelled(CONSECUTIVE)
