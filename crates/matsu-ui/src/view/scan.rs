@@ -45,7 +45,7 @@ impl ScanRestore {
 
 /// The line number and the option (1, the plain count of lines, if none is given) of the
 /// arguments of `F_JUMP`.
-pub(super) fn jump_args(args: &[Arg]) -> (Option<i64>, Option<i64>) {
+pub(crate) fn jump_args(args: &[Arg]) -> (Option<i64>, Option<i64>) {
     let number = |arg: Option<&Arg>| match arg {
         Some(Arg::Int(n)) => Some(*n),
         Some(Arg::Text(text)) => text.trim().parse::<i64>().ok(),

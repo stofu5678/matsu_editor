@@ -34,6 +34,7 @@ pub(crate) mod paging;
 pub(crate) mod pane;
 mod ruler;
 mod scan;
+pub(crate) use scan::jump_args;
 mod scan_window;
 pub(crate) mod scroll_repeat;
 mod settings;

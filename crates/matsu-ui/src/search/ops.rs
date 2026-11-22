@@ -537,6 +537,16 @@ impl EditorView {
                 return;
             }
         }
+        // `Command_JUMP_DIALOG` is recorded as `F_JUMP` with the number and the option of the dialog,
+        // always (`CMacro::HandleCommand`'s recording, `CMacro.cpp` 161-165); the jumps that wait
+        // for a scan were recorded above. The PL/SQL bit (0x02) is 0: the panel has no such field.
+        self.record_call(
+            "F_JUMP",
+            &[
+                matsu_commands::command::Arg::Int(number),
+                matsu_commands::command::Arg::Int(option),
+            ],
+        );
         self.run_with(cx, |c| jump_to_line(c, number, option)).ok();
     }
 }
