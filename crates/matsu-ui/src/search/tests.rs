@@ -564,6 +564,79 @@ fn the_selection_lock_extends_the_selection_to_the_match(cx: &mut TestAppContext
     assert!(f.view.read_with(cx, |v, _| v.cursor.selecting_lock()));
 }
 
+/// Presses すべて置換 on the open replace panel (`IDC_BUTTON_REPALCEALL`).
+fn press_replace_all(f: &Fixture, cx: &mut VisualTestContext) {
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.replace_all(window, cx));
+}
+
+/// Opens the replace panel and types the two strings into its boxes, as the user does.
+fn open_replace(f: &Fixture, cx: &mut VisualTestContext, pattern: &str, text: &str) {
+    cx.simulate_keystrokes("ctrl-r");
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input(pattern);
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.focus_replacement(window, cx));
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input(text);
+}
+
+fn replace_closes_itself(f: &Fixture, cx: &mut VisualTestContext) -> bool {
+    f.view
+        .read_with(cx, |v, _| v.search.options().auto_close_replace)
+}
+
+/// `CDlgReplace::OnBnClicked` (`IDC_BUTTON_REPALCEALL`) destroys the dialog after すべて置換 when
+/// `m_bAutoCloseDlgReplace` is on, which is the start (`CShareData.cpp` 473).
+#[gpui::test]
+fn the_replace_panel_closes_after_replace_all_when_it_closes_itself(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "aa a");
+    open_replace(&f, cx, "a", "b");
+    assert!(replace_closes_itself(&f, cx));
+    press_replace_all(&f, cx);
+    assert_eq!(f.text(cx), "bb b");
+    assert_eq!(f.panel_mode(cx), None);
+}
+
+#[gpui::test]
+fn the_replace_panel_stays_after_replace_all_when_the_box_is_off_and_keeps_the_choice(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx, "aa a");
+    open_replace(&f, cx, "a", "b");
+    // the box of the replace dialog has its own letter L, apart from the find dialog's
+    cx.simulate_keystrokes("alt-l");
+    assert!(!replace_closes_itself(&f, cx));
+    assert!(f.view.read_with(cx, |v, _| v.search.options().auto_close));
+    press_replace_all(&f, cx);
+    assert_eq!(f.text(cx), "bb b");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
+    // the choice is kept when the panel is closed and opened again
+    f.view
+        .update_in(cx, |v, window, cx| v.close_search_panel(window, cx));
+    cx.simulate_keystrokes("ctrl-r");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
+    assert!(!replace_closes_itself(&f, cx));
+}
+
+/// 置換 of the replace dialog never closes it, and neither does a wrong pattern (`GetData` fails
+/// before the dialog closes).
+#[gpui::test]
+fn the_replace_panel_stays_open_after_replace_one_and_a_wrong_pattern(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "aa a");
+    open_replace(&f, cx, "a", "b");
+    cx.simulate_keystrokes("alt-r");
+    assert_eq!(f.text(cx), "ba a");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
+    // 正規表現 with a pattern that does not parse
+    cx.simulate_keystrokes("alt-e");
+    cx.simulate_keystrokes("alt-n secondary-a");
+    cx.simulate_input("(");
+    press_replace_all(&f, cx);
+    assert_eq!(f.text(cx), "ba a");
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
+}
+
 mod access_keys;
 mod jump_unit;
 
