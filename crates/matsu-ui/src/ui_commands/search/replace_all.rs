@@ -30,6 +30,10 @@ impl UiCommand for ReplaceAll {
             window,
             cx,
             |view, window, cx| {
+                if args.is_empty() {
+                    // `Command_REPLACE_ALL` starts with `ChangeCurRegexp()` (see `Replace`).
+                    view.change_cur_regexp(cx);
+                }
                 if view.replace_all(window, cx).is_none()
                     && view.search_state().pattern().is_empty()
                 {

@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use matsu_commands::sakura::FUNCTIONS;
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::model::DocumentModel;
 
@@ -427,6 +428,82 @@ fn f3_of_a_view_with_no_string_takes_the_newest_even_when_the_switch_is_off(
     cx.simulate_keystrokes("f3");
     assert_eq!(f.pattern(cx), "theirs");
     assert_eq!(f.selection(cx), Some((Pos::new(0, 5), Pos::new(0, 11))));
+}
+
+/// Runs a Sakura function by name, the way a key or a menu item does.
+fn run(f: &Fixture, cx: &mut VisualTestContext, name: &str) {
+    let code = FUNCTIONS.iter().find(|f| f.name == name).unwrap().code;
+    f.view
+        .update_in(cx, |v, window, cx| v.run_function(code, &[], window, cx));
+}
+
+fn text(f: &Fixture, cx: &mut VisualTestContext) -> String {
+    f.view.read_with(cx, |v, cx| {
+        let doc = v.document.read(cx).doc();
+        doc.text_between(Pos::new(0, 0), Pos::new(doc.line_count(), 0))
+            .unwrap()
+    })
+}
+
+fn seen_mine(f: &Fixture, cx: &mut VisualTestContext) {
+    f.view.update(cx, |v, cx| {
+        v.search.set_pattern("mine");
+        v.search.replace.text = "X".to_owned();
+        v.remember_search_key(cx);
+    });
+}
+
+#[gpui::test]
+fn replace_starts_with_the_search_of_another_view(cx: &mut TestAppContext) {
+    // `Command_REPLACE` begins with `ChangeCurRegexp(false)` (`CViewCommander_Search.cpp`).
+    let (f, cx) = setup(cx, "mine theirs mine");
+    seen_mine(&f, cx);
+    other_window(cx, "theirs", None);
+    run(&f, cx, "F_REPLACE");
+    assert_eq!(f.pattern(cx), "theirs");
+    assert_eq!(text(&f, cx), "mine X mine");
+    // 次を検索 follows the same pattern, and the matches are marked
+    assert!(f.view.read_with(cx, |v, _| v.search.mark()));
+    cx.simulate_keystrokes("f3");
+    assert_eq!(f.pattern(cx), "theirs");
+}
+
+#[gpui::test]
+fn replace_all_starts_with_the_search_of_another_view(cx: &mut TestAppContext) {
+    // `Command_REPLACE_ALL` begins with `ChangeCurRegexp()`.
+    let (f, cx) = setup(cx, "mine theirs theirs");
+    seen_mine(&f, cx);
+    other_window(cx, "theirs", None);
+    run(&f, cx, "F_REPLACE_ALL");
+    assert_eq!(f.pattern(cx), "theirs");
+    assert_eq!(text(&f, cx), "mine X X");
+    assert!(f.view.read_with(cx, |v, _| v.search.mark()));
+}
+
+#[gpui::test]
+fn replace_keeps_its_own_string_when_the_switch_is_off(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "mine theirs mine");
+    inherit(cx, false);
+    seen_mine(&f, cx);
+    other_window(cx, "theirs", None);
+    run(&f, cx, "F_REPLACE");
+    assert_eq!(f.pattern(cx), "mine");
+    assert_eq!(text(&f, cx), "X theirs mine");
+    run(&f, cx, "F_REPLACE_ALL");
+    assert_eq!(text(&f, cx), "X theirs X");
+}
+
+#[gpui::test]
+fn replace_of_a_view_with_no_string_takes_the_newest(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "mine theirs mine");
+    inherit(cx, false);
+    other_window(cx, "theirs", None);
+    f.view
+        .update(cx, |v, _| v.search.replace.text = "X".to_owned());
+    run(&f, cx, "F_REPLACE");
+    // `0 == m_strCurSearchKey.size()`
+    assert_eq!(f.pattern(cx), "theirs");
+    assert_eq!(text(&f, cx), "mine X mine");
 }
 
 #[gpui::test]
