@@ -353,7 +353,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     // dialog draws; the ruler's spin buttons, the hot key and the font label are part of their
     // neighbours.
     let count = |page: Page| controls(&page.items().unwrap()).len();
-    assert_eq!(count(Page::General), 20);
+    // (and `nRepeatedMoveCaretNum`, which has no control in Sakura: it is in the file only)
+    assert_eq!(count(Page::General), 21);
     // (and the seven numbers of the dialog 位置と大きさの設定, which the button edits)
     assert_eq!(count(Page::Window), 25);
     // (and the font of the tabs, which the button and the label use)
