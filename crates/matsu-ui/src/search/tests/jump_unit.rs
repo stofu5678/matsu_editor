@@ -187,3 +187,54 @@ fn a_macro_jump_sets_the_unit_the_panel_shows_next(cx: &mut TestAppContext) {
     assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
     assert_eq!(f.caret(cx), Pos::new(2, 0));
 }
+
+fn f_jump() -> u16 {
+    matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_JUMP")
+        .unwrap()
+        .code
+}
+
+#[gpui::test]
+fn a_text_option_of_a_macro_jump_is_read_like_the_jump_reads_it(cx: &mut TestAppContext) {
+    use matsu_commands::command::Arg;
+    let (f, cx) = wrapped(cx);
+    let jump = |cx: &mut VisualTestContext, option: &str| {
+        let args = [Arg::Int(2), Arg::Text(option.into())];
+        f.view.update_in(cx, |v, window, cx| {
+            v.run_macro_function_for_test(f_jump(), &args, window, cx)
+        });
+    };
+    // "0x" is 0 (rows) and jumps by rows; "1x" is 1 (lines) and jumps by lines
+    jump(cx, "0x");
+    assert_eq!(f.caret(cx), Pos::new(0, 15));
+    cx.simulate_keystrokes("ctrl-j");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+    cx.simulate_keystrokes("alt-x");
+    jump(cx, "1x");
+    assert_eq!(f.caret(cx), Pos::new(1, 0));
+    cx.simulate_keystrokes("ctrl-j");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
+}
+
+#[gpui::test]
+fn an_open_panel_follows_a_macro_jump_and_keeps_its_unit_in_the_next_jump(cx: &mut TestAppContext) {
+    use matsu_commands::command::Arg;
+    let (f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
+    // the panel stays open while a macro (of another tab) says `Jump(2, 0)`
+    f.view.update_in(cx, |v, window, cx| {
+        v.run_macro_function_for_test(f_jump(), &[Arg::Int(2), Arg::Int(0)], window, cx)
+    });
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Jump));
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+    // a jump from the panel keeps the macro's unit: row 3 is line 2
+    cx.simulate_keystrokes("alt-n");
+    cx.simulate_input("3");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(f.caret(cx), Pos::new(1, 0));
+    cx.simulate_keystrokes("ctrl-j");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+}

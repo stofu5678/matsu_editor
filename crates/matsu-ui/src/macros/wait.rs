@@ -245,13 +245,15 @@ impl EditorView {
     /// `Jump(line, option)` of a macro sets the unit of the go-to-line panel before it jumps:
     /// `m_bLineNumIsCRLF_ForJump = lFlag & 1`, the option being 1 when left out
     /// (`CMacro::HandleCommand`, `F_JUMP`, `CMacro.cpp` 719-741). A call without the line number
-    /// is an error there and sets nothing.
+    /// is an error there and sets nothing. The option is read as the `Jump` command reads it, so
+    /// the unit that is remembered is the one the jump used.
     fn macro_jump_sets_unit(&self, code: u16, args: &[Arg], cx: &mut Context<Self>) {
-        if !matches!(super::function_name(code).as_str(), "F_JUMP") || args.is_empty() {
+        if !matches!(super::function_name(code).as_str(), "F_JUMP") {
             return;
         }
-        // `_wtoi` of text that is not a number is 0.
-        let option = crate::view::jump_args(args).1.unwrap_or(0);
+        let Some(option) = matsu_commands::commands::cursor::jump::macro_option(args) else {
+            return;
+        };
         let unit = if option & 0x01 != 0 {
             JumpUnit::Lines
         } else {
@@ -259,6 +261,21 @@ impl EditorView {
         };
         if crate::saved_state::other::jump_unit(cx) != unit {
             crate::saved_state::other::remember_jump_unit(cx, unit);
+        }
+    }
+
+    /// The same for a call of a script (JavaScript, Python, Ruby, PHP), which reaches the core
+    /// command through the bridge and not through [`Self::run_macro_function`].
+    pub(super) fn script_call_sets_unit(&self, text: &str, cx: &mut Context<Self>) {
+        use matsu_plugin::protocol::{Request, parse_request};
+        let Ok(Request { method, params, .. }) = parse_request(text) else {
+            return;
+        };
+        let Some(row) = matsu_commands::macro_names::by_name(&method) else {
+            return;
+        };
+        if let Ok(args) = matsu_plugin::bridge::convert_arguments(row, &params) {
+            self.macro_jump_sets_unit(row.code, &args, cx);
         }
     }
 

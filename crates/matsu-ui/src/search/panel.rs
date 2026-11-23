@@ -219,6 +219,14 @@ impl SearchPanel {
                 }
             },
         ));
+        // The unit is a copy of the remembered choice (`saved_state::other::jump_unit`, the one
+        // owner). A macro's `Jump` changes it while this panel is open (another tab or a split;
+        // Sakura's dialog is modal, so it cannot happen there): follow it, or the next jump from
+        // here would write the old unit back over the macro's.
+        subscriptions.push(cx.observe_global::<JumpUnit>(|this, cx| {
+            this.unit = jump_unit(cx);
+            cx.notify();
+        }));
         Self {
             editor,
             scope: cx.focus_handle(),
