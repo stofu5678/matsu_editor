@@ -30,6 +30,12 @@ impl UiCommand for Replace {
             window,
             cx,
             |view, window, cx| {
+                if args.is_empty() {
+                    // `Command_REPLACE` starts with `ChangeCurRegexp(false)`: the pattern and the
+                    // options of the last search in any window become this view's. A macro with
+                    // a string has just made it the search string.
+                    view.change_cur_regexp(cx);
+                }
                 if view.replace_next(window, cx) == SearchOutcome::NoPattern {
                     view.open_search_panel(PanelMode::Replace, window, cx);
                 }
