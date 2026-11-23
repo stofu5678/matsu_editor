@@ -369,25 +369,30 @@ mod tests {
     }
 
     /// A lock held through another open file description (what a forked child keeps for a moment)
-    /// that is let go of within the bound does not refuse the check, nor a new lock.
+    /// that is let go of while the lock is tried again does not refuse it. The test gives the retry a
+    /// long bound: with the real one (`LOCK_RETRY_FOR`) a busy machine could keep the thread that lets go
+    /// from running in time, and the test failed that way on a macOS runner (2026-11-22, #563).
+    /// `check_writable` and `FileLock::acquire` go through the same `try_lock_retrying`; that they wait
+    /// for `LOCK_RETRY_FOR` is the test below.
     #[cfg(not(windows))]
     #[test]
-    fn a_lock_let_go_of_soon_does_not_refuse_the_check() {
-        let (_dir, path) = file();
-        let lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
-        let releaser = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            drop(lock);
-        });
-        check_writable(&path).unwrap();
-        releaser.join().unwrap();
-        let lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
-        let releaser = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            drop(lock);
-        });
-        FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
-        releaser.join().unwrap();
+    fn a_lock_let_go_of_while_it_is_tried_again_does_not_refuse_it() {
+        for exclusive in [true, false] {
+            let (_dir, path) = file();
+            let lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
+            let releaser = std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                drop(lock);
+            });
+            let probe = File::options().append(true).open(&path).unwrap();
+            let within = std::time::Duration::from_secs(10);
+            if exclusive {
+                try_lock_retrying(&probe, within, |file| file.try_lock()).unwrap();
+            } else {
+                try_lock_retrying(&probe, within, |file| file.try_lock_shared()).unwrap();
+            }
+            releaser.join().unwrap();
+        }
     }
 
     /// A lock held longer than the bound is reported as `WouldBlock`, after the wait.
