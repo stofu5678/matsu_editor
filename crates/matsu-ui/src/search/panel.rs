@@ -1193,7 +1193,7 @@ impl EditorView {
         let replacement = self.search.replace.text.clone();
         let panel = match &self.panel {
             Some(panel) => {
-                panel.update(cx, |p, cx| {
+                panel.update(cx, |p, _| {
                     p.mode = mode;
                     // A click that was not committed is dropped when the panel is reused for the
                     // jump: it shows the remembered unit again.
