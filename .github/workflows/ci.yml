@@ -143,7 +143,7 @@ jobs:
       # Licenses (no GPL family, see CLAUDE.md), advisories, and sources.
       - name: deny
         if: success() || failure()
-        uses: EmbarkStudios/cargo-deny-action@v2.1.1
+        uses: EmbarkStudios/cargo-deny-action@v2.1.2
       # THIRD_PARTY_NOTICES.txt is generated from Cargo.lock (README.md, "Third-party notices"). A
       # dependency update that is not followed by a regeneration fails here.
       - name: Install cargo-about
