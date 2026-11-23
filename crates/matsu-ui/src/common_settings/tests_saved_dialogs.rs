@@ -527,7 +527,7 @@ fn the_jump_panel_starts_with_the_unit_of_the_file_and_the_button_writes_it(
     let (ini, handle) = setup(cx, "[Other]\r\nbLineNumIsCRLF=0\r\n");
     run(cx, handle, "F_JUMP_DIALOG");
     let panel = view_of(cx, handle).read_with(cx, |v, _| v.panel.clone().unwrap());
-    assert_eq!(panel.read_with(cx, |p, _| p.unit()), JumpUnit::Rows);
+    assert_eq!(panel.read_with(cx, |p, cx| p.unit(cx)), JumpUnit::Rows);
     // a choice that is not followed by ジャンプ writes nothing
     let before = ini.bytes();
     handle

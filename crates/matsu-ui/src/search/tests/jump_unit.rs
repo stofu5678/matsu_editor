@@ -21,7 +21,7 @@ fn wrapped(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
 
 fn panel_unit(f: &Fixture, cx: &mut VisualTestContext) -> JumpUnit {
     f.view
-        .read_with(cx, |v, cx| v.panel.clone().unwrap().read(cx).unit())
+        .read_with(cx, |v, cx| v.panel.clone().unwrap().read(cx).unit(cx))
 }
 
 /// Opens the panel, chooses the unit with its access key (none for the one it has), types the
@@ -237,4 +237,31 @@ fn an_open_panel_follows_a_macro_jump_and_keeps_its_unit_in_the_next_jump(cx: &m
     assert_eq!(f.caret(cx), Pos::new(1, 0));
     cx.simulate_keystrokes("ctrl-j");
     assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+}
+
+#[gpui::test]
+fn a_choice_clicked_in_an_open_panel_stays_while_another_panel_jumps(cx: &mut TestAppContext) {
+    let (f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
+    // panel A: the user clicks 折り返し単位 and has not pressed ジャンプ
+    cx.simulate_keystrokes("alt-r");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+    // panel B (another tab) commits 改行単位 with its ジャンプ: the same write as `jump` makes
+    cx.update(|_, app| crate::saved_state::other::remember_jump_unit(app, JumpUnit::Lines));
+    cx.run_until_parked();
+    assert_eq!(
+        panel_unit(&f, cx),
+        JumpUnit::Rows,
+        "the click is A's own until it is committed"
+    );
+    // A's ジャンプ commits what A shows: row 3 is line 2, and Rows is remembered
+    cx.simulate_keystrokes("alt-n");
+    cx.simulate_input("3");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(f.caret(cx), Pos::new(1, 0));
+    assert_eq!(
+        cx.update(|_, app| crate::saved_state::other::jump_unit(app)),
+        JumpUnit::Rows
+    );
 }
