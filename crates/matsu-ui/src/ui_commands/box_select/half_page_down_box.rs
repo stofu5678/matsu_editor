@@ -8,6 +8,7 @@
 
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, Result};
+use matsu_commands::context::BoxLock;
 
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
@@ -26,7 +27,12 @@ impl UiCommand for HalfPageDownBox {
         _: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        view.half_page_by_box(1, EditorView::rows_arg(args), Arg::int_at(args, 1), cx)
+        view.half_page_by_box(
+            1,
+            EditorView::rows_arg(args),
+            BoxLock::from_args(args, 1),
+            cx,
+        )
     }
 }
 

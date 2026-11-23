@@ -44,7 +44,7 @@ use matsu_core::buffer::Eol;
 use matsu_core::encoding::decode_cp932_strict;
 
 use crate::command::{Arg, CommandError};
-use crate::context::{CommandContext, macro_value_of_eol};
+use crate::context::{BoxLock, CommandContext, macro_value_of_eol};
 use crate::macro_names;
 use crate::registry::Registry;
 use crate::sakura::FUNCTIONS;
@@ -685,9 +685,10 @@ fn with_recorded_box_lock(function: &str, args: &[Arg]) -> Option<Vec<Arg>> {
     };
     let mut kept: Vec<Arg> = args.iter().take(lock_at + 1).cloned().collect();
     kept.resize(lock_at + 1, Arg::Int(0));
-    if Arg::int_at(&kept, lock_at) == 0 {
-        let locked = crate::edit_options::get().box_select_lock;
-        kept[lock_at] = Arg::Int(if locked { 1 } else { 2 });
+    // Only the setting is written as what it is now; a given 1, 2 or other number stays.
+    if BoxLock::from_args(&kept, lock_at) == BoxLock::Setting {
+        let now = if BoxLock::Setting.is_locked() { 1 } else { 2 };
+        kept[lock_at] = Arg::Int(now);
     }
     Some(kept)
 }

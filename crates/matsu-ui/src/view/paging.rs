@@ -13,6 +13,7 @@
 
 use gpui::{Context, ScrollWheelEvent, Window};
 use matsu_commands::command::{Arg, Result};
+use matsu_commands::context::BoxLock;
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 
 use super::EditorView;
@@ -77,16 +78,16 @@ impl EditorView {
     }
 
     /// As [`move_caret_rows`](Self::move_caret_rows) for the box moves: a box selection is begun
-    /// if there is none (`Sub_BoxSelectLock`, with the lock argument `lock_arg` of the macro) and
+    /// if there is none (`Sub_BoxSelectLock`, with the lock option `lock` of the macro) and
     /// the box grows.
     fn move_caret_rows_box(
         &mut self,
         rows: isize,
-        lock_arg: i64,
+        lock: BoxLock,
         cx: &mut Context<Self>,
     ) -> Result {
         self.run_with(cx, |command_cx| {
-            command_cx.ensure_box(lock_arg)?;
+            command_cx.ensure_box(lock)?;
             command_cx.move_vertical(rows, true)
         })
     }
@@ -124,11 +125,11 @@ impl EditorView {
         &mut self,
         direction: isize,
         count: usize,
-        lock_arg: i64,
+        lock: BoxLock,
         cx: &mut Context<Self>,
     ) -> Result {
         self.page_with(direction, count, cx, |view, rows, cx| {
-            view.move_caret_rows_box(rows, lock_arg, cx)
+            view.move_caret_rows_box(rows, lock, cx)
         })
     }
 
@@ -169,11 +170,11 @@ impl EditorView {
         &mut self,
         direction: isize,
         count: usize,
-        lock_arg: i64,
+        lock: BoxLock,
         cx: &mut Context<Self>,
     ) -> Result {
         let rows = self.half_page_rows(count);
-        self.move_caret_rows_box(direction * rows, lock_arg, cx)
+        self.move_caret_rows_box(direction * rows, lock, cx)
     }
 
     /// The rows of a half page move: the macro's count, or half the rows of the view when the

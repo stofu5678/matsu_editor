@@ -8,7 +8,7 @@
 //! The rules of the box are in `context/boxsel.rs`.
 
 use crate::command::{Arg, Command, Result};
-use crate::context::CommandContext;
+use crate::context::{BoxLock, CommandContext};
 use crate::register_command;
 
 #[derive(Default)]
@@ -19,7 +19,7 @@ impl Command for WordRightBox {
     const SAKURA: &'static str = "F_WORDRIGHT_BOX";
 
     fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
-        cx.ensure_box(Arg::int_at(args, 0))?;
+        cx.ensure_box(BoxLock::from_args(args, 0))?;
         cx.move_word_right(true)
     }
 }
