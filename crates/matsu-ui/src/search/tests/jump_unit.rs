@@ -265,3 +265,34 @@ fn a_choice_clicked_in_an_open_panel_stays_while_another_panel_jumps(cx: &mut Te
         JumpUnit::Rows
     );
 }
+
+#[gpui::test]
+fn a_jump_with_a_number_that_is_not_valid_keeps_the_radio_of_the_panel(cx: &mut TestAppContext) {
+    let (f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    // click 折り返し単位, then ジャンプ with no number (`GetData` writes the unit first)
+    cx.simulate_keystrokes("alt-r alt-n enter");
+    assert_eq!(
+        f.panel_mode(cx),
+        Some(PanelMode::Jump),
+        "the panel stays open"
+    );
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+    assert_eq!(
+        cx.update(|_, app| crate::saved_state::other::jump_unit(app)),
+        JumpUnit::Rows
+    );
+    // another panel or a macro commits 改行単位: the radio of this panel does not move
+    cx.update(|_, app| crate::saved_state::other::remember_jump_unit(app, JumpUnit::Lines));
+    cx.run_until_parked();
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+    // a valid ジャンプ lands in Rows (row 3 is line 2) and remembers Rows
+    cx.simulate_keystrokes("alt-n");
+    cx.simulate_input("3");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(f.caret(cx), Pos::new(1, 0));
+    assert_eq!(
+        cx.update(|_, app| crate::saved_state::other::jump_unit(app)),
+        JumpUnit::Rows
+    );
+}

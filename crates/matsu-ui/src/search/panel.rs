@@ -160,12 +160,14 @@ pub struct SearchPanel {
     text: Entity<InputState>,
     replacement: Entity<InputState>,
     line: Entity<InputState>,
-    /// The unit that the user chose by a click in this go-to-line panel and has not committed.
-    /// The panel owns only this choice, as Sakura's modal `CDlgJump` owns its radio buttons: it
-    /// goes to `m_bLineNumIsCRLF_ForJump` when ジャンプ is pressed (`GetData`), closing the panel
-    /// drops it, and what other windows or macros do meanwhile does not change it. While it is
-    /// `None` the panel shows and commits the remembered unit (`jump_unit`, the one owner of the
-    /// value), so a macro's `Jump` is not written back over.
+    /// The radio of the unit as the user set it in this go-to-line panel: the dialog's own control
+    /// state, as in Sakura's modal `CDlgJump`. ジャンプ writes it to `m_bLineNumIsCRLF_ForJump`
+    /// before it reads the number (`GetData`, `CDlgJump.cpp` 307-332); with a number that is not
+    /// valid the dialog stays open with its radio as it was set (`IDC_BUTTON_JUMP`, 125-134), so
+    /// `chosen` stays too. It lasts until the panel is closed or reused for the jump, and what
+    /// other windows or macros do meanwhile does not change it. While it is `None` the panel
+    /// shows and commits the remembered unit (`jump_unit`, the one owner of that value), so a
+    /// macro's `Jump` is not written back over.
     chosen: Option<JumpUnit>,
     /// Where the caret was when the panel opened: the search start position that
     /// `F_JUMP_SRCHSTARTPOS` returns to, registered with the first search (`m_bSearch`,
