@@ -1168,8 +1168,7 @@ impl EditorView {
             // The dialog starts with the options the last search of any window left
             // (`CDlgFind::SetData`: `m_sSearchOption = m_pShareData->...m_sSearchOption`).
             let saved = crate::saved_state::search::saved(cx);
-            self.search
-                .set_options(saved.options(self.search.options()));
+            self.search.set_options(saved.options());
             if mode == PanelMode::Replace {
                 self.search.replace.consecutive_all = saved.consecutive_all;
             }

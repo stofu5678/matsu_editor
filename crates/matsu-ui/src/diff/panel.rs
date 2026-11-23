@@ -578,7 +578,7 @@ impl EditorView {
         );
         // The two search options start as the last dialog of any window left them
         // (`CDlgDiff::SetData` reads the shared data).
-        let search = crate::saved_state::search::saved(cx).options(self.search.options());
+        let search = crate::saved_state::search::saved(cx).options();
         let editor = cx.weak_entity();
         match &self.diff.panel {
             Some(panel) => panel.update(cx, |panel, cx| panel.focus_file(window, cx)),

@@ -79,7 +79,7 @@ impl SavedSearch {
     }
 
     /// The options of a dialog that opens now (`SetData`).
-    pub(crate) fn options(self, current: SearchOptions) -> SearchOptions {
+    pub(crate) fn options(self) -> SearchOptions {
         SearchOptions {
             match_case: self.match_case,
             whole_word: self.whole_word,
@@ -88,7 +88,6 @@ impl SavedSearch {
             regex: self.regex,
             auto_close: self.auto_close_find,
             auto_close_replace: self.auto_close_replace,
-            ..current
         }
     }
 

@@ -417,7 +417,7 @@ impl EditorView {
         let Some((newest, sequence)) = news else {
             return;
         };
-        let options = crate::saved_state::search::saved(cx).options(self.search.options());
+        let options = crate::saved_state::search::saved(cx).options();
         self.search.set_options(options);
         self.search.set_pattern(&newest);
         self.search.set_key_sequence(Some(sequence));

@@ -428,7 +428,7 @@ impl LaunchOptions {
             );
             crate::saved_state::grep::remember_command_line(cx, &settings);
             crate::saved_state::grep::saved(cx).apply(&mut settings, false);
-            settings.options = crate::saved_state::search::saved(cx).options(settings.options);
+            settings.options = crate::saved_state::search::saved(cx).options();
             handle
                 .update(cx, |_, window, cx| {
                     view.update(cx, |view, cx| {
