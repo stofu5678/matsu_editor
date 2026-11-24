@@ -163,9 +163,15 @@ pub struct SearchPanel {
     text: Entity<InputState>,
     replacement: Entity<InputState>,
     line: Entity<InputState>,
-    /// The unit chosen in the go-to-line panel. The dialog's own copy, as in Sakura: the choice
-    /// goes to `m_bLineNumIsCRLF_ForJump` when ジャンプ is pressed (`GetData`) and Cancel drops it.
-    unit: JumpUnit,
+    /// The radio of the unit as the user set it in this go-to-line panel: the dialog's own control
+    /// state, as in Sakura's modal `CDlgJump`. ジャンプ writes it to `m_bLineNumIsCRLF_ForJump`
+    /// before it reads the number (`GetData`, `CDlgJump.cpp` 307-332); with a number that is not
+    /// valid the dialog stays open with its radio as it was set (`IDC_BUTTON_JUMP`, 125-134), so
+    /// `chosen` stays too. It lasts until the panel is closed or reused for the jump, and what
+    /// other windows or macros do meanwhile does not change it. While it is `None` the panel
+    /// shows and commits the remembered unit (`jump_unit`, the one owner of that value), so a
+    /// macro's `Jump` is not written back over.
+    chosen: Option<JumpUnit>,
     /// Where the caret was when the panel opened: the search start position that
     /// `F_JUMP_SRCHSTARTPOS` returns to, registered with the first search (`m_bSearch`,
     /// `m_ptEscCaretPos_PHY` in `CDlgFind.cpp`).
@@ -222,6 +228,10 @@ impl SearchPanel {
                 }
             },
         ));
+        // A macro's `Jump` (or a jump of another panel) changes the remembered unit while this
+        // panel is open (another tab or a split; Sakura's dialog is modal): redraw the radio
+        // buttons. Nothing is copied; a choice made here stays as clicked.
+        subscriptions.push(cx.observe_global::<JumpUnit>(|_, cx| cx.notify()));
         Self {
             editor,
             scope: cx.focus_handle(),
@@ -231,16 +241,16 @@ impl SearchPanel {
             text,
             replacement,
             line,
-            unit: jump_unit(cx),
+            chosen: None,
             pending_start: Some(pending_start),
             _subscriptions: subscriptions,
         }
     }
 
-    /// The unit that the go-to-line panel has chosen.
-    #[cfg(test)]
-    pub(crate) fn unit(&self) -> JumpUnit {
-        self.unit
+    /// The unit that the go-to-line panel shows and would commit: the click made here, else the
+    /// remembered unit.
+    pub(crate) fn unit(&self, cx: &App) -> JumpUnit {
+        self.chosen.unwrap_or_else(|| jump_unit(cx))
     }
 
     pub fn mode(&self) -> PanelMode {
@@ -503,7 +513,7 @@ impl SearchPanel {
 
     /// 折り返し単位 / 改行単位 of the go-to-line panel.
     pub(crate) fn set_unit(&mut self, unit: JumpUnit, cx: &mut Context<Self>) {
-        self.unit = unit;
+        self.chosen = Some(unit);
         cx.notify();
     }
 
@@ -727,7 +737,7 @@ impl SearchPanel {
     pub(crate) fn jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // `CDlgJump::GetData` takes the choice of the unit before it reads the number, so it is
         // kept even when the number is not valid.
-        let unit = self.unit;
+        let unit = self.unit(cx);
         remember_jump_unit(cx, unit);
         let value = self.line.read(cx).value().to_string();
         let Ok(number) = value.trim().parse::<usize>() else {
@@ -823,7 +833,7 @@ impl SearchPanel {
         div().debug_selector(|| id.to_owned()).child(
             Button::new(id)
                 .labelled(label)
-                .selected(self.unit == unit)
+                .selected(self.unit(cx) == unit)
                 .on_click(cx.listener(move |this, _, _, cx| this.set_unit(unit, cx))),
         )
     }
@@ -1209,12 +1219,12 @@ impl EditorView {
         let replacement = self.search.replace.text.clone();
         let panel = match &self.panel {
             Some(panel) => {
-                panel.update(cx, |p, cx| {
+                panel.update(cx, |p, _| {
                     p.mode = mode;
-                    // The panel's unit is a copy of the remembered choice: take it again each
-                    // time the panel shows the jump mode (another window may have changed it).
+                    // A click that was not committed is dropped when the panel is reused for the
+                    // jump: it shows the remembered unit again.
                     if mode == PanelMode::Jump {
-                        p.unit = jump_unit(cx);
+                        p.chosen = None;
                     }
                     p.dropdown = None;
                     p.pending_start = Some(caret);

@@ -82,16 +82,29 @@ impl Command for Jump {
 
     fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
         // `Argument[0] == nullptr` is an error box in Sakura (`STR_ERR_DLGMACRO05`).
-        let line = number(args.first())
-            .ok_or_else(|| CommandError::BadArgs("Jump needs a line number".to_owned()))?;
-        let option = args
-            .get(1)
-            .map_or(Some(DEFAULT_OPTION), |a| number(Some(a)));
-        let option = option.ok_or_else(|| {
-            CommandError::BadArgs("the option of Jump is not a number".to_owned())
-        })?;
+        let (line, option) = line_and_option(args)?;
         jump_to_line(cx, line, option)
     }
+}
+
+/// The line number and the option of a `Jump` call (the option is 1 when it is left out).
+fn line_and_option(args: &[Arg]) -> std::result::Result<(i64, i64), CommandError> {
+    let line = number(args.first())
+        .ok_or_else(|| CommandError::BadArgs("Jump needs a line number".to_owned()))?;
+    let option = args
+        .get(1)
+        .map_or(Some(DEFAULT_OPTION), |a| number(Some(a)));
+    let option = option
+        .ok_or_else(|| CommandError::BadArgs("the option of Jump is not a number".to_owned()))?;
+    Ok((line, option))
+}
+
+/// The option that a macro's `Jump(args)` jumps with, read as the command reads it, or `None`
+/// when the call is an error (no line number, an option that is not a number): then it jumps
+/// nowhere, and nothing may follow from it.
+#[must_use]
+pub fn macro_option(args: &[Arg]) -> Option<i64> {
+    line_and_option(args).ok().map(|(_, option)| option)
 }
 
 register_command!(Jump);
@@ -291,6 +304,24 @@ mod tests {
         // the empty row after a final line break is a line (Sakura's last line is empty)
         jump("a|\nb\n", &at(99), "a\nb\n|");
         jump("a|\nb\n", &at(3), "a\nb\n|");
+    }
+
+    #[test]
+    fn the_option_that_a_macro_jumps_with_is_read_like_the_command_reads_it() {
+        use super::macro_option;
+        assert_eq!(macro_option(&[Arg::Int(2)]), Some(1));
+        assert_eq!(macro_option(&[Arg::Int(2), Arg::Int(0)]), Some(0));
+        assert_eq!(
+            macro_option(&[Arg::Int(2), Arg::Text("1x".into())]),
+            Some(1)
+        );
+        assert_eq!(
+            macro_option(&[Arg::Int(2), Arg::Text("zz".into())]),
+            Some(0)
+        );
+        // an error jumps nowhere: no line number, an option that is a character
+        assert_eq!(macro_option(&[]), None);
+        assert_eq!(macro_option(&[Arg::Int(2), Arg::Char('a')]), None);
     }
 
     #[test]

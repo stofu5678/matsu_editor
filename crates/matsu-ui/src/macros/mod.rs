@@ -1067,6 +1067,7 @@ impl EditorView {
                 // One call at a time, on the UI thread, against the document on the screen.
                 // An IME composition that the user started ends first, as for a key.
                 self.interrupt_composition(cx);
+                self.script_call_sets_unit(&text, cx);
                 // A message box, a file dialog or `Sleep` is answered when it is over.
                 if !self.start_waiting_call(&text, window, cx)
                     && !self.run_ui_call(&text, window, cx)

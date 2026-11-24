@@ -43,6 +43,7 @@ use matsu_commands::command::Arg;
 
 use super::EditorView;
 use crate::file_ops::windows::{editors, find_tab_of, is_pending_document};
+use crate::saved_state::other::JumpUnit;
 
 /// How often a waiting macro looks again. A change of the windows has no event to wait for.
 const POLL: Duration = Duration::from_millis(25);
@@ -220,12 +221,62 @@ impl EditorView {
             documents: self.open_tabs(cx).into_iter().map(|(d, _, _)| d).collect(),
             epoch: 0,
         };
+        self.macro_jump_sets_unit(code, args, cx);
         let ok = self.run_function(code, args, window, cx);
         let waits = ok && !self.is_settled(&mut wait, cx);
         if !waits {
             disarm(cx, me, &wait.flows);
         }
         (ok, waits.then_some(wait))
+    }
+
+    /// A macro's call of function `code`, for the tests of other modules.
+    #[cfg(test)]
+    pub(crate) fn run_macro_function_for_test(
+        &mut self,
+        code: u16,
+        args: &[Arg],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.run_macro_function(code, args, window, cx).0
+    }
+
+    /// `Jump(line, option)` of a macro sets the unit of the go-to-line panel before it jumps:
+    /// `m_bLineNumIsCRLF_ForJump = lFlag & 1`, the option being 1 when left out
+    /// (`CMacro::HandleCommand`, `F_JUMP`, `CMacro.cpp` 719-741). A call without the line number
+    /// is an error there and sets nothing. The option is read as the `Jump` command reads it, so
+    /// the unit that is remembered is the one the jump used.
+    fn macro_jump_sets_unit(&self, code: u16, args: &[Arg], cx: &mut Context<Self>) {
+        if !matches!(super::function_name(code).as_str(), "F_JUMP") {
+            return;
+        }
+        let Some(option) = matsu_commands::commands::cursor::jump::macro_option(args) else {
+            return;
+        };
+        let unit = if option & 0x01 != 0 {
+            JumpUnit::Lines
+        } else {
+            JumpUnit::Rows
+        };
+        if crate::saved_state::other::jump_unit(cx) != unit {
+            crate::saved_state::other::remember_jump_unit(cx, unit);
+        }
+    }
+
+    /// The same for a call of a script (JavaScript, Python, Ruby, PHP), which reaches the core
+    /// command through the bridge and not through [`Self::run_macro_function`].
+    pub(super) fn script_call_sets_unit(&self, text: &str, cx: &mut Context<Self>) {
+        use matsu_plugin::protocol::{Request, parse_request};
+        let Ok(Request { method, params, .. }) = parse_request(text) else {
+            return;
+        };
+        let Some(row) = matsu_commands::macro_names::by_name(&method) else {
+            return;
+        };
+        if let Ok(args) = matsu_plugin::bridge::convert_arguments(row, &params) {
+            self.macro_jump_sets_unit(row.code, &args, cx);
+        }
     }
 
     /// The open tabs: the document of each, whether it is still being read into, and whether a
