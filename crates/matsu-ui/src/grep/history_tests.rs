@@ -568,8 +568,8 @@ fn enter_in_an_open_list_only_takes_the_row_and_does_not_run_the_dialog(cx: &mut
     assert!(f.view.read_with(cx, |v, _| v.grep_panel_open()));
 }
 
-fn list_row(cx: &mut VisualTestContext, panel: &Entity<GrepPanel>) -> Option<Option<usize>> {
-    panel.read_with(cx, |p, _| p.list_row())
+fn list_open(cx: &mut VisualTestContext, panel: &Entity<GrepPanel>) -> bool {
+    panel.read_with(cx, |p, _| p.list_open())
 }
 
 /// Measured on a Windows combo box: Down in the open list puts the row in the box at once; Escape
@@ -599,29 +599,20 @@ fn the_arrows_of_an_open_list_put_the_row_in_the_box(cx: &mut TestAppContext) {
     let file = |cx: &mut VisualTestContext| boxes(cx, &panel)[0].clone();
     cx.simulate_keystrokes("f4");
     assert_eq!(
-        (file(cx), list_row(cx, &panel)),
-        ("typed".to_owned(), Some(None))
+        (file(cx), list_open(cx, &panel)),
+        ("typed".to_owned(), true)
     );
     cx.simulate_keystrokes("down");
-    assert_eq!(
-        (file(cx), list_row(cx, &panel)),
-        ("*.c".to_owned(), Some(Some(0)))
-    );
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.c".to_owned(), true));
     cx.simulate_keystrokes("down");
-    assert_eq!(
-        (file(cx), list_row(cx, &panel)),
-        ("*.b".to_owned(), Some(Some(1)))
-    );
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.b".to_owned(), true));
     cx.simulate_keystrokes("escape");
-    assert_eq!((file(cx), list_row(cx, &panel)), ("*.b".to_owned(), None));
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.b".to_owned(), false));
     assert!(f.view.read_with(cx, |v, _| v.grep_panel_open()));
     cx.simulate_keystrokes("f4 down alt-up");
-    assert_eq!((file(cx), list_row(cx, &panel)), ("*.a".to_owned(), None));
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.a".to_owned(), false));
     cx.simulate_keystrokes("f4 down down down");
-    assert_eq!(
-        (file(cx), list_row(cx, &panel)),
-        ("*.a".to_owned(), Some(Some(2)))
-    );
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.a".to_owned(), true));
 }
 
 #[gpui::test]
@@ -647,7 +638,39 @@ fn up_right_after_opening_takes_the_first_row(cx: &mut TestAppContext) {
     });
     cx.simulate_keystrokes("f4 up");
     assert_eq!(boxes(cx, &panel)[0], "*.b");
-    assert_eq!(list_row(cx, &panel), Some(Some(0)));
+    assert!(list_open(cx, &panel));
     cx.simulate_keystrokes("up");
     assert_eq!(boxes(cx, &panel)[0], "*.b");
+}
+
+/// The highlighted row is the row that holds the text of the box, not a number kept when the list
+/// opened: after the text is typed over, the next arrow starts from the first row.
+#[gpui::test]
+fn an_arrow_after_typing_in_the_open_list_starts_from_the_text(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    cx.update(|_, app| {
+        for file in ["*.a", "*.b", "*.c"] {
+            history::remember_grep_boxes(
+                app,
+                &GrepBoxes {
+                    file,
+                    folder: "",
+                    exclude_file: "",
+                    exclude_folder: "",
+                },
+            );
+        }
+    });
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    fill(cx, &panel, ["zzz", "typed", "", "", ""]);
+    panel.update_in(cx, |p, window, cx| {
+        p.file.update(cx, |s, cx| s.focus(window, cx));
+    });
+    cx.simulate_keystrokes("f4 down down");
+    assert_eq!(boxes(cx, &panel)[0], "*.b");
+    cx.simulate_input("x");
+    assert_eq!(boxes(cx, &panel)[0], "*.bx");
+    cx.simulate_keystrokes("down");
+    assert_eq!(boxes(cx, &panel)[0], "*.c");
+    assert!(list_open(cx, &panel));
 }

@@ -150,21 +150,15 @@ enum Combo {
     Replace,
 }
 
-/// A drop-down list that is open: Sakura's combo box shows `m_aSearchKeys` or `m_aReplaceKeys`
-/// (`CDlgFind::OnCbnDropDown`, `CDlgReplace::OnCbnDropDown`).
-#[derive(Clone, Copy, Debug)]
-struct DropDown {
-    combo: Combo,
-    /// The highlighted entry; none while the text of the box is not an entry. The arrow keys move
-    /// it and put its text in the box (`combo_rows`).
-    highlight: Option<usize>,
-}
-
 pub struct SearchPanel {
     editor: WeakEntity<EditorView>,
     /// The panel as a whole: Tab stays inside it.
     pub(crate) scope: FocusHandle,
-    dropdown: Option<DropDown>,
+    /// The combo box whose drop-down list is open: Sakura's combo box shows `m_aSearchKeys` or
+    /// `m_aReplaceKeys` (`CDlgFind::OnCbnDropDown`, `CDlgReplace::OnCbnDropDown`). The highlighted
+    /// row is not kept: it is the row that holds the text of the box (`row_of`), read when it is
+    /// needed, so that typing in the box cannot leave a stale row.
+    dropdown: Option<Combo>,
     /// Scrolls the open list to the highlighted entry.
     list_scroll: ScrollHandle,
     mode: PanelMode,
@@ -322,16 +316,13 @@ impl SearchPanel {
 
     /// Opens the drop-down of a combo box, or closes it. With no history there is nothing to open.
     fn toggle_dropdown(&mut self, combo: Combo, cx: &mut Context<Self>) {
-        if self.dropdown.is_some_and(|d| d.combo == combo) {
+        if self.dropdown == Some(combo) {
             self.dropdown = None;
         } else {
             let keys = Self::combo_keys(combo, cx);
+            self.dropdown = (!keys.is_empty()).then_some(combo);
             let current = self.combo_input(combo).read(cx).value();
-            self.dropdown = (!keys.is_empty()).then(|| DropDown {
-                combo,
-                highlight: row_of(&keys, current.as_str()),
-            });
-            if let Some(row) = self.dropdown.and_then(|open| open.highlight) {
+            if let Some(row) = row_of(&keys, current.as_str()).filter(|_| self.dropdown.is_some()) {
                 self.list_scroll.scroll_to_item(row);
             }
         }
@@ -342,7 +333,7 @@ impl SearchPanel {
     /// list closes and the box keeps its text, which the arrow keys have put there; the dialog's
     /// default button is not pressed. Returns whether a list of this box was open.
     fn close_open_list(&mut self, combo: Combo, cx: &mut Context<Self>) -> bool {
-        if self.dropdown.is_none_or(|d| d.combo != combo) {
+        if self.dropdown != Some(combo) {
             return false;
         }
         self.dropdown = None;
@@ -360,10 +351,10 @@ impl SearchPanel {
         cx.notify();
     }
 
-    /// The open history list, for the tests: none when it is closed, else its highlighted row.
+    /// The combo box whose list is open, for the tests.
     #[cfg(test)]
-    pub(crate) fn list_row(&self) -> Option<Option<usize>> {
-        self.dropdown.map(|open| open.highlight)
+    pub(crate) fn open_list(&self) -> Option<Combo> {
+        self.dropdown
     }
 
     /// Puts a string of the history in the input and in the search state. The list is not touched:
@@ -402,7 +393,7 @@ impl SearchPanel {
         cx: &mut Context<Self>,
     ) -> bool {
         let focused = self.focused_combo(window, cx);
-        if self.dropdown.is_some_and(|d| Some(d.combo) != focused) {
+        if self.dropdown.is_some_and(|open| Some(open) != focused) {
             // The focus left the combo box: the list closes.
             self.dropdown = None;
             cx.notify();
@@ -415,12 +406,12 @@ impl SearchPanel {
         let alt_up_closes = key == "up" && m.alt && !m.control && !m.platform && !m.shift;
         if key == "f4"
             || (key == "down" && m.alt)
-            || (alt_up_closes && self.dropdown.is_some_and(|d| d.combo == combo))
+            || (alt_up_closes && self.dropdown == Some(combo))
         {
             self.toggle_dropdown(combo, cx);
             return true;
         }
-        let Some(open) = self.dropdown else {
+        if self.dropdown.is_none() {
             return match key {
                 "down" | "up" if plain => {
                     self.step(combo, key == "down", window, cx);
@@ -428,15 +419,14 @@ impl SearchPanel {
                 }
                 _ => false,
             };
-        };
+        }
         let keys = Self::combo_keys(combo, cx);
         match key {
             "down" | "up" if plain && !keys.is_empty() => {
-                let row = arrow_row(open.highlight, key == "down", keys.len());
-                self.dropdown = Some(DropDown {
-                    highlight: Some(row),
-                    ..open
-                });
+                // From the row that holds the text now, which may have been typed since the last
+                // arrow: a text that is not a row starts at the first row.
+                let current = self.combo_input(combo).read(cx).value();
+                let row = arrow_row(row_of(&keys, current.as_str()), key == "down", keys.len());
                 self.list_scroll.scroll_to_item(row);
                 self.put_text(combo, keys[row].clone(), window, cx);
                 cx.notify();
@@ -484,22 +474,21 @@ impl SearchPanel {
                     ),
                 ),
         );
-        if let Some(open) = self.dropdown.filter(|d| d.combo == combo) {
-            let entries = Self::combo_keys(combo, cx)
-                .into_iter()
-                .enumerate()
-                .map(|(i, text)| {
-                    let picked = text.clone();
-                    crate::a11y::list_row(div().id((id, i)), &text, Some(i) == open.highlight)
-                        .px_2()
-                        .truncate()
-                        .when(Some(i) == open.highlight, |d| d.bg(rgb(0xcce4f7)))
-                        .hover(|d| d.bg(rgb(0xe5f1fb)))
-                        .child(SharedString::from(text))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.pick(combo, picked.clone(), window, cx);
-                        }))
-                });
+        if self.dropdown == Some(combo) {
+            let keys = Self::combo_keys(combo, cx);
+            let highlight = row_of(&keys, self.combo_input(combo).read(cx).value().as_str());
+            let entries = keys.into_iter().enumerate().map(|(i, text)| {
+                let picked = text.clone();
+                crate::a11y::list_row(div().id((id, i)), &text, Some(i) == highlight)
+                    .px_2()
+                    .truncate()
+                    .when(Some(i) == highlight, |d| d.bg(rgb(0xcce4f7)))
+                    .hover(|d| d.bg(rgb(0xe5f1fb)))
+                    .child(SharedString::from(text))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.pick(combo, picked.clone(), window, cx);
+                    }))
+            });
             column = column.child(
                 crate::a11y::list_box(div().id(id), toggle_name)
                     .max_h(px(150.))

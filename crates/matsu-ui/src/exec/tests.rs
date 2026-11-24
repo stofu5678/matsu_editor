@@ -1138,3 +1138,18 @@ fn up_right_after_opening_takes_the_first_row(cx: &mut TestAppContext) {
     assert_eq!(command_box_text(cx, &dialog), "newest");
     assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
 }
+
+/// The highlighted row is the row that holds the text of the box, not a number kept when the list
+/// opened: after the text is typed over, the next arrow starts from the first row.
+#[gpui::test]
+fn an_arrow_after_typing_in_the_open_list_starts_from_the_text(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    focus_box(&w, cx, &dialog, false);
+    w.cx(cx).simulate_keystrokes("f4 down");
+    assert_eq!(command_box_text(cx, &dialog), "older");
+    w.cx(cx).simulate_input("x");
+    assert_eq!(command_box_text(cx, &dialog), "olderx");
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(command_box_text(cx, &dialog), "newest");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
+}

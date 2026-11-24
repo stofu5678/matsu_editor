@@ -267,14 +267,6 @@ fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
     }
 }
 
-/// A history list that is open, with its highlighted entry: none while the text of the box is not
-/// an entry. The arrow keys move it and put its text in the box (`combo_rows`).
-#[derive(Clone, Copy, Debug)]
-struct DropDown {
-    field: Field,
-    highlight: Option<usize>,
-}
-
 pub struct GrepPanel {
     editor: WeakEntity<EditorView>,
     /// The panel as a whole: Tab stays inside it.
@@ -293,7 +285,10 @@ pub struct GrepPanel {
     /// The scroll position of the body; the scroll bar draws from it.
     pub(crate) body_scroll: ScrollHandle,
     /// The history list that is open.
-    dropdown: Option<DropDown>,
+    /// The box whose history list is open. The highlighted row is not kept: it is the row that
+    /// holds the text of the box (`row_of`), read when it is needed, so that typing in the box
+    /// cannot leave a stale row.
+    dropdown: Option<Field>,
     /// Scrolls the open list to the highlighted entry.
     list_scroll: ScrollHandle,
     /// The boxes of the files and folders as they were before 編集中のテキストから検索 was
@@ -336,7 +331,7 @@ impl GrepPanel {
                         // The key binding of Enter runs before the key listeners
                         // (`combo_key`), so the open list of this box takes the key here: only
                         // the row is taken, the dialog is not run.
-                        if this.dropdown.is_some_and(|d| d.field == field) {
+                        if this.dropdown == Some(field) {
                             this.close_open_list(field, cx);
                         } else {
                             this.ok(window, cx);
@@ -616,34 +611,31 @@ impl GrepPanel {
 
     /// Opens the history list of a box, or closes it. A box with no history has nothing to open.
     fn toggle_dropdown(&mut self, field: Field, cx: &mut Context<Self>) {
-        if self.dropdown.is_some_and(|d| d.field == field) {
+        if self.dropdown == Some(field) {
             self.dropdown = None;
         } else {
             let current = self.field_input(field).read(cx).value();
             let (empty, at) = field.with_entries(cx, |entries| {
                 (entries.is_empty(), row_of(entries, current.as_str()))
             });
-            self.dropdown = (self.field_enabled(field) && !empty).then_some(DropDown {
-                field,
-                highlight: at,
-            });
-            if let Some(row) = self.dropdown.and_then(|open| open.highlight) {
+            self.dropdown = (self.field_enabled(field) && !empty).then_some(field);
+            if let Some(row) = at.filter(|_| self.dropdown.is_some()) {
                 self.list_scroll.scroll_to_item(row);
             }
         }
         cx.notify();
     }
 
-    /// The open history list, for the tests: none when it is closed, else its highlighted row.
+    /// Whether a history list is open, for the tests.
     #[cfg(test)]
-    pub(crate) fn list_row(&self) -> Option<Option<usize>> {
-        self.dropdown.map(|open| open.highlight)
+    pub(crate) fn list_open(&self) -> bool {
+        self.dropdown.is_some()
     }
 
     /// Enter in an open list: the list closes and the box keeps its text, which the arrow keys
     /// have put there.
     fn close_open_list(&mut self, field: Field, cx: &mut Context<Self>) {
-        if self.dropdown.is_some_and(|d| d.field == field) {
+        if self.dropdown == Some(field) {
             self.dropdown = None;
             cx.notify();
         }
@@ -692,7 +684,7 @@ impl GrepPanel {
         cx: &mut Context<Self>,
     ) -> bool {
         let focused = self.focused_field(window, cx);
-        if self.dropdown.is_some_and(|d| Some(d.field) != focused) {
+        if self.dropdown.is_some_and(|open| Some(open) != focused) {
             // The focus left the box: the list closes.
             self.dropdown = None;
             cx.notify();
@@ -705,12 +697,12 @@ impl GrepPanel {
         let alt_up_closes = key == "up" && m.alt && !m.control && !m.platform && !m.shift;
         if key == "f4"
             || (key == "down" && m.alt)
-            || (alt_up_closes && self.dropdown.is_some_and(|d| d.field == field))
+            || (alt_up_closes && self.dropdown == Some(field))
         {
             self.toggle_dropdown(field, cx);
             return true;
         }
-        let Some(open) = self.dropdown else {
+        if self.dropdown.is_none() {
             return match key {
                 "down" | "up" if plain && self.field_enabled(field) => {
                     self.step(field, key == "down", window, cx);
@@ -718,15 +710,16 @@ impl GrepPanel {
                 }
                 _ => false,
             };
-        };
+        }
         let count = field.with_entries(cx, <[String]>::len);
         match key {
             "down" | "up" if plain && count > 0 => {
-                let row = arrow_row(open.highlight, key == "down", count);
-                let text = field.with_entries(cx, |entries| entries[row].clone());
-                self.dropdown = Some(DropDown {
-                    highlight: Some(row),
-                    ..open
+                // From the row that holds the text now, which may have been typed since the last
+                // arrow: a text that is not a row starts at the first row.
+                let current = self.field_input(field).read(cx).value();
+                let (row, text) = field.with_entries(cx, |entries| {
+                    let row = arrow_row(row_of(entries, current.as_str()), key == "down", count);
+                    (row, entries[row].clone())
                 });
                 self.list_scroll.scroll_to_item(row);
                 self.field_input(field)
@@ -775,16 +768,21 @@ impl GrepPanel {
                     ),
                 ),
         );
-        if let Some(open) = self.dropdown.filter(|d| d.field == field) {
-            let texts: Vec<SharedString> = field.with_entries(cx, |entries| {
-                entries.iter().cloned().map(SharedString::from).collect()
-            });
+        if self.dropdown == Some(field) {
+            let current = self.field_input(field).read(cx).value();
+            let (texts, highlight): (Vec<SharedString>, Option<usize>) =
+                field.with_entries(cx, |entries| {
+                    (
+                        entries.iter().cloned().map(SharedString::from).collect(),
+                        row_of(entries, current.as_str()),
+                    )
+                });
             let entries = texts.into_iter().enumerate().map(|(i, text)| {
                 let picked = text.clone();
-                crate::a11y::list_row(div().id((id, i)), &text, Some(i) == open.highlight)
+                crate::a11y::list_row(div().id((id, i)), &text, Some(i) == highlight)
                     .px_2()
                     .truncate()
-                    .when(Some(i) == open.highlight, |d| d.bg(rgb(0xcce4f7)))
+                    .when(Some(i) == highlight, |d| d.bg(rgb(0xcce4f7)))
                     .hover(|d| d.bg(rgb(0xe5f1fb)))
                     .child(text)
                     .on_click(cx.listener(move |this, _, window, cx| {

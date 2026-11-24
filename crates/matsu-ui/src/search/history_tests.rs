@@ -668,11 +668,11 @@ fn enter_in_an_open_list_of_the_replacement_does_not_replace(cx: &mut TestAppCon
     assert_eq!(text(&f, cx), "r1");
 }
 
-fn list_row(f: &Fixture, cx: &mut VisualTestContext) -> Option<Option<usize>> {
+fn list_open(f: &Fixture, cx: &mut VisualTestContext) -> bool {
     f.view.read_with(cx, |v, app| {
         v.panel
             .as_ref()
-            .and_then(|panel| panel.read(app).list_row())
+            .is_some_and(|panel| panel.read(app).open_list().is_some())
     })
 }
 
@@ -690,33 +690,30 @@ fn the_arrows_of_an_open_list_put_the_row_in_the_box(cx: &mut TestAppContext) {
     let before = f.selection(cx);
     cx.simulate_keystrokes("f4");
     assert_eq!(
-        (f.pattern(cx), list_row(&f, cx)),
-        ("typed".to_owned(), Some(None))
+        (f.pattern(cx), list_open(&f, cx)),
+        ("typed".to_owned(), true)
     );
     cx.simulate_keystrokes("down");
-    assert_eq!(
-        (f.pattern(cx), list_row(&f, cx)),
-        ("ccc".to_owned(), Some(Some(0)))
-    );
+    assert_eq!((f.pattern(cx), list_open(&f, cx)), ("ccc".to_owned(), true));
     cx.simulate_keystrokes("down");
-    assert_eq!(
-        (f.pattern(cx), list_row(&f, cx)),
-        ("bbb".to_owned(), Some(Some(1)))
-    );
+    assert_eq!((f.pattern(cx), list_open(&f, cx)), ("bbb".to_owned(), true));
     // Escape keeps the text the arrows put there, and nothing is searched
     cx.simulate_keystrokes("escape");
-    assert_eq!((f.pattern(cx), list_row(&f, cx)), ("bbb".to_owned(), None));
+    assert_eq!(
+        (f.pattern(cx), list_open(&f, cx)),
+        ("bbb".to_owned(), false)
+    );
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
     assert_eq!(f.selection(cx), before);
     // Alt+Up closes too
     cx.simulate_keystrokes("f4 down alt-up");
-    assert_eq!((f.pattern(cx), list_row(&f, cx)), ("aaa".to_owned(), None));
+    assert_eq!(
+        (f.pattern(cx), list_open(&f, cx)),
+        ("aaa".to_owned(), false)
+    );
     // Down stops at the last row
     cx.simulate_keystrokes("f4 down down down");
-    assert_eq!(
-        (f.pattern(cx), list_row(&f, cx)),
-        ("aaa".to_owned(), Some(Some(2)))
-    );
+    assert_eq!((f.pattern(cx), list_open(&f, cx)), ("aaa".to_owned(), true));
 }
 
 #[gpui::test]
@@ -728,16 +725,10 @@ fn up_right_after_opening_takes_the_first_row(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("ctrl-f secondary-a");
     cx.simulate_input("typed");
     cx.simulate_keystrokes("f4 up");
-    assert_eq!(
-        (f.pattern(cx), list_row(&f, cx)),
-        ("bbb".to_owned(), Some(Some(0)))
-    );
+    assert_eq!((f.pattern(cx), list_open(&f, cx)), ("bbb".to_owned(), true));
     // Up at the first row stays
     cx.simulate_keystrokes("up");
-    assert_eq!(
-        (f.pattern(cx), list_row(&f, cx)),
-        ("bbb".to_owned(), Some(Some(0)))
-    );
+    assert_eq!((f.pattern(cx), list_open(&f, cx)), ("bbb".to_owned(), true));
 }
 
 #[gpui::test]
@@ -753,9 +744,28 @@ fn the_arrows_of_the_open_list_of_the_replacement_put_the_row_in_its_box(cx: &mu
     assert_eq!(f.replacement(cx), "r1");
     cx.simulate_keystrokes("escape");
     assert_eq!(
-        (f.replacement(cx), list_row(&f, cx)),
-        ("r1".to_owned(), None)
+        (f.replacement(cx), list_open(&f, cx)),
+        ("r1".to_owned(), false)
     );
     // the search box was not touched
     assert_eq!(f.pattern(cx), pattern);
+}
+
+/// The highlighted row is the row that holds the text of the box, not a number kept when the list
+/// opened: after the text is typed over, the next arrow starts from the first row.
+#[gpui::test]
+fn an_arrow_after_typing_in_the_open_list_starts_from_the_text(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    for s in ["aaa", "bbb", "ccc"] {
+        other_window(cx, s, None);
+    }
+    cx.simulate_keystrokes("ctrl-f secondary-a");
+    cx.simulate_input("typed");
+    cx.simulate_keystrokes("f4 down down");
+    assert_eq!(f.pattern(cx), "bbb");
+    cx.simulate_input("x");
+    assert_eq!(f.pattern(cx), "bbbx");
+    cx.simulate_keystrokes("down");
+    assert_eq!(f.pattern(cx), "ccc");
+    assert!(list_open(&f, cx));
 }

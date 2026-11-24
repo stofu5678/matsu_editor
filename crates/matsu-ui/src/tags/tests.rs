@@ -741,10 +741,10 @@ fn enter_in_an_open_history_list_only_takes_the_keyword(cx: &mut TestAppContext)
     assert_eq!(windows(cx), 2);
 }
 
-fn keyword_and_row(w: &Win, cx: &mut TestAppContext) -> (String, Option<Option<usize>>) {
+fn keyword_and_open(w: &Win, cx: &mut TestAppContext) -> (String, bool) {
     w.view.read_with(cx, |v, app| {
         let list = v.support.tag_list.as_ref().unwrap().read(app);
-        (list.keyword_text(app), list.history_row())
+        (list.keyword_text(app), list.history_is_open())
     })
 }
 
@@ -764,18 +764,18 @@ fn the_arrows_of_an_open_history_list_put_the_row_in_the_box_and_start_the_searc
     settle(cx, SHORT_DELAY);
     // the text is not a row: the list opens with none highlighted and the text stays
     w.cx(cx).simulate_keystrokes("f4");
-    assert_eq!(keyword_and_row(&w, cx), ("typed".to_owned(), Some(None)));
+    assert_eq!(keyword_and_open(&w, cx), ("typed".to_owned(), true));
     // Down takes the first row, then the second; the last row is the end
     w.cx(cx).simulate_keystrokes("down");
-    assert_eq!(keyword_and_row(&w, cx), ("foo".to_owned(), Some(Some(0))));
+    assert_eq!(keyword_and_open(&w, cx), ("foo".to_owned(), true));
     // the search follows after the typing delay
     settle(cx, TYPING_DELAY);
     assert_eq!(w.list(cx).unwrap().0, ["foo", "foobar"]);
     w.cx(cx).simulate_keystrokes("down down");
-    assert_eq!(keyword_and_row(&w, cx), ("foob".to_owned(), Some(Some(1))));
+    assert_eq!(keyword_and_open(&w, cx), ("foob".to_owned(), true));
     // Escape closes the list and keeps the text; nothing was jumped to
     w.cx(cx).simulate_keystrokes("escape");
-    assert_eq!(keyword_and_row(&w, cx), ("foob".to_owned(), None));
+    assert_eq!(keyword_and_open(&w, cx), ("foob".to_owned(), false));
     assert!(w.list(cx).is_some());
     assert_eq!(windows(cx), 1);
 }
@@ -791,10 +791,31 @@ fn up_after_opening_takes_the_first_row_and_alt_up_closes(cx: &mut TestAppContex
     w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("typed".into())]);
     settle(cx, SHORT_DELAY);
     w.cx(cx).simulate_keystrokes("f4 up");
-    assert_eq!(keyword_and_row(&w, cx), ("foo".to_owned(), Some(Some(0))));
+    assert_eq!(keyword_and_open(&w, cx), ("foo".to_owned(), true));
     w.cx(cx).simulate_keystrokes("down alt-up");
-    assert_eq!(keyword_and_row(&w, cx), ("foob".to_owned(), None));
+    assert_eq!(keyword_and_open(&w, cx), ("foob".to_owned(), false));
     // F4 closes it too, and the text stays
     w.cx(cx).simulate_keystrokes("f4 up f4");
-    assert_eq!(keyword_and_row(&w, cx), ("foo".to_owned(), None));
+    assert_eq!(keyword_and_open(&w, cx), ("foo".to_owned(), false));
+}
+
+/// The highlighted row is the row that holds the text of the box, not a number kept when the list
+/// opened: after the text is typed over, the next arrow starts from the first row.
+#[gpui::test]
+fn an_arrow_after_typing_in_the_open_list_starts_from_the_text(cx: &mut TestAppContext) {
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    cx.update(|app| {
+        crate::search::history::remember_tag_keyword(app, "foob");
+        crate::search::history::remember_tag_keyword(app, "foo");
+    });
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("typed".into())]);
+    settle(cx, SHORT_DELAY);
+    w.cx(cx).simulate_keystrokes("f4 down down");
+    assert_eq!(keyword_and_open(&w, cx), ("foob".to_owned(), true));
+    // a character typed after "foob": the text is no row now, so Down takes the first row
+    w.cx(cx).simulate_input("x");
+    assert_eq!(keyword_and_open(&w, cx), ("foobx".to_owned(), true));
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(keyword_and_open(&w, cx), ("foo".to_owned(), true));
 }
