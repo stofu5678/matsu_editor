@@ -351,10 +351,10 @@ impl SearchPanel {
         cx.notify();
     }
 
-    /// The combo box whose list is open, for the tests.
+    /// Whether a history list is open, for the tests.
     #[cfg(test)]
-    pub(crate) fn open_list(&self) -> Option<Combo> {
-        self.dropdown
+    pub(crate) fn list_open(&self) -> bool {
+        self.dropdown.is_some()
     }
 
     /// Puts a string of the history in the input and in the search state. The list is not touched:

@@ -672,7 +672,7 @@ fn list_open(f: &Fixture, cx: &mut VisualTestContext) -> bool {
     f.view.read_with(cx, |v, app| {
         v.panel
             .as_ref()
-            .is_some_and(|panel| panel.read(app).open_list().is_some())
+            .is_some_and(|panel| panel.read(app).list_open())
     })
 }
 
