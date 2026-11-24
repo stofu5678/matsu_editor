@@ -354,6 +354,97 @@ fn reports_the_line_and_the_column() {
 
 // ---- recording ----
 
+/// `CMacro::AddLParam`: a box move is recorded with its lock argument, and 0 (the setting) is
+/// written as 1 (locked) or 2 (not locked) by what the setting is at that time.
+#[test]
+fn a_box_move_is_recorded_with_the_lock_as_the_setting_is() {
+    use crate::edit_options::{EditOptions, with_options};
+    // (macro name, the arguments a key gives: none, the recorded arguments for lock on and off)
+    let lock_first = [
+        "Up_BoxSel",
+        "Down_BoxSel",
+        "Left_BoxSel",
+        "Right_BoxSel",
+        "Up2_BoxSel",
+        "Down2_BoxSel",
+        "WordLeft_BoxSel",
+        "WordRight_BoxSel",
+        "GoFileTop_BoxSel",
+        "GoFileEnd_BoxSel",
+    ];
+    let lock_second = [
+        "GoLogicalLineTop_BoxSel",
+        "GoLineTop_BoxSel",
+        "GoLineEnd_BoxSel",
+        "HalfPageUp_BoxSel",
+        "HalfPageDown_BoxSel",
+        "PageUp_BoxSel",
+        "PageDown_BoxSel",
+    ];
+    for (setting, recorded) in [(true, 1), (false, 2)] {
+        with_options(
+            EditOptions {
+                box_select_lock: setting,
+                ..EditOptions::default()
+            },
+            || {
+                let mut r = KeyMacroRecorder::new();
+                r.start();
+                for name in lock_first.iter().chain(&lock_second) {
+                    assert!(r.record(code(name), &[]), "{name}");
+                }
+                let m = r.stop();
+                for (i, name) in lock_first.iter().enumerate() {
+                    assert_eq!(
+                        m.steps()[i],
+                        step(name, &[Arg::Int(recorded)]),
+                        "{name}, setting {setting}"
+                    );
+                }
+                for (i, name) in lock_second.iter().enumerate() {
+                    assert_eq!(
+                        m.steps()[lock_first.len() + i],
+                        step(name, &[Arg::Int(0), Arg::Int(recorded)]),
+                        "{name}, setting {setting}"
+                    );
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn a_lock_argument_that_is_given_is_recorded_as_it_is() {
+    use crate::edit_options::{EditOptions, with_options};
+    with_options(
+        EditOptions {
+            box_select_lock: true,
+            ..EditOptions::default()
+        },
+        || {
+            let mut r = KeyMacroRecorder::new();
+            r.start();
+            assert!(r.record(code("Up_BoxSel"), &[Arg::Int(2)]));
+            assert!(r.record(code("GoLineTop_BoxSel"), &[Arg::Int(3), Arg::Int(2)]));
+            // the first argument of a line move is its flags, not the lock
+            assert!(r.record(code("GoLineEnd_BoxSel"), &[Arg::Int(1)]));
+            let m = r.stop();
+            assert_eq!(
+                m.steps(),
+                [
+                    step("Up_BoxSel", &[Arg::Int(2)]),
+                    step("GoLineTop_BoxSel", &[Arg::Int(3), Arg::Int(2)]),
+                    step("GoLineEnd_BoxSel", &[Arg::Int(1), Arg::Int(1)]),
+                ]
+            );
+            assert_eq!(
+                m.to_text().lines().nth(1),
+                Some("Up_BoxSel(2);\t// (矩形選択)カーソル上移動")
+            );
+        },
+    );
+}
+
 #[test]
 fn records_only_while_recording() {
     let mut r = KeyMacroRecorder::new();

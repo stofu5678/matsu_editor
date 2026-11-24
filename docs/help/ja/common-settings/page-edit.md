@@ -54,6 +54,12 @@ MATSU Editor のファイルダイアログは GPUI が出し、Windows では�
 | 改行コードNEL, PS, LSを有効にする | `bEnableExtEol` | オフ | NEL・PS・LS を改行として扱います |
 | 矩形選択移動で選択をロックする | `bBoxSelectLock` | オン | 矩形選択のキー（「(矩形選択)カーソル上移動」など）が矩形選択を始めるときに、選択をロックするかを決めます。オンなら、そのあとの普通の移動（Shift なしの矢印キーなど）も矩形を広げます。オフなら、普通の移動が矩形選択を終わらせます。矩形選択の途中のキーや、マウス（Alt を押したドラッグ）、「矩形範囲選択開始」には効きません |
 
+## 設定ファイルだけのキー
+
+| 項目 | キー | 既定 | 動き |
+|---|---|---|---|
+| 矩形コピーのテキストは常に矩形貼り付け | `bAutoColmnPaste` | 1 | 矩形選択でコピーした文字を、貼り付けで矩形として貼ります。0 にすると、普通の文字として貼ります（`Paste` の引数の `0x10`・`0x20` が優先）。サクラエディタにも画面の項目はなく、設定ファイルにだけあります。ダイアログを OK で閉じても、値は変わりません |
+
 ## 根拠
 
 - サクラのソース: `sakura_core/cmd/CViewCommander.cpp` の `Sub_BoxSelectLock`（`m_bBoxSelectLock` を読むのはここだけ）、`sakura_core/prop/CPropComEdit.cpp`、`IDD_PROP_EDIT`（`sakura_core/sakura_rc.rc`）

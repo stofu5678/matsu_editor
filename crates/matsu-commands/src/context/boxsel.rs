@@ -19,9 +19,47 @@ use matsu_core::buffer::Pos;
 use matsu_core::cursor::char_left;
 
 use super::CommandContext;
-use crate::command::Result;
+use crate::command::{Arg, Result};
 use crate::edit_options;
 use crate::layout::X;
+
+/// The lock option of a box move (the argument of `Sub_BoxSelectLock`, `CViewCommander.cpp`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoxLock {
+    /// 0 or no argument: the setting 「矩形選択移動で選択をロックする」 (`m_bBoxSelectLock`,
+    /// [`edit_options::EditOptions::box_select_lock`]; on by default).
+    Setting,
+    /// 1: the box is locked.
+    Locked,
+    /// 2, and any other value: the box is not locked (`bSelLock` starts as false).
+    Unlocked,
+}
+
+impl BoxLock {
+    /// The option from the number of a macro argument. Do this where the argument is read, and
+    /// pass the result on: the number shares its place with the row count and the flags.
+    pub fn from_arg(n: i64) -> Self {
+        match n {
+            0 => Self::Setting,
+            1 => Self::Locked,
+            _ => Self::Unlocked,
+        }
+    }
+
+    /// The option from the argument at `index` (a missing or non-numeric one is 0).
+    pub fn from_args(args: &[Arg], index: usize) -> Self {
+        Self::from_arg(Arg::int_at(args, index))
+    }
+
+    /// Whether the box is locked, reading the setting for [`Setting`](Self::Setting).
+    pub fn is_locked(self) -> bool {
+        match self {
+            Self::Setting => edit_options::get().box_select_lock,
+            Self::Locked => true,
+            Self::Unlocked => false,
+        }
+    }
+}
 
 impl CommandContext<'_> {
     /// `F_BEGIN_BOX`: starts a box selection at the caret. A selection that was there is dropped.
@@ -33,16 +71,13 @@ impl CommandContext<'_> {
     }
 
     /// What a box move does first: starts a box at the caret unless one is going on (Sakura:
-    /// `Sub_BoxSelectLock`). The box is locked as the setting 「矩形選択移動で選択をロックする」
-    /// says (`m_bBoxSelectLock`, [`edit_options::EditOptions::box_select_lock`]; on by default), which is what
-    /// `Sub_BoxSelectLock` does with the flags 0. A box that is going on keeps its lock. The
-    /// macro arguments that give the lock (1: on, 2: off) are not supported. A normal selection
-    /// is dropped, as Sakura does since 2014.
-    pub fn ensure_box(&mut self) -> Result<()> {
+    /// `Sub_BoxSelectLock`). `lock` says whether the new box is locked. A box that is going on
+    /// keeps its lock and ignores it. A normal selection is dropped, as Sakura does since 2014.
+    pub fn ensure_box(&mut self, lock: BoxLock) -> Result<()> {
         if self.cursor.is_box() {
             Ok(())
         } else {
-            self.start_box(edit_options::get().box_select_lock)
+            self.start_box(lock.is_locked())
         }
     }
 

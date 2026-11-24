@@ -57,6 +57,7 @@ use crate::input_options::{DEFAULT_INPUT_OPTIONS, InputOptions, LineStartColors,
 use crate::layout::{Layout, X};
 
 pub use bookmarks::BookmarkJump;
+pub use boxsel::BoxLock;
 pub(crate) use clipboard::QUOTE;
 pub use diff::DiffJump;
 pub use funclist::FuncListJump;

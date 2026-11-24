@@ -383,12 +383,15 @@ fn a_script_gives_the_row_count_to_the_paging_functions(cx: &mut TestAppContext)
     if let Some((outcome, line, _)) = run_paging_script(cx, "Editor.HalfPageDown(2)") {
         assert_eq!((outcome.as_str(), line), ("ran", 2));
     }
-    // a box paging function reads the row count; its lock option is 0 or refused
+    // a box paging function reads the row count and the lock option (`Sub_BoxSelectLock`)
     if let Some((outcome, line, _)) = run_paging_script(cx, "Editor.PageDown_BoxSel(3, 0)") {
         assert_eq!((outcome.as_str(), line), ("ran", 3));
     }
-    if let Some((outcome, line, _)) = run_paging_script(cx, "Editor.PageDown_BoxSel(3, 1)") {
-        assert_eq!((outcome.as_str(), line), ("refused", 0));
+    for lock in [1, 2] {
+        let script = format!("Editor.PageDown_BoxSel(3, {lock})");
+        if let Some((outcome, line, _)) = run_paging_script(cx, &script) {
+            assert_eq!((outcome.as_str(), line), ("ran", 3), "{script}");
+        }
     }
 }
 

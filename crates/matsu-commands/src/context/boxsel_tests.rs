@@ -4,6 +4,7 @@
 //! `Command_RIGHT(m_bSelectingLock, ...)`), so with the lock the plain moves go on extending the
 //! box, and without it the first plain move ends it.
 
+use crate::command::Arg;
 use crate::edit_options::{self, EditOptions};
 use crate::testing::Editor;
 
@@ -144,4 +145,111 @@ fn a_normal_selection_is_dropped_and_the_box_gets_the_setting() {
             assert_eq!(e.cursor().selecting_lock(), lock);
         });
     }
+}
+
+/// The box moves with the position of their lock argument (`HandleCommand`: `lparam1` for the
+/// plain moves, `lparam2` for the line moves, whose first argument is their flags).
+const LOCK_ARGUMENT: &[(&str, usize)] = &[
+    ("cursor_up_box", 0),
+    ("cursor_down_box", 0),
+    ("cursor_left_box", 0),
+    ("cursor_right_box", 0),
+    ("cursor_up2_box", 0),
+    ("cursor_down2_box", 0),
+    ("word_left_box", 0),
+    ("word_right_box", 0),
+    ("go_file_top_box", 0),
+    ("go_file_end_box", 0),
+    ("go_logical_line_top_box", 1),
+    ("go_line_top_box", 1),
+    ("go_line_end_box", 1),
+];
+
+/// The arguments of a call that gives `lock` as its lock argument and 0 (no flags) before it.
+fn args_with_lock(position: usize, lock: i64) -> Vec<Arg> {
+    let mut args = vec![Arg::Int(0); position];
+    args.push(Arg::Int(lock));
+    args
+}
+
+/// `Sub_BoxSelectLock`: 1 locks the box and 2 does not, whatever the setting says; 0 takes the
+/// setting; any other value does not lock (`bSelLock` starts as false).
+#[test]
+fn the_lock_argument_of_a_box_move_decides_the_lock_of_the_box_it_begins() {
+    for setting in [true, false] {
+        for (lock, expected) in [(0, setting), (1, true), (2, false), (3, false), (-1, false)] {
+            with_lock(setting, || {
+                for (id, position) in LOCK_ARGUMENT {
+                    let mut e = Editor::new(TEXT);
+                    e.run_with(id, &args_with_lock(*position, lock));
+                    assert!(e.cursor().is_box(), "{id}");
+                    assert_eq!(
+                        e.cursor().selecting_lock(),
+                        expected,
+                        "{id}: setting {setting}, argument {lock}"
+                    );
+                }
+            });
+        }
+    }
+}
+
+#[test]
+fn a_box_move_without_arguments_takes_the_setting() {
+    for setting in [true, false] {
+        with_lock(setting, || {
+            for (id, _) in LOCK_ARGUMENT {
+                let mut e = Editor::new(TEXT);
+                e.run(id);
+                assert_eq!(e.cursor().selecting_lock(), setting, "{id}");
+            }
+        });
+    }
+}
+
+#[test]
+fn the_lock_argument_decides_whether_a_plain_move_goes_on_extending_the_box() {
+    with_lock(false, || {
+        let mut e = Editor::new("abcd\nef|gh\nijkl\nmnop\n");
+        e.run_with("cursor_down_box", &[Arg::Int(1)]);
+        e.run("cursor_down");
+        e.assert_box((1, 2), (3, 2));
+    });
+    with_lock(true, || {
+        let mut e = Editor::new("abcd\nef|gh\nijkl\nmnop\n");
+        e.run_with("cursor_down_box", &[Arg::Int(2)]);
+        e.run("cursor_down");
+        assert!(!e.cursor().is_box());
+    });
+}
+
+/// The flags of a line move are the first argument, and the lock the second.
+#[test]
+fn the_flags_of_a_line_move_stay_the_first_argument() {
+    with_lock(false, || {
+        let mut e = Editor::new("abc\n  de|f\n");
+        e.run_with("go_line_top_box", &[Arg::Int(0), Arg::Int(1)]);
+        assert!(e.cursor().selecting_lock());
+        // the lock option alone (as the first argument) is the flags, not the lock
+        let mut e = Editor::new("abc\n  de|f\n");
+        e.run_with("go_line_top_box", &[Arg::Int(1)]);
+        assert!(!e.cursor().selecting_lock());
+    });
+}
+
+/// A box that is going on keeps its lock, and the argument does not change it.
+#[test]
+fn the_lock_argument_does_not_change_a_box_that_is_going_on() {
+    with_lock(true, || {
+        let mut e = Editor::new("abcd\nef|gh\nijkl\nmnop\n");
+        e.run("cursor_down_box");
+        e.run_with("cursor_right_box", &[Arg::Int(2)]);
+        assert!(e.cursor().selecting_lock());
+    });
+    with_lock(true, || {
+        let mut e = Editor::new("abcd\nef|gh\nijkl\nmnop\n");
+        e.run_with("cursor_down_box", &[Arg::Int(2)]);
+        e.run_with("cursor_right_box", &[Arg::Int(1)]);
+        assert!(!e.cursor().selecting_lock());
+    });
 }

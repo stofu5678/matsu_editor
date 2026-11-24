@@ -36,21 +36,9 @@ use crate::ui_command::UiRegistry;
 /// gives arguments to them gets an error instead of a silent run with other values.
 const IGNORES_ARGUMENTS: &[&str] = &["F_BOOKMARK_PATTERN"];
 
-/// The box paging functions read the row count (argument 1) but not the lock option (argument 2,
-/// `Sub_BoxSelectLock`): 0 is the setting of the window, which is what runs. A script that gives
-/// another value gets an error.
-const IGNORES_LOCK_OPTION: &[&str] = &[
-    "F_1PageUp_BOX",
-    "F_1PageDown_BOX",
-    "F_HalfPageUp_BOX",
-    "F_HalfPageDown_BOX",
-];
-
 /// Whether a script's call gives an argument that the command does not read.
 fn gives_ignored_argument(function: &str, params: &[Value]) -> bool {
-    (!params.is_empty() && IGNORES_ARGUMENTS.contains(&function))
-        || (IGNORES_LOCK_OPTION.contains(&function)
-            && params.get(1).is_some_and(|lock| lock.as_i64() != Some(0)))
+    !params.is_empty() && IGNORES_ARGUMENTS.contains(&function)
 }
 
 impl EditorView {
