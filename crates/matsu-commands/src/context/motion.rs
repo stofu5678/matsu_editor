@@ -194,7 +194,10 @@ impl CommandContext<'_> {
             return self.box_move_to_row_end();
         }
         let target = self.layout.row_end(self.doc(), row)?;
-        self.move_caret(target, extend)
+        self.move_caret(target, extend)?;
+        // The end of a wrapped row is the start of the next row for a position; Sakura keeps the
+        // caret on the row (`nPosXY.x = CalcLayoutWidth`, `nPosXY.y` is the row).
+        self.mark_wrapped_row_end()
     }
 
     /// The start of the document (Sakura: `Command_GOFILETOP`, which first adds the place to the
