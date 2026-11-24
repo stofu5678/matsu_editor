@@ -115,8 +115,10 @@ pub struct SharedDocument {
     /// undo blocks are still open under the call's own: whoever ends the call closes them
     /// (`plugin_call`, `release_document`). It is the document's, like the blocks, so that it is still
     /// there when the pane of the macro, or of the call, is gone; a document that replaces this one
-    /// starts without it.
-    close_blocks_after_event: bool,
+    /// starts without it. It holds the generation of the document that the call began on (the current one
+    /// when it was set), so that only that call takes it: a call that ends on a document that replaced
+    /// the one it began on takes nothing, and an obligation of another generation is dropped.
+    close_blocks_after_event: Option<u64>,
     /// The views that show this document, to ask them whether a macro runs in one of them (the
     /// state of a macro is the view's; a view that is gone no longer counts).
     views: Vec<gpui::WeakEntity<crate::view::EditorView>>,
@@ -241,7 +243,7 @@ impl SharedDocument {
             generation: 0,
             plugin_busy: false,
             plugin_block_closed: false,
-            close_blocks_after_event: false,
+            close_blocks_after_event: None,
             views: Vec::new(),
             overwrite: false,
             view_mode: false,
@@ -394,7 +396,7 @@ impl SharedDocument {
             generation: 0,
             plugin_busy: false,
             plugin_block_closed: false,
-            close_blocks_after_event: false,
+            close_blocks_after_event: None,
             views: Vec::new(),
             overwrite: false,
             view_mode: false,
@@ -955,19 +957,23 @@ impl SharedDocument {
         self.plugin_block_closed = closed;
     }
 
-    /// See the field `close_blocks_after_event`.
-    pub fn set_close_blocks_after_event(&mut self) {
-        self.close_blocks_after_event = true;
+    /// See the field `close_blocks_after_event`: the macro owes the closing to the call that began on the
+    /// document of `generation`, which must be the current one.
+    pub fn set_close_blocks_after_event(&mut self, generation: u64) {
+        if generation == self.generation {
+            self.close_blocks_after_event = Some(generation);
+        }
     }
 
-    /// Takes the obligation to close the macro's blocks (see the field).
-    pub fn take_close_blocks_after_event(&mut self) -> bool {
-        std::mem::take(&mut self.close_blocks_after_event)
+    /// Takes the obligation to close the macro's blocks, when it is the one of `generation` (the call that
+    /// ends began on it). An obligation of another generation is not the caller's and goes away.
+    pub fn take_close_blocks_after_event(&mut self, generation: u64) -> bool {
+        self.close_blocks_after_event.take() == Some(generation)
     }
 
     #[cfg(test)]
     pub(crate) fn close_blocks_after_event(&self) -> bool {
-        self.close_blocks_after_event
+        self.close_blocks_after_event.is_some()
     }
 
     pub fn set_plugin_busy(&mut self, busy: bool) {

@@ -458,3 +458,58 @@ fn a_macro_cancelled_during_an_event_has_its_blocks_closed_when_its_pane_is_gone
     );
     finish(cx);
 }
+
+#[gpui::test]
+fn a_macro_that_ends_after_the_document_was_replaced_owes_nothing_to_the_old_call(
+    cx: &mut TestAppContext,
+) {
+    use matsu_config::plugins::def::Jack;
+    let Some((place, files)) = begin(cx, &[]) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    // An event call runs on the document, which another one replaces while the call has not ended yet (the
+    // window loads a file; the call is shut down and ends at its next poll).
+    view.update(cx, |v, cx| v.pretend_event_call_for_test(true, cx));
+    view.update(cx, |v, cx| {
+        v.load_document(crate::document::SharedDocument::empty(), None, cx);
+    });
+    // A macro of the window ends in that gap: the old call has no block of it on the new document, so the
+    // obligation is not put on the new document (a later call would take it).
+    view.update(cx, |v, cx| v.cancel_macro(cx));
+    assert!(!view.read_with(cx, |v, app| v.close_blocks_pending_for_test(app)));
+    view.update(cx, |v, cx| v.pretend_event_call_for_test(false, cx));
+    // A new macro opens a block of undo and waits for a dialog. An unrelated event of the new document ends
+    // meanwhile: it takes nothing, so the block of the macro stays open.
+    let mac = files.write("replaced.mac", b"AddRefUndoBuffer();\nTypeList();\n");
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_EXECEXTMACRO")
+        .unwrap()
+        .code;
+    let arg = Arg::Text(mac.to_string_lossy().into_owned());
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[arg], window, cx)
+    });
+    spin(cx, "the macro did not wait", |cx| {
+        view.read_with(cx, |v, _| v.is_macro_running())
+            && view.read_with(cx, |v, app| {
+                v.document().read(app).model().history().depth() == 1
+            })
+    });
+    let done = cx.update(|_, app| super::fire(app, &view, Jack::DocumentBeforeSave));
+    spin(cx, "the event did not end", |_| done.get());
+    assert_eq!(jacks(&view, cx), ["DocumentBeforeSave"]);
+    let depth = view.read_with(cx, |v, app| {
+        v.document().read(app).model().history().depth()
+    });
+    assert_eq!(depth, 1, "the block of the macro is still open");
+    view.update(cx, |v, cx| v.cancel_macro(cx));
+    let depth = view.read_with(cx, |v, app| {
+        v.document().read(app).model().history().depth()
+    });
+    assert_eq!(depth, 0, "and closes when the macro ends");
+    finish(cx);
+}

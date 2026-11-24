@@ -816,6 +816,15 @@ impl EditorView {
         self.document.read(cx).close_blocks_after_event()
     }
 
+    /// For tests: an event call runs on this window, on the document that it shows now (its end is not
+    /// polled: the state is what the call leaves between the replacement of the document and its `Done`).
+    #[cfg(test)]
+    pub(crate) fn pretend_event_call_for_test(&mut self, on: bool, cx: &gpui::App) {
+        self.macros.plugin_running = on;
+        self.macros.plugin_event = on;
+        self.macros.event_generation = on.then(|| self.document.read(cx).generation());
+    }
+
     /// For tests: a macro of this window waits for a flow.
     #[cfg(test)]
     pub(crate) fn pretend_macro_waits_for_test(&mut self, on: bool) {
@@ -1000,7 +1009,7 @@ fn release_document(
         }
         // The macro that ended during the call left its blocks to it: they are closed now, though its pane
         // is gone (the depth above includes them).
-        if shared.take_close_blocks_after_event() {
+        if shared.take_close_blocks_after_event(generation) {
             shared
                 .parts_mut()
                 .0
@@ -1147,6 +1156,7 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
         }
         view.macros.plugin_running = true;
         view.macros.plugin_event = event;
+        view.macros.event_generation = event.then(|| view.document.read(cx).generation());
         view.document
             .update(cx, |shared, _| shared.set_plugin_busy(true));
         let depth = view.enter_undo_block(cx);
@@ -1280,6 +1290,7 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.macros.plugin_event = false;
+                        view.macros.event_generation = None;
                         view.macros.indent_guard = None;
                         // Only the document the call began on: a replaced one is not ours to free.
                         let mut closed = std::mem::take(&mut view.macros.indent_closed);
@@ -1290,7 +1301,7 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                             // The macro's blocks that were left for the end of this call.
                             let close_later = view
                                 .document
-                                .update(cx, |shared, _| shared.take_close_blocks_after_event());
+                                .update(cx, |shared, _| shared.take_close_blocks_after_event(generation));
                             view.document.update(cx, |shared, _| {
                                 shared.set_plugin_busy(false);
                                 shared.set_plugin_block_closed(false);
