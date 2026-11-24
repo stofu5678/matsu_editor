@@ -581,3 +581,84 @@ fn the_list_of_a_panel_without_history_does_not_open(cx: &mut TestAppContext) {
     // Enter went to the input: 下検索
     assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 1))));
 }
+
+// ---- the ▼ of a combo box is not a Tab stop ----
+
+#[gpui::test]
+fn tab_from_the_search_string_goes_to_the_replacement_and_not_to_the_arrow(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx, "x");
+    // `IDD_REPLACE`: 置換前 and 置換後 are `CBS_DROPDOWN` combo boxes; Tab goes from one to the next
+    cx.simulate_keystrokes("ctrl-r tab");
+    cx.simulate_input("zz");
+    assert_eq!(f.replacement(cx), "zz");
+}
+
+#[gpui::test]
+fn the_arrow_opens_the_list_by_click_and_the_keys_still_work(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    for s in ["a", "b"] {
+        other_window(cx, s, Some(s));
+    }
+    cx.simulate_keystrokes("ctrl-r");
+    for toggle in ["search-history-toggle", "replace-history-toggle"] {
+        let arrow = cx.debug_bounds(toggle).expect("the arrow");
+        cx.simulate_click(arrow.center(), gpui::Modifiers::none());
+        // the list opened on the newest, "b"; Down goes to "a" and Enter takes it
+        cx.simulate_keystrokes("down enter");
+    }
+    assert_eq!(f.pattern(cx), "a");
+    assert_eq!(f.replacement(cx), "a");
+}
+
+#[gpui::test]
+fn f4_still_opens_the_list_of_the_replacement(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    other_window(cx, "s", Some("r1"));
+    other_window(cx, "s", Some("r2"));
+    cx.simulate_keystrokes("ctrl-r");
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.focus_replacement(window, cx));
+    // the box has "r2" (the newest); the list opens on it and Down reaches "r1"
+    cx.simulate_keystrokes("f4 down enter");
+    assert_eq!(f.replacement(cx), "r1");
+}
+
+#[gpui::test]
+fn enter_in_an_open_list_only_takes_the_row_and_does_not_search(cx: &mut TestAppContext) {
+    // `CBS_DROPDOWN`: with the list dropped down, Enter takes the item and closes the list; the
+    // default button of the dialog is not pressed
+    let (f, cx) = setup(cx, " bbb ccc");
+    for s in ["aaa", "bbb", "ccc"] {
+        other_window(cx, s, None);
+    }
+    // the panel starts with the word at the caret; Down from a string that is not in the list
+    // takes the first (the newest)
+    cx.simulate_keystrokes("ctrl-f down");
+    assert_eq!(f.pattern(cx), "ccc");
+    let before = f.selection(cx);
+    // the list opens on "ccc"; Down goes to "bbb"
+    cx.simulate_keystrokes("f4 down enter");
+    assert_eq!(f.pattern(cx), "bbb");
+    assert_eq!(f.selection(cx), before, "the caret did not move");
+    // the list is closed: a second Enter searches
+    cx.simulate_keystrokes("enter");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 1), Pos::new(0, 4))));
+}
+
+#[gpui::test]
+fn enter_in_an_open_list_of_the_replacement_does_not_replace(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    other_window(cx, "x", Some("r1"));
+    other_window(cx, "x", Some("r2"));
+    cx.simulate_keystrokes("ctrl-r");
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.focus_replacement(window, cx));
+    cx.simulate_keystrokes("f4 down enter");
+    assert_eq!(f.replacement(cx), "r1");
+    assert_eq!(text(&f, cx), "x", "nothing was replaced");
+    // the list is closed: the second Enter replaces
+    cx.simulate_keystrokes("enter");
+    assert_eq!(text(&f, cx), "r1");
+}

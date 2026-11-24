@@ -151,7 +151,22 @@ impl TagList {
             window,
             |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => this.search(true, TYPING_DELAY, cx),
-                InputEvent::PressEnter { .. } => this.choose(window, cx),
+                InputEvent::PressEnter { .. } => {
+                    // The key binding of Enter runs before the key listeners (`history_key`),
+                    // so an open list takes the key here: only the row is taken.
+                    if let Some(at) = this.history_open {
+                        let keywords = crate::search::history::tag_keywords(cx);
+                        match keywords.get(at) {
+                            Some(keyword) => this.pick_keyword(keyword.clone(), window, cx),
+                            None => {
+                                this.history_open = None;
+                                cx.notify();
+                            }
+                        }
+                    } else {
+                        this.choose(window, cx);
+                    }
+                }
                 _ => {}
             },
         ));
@@ -447,13 +462,8 @@ impl TagList {
     }
 
     /// The keys of the history list: F4 and Alt+Down open or close it; with it open Up, Down,
-    /// Enter and Escape work in it. Returns whether the key was used.
-    fn history_key(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
+    /// Enter (taken in the `PressEnter` handler) and Escape work in it. Returns whether the key was used.
+    fn history_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
         let key = event.keystroke.key.as_str();
         let m = &event.keystroke.modifiers;
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
@@ -476,9 +486,6 @@ impl TagList {
                 self.history_scroll.scroll_to_item(at);
                 cx.notify();
             }
-            "enter" if plain && at < keywords.len() => {
-                self.pick_keyword(keywords[at].clone(), window, cx);
-            }
             "escape" => {
                 self.history_open = None;
                 cx.notify();
@@ -489,7 +496,7 @@ impl TagList {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.form == Form::Keyword && self.history_key(event, window, cx) {
+        if self.form == Form::Keyword && self.history_key(event, cx) {
             cx.stop_propagation();
             return;
         }
@@ -760,6 +767,9 @@ impl Render for TagList {
                                             Button::new("tag-keyword-history-toggle")
                                                 .label("▼")
                                                 .accessibility_label("キーワードの履歴")
+                                                // `IDC_KEYWORD` is a combo box (`CBS_DROPDOWN`):
+                                                // Tab skips the arrow.
+                                                .tab_stop(false)
                                                 .on_click(cx.listener(|this, _, window, cx| {
                                                     this.keyword
                                                         .update(cx, |s, cx| s.focus(window, cx));

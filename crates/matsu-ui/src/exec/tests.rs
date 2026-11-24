@@ -747,6 +747,142 @@ fn the_history_list_puts_a_row_in_the_box(cx: &mut TestAppContext) {
     assert_eq!(command, "older");
 }
 
+/// A dialog with two commands and two folders in the history, the folder box in use.
+fn dialog_with_history(
+    cx: &mut TestAppContext,
+) -> (
+    tempfile::TempDir,
+    Win,
+    gpui::Entity<super::dialog::ExecDialog>,
+) {
+    let (dir, w) = open(cx, "");
+    let ini = file_in(dir.path());
+    std::fs::write(
+        &ini,
+        "[Cmd]\r\nnCmdArrNum=2\r\nszCmdArr[00]=newest\r\nszCmdArr[01]=older\r\n\
+         nCurDirArrNum=2\r\nszCurDirArr[00]=dir-new\r\nszCurDirArr[01]=dir-old\r\n",
+    )
+    .unwrap();
+    cx.update(|app| install(app, ExecPrefs::load(Some(&ini), None)));
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    let dialog = w.dialog(cx).unwrap();
+    dialog.update(cx, |d, cx| {
+        d.use_cur_dir = true;
+        cx.notify();
+    });
+    (dir, w, dialog)
+}
+
+fn focus_box(
+    w: &Win,
+    cx: &mut TestAppContext,
+    dialog: &gpui::Entity<super::dialog::ExecDialog>,
+    dir: bool,
+) {
+    w.handle
+        .update(cx, |_, window, app| {
+            dialog.update(app, |d, cx| {
+                let input = if dir {
+                    d.cur_dir.clone()
+                } else {
+                    d.command.clone()
+                };
+                input.update(cx, |state, cx| state.focus(window, cx));
+            })
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn f4_and_alt_down_open_the_list_of_each_box(cx: &mut TestAppContext) {
+    // `IDC_COMBO_m_szCommand` and `IDC_COMBO_CUR_DIR` are `CBS_DROPDOWN` combo boxes
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    for (is_dir, name) in [(false, "command"), (true, "dir")] {
+        focus_box(&w, cx, &dialog, is_dir);
+        for keys in ["f4", "alt-down"] {
+            w.cx(cx).simulate_keystrokes(keys);
+            assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some(name));
+            w.cx(cx).simulate_keystrokes(keys);
+            assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), None);
+        }
+    }
+}
+
+#[gpui::test]
+fn the_keys_of_an_open_list_move_take_and_close(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    let text = |cx: &mut TestAppContext, dir: bool| {
+        dialog.read_with(cx, |d, app| {
+            let input = if dir { &d.cur_dir } else { &d.command };
+            input.read(app).value().to_string()
+        })
+    };
+    // the box has the newest; the list opens on it; Down and Enter take the older one
+    focus_box(&w, cx, &dialog, false);
+    w.cx(cx).simulate_keystrokes("f4 down enter");
+    assert_eq!(text(cx, false), "older");
+    // Enter took the row: the list is closed and the command did not run
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), None);
+    assert!(w.dialog(cx).is_some());
+    // Escape closes the list only
+    w.cx(cx).simulate_keystrokes("alt-down escape");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), None);
+    assert!(w.dialog(cx).is_some());
+    // closed: Up goes back through the history
+    w.cx(cx).simulate_keystrokes("up");
+    assert_eq!(text(cx, false), "newest");
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(text(cx, false), "older");
+    // the folder box has its own list
+    focus_box(&w, cx, &dialog, true);
+    w.cx(cx).simulate_keystrokes("f4 down enter");
+    assert_eq!(text(cx, true), "dir-old");
+}
+
+#[gpui::test]
+fn the_list_closes_when_the_focus_goes_to_the_other_box(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    let text = |cx: &mut TestAppContext, dir: bool| {
+        dialog.read_with(cx, |d, app| {
+            let input = if dir { &d.cur_dir } else { &d.command };
+            input.read(app).value().to_string()
+        })
+    };
+    focus_box(&w, cx, &dialog, false);
+    w.cx(cx).simulate_keystrokes("f4");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
+    // the focus goes to the folder box: its Down does not walk the list of the command box
+    focus_box(&w, cx, &dialog, true);
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), None);
+    assert_eq!(text(cx, false), "newest");
+    assert_eq!(text(cx, true), "dir-old");
+    // Enter in the folder box runs the dialog, as no list of this box is open
+    // (the list of the command box does not take it): checked by the closed list above
+    w.cx(cx).simulate_keystrokes("alt-down");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("dir"));
+}
+
+#[gpui::test]
+fn a_click_on_the_arrow_gives_the_box_the_focus(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    // the focus is in the command box; the arrow of the folder box opens its list and takes the
+    // focus there, so that the keys of the list go to the box that the list belongs to
+    focus_box(&w, cx, &dialog, false);
+    dialog.update(cx, |d, _| d.use_cur_dir = true);
+    let arrow = w
+        .cx(cx)
+        .debug_bounds("exec-dir-history-button")
+        .expect("the arrow");
+    w.cx(cx)
+        .simulate_click(arrow.center(), gpui::Modifiers::none());
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("dir"));
+    w.cx(cx).simulate_keystrokes("down enter");
+    let dir = dialog.read_with(cx, |d, app| d.cur_dir.read(app).value().to_string());
+    assert_eq!(dir, "dir-old");
+    assert!(w.dialog(cx).is_some());
+}
+
 #[gpui::test]
 fn a_second_command_does_not_replace_the_box_of_the_first(cx: &mut TestAppContext) {
     let (_dir, w) = open(cx, "");

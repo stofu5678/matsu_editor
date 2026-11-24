@@ -318,21 +318,27 @@ impl GrepPanel {
         let exclude_folder = input("除外するフォルダー", window, cx);
         let replacement = input("置換後の文字列", window, cx);
         let mut subscriptions = Vec::new();
-        for state in [
-            &key,
-            &file,
-            &folder,
-            &exclude_file,
-            &exclude_folder,
-            &replacement,
+        for (field, state) in [
+            (Field::Key, &key),
+            (Field::File, &file),
+            (Field::Folder, &folder),
+            (Field::ExcludeFile, &exclude_file),
+            (Field::ExcludeFolder, &exclude_folder),
+            (Field::Replacement, &replacement),
         ] {
             subscriptions.push(cx.subscribe_in(
                 state,
                 window,
-                |this: &mut Self, _, event: &InputEvent, window, cx| {
+                move |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
-                        // an open list took the key already (`combo_key`)
-                        this.ok(window, cx);
+                        // The key binding of Enter runs before the key listeners
+                        // (`combo_key`), so the open list of this box takes the key here: only
+                        // the row is taken, the dialog is not run.
+                        if this.dropdown.is_some_and(|d| d.field == field) {
+                            this.take_open_row(field, window, cx);
+                        } else {
+                            this.ok(window, cx);
+                        }
                     }
                 },
             ));
@@ -629,6 +635,21 @@ impl GrepPanel {
         cx.notify();
     }
 
+    /// Enter in an open list: the highlighted row goes into the box and the list closes.
+    fn take_open_row(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(open) = self.dropdown.filter(|d| d.field == field) else {
+            return;
+        };
+        let text = field.with_entries(cx, |entries| entries.get(open.highlight).cloned());
+        match text {
+            Some(text) => self.pick(field, text.into(), window, cx),
+            None => {
+                self.dropdown = None;
+                cx.notify();
+            }
+        }
+    }
+
     /// Puts a string of the list in its box, closes the list and gives the focus back to the box.
     fn pick(
         &mut self,
@@ -710,10 +731,6 @@ impl GrepPanel {
                 self.list_scroll.scroll_to_item(highlight);
                 cx.notify();
             }
-            "enter" if plain && open.highlight < count => {
-                let text = field.with_entries(cx, |entries| entries[open.highlight].clone());
-                self.pick(field, text.into(), window, cx);
-            }
             "escape" => {
                 self.dropdown = None;
                 cx.notify();
@@ -738,17 +755,22 @@ impl GrepPanel {
                     ),
                 )
                 .child(
-                    Button::new(toggle_id)
-                        .label("▼")
-                        .accessibility_label(toggle_name)
-                        .disabled(!enabled)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            // The button does not take the focus; the keys of the list go to
-                            // the box that has it, so give it to this one.
-                            let input = this.field_input(field).clone();
-                            input.update(cx, |state, cx| state.focus(window, cx));
-                            this.toggle_dropdown(field, cx);
-                        })),
+                    div().debug_selector(|| toggle_id.to_owned()).child(
+                        Button::new(toggle_id)
+                            .label("▼")
+                            .accessibility_label(toggle_name)
+                            .disabled(!enabled)
+                            // The boxes of `IDD_GREP` are combo boxes (`CBS_DROPDOWN`): Tab
+                            // skips the arrow.
+                            .tab_stop(false)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                // The button does not take the focus; the keys of the list go
+                                // to the box that has it, so give it to this one.
+                                let input = this.field_input(field).clone();
+                                input.update(cx, |state, cx| state.focus(window, cx));
+                                this.toggle_dropdown(field, cx);
+                            })),
+                    ),
                 ),
         );
         if let Some(open) = self.dropdown.filter(|d| d.field == field) {
