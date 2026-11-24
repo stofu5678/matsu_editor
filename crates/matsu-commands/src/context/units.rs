@@ -14,7 +14,6 @@ use matsu_core::buffer::Pos;
 use matsu_layout::X;
 
 use super::CommandContext;
-use crate::command::Result;
 
 /// The widest line in columns that the caret can stand at: Sakura's `GetMaxLineLayout()` is
 /// `m_nMaxLineKetas`, 10240 by default (`MAXLINEKETAS`). Without wrapping at the width of the
@@ -110,31 +109,5 @@ impl CommandContext<'_> {
         self.layout
             .char_x(' ')
             .saturating_mul(u32::try_from(n).unwrap_or(u32::MAX))
-    }
-
-    /// The first `X` on the row of `row` from which [`Layout::pos_at_x`](crate::layout::Layout::pos_at_x)
-    /// gives `end` or a later position, searching from `from`, which gives an earlier one. It is
-    /// the right edge of the text up to `end`, found without knowing the width of each char.
-    pub(super) fn first_x_reaching(&self, row: Pos, from: X, end: Pos) -> Result<X> {
-        if self.layout.pos_at_x(self.doc(), row, from)? >= end {
-            return Ok(from);
-        }
-        // Grow the upper bound until it reaches `end`, then halve the interval.
-        let mut step = self.layout.column_x();
-        let mut high = from + step;
-        while self.layout.pos_at_x(self.doc(), row, high)? < end {
-            step = step.saturating_mul(2);
-            high += step;
-        }
-        let mut low = from;
-        while high.raw() - low.raw() > 1 {
-            let mid = X::from_raw(low.raw() + (high.raw() - low.raw()) / 2);
-            if self.layout.pos_at_x(self.doc(), row, mid)? < end {
-                low = mid;
-            } else {
-                high = mid;
-            }
-        }
-        Ok(high)
     }
 }

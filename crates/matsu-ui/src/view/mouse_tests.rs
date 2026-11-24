@@ -654,6 +654,23 @@ fn in_the_free_cursor_mode_a_click_right_of_a_wrapped_row_puts_the_caret_there(
     let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
     f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
     cx.run_until_parked();
+    // a click just at the end of the row (between columns 10 and 11) keeps the end of the row
+    // and does not go to the start of the next one
+    down_at(&f, cx, 0, 10, 1, Modifiers::default());
+    up_at(&f, cx, 0, 10, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        assert_eq!(v.cursor.free_col(), Some(10 * 64));
+        assert_eq!(v.caret_row(app).row, 0);
+    });
+    // a layout change drops the mark: the caret is not in the gap when the wrap goes back
+    f.view.update(cx, |v, cx| v.set_wrap_columns(20, cx));
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.free_col(), None);
+        assert_eq!(v.caret_row(app).row, 1);
+    });
     // row 0 is "abcdefghij", which fills the wrap column: the gap after it has no width, and
     // a click at column 14 puts the caret at the end of the row (`nMaxX`, the wrap column)
     down_at(&f, cx, 0, 14, 1, Modifiers::default());

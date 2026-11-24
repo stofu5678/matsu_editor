@@ -3,11 +3,13 @@
 //! layout what is at a row and an `X`.
 
 use matsu_commands::context::cursor_x;
+use matsu_commands::layout::wrapped_gap_before;
 use matsu_core::buffer::{Document, Pos, Result};
 use matsu_core::cursor::Cursor;
 use matsu_layout::{DocumentLayout, RowInfo, RowPos, X};
 
 use crate::geometry::{Metrics, XScale, row_at};
+use crate::layout_adapter::RowRead;
 
 /// The position that a click at `x` pixels right of the text origin (scroll already added) and
 /// `y` pixels below the top of the text area puts the caret at.
@@ -43,7 +45,12 @@ pub fn free_x_at(
     let scale = XScale::new(m.cell_width, layout.config().width.per_column());
     let at = scale.column_start(x);
     let target = layout.row_to_pos(doc, row, at)?;
-    Ok((target.extra_x > X::ZERO).then_some(at))
+    if target.extra_x > X::ZERO {
+        return Ok(Some(at));
+    }
+    // The end of a wrapped row is a place of its own for the free caret (it goes on the row, not
+    // on the start of the next one), so a column that is just the end of its text counts.
+    Ok(ends_wrapped_row(layout, doc, row, target.pos)?.then_some(at))
 }
 
 /// The row and the `X` that the caret of `cursor` is drawn at: where the layout puts its position
@@ -64,18 +71,21 @@ pub fn caret_row_pos(
     let Some(col) = cursor.free_col().filter(|_| free_cursor) else {
         return Ok(at);
     };
-    if caret.col == 0 || at.row == 0 {
-        return Ok(at);
+    // The same rule as the commands use (`matsu_commands::layout::wrapped_gap_before`).
+    let rows = RowRead(layout);
+    match wrapped_gap_before(&rows, doc, caret)? {
+        Some(gap) if gap.takes(cursor_x(col)) => Ok(RowPos {
+            row: layout.pos_to_row(doc, gap.last)?.row,
+            x: gap.text_end,
+        }),
+        _ => Ok(at),
     }
-    let before = layout.row(doc, at.row - 1)?;
-    // The row before wrapped and ends at the caret, and the column is not left of its text.
-    if !before.wrapped || before.end != caret || cursor_x(col) < before.end_x {
-        return Ok(at);
-    }
-    Ok(RowPos {
-        row: before.row,
-        x: before.end_x,
-    })
+}
+
+/// Whether `pos` is the end of the text of `row` and the row ends because the line wraps there.
+fn ends_wrapped_row(layout: &DocumentLayout, doc: &Document, row: usize, pos: Pos) -> Result<bool> {
+    let info = layout.row(doc, row)?;
+    Ok(info.wrapped && info.end == pos)
 }
 
 /// Like [`position_at`], on a given row.
@@ -88,7 +98,7 @@ pub fn position_in_row(
 ) -> Result<Pos> {
     let scale = XScale::new(m.cell_width, layout.config().width.per_column());
     let target = layout.row_to_pos(doc, row, scale.x_at(x))?;
-    if target.extra_x > X::ZERO {
+    if target.extra_x > X::ZERO || ends_wrapped_row(layout, doc, row, target.pos)? {
         return Ok(target.pos);
     }
     // Only the char at the position is needed: a very long line is not decoded as a whole.

@@ -177,7 +177,10 @@ impl Cursor {
     }
 
     /// The display column of the caret when it stands to the right of the end of its line (the
-    /// free cursor mode of Sakura), else `None`. The position is the end of the line then.
+    /// free cursor mode of Sakura), else `None`. The position is the end of the line then; on the
+    /// start of a row that continues a wrapped line it says that the caret is on the row before.
+    /// Moves and edits of the cursor drop it; so does the view when its layout changes or the mode
+    /// is off, because the cursor does not know the layout.
     pub fn free_col(&self) -> Option<usize> {
         self.free_col
     }

@@ -30,8 +30,12 @@
 //! (`Layout::row_end`). The mark is the stored column itself
 //! ([`Cursor::free_col`](matsu_core::cursor::Cursor::free_col)): a free column on a position that
 //! starts a continuation row says that the caret is on the row that ends there, at that column.
-//! No other state is added, and it is dropped the way the free column of the other gaps is (every
-//! move and edit that does not set it). A column that is just the end of the text (not beyond it)
+//! No other state is added. The rule is one function for the commands and the window that draws
+//! the caret ([`wrapped_gap_before`](crate::layout::wrapped_gap_before)). The mark is dropped by
+//! every move and edit that does not set it (`Cursor`), by every change of the layout of the view
+//! (`EditorView::relayout_in`: a new wrap width, tab width or font, a resize of a window-wide
+//! wrap), and by a command run while the mode is off (`EditorView::run_with`), so that a layout
+//! that changes and changes back does not bring the caret back into the gap. A column that is just the end of the text (not beyond it)
 //! is kept there too: it is the end of the wrapped row, where `Command_LEFT` from the gap stops
 //! before it goes on to the last char.
 //!
@@ -90,14 +94,9 @@ impl CommandContext<'_> {
             }));
         }
         // The start of a row that continues a line: the row before it ends here, wrapped.
-        if pos.col > 0
-            && self.layout.row_start(self.doc(), pos)? == pos
-            && let Some(last) = char_left(self.doc(), pos)?
-            && self.layout.row_end(self.doc(), last)? == pos
-        {
-            let row = self.layout.row_start(self.doc(), last)?;
+        if let Some(gap) = crate::layout::wrapped_gap_before(&*self.layout, self.doc(), pos)? {
             return Ok(Some(Gap {
-                text_end: self.row_text_end_x(row)?,
+                text_end: gap.text_end,
                 wrapped: true,
             }));
         }

@@ -110,23 +110,20 @@ impl CommandContext<'_> {
     /// the start of the next one for a position, so a box caret never rests at the end of a
     /// wrapped row, and there is no empty space to its right.
     pub(super) fn row_is_wrapped(&self, row_pos: Pos) -> Result<bool> {
-        let end = self.layout.row_end(self.doc(), row_pos)?;
-        Ok(self.layout.next_row_start(self.doc(), row_pos)? == Some(end))
+        Ok(crate::layout::row_is_wrapped(
+            &*self.layout,
+            self.doc(),
+            row_pos,
+        )?)
     }
 
-    /// The `X` where the text of the row of `row_pos` ends. The end of a wrapped row is the start
-    /// of the next row for a position, so its `X` may be that of the next row: this takes the
-    /// first `X` that reaches the end.
+    /// The `X` where the text of the row of `row_pos` ends ([`crate::layout::row_text_end_x`]).
     pub(super) fn row_text_end_x(&self, row_pos: Pos) -> Result<X> {
-        let end = self.layout.row_end(self.doc(), row_pos)?;
-        if !self.row_is_wrapped(row_pos)? {
-            return Ok(self.layout.display_x(self.doc(), end)?);
-        }
-        let last_x = match char_left(self.doc(), end)? {
-            Some(last) if last >= row_pos => self.layout.display_x(self.doc(), last)?,
-            _ => X::ZERO,
-        };
-        self.first_x_reaching(row_pos, last_x, end)
+        Ok(crate::layout::row_text_end_x(
+            &*self.layout,
+            self.doc(),
+            row_pos,
+        )?)
     }
 
     /// Whether the caret of a box selection is to the right of the end of the text of its row.

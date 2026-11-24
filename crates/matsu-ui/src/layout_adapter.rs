@@ -20,48 +20,84 @@ use matsu_layout::{DocumentLayout, X};
 /// How long one frame may spend laying out the rest of a document.
 pub const LAYOUT_BUDGET: Duration = Duration::from_millis(4);
 
+/// The questions of [`Layout`] that only read the layout, for a [`RowLayout`] and a [`RowRead`].
+macro_rules! read_methods {
+    () => {
+        fn tab_width(&self) -> usize {
+            self.0.config().effective_tab_width() as usize
+        }
+
+        fn tab_x(&self) -> X {
+            self.0.config().tab_x()
+        }
+
+        fn column_x(&self) -> X {
+            self.0.config().width.to_x(1)
+        }
+
+        fn max_line_x(&self) -> X {
+            self.0.config().max_x()
+        }
+
+        fn char_columns(&self, c: char) -> usize {
+            self.0.config().width.columns(c) as usize
+        }
+
+        fn char_x(&self, c: char) -> X {
+            self.0.config().width.width_of(c)
+        }
+
+        fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
+            Ok(self.0.pos_to_row(doc, pos)?.row)
+        }
+
+        fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
+            if row >= self.0.row_count() {
+                return Ok(None);
+            }
+            Ok(Some(self.0.row(doc, row)?.start))
+        }
+
+        fn display_x(&self, doc: &Document, pos: Pos) -> Result<X> {
+            Ok(self.0.pos_to_row(doc, pos)?.x)
+        }
+
+        fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos> {
+            let row = self.0.pos_to_row(doc, pos)?.row;
+            Ok(self.0.row(doc, row)?.start)
+        }
+
+        fn row_end(&self, doc: &Document, pos: Pos) -> Result<Pos> {
+            let row = self.0.pos_to_row(doc, pos)?.row;
+            Ok(self.0.row(doc, row)?.end)
+        }
+
+        fn next_row_start(&self, doc: &Document, pos: Pos) -> Result<Option<Pos>> {
+            let next = self.0.pos_to_row(doc, pos)?.row + 1;
+            if next >= self.0.row_count() {
+                return Ok(None);
+            }
+            Ok(Some(self.0.row(doc, next)?.start))
+        }
+
+        fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> Result<Pos> {
+            let row = self.0.pos_to_row(doc, row_pos)?.row;
+            Ok(self.0.row_to_pos(doc, row, x)?.pos)
+        }
+
+        fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> Result<Pos> {
+            Ok(self.0.move_rows(doc, pos, rows, goal)?.pos)
+        }
+    };
+}
+
 /// A borrowed [`DocumentLayout`] as a command's [`Layout`].
 pub struct RowLayout<'a>(pub &'a mut DocumentLayout);
 
 impl Layout for RowLayout<'_> {
-    fn tab_width(&self) -> usize {
-        self.0.config().effective_tab_width() as usize
-    }
-
-    fn tab_x(&self) -> X {
-        self.0.config().tab_x()
-    }
-
-    fn column_x(&self) -> X {
-        self.0.config().width.to_x(1)
-    }
-
-    fn max_line_x(&self) -> X {
-        self.0.config().max_x()
-    }
-
-    fn char_columns(&self, c: char) -> usize {
-        self.0.config().width.columns(c) as usize
-    }
-
-    fn char_x(&self, c: char) -> X {
-        self.0.config().width.width_of(c)
-    }
-
     fn make_exact(&mut self, doc: &Document, line: usize) {
         let row = self.0.first_row_of_line(line);
         let _ = self.0.layout_rows(doc, row, 1);
-    }
-
-    fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
-        Ok(self.0.pos_to_row(doc, pos)?.row)
-    }
-
-    fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
-        if row >= self.0.row_count() {
-            return Ok(None);
-        }
-        Ok(Some(self.0.row(doc, row)?.start))
     }
 
     fn edited(&mut self, doc: &Document, change: &TextChange) {
@@ -83,36 +119,20 @@ impl Layout for RowLayout<'_> {
         }
     }
 
-    fn display_x(&self, doc: &Document, pos: Pos) -> Result<X> {
-        Ok(self.0.pos_to_row(doc, pos)?.x)
-    }
+    read_methods!();
+}
 
-    fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos> {
-        let row = self.0.pos_to_row(doc, pos)?.row;
-        Ok(self.0.row(doc, row)?.start)
-    }
+/// A [`DocumentLayout`] that is only read, as a [`Layout`], for the code that the window shares
+/// with the commands (the caret in the gap after a wrapped row, `matsu_commands::layout`). It is
+/// never edited: `edited` and `reset` do nothing.
+pub struct RowRead<'a>(pub &'a DocumentLayout);
 
-    fn row_end(&self, doc: &Document, pos: Pos) -> Result<Pos> {
-        let row = self.0.pos_to_row(doc, pos)?.row;
-        Ok(self.0.row(doc, row)?.end)
-    }
+impl Layout for RowRead<'_> {
+    fn edited(&mut self, _doc: &Document, _change: &TextChange) {}
 
-    fn next_row_start(&self, doc: &Document, pos: Pos) -> Result<Option<Pos>> {
-        let next = self.0.pos_to_row(doc, pos)?.row + 1;
-        if next >= self.0.row_count() {
-            return Ok(None);
-        }
-        Ok(Some(self.0.row(doc, next)?.start))
-    }
+    fn reset(&mut self, _doc: &Document) {}
 
-    fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> Result<Pos> {
-        let row = self.0.pos_to_row(doc, row_pos)?.row;
-        Ok(self.0.row_to_pos(doc, row, x)?.pos)
-    }
-
-    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> Result<Pos> {
-        Ok(self.0.move_rows(doc, pos, rows, goal)?.pos)
-    }
+    read_methods!();
 }
 
 #[cfg(test)]

@@ -486,6 +486,11 @@ impl EditorView {
         cx: &mut Context<Self>,
         f: impl FnOnce(&mut CommandContext<'_>) -> R,
     ) -> R {
+        // The free column means nothing once the mode is off: it must not come back when the mode
+        // is turned on again (the dialog changes the options of the process, not the cursor).
+        if !matsu_commands::edit_options::get().free_cursor {
+            self.cursor.set_free_col(None);
+        }
         let document = self.document.clone();
         // The macro that runs before a save is told the file it will be written to.
         let save_path = self.macros.save_path();
