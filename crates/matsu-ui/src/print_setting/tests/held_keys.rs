@@ -148,6 +148,9 @@ fn the_other_direction_starts_a_new_hold(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_hold_ends_when_the_window_is_deactivated(cx: &mut TestAppContext) {
     let (dialog, cx) = start(cx, "10");
+    // a window that is active, so that the deactivation is a change the box sees
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
     hold(cx, "up", 2500);
     let held = number(&dialog, cx);
     assert_eq!(held % 5, 0);
