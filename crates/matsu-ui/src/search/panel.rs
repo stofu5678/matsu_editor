@@ -227,9 +227,10 @@ impl SearchPanel {
             |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => this.sync(cx),
                 InputEvent::PressEnter { .. } => {
-                    if !this.take_open_row(Combo::Replace, window, cx) {
-                        this.replace_one(window, cx);
+                    if this.take_open_row(Combo::Replace, window, cx) {
+                        return;
                     }
+                    this.replace_one(window, cx);
                 }
                 _ => {}
             },
