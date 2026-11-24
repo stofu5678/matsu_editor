@@ -144,3 +144,18 @@ fn the_other_direction_starts_a_new_hold(cx: &mut TestAppContext) {
     down(cx, "down", false);
     assert_eq!(number(&dialog, cx), held - 1);
 }
+
+#[gpui::test]
+fn the_hold_ends_when_the_window_is_deactivated(cx: &mut TestAppContext) {
+    let (dialog, cx) = start(cx, "10");
+    hold(cx, "up", 2500);
+    let held = number(&dialog, cx);
+    assert_eq!(held % 5, 0);
+    // the key-up goes to another program, and the window comes back within `KEY_GAP`
+    cx.deactivate_window();
+    wait(cx, 100);
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    down(cx, "up", false);
+    assert_eq!(number(&dialog, cx), held + 1);
+}

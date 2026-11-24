@@ -227,6 +227,9 @@ pub(crate) struct KeyHold {
     run: Option<KeyRun>,
     /// The box's loss of the focus ends the hold.
     _focus_out: Subscription,
+    /// So does the deactivation of the window: the key-up that comes while another program is
+    /// active goes there, and the focus may stay in the box.
+    _activation: Subscription,
 }
 
 impl KeyHold {
@@ -234,9 +237,15 @@ impl KeyHold {
         let _focus_out = cx.on_focus_out(&input.focus_handle(cx), window, |this, _, _, _| {
             this.end();
         });
+        let _activation = cx.observe_window_activation(window, |this, window, _| {
+            if !window.is_window_active() {
+                this.end();
+            }
+        });
         Self {
             run: None,
             _focus_out,
+            _activation,
         }
     }
 
