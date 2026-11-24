@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.26.0](https://github.com/stofu5678/matsu_editor/compare/v0.25.0...v0.26.0) (2026-11-24)
+
+
+### Features
+
+* **plugin:** give plugin events to the saves and reads of a macro ([#573](https://github.com/stofu5678/matsu_editor/issues/573)) ([8f105dd](https://github.com/stofu5678/matsu_editor/commit/8f105dd67a9129ff10f94c6861bbe1d0c260d843))
+* **view:** let the free cursor stand in the gap after a wrapped row ([#572](https://github.com/stofu5678/matsu_editor/issues/572)) ([701c4f4](https://github.com/stofu5678/matsu_editor/commit/701c4f40e9f82528f1906b52b42f189e0aa9174b))
+
+
+### Bug Fixes
+
+* **dialog:** step a held Up or Down key in a number box like Windows and line the number up ([#569](https://github.com/stofu5678/matsu_editor/issues/569)) ([f35e78f](https://github.com/stofu5678/matsu_editor/commit/f35e78f73cb76beec52d18fcc24216ac3893722b))
+* **search:** draw the jump panel's units as radio buttons and widen the line number box ([#568](https://github.com/stofu5678/matsu_editor/issues/568)) ([764e906](https://github.com/stofu5678/matsu_editor/commit/764e906d91bb1f690bb4e31c93c8e21de025a746))
+* **search:** keep the history arrow of a combo box out of the Tab order ([#570](https://github.com/stofu5678/matsu_editor/issues/570)) ([4cf9ed3](https://github.com/stofu5678/matsu_editor/commit/4cf9ed329c67191db0e00f0d103066425d579c62))
+
 ## [0.25.0](https://github.com/stofu5678/matsu_editor/compare/v0.24.0...v0.25.0) (2026-11-24)
 
 
