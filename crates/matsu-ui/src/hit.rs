@@ -3,10 +3,13 @@
 //! layout what is at a row and an `X`.
 
 use matsu_commands::context::cursor_x;
+use matsu_commands::layout::{row_is_wrapped, wrapped_gap_before};
 use matsu_core::buffer::{Document, Pos, Result};
-use matsu_layout::{DocumentLayout, RowInfo, X};
+use matsu_core::cursor::Cursor;
+use matsu_layout::{DocumentLayout, RowInfo, RowPos, X};
 
 use crate::geometry::{Metrics, XScale, row_at};
+use crate::layout_adapter::RowRead;
 
 /// The position that a click at `x` pixels right of the text origin (scroll already added) and
 /// `y` pixels below the top of the text area puts the caret at.
@@ -42,7 +45,49 @@ pub fn free_x_at(
     let scale = XScale::new(m.cell_width, layout.config().width.per_column());
     let at = scale.column_start(x);
     let target = layout.row_to_pos(doc, row, at)?;
-    Ok((target.extra_x > X::ZERO).then_some(at))
+    if target.extra_x > X::ZERO {
+        return Ok(Some(at));
+    }
+    // The end of a wrapped row is a place of its own for the free caret (it goes on the row, not
+    // on the start of the next one), so a column that is just the end of its text counts.
+    Ok(ends_wrapped_row(layout, doc, row, target.pos)?.then_some(at))
+}
+
+/// The row and the `X` that the caret of `cursor` is drawn at: where the layout puts its position
+/// (`DocumentLayout::pos_to_row`), except for a free caret in the gap after a wrapped row.
+///
+/// The position of such a caret is the end of the wrapped row, which the layout puts at the start
+/// of the next row. The stored free column (`Cursor::free_col`) is the mark that it is on the row
+/// before, at that column (`matsu_commands::context`, the free cursor mode). `free_cursor` is
+/// whether the mode is on.
+pub fn caret_row_pos(
+    layout: &DocumentLayout,
+    doc: &Document,
+    cursor: &Cursor,
+    free_cursor: bool,
+) -> Result<RowPos> {
+    let caret = cursor.caret();
+    let at = layout.pos_to_row(doc, caret)?;
+    let Some(col) = cursor.free_col().filter(|_| free_cursor) else {
+        return Ok(at);
+    };
+    // The same rule as the commands use (`matsu_commands::layout::wrapped_gap_before`).
+    let rows = RowRead(layout);
+    match wrapped_gap_before(&rows, doc, caret)? {
+        Some(gap) if gap.takes(cursor_x(col)) => Ok(RowPos {
+            row: layout.pos_to_row(doc, gap.last)?.row,
+            x: gap.text_end,
+        }),
+        _ => Ok(at),
+    }
+}
+
+/// Whether `pos` is the end of the text of `row` and the row ends because the line wraps there.
+fn ends_wrapped_row(layout: &DocumentLayout, doc: &Document, row: usize, pos: Pos) -> Result<bool> {
+    // The same question as the commands ask (`matsu_commands::layout::row_is_wrapped`), of the
+    // first position of the row, since the end of a wrapped row belongs to the next row.
+    let info = layout.row(doc, row)?;
+    Ok(info.end == pos && row_is_wrapped(&RowRead(layout), doc, info.start)?)
 }
 
 /// Like [`position_at`], on a given row.
@@ -55,7 +100,7 @@ pub fn position_in_row(
 ) -> Result<Pos> {
     let scale = XScale::new(m.cell_width, layout.config().width.per_column());
     let target = layout.row_to_pos(doc, row, scale.x_at(x))?;
-    if target.extra_x > X::ZERO {
+    if target.extra_x > X::ZERO || ends_wrapped_row(layout, doc, row, target.pos)? {
         return Ok(target.pos);
     }
     // Only the char at the position is needed: a very long line is not decoded as a whole.

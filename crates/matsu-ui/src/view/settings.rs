@@ -385,10 +385,12 @@ impl EditorView {
         if self.cursor.is_box() {
             self.cursor.clear_selection();
         }
-        // The caret of the free cursor and the goal of the vertical moves are `X` of the old
-        // columns when a column changed its width (the character spacing and the font size).
+        // The caret of the free cursor stands on a row of the old layout (the gap after a wrapped
+        // row is a mark on the start of the next row), so any change of the layout drops it. The
+        // goal of the vertical moves is an `X` of the old columns when a column changed its width
+        // (the character spacing and the font size).
+        self.cursor.set_free_col(None);
         if width_changed {
-            self.cursor.set_free_col(None);
             self.cursor.set_goal_col(None);
         }
         if matches!(self.layout.config().wrap, Wrap::Columns(_)) {

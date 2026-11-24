@@ -486,6 +486,11 @@ impl EditorView {
         cx: &mut Context<Self>,
         f: impl FnOnce(&mut CommandContext<'_>) -> R,
     ) -> R {
+        // The free column means nothing once the mode is off: it must not come back when the mode
+        // is turned on again (the dialog changes the options of the process, not the cursor).
+        if !matsu_commands::edit_options::get().free_cursor {
+            self.cursor.set_free_col(None);
+        }
         let document = self.document.clone();
         // The macro that runs before a save is told the file it will be written to.
         let save_path = self.macros.save_path();
@@ -855,12 +860,13 @@ impl EditorView {
 
     /// Where the caret is on the screen: row and column.
     pub(crate) fn caret_row(&self, cx: &App) -> RowPos {
-        self.layout
-            .pos_to_row(self.doc(cx), self.cursor.caret())
-            .unwrap_or(RowPos {
+        let free = matsu_commands::edit_options::get().free_cursor;
+        crate::hit::caret_row_pos(&self.layout, self.doc(cx), &self.cursor, free).unwrap_or(
+            RowPos {
                 row: 0,
                 x: matsu_layout::X::ZERO,
-            })
+            },
+        )
     }
 
     /// The `X` of the caret on its row. In a box selection the caret can be to the right of the

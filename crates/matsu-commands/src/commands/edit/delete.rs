@@ -13,7 +13,10 @@
 //! Wrapping changes nothing here. Sakura's other branch of the same code (the "行終端が折り返し"
 //! case) deletes the first char of the next row when the caret is at the wrap point; a caret
 //! at the end of a wrapped row is the start of the next row in this program (`Layout::row_end`),
-//! so the ordinary deletion of the char after the caret is that deletion.
+//! so the ordinary deletion of the char after the caret is that deletion. The same branch, with
+//! the caret to the right of the end of a wrapped row (the free cursor), fills the gap with
+//! spaces first and then deletes the next char: that is `pad_free_caret` and the deletion
+//! below, which do not need to know about the wrap.
 
 use matsu_core::cursor::char_right;
 

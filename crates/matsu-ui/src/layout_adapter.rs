@@ -20,48 +20,84 @@ use matsu_layout::{DocumentLayout, X};
 /// How long one frame may spend laying out the rest of a document.
 pub const LAYOUT_BUDGET: Duration = Duration::from_millis(4);
 
+/// The questions of [`Layout`] that only read the layout, for a [`RowLayout`] and a [`RowRead`].
+macro_rules! read_methods {
+    () => {
+        fn tab_width(&self) -> usize {
+            self.0.config().effective_tab_width() as usize
+        }
+
+        fn tab_x(&self) -> X {
+            self.0.config().tab_x()
+        }
+
+        fn column_x(&self) -> X {
+            self.0.config().width.to_x(1)
+        }
+
+        fn max_line_x(&self) -> X {
+            self.0.config().max_x()
+        }
+
+        fn char_columns(&self, c: char) -> usize {
+            self.0.config().width.columns(c) as usize
+        }
+
+        fn char_x(&self, c: char) -> X {
+            self.0.config().width.width_of(c)
+        }
+
+        fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
+            Ok(self.0.pos_to_row(doc, pos)?.row)
+        }
+
+        fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
+            if row >= self.0.row_count() {
+                return Ok(None);
+            }
+            Ok(Some(self.0.row(doc, row)?.start))
+        }
+
+        fn display_x(&self, doc: &Document, pos: Pos) -> Result<X> {
+            Ok(self.0.pos_to_row(doc, pos)?.x)
+        }
+
+        fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos> {
+            let row = self.0.pos_to_row(doc, pos)?.row;
+            Ok(self.0.row(doc, row)?.start)
+        }
+
+        fn row_end(&self, doc: &Document, pos: Pos) -> Result<Pos> {
+            let row = self.0.pos_to_row(doc, pos)?.row;
+            Ok(self.0.row(doc, row)?.end)
+        }
+
+        fn next_row_start(&self, doc: &Document, pos: Pos) -> Result<Option<Pos>> {
+            let next = self.0.pos_to_row(doc, pos)?.row + 1;
+            if next >= self.0.row_count() {
+                return Ok(None);
+            }
+            Ok(Some(self.0.row(doc, next)?.start))
+        }
+
+        fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> Result<Pos> {
+            let row = self.0.pos_to_row(doc, row_pos)?.row;
+            Ok(self.0.row_to_pos(doc, row, x)?.pos)
+        }
+
+        fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> Result<Pos> {
+            Ok(self.0.move_rows(doc, pos, rows, goal)?.pos)
+        }
+    };
+}
+
 /// A borrowed [`DocumentLayout`] as a command's [`Layout`].
 pub struct RowLayout<'a>(pub &'a mut DocumentLayout);
 
 impl Layout for RowLayout<'_> {
-    fn tab_width(&self) -> usize {
-        self.0.config().effective_tab_width() as usize
-    }
-
-    fn tab_x(&self) -> X {
-        self.0.config().tab_x()
-    }
-
-    fn column_x(&self) -> X {
-        self.0.config().width.to_x(1)
-    }
-
-    fn max_line_x(&self) -> X {
-        self.0.config().max_x()
-    }
-
-    fn char_columns(&self, c: char) -> usize {
-        self.0.config().width.columns(c) as usize
-    }
-
-    fn char_x(&self, c: char) -> X {
-        self.0.config().width.width_of(c)
-    }
-
     fn make_exact(&mut self, doc: &Document, line: usize) {
         let row = self.0.first_row_of_line(line);
         let _ = self.0.layout_rows(doc, row, 1);
-    }
-
-    fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
-        Ok(self.0.pos_to_row(doc, pos)?.row)
-    }
-
-    fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
-        if row >= self.0.row_count() {
-            return Ok(None);
-        }
-        Ok(Some(self.0.row(doc, row)?.start))
     }
 
     fn edited(&mut self, doc: &Document, change: &TextChange) {
@@ -83,36 +119,20 @@ impl Layout for RowLayout<'_> {
         }
     }
 
-    fn display_x(&self, doc: &Document, pos: Pos) -> Result<X> {
-        Ok(self.0.pos_to_row(doc, pos)?.x)
-    }
+    read_methods!();
+}
 
-    fn row_start(&self, doc: &Document, pos: Pos) -> Result<Pos> {
-        let row = self.0.pos_to_row(doc, pos)?.row;
-        Ok(self.0.row(doc, row)?.start)
-    }
+/// A [`DocumentLayout`] that is only read, as a [`Layout`], for the code that the window shares
+/// with the commands (the caret in the gap after a wrapped row, `matsu_commands::layout`). It is
+/// never edited: `edited` and `reset` do nothing.
+pub struct RowRead<'a>(pub &'a DocumentLayout);
 
-    fn row_end(&self, doc: &Document, pos: Pos) -> Result<Pos> {
-        let row = self.0.pos_to_row(doc, pos)?.row;
-        Ok(self.0.row(doc, row)?.end)
-    }
+impl Layout for RowRead<'_> {
+    fn edited(&mut self, _doc: &Document, _change: &TextChange) {}
 
-    fn next_row_start(&self, doc: &Document, pos: Pos) -> Result<Option<Pos>> {
-        let next = self.0.pos_to_row(doc, pos)?.row + 1;
-        if next >= self.0.row_count() {
-            return Ok(None);
-        }
-        Ok(Some(self.0.row(doc, next)?.start))
-    }
+    fn reset(&mut self, _doc: &Document) {}
 
-    fn pos_at_x(&self, doc: &Document, row_pos: Pos, x: X) -> Result<Pos> {
-        let row = self.0.pos_to_row(doc, row_pos)?.row;
-        Ok(self.0.row_to_pos(doc, row, x)?.pos)
-    }
-
-    fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal: X) -> Result<Pos> {
-        Ok(self.0.move_rows(doc, pos, rows, goal)?.pos)
-    }
+    read_methods!();
 }
 
 #[cfg(test)]
@@ -271,6 +291,66 @@ mod tests {
             // 9 characters: one more column would reach the wrap column, so the caret goes to the
             // next line at once (`x_wrap + dx_default < GetMaxLineLayout()` is false)
             assert_eq!(right(1, 1), (Pos::new(2, 0), None));
+        });
+    }
+
+    /// The free caret in the gap after a wrapped row, on the real layout: the gap starts where the
+    /// text of the row ends, which is column 4 here (the third wide char does not fit in 5), and
+    /// goes up to the wrap column. The row before the caret position is the one the caret is on.
+    #[test]
+    fn the_gap_after_a_wrapped_row_starts_at_the_end_of_its_text() {
+        use matsu_commands::edit_options::{EditOptions, with_options};
+
+        let d = doc("日本語日本語");
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(5),
+            ..LayoutConfig::default()
+        };
+        let options = EditOptions {
+            free_cursor: true,
+            ..EditOptions::DEFAULT
+        };
+        let end_of_row = Pos::new(0, 6);
+        // a click at `x` columns, then the keys; the caret, the mark and the text after them
+        let after = |x: u32, keys: &[&str]| {
+            let mut model = DocumentModel::new(d.clone());
+            let mut cursor = Cursor::default();
+            let mut layout = laid_out(&d, cfg.clone());
+            let mut row_layout = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut row_layout, None);
+            cx.move_caret_free(end_of_row, X::from_raw(x), false)
+                .unwrap();
+            for key in keys {
+                let args = match *key {
+                    "input_char" => vec![matsu_commands::command::Arg::Char('x')],
+                    _ => Vec::new(),
+                };
+                Registry::global().run(key, &mut cx, &args).unwrap();
+            }
+            drop(cx);
+            let doc = model.doc();
+            let text = doc
+                .text_between(Pos::new(0, 0), doc.end_pos().unwrap())
+                .unwrap();
+            (cursor.caret(), cursor.free_col(), text)
+        };
+        with_options(options, || {
+            // left of the end of the text: no gap
+            assert_eq!(after(3, &[]).1, None);
+            // the end of the text of the row is a place of its own
+            assert_eq!(after(4, &[]).0, end_of_row);
+            assert_eq!(after(4, &[]).1, Some(4));
+            // the gap goes up to the wrap column, 5 (`nMaxX = max(nPosX, GetMaxLineLayout())`)
+            assert_eq!(after(7, &[]).1, Some(5));
+            // 5 - 4 = 1 space, then the char
+            let (caret, mark, text) = after(7, &["input_char"]);
+            assert_eq!((caret, mark), (Pos::new(0, 8), None));
+            assert_eq!(text, "日本 x語日本語");
+            // Left comes back one column to the end, then onto the last char
+            assert_eq!(after(7, &["cursor_left"]).1, Some(4));
+            assert_eq!(after(7, &["cursor_left"; 2]).0, Pos::new(0, 3));
+            // Right goes to the start of the next row
+            assert_eq!(after(7, &["cursor_right"]).1, None);
         });
     }
 

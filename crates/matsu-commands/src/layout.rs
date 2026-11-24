@@ -13,6 +13,7 @@
 //! `column_x`, and code that counts characters multiplies; a bare number is never an `X`.
 
 use matsu_core::buffer::{Document, Pos, Result};
+use matsu_core::cursor::char_left;
 pub use matsu_layout::X;
 
 use crate::context::TextChange;
@@ -125,6 +126,104 @@ pub trait Layout {
         }
         Ok(Some(at))
     }
+}
+
+/// Whether the row of `row_pos` ends because the line wraps there. The end of such a row is the
+/// start of the next one for a position.
+pub fn row_is_wrapped<L: Layout + ?Sized>(
+    layout: &L,
+    doc: &Document,
+    row_pos: Pos,
+) -> Result<bool> {
+    let end = layout.row_end(doc, row_pos)?;
+    Ok(layout.next_row_start(doc, row_pos)? == Some(end))
+}
+
+/// The first `X` on the row of `row` from which [`Layout::pos_at_x`] gives `end` or a later
+/// position, searching from `from`, which gives an earlier one. It is the right edge of the text
+/// up to `end`, found without knowing the width of each char.
+pub fn first_x_reaching<L: Layout + ?Sized>(
+    layout: &L,
+    doc: &Document,
+    row: Pos,
+    from: X,
+    end: Pos,
+) -> Result<X> {
+    if layout.pos_at_x(doc, row, from)? >= end {
+        return Ok(from);
+    }
+    // Grow the upper bound until it reaches `end`, then halve the interval.
+    let mut step = layout.column_x();
+    let mut high = from + step;
+    while layout.pos_at_x(doc, row, high)? < end {
+        step = step.saturating_mul(2);
+        high += step;
+    }
+    let mut low = from;
+    while high.raw() - low.raw() > 1 {
+        let mid = X::from_raw(low.raw() + (high.raw() - low.raw()) / 2);
+        if layout.pos_at_x(doc, row, mid)? < end {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    Ok(high)
+}
+
+/// The `X` where the text of the row of `row_pos` ends. The end of a wrapped row is the start of
+/// the next row for a position, so its `X` may be that of the next row: this takes the first `X`
+/// that reaches the end.
+pub fn row_text_end_x<L: Layout + ?Sized>(layout: &L, doc: &Document, row_pos: Pos) -> Result<X> {
+    let end = layout.row_end(doc, row_pos)?;
+    if !row_is_wrapped(layout, doc, row_pos)? {
+        return layout.display_x(doc, end);
+    }
+    let last_x = match char_left(doc, end)? {
+        Some(last) if last >= row_pos => layout.display_x(doc, last)?,
+        _ => X::ZERO,
+    };
+    first_x_reaching(layout, doc, row_pos, last_x, end)
+}
+
+/// The end of a wrapped row, as the free cursor sees it (Sakura puts the caret there, and to the
+/// right of it, on the row; a [`Pos`] there is the start of the next row).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WrappedGap {
+    /// The last char of the row: a position that the layout puts on the row.
+    pub last: Pos,
+    /// Where the text of the row ends.
+    pub text_end: X,
+}
+
+impl WrappedGap {
+    /// Whether a free caret may stand at `x` here: at the end of the text or right of it.
+    pub fn takes(&self, x: X) -> bool {
+        x >= self.text_end
+    }
+}
+
+/// The wrapped row that ends at `pos`, if `pos` is the start of a row that continues a line. This
+/// is the one place that decides it, for the commands and for the window that draws the caret.
+pub fn wrapped_gap_before<L: Layout + ?Sized>(
+    layout: &L,
+    doc: &Document,
+    pos: Pos,
+) -> Result<Option<WrappedGap>> {
+    if pos.col == 0 || layout.row_start(doc, pos)? != pos {
+        return Ok(None);
+    }
+    let Some(last) = char_left(doc, pos)? else {
+        return Ok(None);
+    };
+    if layout.row_end(doc, last)? != pos {
+        return Ok(None);
+    }
+    let row = layout.row_start(doc, last)?;
+    Ok(Some(WrappedGap {
+        last,
+        text_end: row_text_end_x(layout, doc, row)?,
+    }))
 }
 
 /// A layout without wrapping: a row is a line. Tabs go to the next multiple of 4; chars of East

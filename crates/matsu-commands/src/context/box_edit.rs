@@ -103,17 +103,7 @@ impl CommandContext<'_> {
             });
         }
         let end = self.layout.row_end(self.doc(), row)?;
-        let width = if self.row_is_wrapped(row)? {
-            // The end of a wrapped row is the start of the next row for a position, so its
-            // `X` may be that of the next row: take the first `X` that reaches the end.
-            let last_x = match char_left(self.doc(), end)? {
-                Some(last) if last >= row => self.layout.display_x(self.doc(), last)?,
-                _ => X::ZERO,
-            };
-            self.first_x_reaching(row, last_x, end)?
-        } else {
-            self.layout.display_x(self.doc(), end)?
-        };
+        let width = self.row_text_end_x(row)?;
         Ok(RowInfo {
             eof: false,
             end,
@@ -452,7 +442,7 @@ impl CommandContext<'_> {
             self.box_caret_x()?
         } else {
             // the free cursor mode: the rectangle starts where the caret is shown
-            self.caret_x_with_free()?
+            self.caret_x_for_box()?
         };
         let first_row = self.layout.row_start(self.doc(), self.caret())?;
         self.cursor.clear_selection();

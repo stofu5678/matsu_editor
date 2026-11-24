@@ -158,7 +158,7 @@ impl CommandContext<'_> {
                 return Ok(());
             };
             if try_again {
-                let row = self.layout.row_start(self.doc(), caret)?;
+                let row = self.layout.row_start(self.doc(), self.caret_row_pos()?)?;
                 let first = line
                     .index_of(row.col)
                     .and_then(|i| line.chars.get(i).copied());

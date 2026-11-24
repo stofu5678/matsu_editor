@@ -640,6 +640,64 @@ fn in_the_free_cursor_mode_a_click_right_of_the_text_puts_the_caret_there(cx: &m
 }
 
 #[gpui::test]
+fn in_the_free_cursor_mode_a_click_right_of_a_wrapped_row_puts_the_caret_there(
+    cx: &mut TestAppContext,
+) {
+    // `CCaret::MoveCursorProperly` tests `i >= nLineLen`, which is true at the end of a wrapped
+    // layout row as well. The caret position is the end of the row, which the layout puts at the
+    // start of the next row: the stored column says that the caret is on the row before.
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    // a click just at the end of the row (between columns 10 and 11) keeps the end of the row
+    // and does not go to the start of the next one
+    down_at(&f, cx, 0, 10, 1, Modifiers::default());
+    up_at(&f, cx, 0, 10, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        assert_eq!(v.cursor.free_col(), Some(10 * 64));
+        assert_eq!(v.caret_row(app).row, 0);
+    });
+    // a layout change drops the mark: the caret is not in the gap when the wrap goes back
+    f.view.update(cx, |v, cx| v.set_wrap_columns(20, cx));
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.free_col(), None);
+        assert_eq!(v.caret_row(app).row, 1);
+    });
+    // row 0 is "abcdefghij", which fills the wrap column: the gap after it has no width, and
+    // a click at column 14 puts the caret at the end of the row (`nMaxX`, the wrap column)
+    down_at(&f, cx, 0, 14, 1, Modifiers::default());
+    up_at(&f, cx, 0, 14, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        assert_eq!(v.cursor.free_col(), Some(10 * 64));
+        // drawn at the end of the first row, not at the start of the second
+        assert_eq!(v.caret_row(app).row, 0);
+        assert_eq!(v.caret_x(app).raw(), 10 * 64);
+        // the status bar shows Sakura's line and column: line 1, column 11
+        let status = crate::status_options::StatusbarOptions::default();
+        assert_eq!(v.status_position(status, app), (1, 11));
+    });
+    // typing there adds no spaces: the caret is at the end of the text
+    cx.simulate_input("z");
+    assert_eq!(f.lines(cx), ["abcdefghijzklmnop", "xy"]);
+    // a click on the next row's text leaves the gap
+    down_at(&f, cx, 1, 1, 1, Modifiers::default());
+    up_at(&f, cx, 1, 1, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.free_col(), None);
+        assert_eq!(v.caret_row(app).row, 1);
+    });
+}
+
+#[gpui::test]
 fn in_the_free_cursor_mode_the_caret_follows_a_drag_into_the_gap(cx: &mut TestAppContext) {
     // `OnMOUSEMOVE` moves the caret with `MoveCursorProperly`, which puts it in the gap too; the
     // selected text is the same as without the mode.

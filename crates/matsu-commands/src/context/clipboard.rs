@@ -151,10 +151,12 @@ impl CommandContext<'_> {
         if caret.line >= self.doc().line_count() {
             return Ok(None);
         }
-        let start = self.layout().row_start(self.doc(), caret)?;
-        let end = match self.layout().next_row_start(self.doc(), caret)? {
+        // the row that the caret is drawn on (at the end of a wrapped row, the one before)
+        let row = self.caret_row_pos()?;
+        let start = self.layout().row_start(self.doc(), row)?;
+        let end = match self.layout().next_row_start(self.doc(), row)? {
             Some(next) => next,
-            None => self.layout().row_end(self.doc(), caret)?,
+            None => self.layout().row_end(self.doc(), row)?,
         };
         let text = self.doc().text_between(start, end)?;
         Ok(Some((start, end, text)))
@@ -328,7 +330,7 @@ impl CommandContext<'_> {
         self.copy_text(text, kind)?;
         // The same as `F_DELETE_LINE`: the caret keeps its display column on the row that
         // takes the place of the deleted one.
-        let col = self.caret_display_x()?;
+        let col = self.caret_row_x()?;
         self.delete_range(start, end)?;
         if start.line < self.doc().line_count() {
             let pos = self.layout().pos_at_x(self.doc(), start, col)?;
@@ -520,7 +522,7 @@ impl CommandContext<'_> {
         self.delete_selection()?;
         self.cursor.clear_selection();
         let caret = self.caret();
-        let row = self.layout().row_start(self.doc(), caret)?;
+        let row = self.layout().row_start(self.doc(), self.caret_row_pos()?)?;
         let delta = caret.col.saturating_sub(row.col);
         let edit = self.replace(row, row, &text)?;
         self.move_caret(Pos::new(edit.end.line, edit.end.col + delta), false)
