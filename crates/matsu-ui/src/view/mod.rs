@@ -1373,6 +1373,8 @@ mod mouse_tests;
 #[cfg(test)]
 mod paging_tests;
 #[cfg(test)]
+mod repeat_keys_tests;
+#[cfg(test)]
 mod ruler_tests;
 #[cfg(test)]
 mod status_info_tests;

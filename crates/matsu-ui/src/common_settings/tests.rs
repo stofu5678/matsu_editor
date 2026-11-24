@@ -353,7 +353,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     // dialog draws; the ruler's spin buttons, the hot key and the font label are part of their
     // neighbours.
     let count = |page: Page| controls(&page.items().unwrap()).len();
-    assert_eq!(count(Page::General), 20);
+    // (and `nRepeatedMoveCaretNum`, which has no control in Sakura: it is in the file only)
+    assert_eq!(count(Page::General), 21);
     // (and the seven numbers of the dialog 位置と大きさの設定, which the button edits)
     assert_eq!(count(Page::Window), 25);
     // (and the font of the tabs, which the button and the label use)
@@ -1154,6 +1155,44 @@ fn the_scrolling_and_the_confirmations_of_the_general_page_are_taken(cx: &mut Te
     );
     let confirm = cx.update(|app| super::close_confirm(app));
     assert!(confirm.close_all && confirm.exit);
+}
+
+#[gpui::test]
+fn the_columns_of_a_held_left_or_right_key_come_from_the_file(cx: &mut TestAppContext) {
+    // `nRepeatedMoveCaretNum` has no control in Sakura; the file is the only place to set it.
+    let (ini, handle) = setup(cx, "[Common]\r\nnRepeatedMoveCaretNum=5\r\n");
+    run(cx, handle, "F_OPTION_GENERAL");
+    ok(cx);
+    assert_eq!(ini.get("nRepeatedMoveCaretNum").as_deref(), Some("5"));
+    assert_eq!(
+        cx.update(|app| super::scroll_options(app)).repeated_columns,
+        5
+    );
+}
+
+#[gpui::test]
+fn the_columns_of_a_held_left_or_right_key_are_kept_within_what_works(cx: &mut TestAppContext) {
+    // Sakura runs the move that many times: 0 moves nothing. MATSU moves at least once, and a
+    // huge value does not make one repeat run for ever. The file keeps the value as written.
+    let (ini, handle) = setup(cx, "[Common]\r\nnRepeatedMoveCaretNum=0\r\n");
+    run(cx, handle, "F_OPTION_GENERAL");
+    ok(cx);
+    assert_eq!(ini.get("nRepeatedMoveCaretNum").as_deref(), Some("0"));
+    assert_eq!(
+        cx.update(|app| super::scroll_options(app)).repeated_columns,
+        1
+    );
+}
+
+#[gpui::test]
+fn a_huge_number_of_columns_of_a_held_key_is_cut(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "[Common]\r\nnRepeatedMoveCaretNum=2000000000\r\n");
+    run(cx, handle, "F_OPTION_GENERAL");
+    ok(cx);
+    assert_eq!(
+        cx.update(|app| super::scroll_options(app)).repeated_columns,
+        1000
+    );
 }
 
 #[gpui::test]
