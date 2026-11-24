@@ -269,6 +269,11 @@ pub(crate) struct MacroState {
     /// The wait for a call that finishes later (`wait.rs`): the number of the wait that is on,
     /// if any. A key macro does not go on, and a script gets no answer, until it ends.
     waiting: Option<u64>,
+    /// The macro ended (or was cancelled) while an event call of a plugin ran on this window: its undo
+    /// blocks are closed when that call ends (`close_undo_blocks`, `plugin_call`), so that the blocks that
+    /// the call opened on top of them stay whole, and its end does not open them again. Set by the macro's
+    /// end, read and cleared by the end of the event call.
+    close_blocks_after_event: bool,
     /// Counts the waits that began, so that a wait that was stopped can tell.
     epoch: u64,
     /// What the macro functions keep between two calls (cookies, the draw switch).
@@ -344,20 +349,19 @@ impl MacroState {
             .flatten()
     }
 
-    /// The macro is in the middle of a call or between two calls, so it owns the window: a call of a
-    /// macro that waits for a flow (`waiting`) does not, the window is the flow's until it ends. A
-    /// macro that waits does nothing to the text, the undo blocks or the plugin hosts, so an event
-    /// call (`plugin_events`) may take the window then (the macro waits for the flow that raised it).
+    /// The macro is in the middle of a call or between two calls, so it owns the window. A macro that
+    /// waits for a flow (`waiting`) does not: the window is the flow's until it ends, and the macro does
+    /// nothing to the text, the undo blocks or the plugin hosts meanwhile, so an event call
+    /// (`plugin_events`) of this window may take it (the macro waits for the flow that raised it).
     /// See [`Turn`](plugin_call::Turn).
     pub(crate) fn owns_window(&self) -> bool {
         self.waiting.is_none() && (self.running.is_some() || !self.queue.is_empty())
     }
 
+    /// Anything of the macros has the window: [`Self::owns_window`], a wait for a flow, or a call of a
+    /// plugin. It differs from `owns_window` by those named conditions only.
     fn busy(&self) -> bool {
-        self.running.is_some()
-            || self.plugin_running
-            || !self.queue.is_empty()
-            || self.waiting.is_some()
+        self.owns_window() || self.waiting.is_some() || self.plugin_running
     }
 }
 
@@ -382,20 +386,6 @@ impl EditorView {
         self.macros.plugin_running
             || self.document.read(cx).plugin_busy()
             || self.macro_in_other_pane(cx)
-    }
-
-    /// A macro runs in another pane that shows the document of this view, and does not wait for a flow
-    /// (see [`MacroState::owns_window`]).
-    pub(crate) fn macro_owns_window_in_other_pane(&self, cx: &gpui::App) -> bool {
-        self.document
-            .read(cx)
-            .views()
-            .filter(|other| other.entity_id() != self.entity_id)
-            .any(|other| {
-                let other = other.read(cx);
-                other.document == self.document
-                    && (other.macros.plugin_running || other.macros.owns_window())
-            })
     }
 
     /// A macro runs in another pane that shows the document of this view.
@@ -570,6 +560,13 @@ impl EditorView {
         // The block of an IME composition that the user started is not the macro's: it closes
         // when the text is committed.
         if self.composing {
+            return;
+        }
+        // An event call that runs now has opened a block on top of the macro's: closing all would cut the
+        // call's edits in two, and its end would put the macro's blocks back (`leave_undo_block`). The call
+        // closes them when it ends.
+        if self.macros.plugin_running && self.macros.plugin_event {
+            self.macros.close_blocks_after_event = true;
             return;
         }
         let cursor = &self.cursor;

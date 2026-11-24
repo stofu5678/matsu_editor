@@ -810,6 +810,17 @@ impl EditorView {
         self.macros.plugin_running = on;
     }
 
+    /// For tests: a macro of this window waits for a flow.
+    #[cfg(test)]
+    pub(crate) fn pretend_macro_waits_for_test(&mut self, on: bool) {
+        self.macros.waiting = on.then_some(1);
+        self.macros.suspended = on;
+        self.macros.queue.clear();
+        if on {
+            self.macros.queue.push_back(super::Item::Leave);
+        }
+    }
+
     /// For tests: a macro of this window is in a call, which has the window (a macro that waits for a flow
     /// has not).
     #[cfg(test)]
@@ -835,8 +846,11 @@ impl EditorView {
             }
         } else if self.macros.owns_window()
             || self.document.read(cx).plugin_busy()
-            || self.macro_owns_window_in_other_pane(cx)
+            || self.macro_in_other_pane(cx)
         {
+            // A macro of another pane of the document takes the window too, also one that waits: the event
+            // call would end where this window's tickets do not tell that macro (the undo block and the
+            // plugin call of the document are shared by the panes).
             Turn::Taken
         } else {
             Turn::Free
@@ -1269,6 +1283,10 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                             // the call would end.
                             if !closed && (complement.is_none() || !view.composing) {
                                 view.leave_undo_block(depth, cx);
+                            }
+                            // A macro that ended while this call ran left its blocks for now.
+                            if std::mem::take(&mut view.macros.close_blocks_after_event) {
+                                view.close_undo_blocks(cx);
                             }
                         }
                         // A smart indent that was stopped because the user went on says nothing.

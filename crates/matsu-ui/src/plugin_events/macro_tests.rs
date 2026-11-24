@@ -9,12 +9,12 @@
 use std::path::Path;
 use std::time::Duration;
 
-use gpui::{Entity, TestAppContext, VisualTestContext};
+use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use matsu_commands::command::Arg;
 use matsu_commands::sakura::FUNCTIONS;
 use matsu_plugin::session::Language;
 
-use super::tests::{begin, finish, jacks, setup, spin, text_of};
+use super::tests::{Files, begin, finish, jacks, setup, spin, text_of};
 use crate::macros::plugin_call::set_test_limit;
 use crate::view::EditorView;
 
@@ -193,4 +193,119 @@ fn an_event_that_comes_while_the_macro_is_in_a_call_is_not_given(cx: &mut TestAp
     assert!(jacks(&view, cx).is_empty());
     view.update(cx, |v, _| v.pretend_macro_call_for_test(false));
     finish(cx);
+}
+
+#[gpui::test]
+fn an_event_of_another_pane_does_not_run_while_a_macro_waits_in_this_one(cx: &mut TestAppContext) {
+    use matsu_config::plugins::def::Jack;
+    let Some((place, _files)) = begin(cx, &[]) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let shared = view.read_with(cx, |v, _| v.document().clone());
+    let second = cx.new(|cx| EditorView::new(shared, cx));
+    // The macro of the first pane waits for a flow (a dialog): the second pane's events would end where
+    // that macro does not look, and the panes share the undo block and the plugin call of the document.
+    view.update(cx, |v, _| v.pretend_macro_waits_for_test(true));
+    let done = cx.update(|_, app| super::fire(app, &second, Jack::DocumentBeforeSave));
+    spin(cx, "the event call did not end", |_| done.get());
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+    }
+    assert!(jacks(&second, cx).is_empty());
+    assert!(jacks(&view, cx).is_empty());
+    // The pane of the macro gets its own events, and the macro is told when they end.
+    let done = cx.update(|_, app| super::fire(app, &view, Jack::DocumentBeforeSave));
+    spin(cx, "the event of the waiting pane did not end", |_| {
+        done.get()
+    });
+    assert_eq!(jacks(&view, cx), ["DocumentBeforeSave"]);
+    view.update(cx, |v, _| v.pretend_macro_waits_for_test(false));
+    finish(cx);
+}
+
+/// A macro that is cancelled while a handler of `DocumentBeforeSave` edits (before and after the cancel):
+/// the handler's edits are one step of undo, the undo depth is 0 when it ends, and what the user types next
+/// is a step of its own. `start` writes the macro (a key macro or a script) that saves under a name.
+fn cancelled_during_an_event(
+    cx: &mut TestAppContext,
+    start: impl FnOnce(&Files, &Path) -> std::path::PathBuf,
+) {
+    let handler = "Editor.InsText('X'); var t = Date.now(); while (Date.now() - t < 1500) {} Editor.InsText('Y');";
+    let Some((place, files)) = begin(cx, &[("DocumentBeforeSave", handler)]) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let target = files.path("undo.dat");
+    let mac = start(&files, &target);
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_EXECEXTMACRO")
+        .unwrap()
+        .code;
+    let arg = Arg::Text(mac.to_string_lossy().into_owned());
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[arg], window, cx)
+    });
+    spin(cx, "the handler did not edit", |cx| {
+        text_in(&view, cx).contains('X')
+    });
+    // The user stops the macro while the handler runs.
+    view.update(cx, |v, cx| v.cancel_macro(cx));
+    spin(cx, "the handler did not end", |cx| {
+        !view.read_with(cx, |v, _| v.plugin_call_running() || v.is_macro_running())
+    });
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(text_in(&view, cx), "aXY");
+    let depth = view.read_with(cx, |v, app| {
+        v.document().read(app).model().history().depth()
+    });
+    assert_eq!(depth, 0, "no undo block is left open");
+    cx.simulate_input("z");
+    let undo = FUNCTIONS.iter().find(|f| f.name == "F_UNDO").unwrap().code;
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(undo, &[], window, cx)
+    });
+    assert_eq!(text_in(&view, cx), "aXY", "the user's own edit is a step");
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(undo, &[], window, cx)
+    });
+    assert_eq!(text_in(&view, cx), "a", "the handler's edits are one step");
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_key_macro_cancelled_during_an_event_leaves_the_undo_blocks_whole(cx: &mut TestAppContext) {
+    cancelled_during_an_event(cx, |files, target| {
+        files.write(
+            "cancel.mac",
+            format!("Char(97);\nFileSaveAs({});\nChar(98);\n", quoted(target)).as_bytes(),
+        )
+    });
+}
+
+#[gpui::test]
+fn a_script_that_ends_during_an_event_leaves_the_undo_blocks_whole(cx: &mut TestAppContext) {
+    if !crate::macros::tests::available(Language::JavaScript) {
+        return;
+    }
+    cancelled_during_an_event(cx, |files, target| {
+        files.write(
+            "cancel.cjs",
+            format!(
+                "Editor.InsText('a'); Editor.FileSaveAs({:?}); Editor.InsText('b');",
+                target.to_string_lossy()
+            )
+            .as_bytes(),
+        )
+    });
 }
