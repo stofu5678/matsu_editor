@@ -151,7 +151,22 @@ impl TagList {
             window,
             |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => this.search(true, TYPING_DELAY, cx),
-                InputEvent::PressEnter { .. } => this.choose(window, cx),
+                InputEvent::PressEnter { .. } => {
+                    // The key binding of Enter runs before the key listeners (`history_key`),
+                    // so an open list takes the key here: only the row is taken.
+                    if let Some(at) = this.history_open {
+                        let keywords = crate::search::history::tag_keywords(cx);
+                        match keywords.get(at) {
+                            Some(keyword) => this.pick_keyword(keyword.clone(), window, cx),
+                            None => {
+                                this.history_open = None;
+                                cx.notify();
+                            }
+                        }
+                    } else {
+                        this.choose(window, cx);
+                    }
+                }
                 _ => {}
             },
         ));
@@ -475,9 +490,6 @@ impl TagList {
                 self.history_open = Some(at);
                 self.history_scroll.scroll_to_item(at);
                 cx.notify();
-            }
-            "enter" if plain && at < keywords.len() => {
-                self.pick_keyword(keywords[at].clone(), window, cx);
             }
             "escape" => {
                 self.history_open = None;

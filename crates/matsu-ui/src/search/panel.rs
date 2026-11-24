@@ -206,6 +206,11 @@ impl SearchPanel {
             |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => this.sync(cx),
                 InputEvent::PressEnter { shift, .. } => {
+                    // The key binding of Enter runs before the key listeners (`combo_key`), so
+                    // an open list takes the key here: only the row is taken, nothing is found.
+                    if this.take_open_row(Combo::Search, window, cx) {
+                        return;
+                    }
                     let direction = if *shift {
                         Direction::Backward
                     } else {
@@ -221,7 +226,11 @@ impl SearchPanel {
             window,
             |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => this.sync(cx),
-                InputEvent::PressEnter { .. } => this.replace_one(window, cx),
+                InputEvent::PressEnter { .. } => {
+                    if !this.take_open_row(Combo::Replace, window, cx) {
+                        this.replace_one(window, cx);
+                    }
+                }
                 _ => {}
             },
         ));
@@ -326,6 +335,23 @@ impl SearchPanel {
         cx.notify();
     }
 
+    /// Enter in an open list of this combo box (`CBS_DROPDOWN` with the list dropped down): the
+    /// highlighted row goes into the box and the list closes; the dialog's default button is not
+    /// pressed. Returns whether a list of this box was open.
+    fn take_open_row(&mut self, combo: Combo, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(open) = self.dropdown.filter(|d| d.combo == combo) else {
+            return false;
+        };
+        match Self::combo_keys(combo, cx).get(open.highlight) {
+            Some(text) => self.pick(combo, text.clone(), window, cx),
+            None => {
+                self.dropdown = None;
+                cx.notify();
+            }
+        }
+        true
+    }
+
     /// Puts a string of the history in the input, closes the list and gives the focus back to
     /// the input.
     fn pick(&mut self, combo: Combo, text: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -398,9 +424,6 @@ impl SearchPanel {
                 self.dropdown = Some(DropDown { highlight, ..open });
                 self.list_scroll.scroll_to_item(highlight);
                 cx.notify();
-            }
-            "enter" if plain && open.highlight < keys.len() => {
-                self.pick(combo, keys[open.highlight].clone(), window, cx);
             }
             "escape" => {
                 self.dropdown = None;

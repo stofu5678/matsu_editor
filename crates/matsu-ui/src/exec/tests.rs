@@ -840,6 +840,50 @@ fn the_keys_of_an_open_list_move_take_and_close(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_list_closes_when_the_focus_goes_to_the_other_box(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    let text = |cx: &mut TestAppContext, dir: bool| {
+        dialog.read_with(cx, |d, app| {
+            let input = if dir { &d.cur_dir } else { &d.command };
+            input.read(app).value().to_string()
+        })
+    };
+    focus_box(&w, cx, &dialog, false);
+    w.cx(cx).simulate_keystrokes("f4");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
+    // the focus goes to the folder box: its Down does not walk the list of the command box
+    focus_box(&w, cx, &dialog, true);
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), None);
+    assert_eq!(text(cx, false), "newest");
+    assert_eq!(text(cx, true), "dir-old");
+    // Enter in the folder box runs the dialog, as no list of this box is open
+    // (the list of the command box does not take it): checked by the closed list above
+    w.cx(cx).simulate_keystrokes("alt-down");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("dir"));
+}
+
+#[gpui::test]
+fn a_click_on_the_arrow_gives_the_box_the_focus(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    // the focus is in the command box; the arrow of the folder box opens its list and takes the
+    // focus there, so that the keys of the list go to the box that the list belongs to
+    focus_box(&w, cx, &dialog, false);
+    dialog.update(cx, |d, _| d.use_cur_dir = true);
+    let arrow = w
+        .cx(cx)
+        .debug_bounds("exec-dir-history-button")
+        .expect("the arrow");
+    w.cx(cx)
+        .simulate_click(arrow.center(), gpui::Modifiers::none());
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("dir"));
+    w.cx(cx).simulate_keystrokes("down enter");
+    let dir = dialog.read_with(cx, |d, app| d.cur_dir.read(app).value().to_string());
+    assert_eq!(dir, "dir-old");
+    assert!(w.dialog(cx).is_some());
+}
+
+#[gpui::test]
 fn a_second_command_does_not_replace_the_box_of_the_first(cx: &mut TestAppContext) {
     let (_dir, w) = open(cx, "");
     w.exec(cx, LONG, OUT);

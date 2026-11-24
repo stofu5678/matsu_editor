@@ -532,3 +532,37 @@ fn the_arrow_of_a_box_opens_its_list_by_click(cx: &mut TestAppContext) {
     let file = panel.read_with(cx, |p, app| p.file.read(app).value().to_string());
     assert_eq!(file, "*.a");
 }
+
+#[gpui::test]
+fn enter_in_an_open_list_only_takes_the_row_and_does_not_run_the_dialog(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    cx.update(|_, app| {
+        for file in ["*.a", "*.b"] {
+            history::remember_grep_boxes(
+                app,
+                &GrepBoxes {
+                    file,
+                    folder: "",
+                    exclude_file: "",
+                    exclude_folder: "",
+                },
+            );
+        }
+    });
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    // a dialog that Enter would run: a string and an existing folder
+    let folder = tempfile::tempdir().unwrap();
+    fill(
+        cx,
+        &panel,
+        ["zzz", "*.b", &folder.path().display().to_string(), "", ""],
+    );
+    panel.update_in(cx, |p, window, cx| {
+        p.file.update(cx, |s, cx| s.focus(window, cx));
+    });
+    // the list opens on "*.b"; Down goes to "*.a"
+    cx.simulate_keystrokes("f4 down enter");
+    let [file, ..] = boxes(cx, &panel);
+    assert_eq!(file, "*.a");
+    assert!(f.view.read_with(cx, |v, _| v.grep_panel_open()));
+}

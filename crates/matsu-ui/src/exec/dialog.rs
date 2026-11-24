@@ -16,7 +16,7 @@ use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, PathPromptOptions, Render,
+    KeyDownEvent, MouseButton, ParentElement, PathPromptOptions, Render, ScrollHandle,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
@@ -74,6 +74,14 @@ enum Field {
     CurDir,
 }
 
+/// The open history list: its box and the row that Enter takes (one value, so that the row
+/// cannot belong to another box).
+#[derive(Clone, Copy)]
+struct OpenList {
+    field: Field,
+    row: usize,
+}
+
 pub(crate) struct ExecDialog {
     view: WeakEntity<EditorView>,
     pub(crate) command: Entity<InputState>,
@@ -92,9 +100,9 @@ pub(crate) struct ExecDialog {
     pub(crate) input_item: usize,
     /// The document can be edited (otherwise 編集中のウィンドウ is not offered).
     editable: bool,
-    list: Option<Field>,
-    /// The row of the open list that Enter takes.
-    highlight: usize,
+    list: Option<OpenList>,
+    /// Scrolls the open list to its row.
+    list_scroll: ScrollHandle,
     result: Option<async_channel::Sender<Option<Choice>>>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -119,16 +127,17 @@ impl ExecDialog {
         let first = history.cur_dirs.newest().unwrap_or_default().to_owned();
         cur_dir.update(cx, |state, cx| state.set_value(first, window, cx));
         let mut subscriptions = Vec::new();
-        for input in [&command, &cur_dir] {
+        for (field, input) in [(Field::Command, &command), (Field::CurDir, &cur_dir)] {
             subscriptions.push(cx.subscribe_in(
                 input,
                 window,
                 |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
-                        // The key binding of Enter runs before the key listeners, so an open
-                        // list takes it here: the row is taken and the command does not run.
-                        if let Some(field) = this.list {
-                            this.take_highlighted(field, window, cx);
+                        // The key binding of Enter runs before the key listeners, so the open
+                        // list of this box takes it here: the row is taken and the command
+                        // does not run. A list of the other box does not take it.
+                        if this.list.is_some_and(|open| open.field == field) {
+                            this.take_row(field, window, cx);
                         } else {
                             this.ok(window, cx);
                         }
@@ -149,7 +158,7 @@ impl ExecDialog {
             input_item: input_choice(flags),
             editable,
             list: None,
-            highlight: 0,
+            list_scroll: ScrollHandle::new(),
             result: Some(result),
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -229,7 +238,7 @@ impl ExecDialog {
     /// カレントディレクトリ is switched; off, its history list closes.
     fn set_use_cur_dir(&mut self, on: bool, cx: &mut Context<Self>) {
         self.use_cur_dir = on;
-        if !on && self.list == Some(Field::CurDir) {
+        if !on && self.list.is_some_and(|open| open.field == Field::CurDir) {
             self.list = None;
         }
         cx.notify();
@@ -296,18 +305,22 @@ impl ExecDialog {
     }
 
     /// 履歴: opens or closes the list of the box. It opens on the row that holds the text of the box.
-    fn toggle_list(&mut self, field: Field, cx: &mut Context<Self>) {
-        if self.list == Some(field) {
+    /// The box gets the focus, as in a combo box: the keys of the list go to the box that has it.
+    fn toggle_list(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+        if self.list.is_some_and(|open| open.field == field) {
             self.list = None;
         } else {
             let current = self.input(field).read(cx).value();
-            self.highlight = self
+            let row = self
                 .history_rows(field)
                 .iter()
                 .position(|row| row == current.as_str())
                 .unwrap_or(0);
-            self.list = Some(field);
+            self.list = Some(OpenList { field, row });
+            self.list_scroll.scroll_to_item(row);
         }
+        let input = self.input(field).clone();
+        input.update(cx, |state, cx| state.focus(window, cx));
         cx.notify();
     }
 
@@ -333,22 +346,28 @@ impl ExecDialog {
     }
 
     /// The keys of a combo box (`CBS_DROPDOWN`): F4 and Alt+Down open or close the list; with it
-    /// open Up, Down, Enter (see `take_highlighted`) and Escape work in it; with it closed Up and Down go through the
-    /// history. Returns whether the key was used.
+    /// open Up, Down, Enter (see `take_row`) and Escape work in it; with it closed Up and Down go
+    /// through the history. Returns whether the key was used.
     fn combo_key(
         &mut self,
         event: &KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(field) = self.focused_field(window, cx) else {
+        let focused = self.focused_field(window, cx);
+        if self.list.is_some_and(|open| Some(open.field) != focused) {
+            // The focus left the box of the list: the list closes.
+            self.list = None;
+            cx.notify();
+        }
+        let Some(field) = focused else {
             return false;
         };
         let key = event.keystroke.key.as_str();
         let m = &event.keystroke.modifiers;
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
         if key == "f4" || (key == "down" && m.alt) {
-            self.toggle_list(field, cx);
+            self.toggle_list(field, window, cx);
             return true;
         }
         let rows = self.history_rows(field);
@@ -356,7 +375,7 @@ impl ExecDialog {
         if !(plain && (down || key == "up")) || rows.is_empty() {
             return false;
         }
-        if self.list != Some(field) {
+        let Some(open) = self.list else {
             // closed: the next row after the one that holds the text of the box
             let current = self.input(field).read(cx).value();
             let next = match (rows.iter().position(|r| r == current.as_str()), down) {
@@ -368,19 +387,23 @@ impl ExecDialog {
             self.input(field)
                 .update(cx, |state, cx| state.set_value(text, window, cx));
             return true;
-        }
-        match key {
-            "down" => self.highlight = (self.highlight + 1).min(rows.len() - 1),
-            _ => self.highlight = self.highlight.saturating_sub(1),
-        }
+        };
+        let row = if down {
+            (open.row + 1).min(rows.len() - 1)
+        } else {
+            open.row.saturating_sub(1)
+        };
+        self.list = Some(OpenList { field, row });
+        self.list_scroll.scroll_to_item(row);
         cx.notify();
         true
     }
 
     /// Enter in an open list: the highlighted row goes into the box.
-    fn take_highlighted(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+    fn take_row(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
         let rows = self.history_rows(field);
-        match rows.get(self.highlight) {
+        let row = self.list.map_or(0, |open| open.row);
+        match rows.get(row) {
             Some(text) => self.pick(field, text, window, cx),
             None => {
                 self.list = None;
@@ -401,7 +424,7 @@ impl ExecDialog {
     /// Which list is open: "command" or "dir".
     #[cfg(test)]
     pub(crate) fn open_list(&self) -> Option<&'static str> {
-        self.list.map(|field| match field {
+        self.list.map(|open| match open.field {
             Field::Command => "command",
             Field::CurDir => "dir",
         })
@@ -451,9 +474,11 @@ impl ExecDialog {
             Field::Command => "コマンドの履歴",
             Field::CurDir => "カレントディレクトリの履歴",
         };
+        let row = self.list.map_or(usize::MAX, |open| open.row);
         let mut list = crate::a11y::list_box(v_flex().id(id), name)
             .max_h(px(140.))
             .overflow_y_scroll()
+            .track_scroll(&self.list_scroll)
             .border_1()
             .border_color(rgb(0xaaaaaa))
             .bg(rgb(0xffffff));
@@ -463,9 +488,9 @@ impl ExecDialog {
         for (i, text) in rows.into_iter().enumerate() {
             let pick = text.clone();
             list = list.child(
-                crate::a11y::list_row(div().id((id, i)), &text, i == self.highlight)
+                crate::a11y::list_row(div().id((id, i)), &text, i == row)
                     .px_1()
-                    .when(i == self.highlight, |d| d.bg(rgb(0xcce4f7)))
+                    .when(i == row, |d| d.bg(rgb(0xcce4f7)))
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xdde8f5)))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -527,7 +552,9 @@ impl Render for ExecDialog {
                     .labelled("履歴")
                     // `IDC_COMBO_m_szCommand` is a combo box: Tab skips the button.
                     .tab_stop(false)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_list(Field::Command, cx))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_list(Field::Command, window, cx)
+                    })),
             )
             .child(
                 Button::new("exec-browse")
@@ -541,12 +568,18 @@ impl Render for ExecDialog {
             .gap_2()
             .child(div().flex_1().child(Input::new(&self.cur_dir)))
             .child(
-                Button::new("exec-dir-history-button")
-                    .labelled("履歴")
-                    .disabled(!self.use_cur_dir)
-                    // `IDC_COMBO_CUR_DIR` is a combo box: Tab skips the button.
-                    .tab_stop(false)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_list(Field::CurDir, cx))),
+                div()
+                    .debug_selector(|| "exec-dir-history-button".into())
+                    .child(
+                        Button::new("exec-dir-history-button")
+                            .labelled("履歴")
+                            .disabled(!self.use_cur_dir)
+                            // `IDC_COMBO_CUR_DIR` is a combo box: Tab skips the button.
+                            .tab_stop(false)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_list(Field::CurDir, window, cx)
+                            })),
+                    ),
             )
             .child(
                 Button::new("exec-dir-browse")
@@ -562,7 +595,9 @@ impl Render for ExecDialog {
             .child(NAME)
             .child(command_row)
             .when_some(
-                (self.list == Some(Field::Command)).then(|| self.history_list(Field::Command, cx)),
+                self.list
+                    .is_some_and(|open| open.field == Field::Command)
+                    .then(|| self.history_list(Field::Command, cx)),
                 |this, list| this.child(list),
             )
             .child(
@@ -656,7 +691,9 @@ impl Render for ExecDialog {
             )
             .child(dir_row)
             .when_some(
-                (self.list == Some(Field::CurDir)).then(|| self.history_list(Field::CurDir, cx)),
+                self.list
+                    .is_some_and(|open| open.field == Field::CurDir)
+                    .then(|| self.history_list(Field::CurDir, cx)),
                 |this, list| this.child(list),
             )
             .child(

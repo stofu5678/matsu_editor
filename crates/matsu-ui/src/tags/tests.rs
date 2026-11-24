@@ -712,3 +712,26 @@ fn the_tags_file_dialog_writes_its_options_on_ok_only(cx: &mut TestAppContext) {
 }
 
 mod access_keys;
+
+#[gpui::test]
+fn enter_in_an_open_history_list_only_takes_the_keyword(cx: &mut TestAppContext) {
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    cx.update(|app| {
+        crate::search::history::remember_tag_keyword(app, "foob");
+        crate::search::history::remember_tag_keyword(app, "foo");
+    });
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("foo".into())]);
+    settle(cx, SHORT_DELAY);
+    assert_eq!(w.list(cx).unwrap().0, ["foo", "foobar"]);
+    // the list opens on "foo"; Down goes to "foob"
+    w.cx(cx).simulate_keystrokes("f4 down enter");
+    settle(cx, SHORT_DELAY);
+    // the row was taken and searched; nothing was jumped to
+    assert_eq!(w.list(cx).unwrap().0, ["foobar"]);
+    assert_eq!(windows(cx), 1);
+    // the list is closed: the second Enter jumps
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(windows(cx), 2);
+}
