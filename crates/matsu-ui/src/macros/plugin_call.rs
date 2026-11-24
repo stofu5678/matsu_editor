@@ -797,7 +797,9 @@ pub(crate) enum Turn {
     Free,
     /// Another event call runs: wait for it.
     AfterEvent,
-    /// A command of a plugin or a macro has the window: the event is not given.
+    /// A command of a plugin, or a macro that is in a call, has the window: the event is not given. A
+    /// macro that waits for a flow (a save, a file that is read) has not: the events of that flow run, and
+    /// the macro goes on after them.
     Taken,
 }
 
@@ -808,14 +810,36 @@ impl EditorView {
         self.macros.plugin_running = on;
     }
 
+    /// For tests: a macro of this window is in a call, which has the window (a macro that waits for a flow
+    /// has not).
+    #[cfg(test)]
+    pub(crate) fn pretend_macro_call_for_test(&mut self, on: bool) {
+        self.macros.suspended = on;
+        self.macros.queue.clear();
+        if on {
+            self.macros.queue.push_back(super::Item::Leave);
+        }
+    }
+
     /// See [`Turn`].
+    ///
+    /// A macro that waits for a flow (`MacroState::waiting`: a save, a file that is read) lends the window to
+    /// the flow, and the flow's events are the macro's own (Sakura calls the plugins from inside the
+    /// macro's command: `CDocFileOperation::DoSaveFlow`). A macro that runs a call now takes it.
     pub(crate) fn event_turn(&self, cx: &gpui::App) -> Turn {
-        if !(self.macros.busy() || self.plugin_in_call(cx)) {
-            Turn::Free
-        } else if self.macros.plugin_running && self.macros.plugin_event {
-            Turn::AfterEvent
-        } else {
+        if self.macros.plugin_running {
+            if self.macros.plugin_event {
+                Turn::AfterEvent
+            } else {
+                Turn::Taken
+            }
+        } else if self.macros.owns_window()
+            || self.document.read(cx).plugin_busy()
+            || self.macro_owns_window_in_other_pane(cx)
+        {
             Turn::Taken
+        } else {
+            Turn::Free
         }
     }
 
@@ -1042,9 +1066,14 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
     // One plugin at a time on a window: the calls would share the undo block of the document, and
     // a macro that runs has the window already.
     let busy = editor.update(cx, |view, cx| {
-        // The whole state of the macros: a script, a key macro that plays or waits for a dialog (the
-        // settings that started this call may be the dialog it waits for), or another call.
-        view.plugin_in_call(cx) || view.macros.busy()
+        if event {
+            // An event may come while a macro waits for the flow that raised it (`Turn`).
+            view.event_turn(cx) != Turn::Free
+        } else {
+            // The whole state of the macros: a script, a key macro that plays or waits for a dialog (the
+            // settings that started this call may be the dialog it waits for), or another call.
+            view.plugin_in_call(cx) || view.macros.busy()
+        }
     });
     if busy {
         // An event is dropped when another call has the window (a plugin that makes its own events

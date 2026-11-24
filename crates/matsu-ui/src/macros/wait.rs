@@ -309,6 +309,11 @@ impl EditorView {
         if wait.flows.get() > 0 {
             return false;
         }
+        // The plugin events that the call raised (`plugin_events`) are over before the macro goes on:
+        // Sakura calls the plugins inside the command, and the next call must not meet a plugin that runs.
+        if self.event_batches_pending() {
+            return false;
+        }
         let now = self.activity(cx);
         wait.watched |= now & !wait.baseline;
         if wait.watched & now != 0 {

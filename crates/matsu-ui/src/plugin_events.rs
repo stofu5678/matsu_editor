@@ -25,10 +25,14 @@
 //! (the handler's own actions do not call the plugins again); one that comes while another event runs waits
 //! for its turn, so that `EditorStart` is over before the first `DocumentOpen`.
 //!
-//! A macro (a key macro or a script) that saves or reads a file gets no events for it, though Sakura calls the
-//! plugins there. The event call takes the state of the window that a running macro holds (the flag of a
-//! plugin call, the block of undo, `Turn::Taken`), and the macro waits for the very flow whose events would
-//! need it; letting both in needs a state of its own for the event calls, which no foundation has yet.
+//! A macro (a key macro or a script) that saves or reads a file gets the events for it, as in Sakura, where the
+//! plugins are called from inside the command (`CDocFileOperation::DoSaveFlow`, `FileLoad`) and run nested in the
+//! macro. Here the command starts a flow and the macro waits for it (`macros/wait.rs`); while it waits, the macro
+//! does nothing to the window, so the event calls take it ([`Turn`]: `MacroState::owns_window` is false), and the
+//! macro goes on when the flow and its events are over. The state of an event call is its own (`plugin_running`,
+//! `plugin_event`, the block of undo that it opens and closes at its own depth, the tickets); the macro keeps
+//! `running`, `queue` and `waiting`. A macro that is in a call (not waiting) still takes the window, and its events
+//! are not given. Each call has the time limit of its jack, so a plugin that never answers ends the wait.
 //!
 //! Sakura has one document in a window and never meets a window that was told `EditorEnd` and stays. Here a
 //! tab can open, or the user can type, while the handlers of `EditorEnd` run: the window then is told
@@ -496,5 +500,7 @@ pub(crate) async fn restart_ended(log: &mut CloseLog, cx: &mut AsyncWindowContex
 
 #[cfg(test)]
 mod close_path_tests;
+#[cfg(test)]
+mod macro_tests;
 #[cfg(test)]
 mod tests;

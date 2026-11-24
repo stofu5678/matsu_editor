@@ -344,6 +344,15 @@ impl MacroState {
             .flatten()
     }
 
+    /// The macro is in the middle of a call or between two calls, so it owns the window: a call of a
+    /// macro that waits for a flow (`waiting`) does not, the window is the flow's until it ends. A
+    /// macro that waits does nothing to the text, the undo blocks or the plugin hosts, so an event
+    /// call (`plugin_events`) may take the window then (the macro waits for the flow that raised it).
+    /// See [`Turn`](plugin_call::Turn).
+    pub(crate) fn owns_window(&self) -> bool {
+        self.waiting.is_none() && (self.running.is_some() || !self.queue.is_empty())
+    }
+
     fn busy(&self) -> bool {
         self.running.is_some()
             || self.plugin_running
@@ -373,6 +382,20 @@ impl EditorView {
         self.macros.plugin_running
             || self.document.read(cx).plugin_busy()
             || self.macro_in_other_pane(cx)
+    }
+
+    /// A macro runs in another pane that shows the document of this view, and does not wait for a flow
+    /// (see [`MacroState::owns_window`]).
+    pub(crate) fn macro_owns_window_in_other_pane(&self, cx: &gpui::App) -> bool {
+        self.document
+            .read(cx)
+            .views()
+            .filter(|other| other.entity_id() != self.entity_id)
+            .any(|other| {
+                let other = other.read(cx);
+                other.document == self.document
+                    && (other.macros.plugin_running || other.macros.owns_window())
+            })
     }
 
     /// A macro runs in another pane that shows the document of this view.
@@ -1188,4 +1211,4 @@ fn dialog_error(error: &impl std::fmt::Display) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
