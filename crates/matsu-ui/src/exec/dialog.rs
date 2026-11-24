@@ -10,6 +10,7 @@
 
 use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
+use crate::combo_rows::{arrow_row, row_of};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
 use crate::support::help::OnHelpKey as _;
@@ -74,12 +75,13 @@ enum Field {
     CurDir,
 }
 
-/// The open history list: its box and the row that Enter takes (one value, so that the row
-/// cannot belong to another box).
+/// The open history list: its box and its highlighted row (one value, so that the row cannot
+/// belong to another box). The row is none while the text of the box is not a row; the arrow
+/// keys move it and put its text in the box (`combo_rows`).
 #[derive(Clone, Copy)]
 struct OpenList {
     field: Field,
-    row: usize,
+    row: Option<usize>,
 }
 
 pub(crate) struct ExecDialog {
@@ -137,7 +139,7 @@ impl ExecDialog {
                         // list of this box takes it here: the row is taken and the command
                         // does not run. A list of the other box does not take it.
                         if this.list.is_some_and(|open| open.field == field) {
-                            this.take_row(field, window, cx);
+                            this.close_open_list(field, cx);
                         } else {
                             this.ok(window, cx);
                         }
@@ -311,13 +313,11 @@ impl ExecDialog {
             self.list = None;
         } else {
             let current = self.input(field).read(cx).value();
-            let row = self
-                .history_rows(field)
-                .iter()
-                .position(|row| row == current.as_str())
-                .unwrap_or(0);
+            let row = row_of(&self.history_rows(field), current.as_str());
             self.list = Some(OpenList { field, row });
-            self.list_scroll.scroll_to_item(row);
+            if let Some(row) = row {
+                self.list_scroll.scroll_to_item(row);
+            }
         }
         let input = self.input(field).clone();
         input.update(cx, |state, cx| state.focus(window, cx));
@@ -346,7 +346,7 @@ impl ExecDialog {
     }
 
     /// The keys of a combo box (`CBS_DROPDOWN`): F4 and Alt+Down open or close the list; with it
-    /// open Up, Down, Enter (see `take_row`) and Escape work in it; with it closed Up and Down go
+    /// open Up, Down, Enter (see `close_open_list`) and Escape work in it; with it closed Up and Down go
     /// through the history. Returns whether the key was used.
     fn combo_key(
         &mut self,
@@ -366,7 +366,12 @@ impl ExecDialog {
         let key = event.keystroke.key.as_str();
         let m = &event.keystroke.modifiers;
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
-        if key == "f4" || (key == "down" && m.alt) {
+        // Alt+Up closes an open list, as F4 does (measured on a Windows combo box).
+        let alt_up_closes = key == "up" && m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4"
+            || (key == "down" && m.alt)
+            || (alt_up_closes && self.list.is_some_and(|open| open.field == field))
+        {
             self.toggle_list(field, window, cx);
             return true;
         }
@@ -378,37 +383,31 @@ impl ExecDialog {
         let Some(open) = self.list else {
             // closed: the next row after the one that holds the text of the box
             let current = self.input(field).read(cx).value();
-            let next = match (rows.iter().position(|r| r == current.as_str()), down) {
-                (Some(i), true) => (i + 1).min(rows.len() - 1),
-                (Some(i), false) => i.saturating_sub(1),
-                (None, _) => 0,
-            };
+            let next = arrow_row(row_of(&rows, current.as_str()), down, rows.len());
             let text = rows[next].clone();
             self.input(field)
                 .update(cx, |state, cx| state.set_value(text, window, cx));
             return true;
         };
-        let row = if down {
-            (open.row + 1).min(rows.len() - 1)
-        } else {
-            open.row.saturating_sub(1)
-        };
-        self.list = Some(OpenList { field, row });
+        let row = arrow_row(open.row, down, rows.len());
+        self.list = Some(OpenList {
+            field,
+            row: Some(row),
+        });
         self.list_scroll.scroll_to_item(row);
+        let text = rows[row].clone();
+        self.input(field)
+            .update(cx, |state, cx| state.set_value(text, window, cx));
         cx.notify();
         true
     }
 
-    /// Enter in an open list: the highlighted row goes into the box.
-    fn take_row(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
-        let rows = self.history_rows(field);
-        let row = self.list.map_or(0, |open| open.row);
-        match rows.get(row) {
-            Some(text) => self.pick(field, text, window, cx),
-            None => {
-                self.list = None;
-                cx.notify();
-            }
+    /// Enter in an open list: the list closes and the box keeps its text, which the arrow keys
+    /// have put there.
+    fn close_open_list(&mut self, field: Field, cx: &mut Context<Self>) {
+        if self.list.is_some_and(|open| open.field == field) {
+            self.list = None;
+            cx.notify();
         }
     }
 
@@ -474,7 +473,7 @@ impl ExecDialog {
             Field::Command => "コマンドの履歴",
             Field::CurDir => "カレントディレクトリの履歴",
         };
-        let row = self.list.map_or(usize::MAX, |open| open.row);
+        let row = self.list.and_then(|open| open.row);
         let mut list = crate::a11y::list_box(v_flex().id(id), name)
             .max_h(px(140.))
             .overflow_y_scroll()
@@ -488,9 +487,9 @@ impl ExecDialog {
         for (i, text) in rows.into_iter().enumerate() {
             let pick = text.clone();
             list = list.child(
-                crate::a11y::list_row(div().id((id, i)), &text, i == row)
+                crate::a11y::list_row(div().id((id, i)), &text, Some(i) == row)
                     .px_1()
-                    .when(i == row, |d| d.bg(rgb(0xcce4f7)))
+                    .when(Some(i) == row, |d| d.bg(rgb(0xcce4f7)))
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xdde8f5)))
                     .on_click(cx.listener(move |this, _, window, cx| {

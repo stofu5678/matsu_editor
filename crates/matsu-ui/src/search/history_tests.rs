@@ -277,8 +277,9 @@ fn b_plus_is_in_the_history_after_it_found_bbbb(cx: &mut TestAppContext) {
     // the panel starts with the selection...
     cx.simulate_keystrokes("ctrl-f");
     assert_eq!(f.pattern(cx), "bbbb");
-    // ...and the list has `b+`
+    // ...and the list has `b+`: "bbbb" is not a row, so Down takes the first
     cx.simulate_keystrokes("alt-down");
+    cx.simulate_keystrokes("down");
     cx.simulate_keystrokes("enter");
     assert_eq!(f.pattern(cx), "b+");
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
@@ -523,8 +524,8 @@ fn alt_down_opens_the_list_and_enter_picks_from_it(cx: &mut TestAppContext) {
     }
     cx.simulate_keystrokes("ctrl-f secondary-a");
     cx.simulate_input("zzz");
-    cx.simulate_keystrokes("alt-down down down enter");
-    // c, b, a: the list had no "zzz", so it opens on the first (c); two Downs reach a
+    cx.simulate_keystrokes("alt-down down down down enter");
+    // c, b, a: the list had no "zzz", so nothing is highlighted; three Downs reach a
     assert_eq!(f.pattern(cx), "a");
     // Enter closed the list and did not search
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
@@ -602,11 +603,15 @@ fn the_arrow_opens_the_list_by_click_and_the_keys_still_work(cx: &mut TestAppCon
         other_window(cx, s, Some(s));
     }
     cx.simulate_keystrokes("ctrl-r");
-    for toggle in ["search-history-toggle", "replace-history-toggle"] {
+    // the search box has the word at the caret ("x", not a row): Down takes "b", the next "a";
+    // the replacement box has "b" (a row): one Down reaches "a"
+    for (toggle, keys) in [
+        ("search-history-toggle", "down down enter"),
+        ("replace-history-toggle", "down enter"),
+    ] {
         let arrow = cx.debug_bounds(toggle).expect("the arrow");
         cx.simulate_click(arrow.center(), gpui::Modifiers::none());
-        // the list opened on the newest, "b"; Down goes to "a" and Enter takes it
-        cx.simulate_keystrokes("down enter");
+        cx.simulate_keystrokes(keys);
     }
     assert_eq!(f.pattern(cx), "a");
     assert_eq!(f.replacement(cx), "a");
@@ -661,4 +666,96 @@ fn enter_in_an_open_list_of_the_replacement_does_not_replace(cx: &mut TestAppCon
     // the list is closed: the second Enter replaces
     cx.simulate_keystrokes("enter");
     assert_eq!(text(&f, cx), "r1");
+}
+
+fn list_row(f: &Fixture, cx: &mut VisualTestContext) -> Option<Option<usize>> {
+    f.view.read_with(cx, |v, app| {
+        v.panel
+            .as_ref()
+            .and_then(|panel| panel.read(app).list_row())
+    })
+}
+
+/// Measured on a Windows combo box: Down in the open list puts the row in the box at once; Escape
+/// or Alt+Up closes the list and keeps that text; Up right after opening, from a text that is not
+/// a row, takes the first row; Down stops at the last row.
+#[gpui::test]
+fn the_arrows_of_an_open_list_put_the_row_in_the_box(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    for s in ["aaa", "bbb", "ccc"] {
+        other_window(cx, s, None);
+    }
+    cx.simulate_keystrokes("ctrl-f secondary-a");
+    cx.simulate_input("typed");
+    let before = f.selection(cx);
+    cx.simulate_keystrokes("f4");
+    assert_eq!(
+        (f.pattern(cx), list_row(&f, cx)),
+        ("typed".to_owned(), Some(None))
+    );
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        (f.pattern(cx), list_row(&f, cx)),
+        ("ccc".to_owned(), Some(Some(0)))
+    );
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        (f.pattern(cx), list_row(&f, cx)),
+        ("bbb".to_owned(), Some(Some(1)))
+    );
+    // Escape keeps the text the arrows put there, and nothing is searched
+    cx.simulate_keystrokes("escape");
+    assert_eq!((f.pattern(cx), list_row(&f, cx)), ("bbb".to_owned(), None));
+    assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
+    assert_eq!(f.selection(cx), before);
+    // Alt+Up closes too
+    cx.simulate_keystrokes("f4 down alt-up");
+    assert_eq!((f.pattern(cx), list_row(&f, cx)), ("aaa".to_owned(), None));
+    // Down stops at the last row
+    cx.simulate_keystrokes("f4 down down down");
+    assert_eq!(
+        (f.pattern(cx), list_row(&f, cx)),
+        ("aaa".to_owned(), Some(Some(2)))
+    );
+}
+
+#[gpui::test]
+fn up_right_after_opening_takes_the_first_row(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    for s in ["aaa", "bbb"] {
+        other_window(cx, s, None);
+    }
+    cx.simulate_keystrokes("ctrl-f secondary-a");
+    cx.simulate_input("typed");
+    cx.simulate_keystrokes("f4 up");
+    assert_eq!(
+        (f.pattern(cx), list_row(&f, cx)),
+        ("bbb".to_owned(), Some(Some(0)))
+    );
+    // Up at the first row stays
+    cx.simulate_keystrokes("up");
+    assert_eq!(
+        (f.pattern(cx), list_row(&f, cx)),
+        ("bbb".to_owned(), Some(Some(0)))
+    );
+}
+
+#[gpui::test]
+fn the_arrows_of_the_open_list_of_the_replacement_put_the_row_in_its_box(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    other_window(cx, "s", Some("r1"));
+    other_window(cx, "s", Some("r2"));
+    cx.simulate_keystrokes("ctrl-r");
+    let pattern = f.pattern(cx);
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.focus_replacement(window, cx));
+    cx.simulate_keystrokes("f4 down");
+    assert_eq!(f.replacement(cx), "r1");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(
+        (f.replacement(cx), list_row(&f, cx)),
+        ("r1".to_owned(), None)
+    );
+    // the search box was not touched
+    assert_eq!(f.pattern(cx), pattern);
 }

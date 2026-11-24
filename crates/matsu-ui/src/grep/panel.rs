@@ -25,6 +25,7 @@ use gpui::prelude::FluentBuilder as _;
 
 use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
+use crate::combo_rows::{arrow_row, row_of};
 use crate::input_select::{focus_selecting, input_field};
 use crate::support::help::OnHelpKey as _;
 use gpui::{
@@ -266,11 +267,12 @@ fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
     }
 }
 
-/// A history list that is open, with the entry that Enter takes.
+/// A history list that is open, with its highlighted entry: none while the text of the box is not
+/// an entry. The arrow keys move it and put its text in the box (`combo_rows`).
 #[derive(Clone, Copy, Debug)]
 struct DropDown {
     field: Field,
-    highlight: usize,
+    highlight: Option<usize>,
 }
 
 pub struct GrepPanel {
@@ -335,7 +337,7 @@ impl GrepPanel {
                         // (`combo_key`), so the open list of this box takes the key here: only
                         // the row is taken, the dialog is not run.
                         if this.dropdown.is_some_and(|d| d.field == field) {
-                            this.take_open_row(field, window, cx);
+                            this.close_open_list(field, cx);
                         } else {
                             this.ok(window, cx);
                         }
@@ -619,34 +621,31 @@ impl GrepPanel {
         } else {
             let current = self.field_input(field).read(cx).value();
             let (empty, at) = field.with_entries(cx, |entries| {
-                (
-                    entries.is_empty(),
-                    entries.iter().position(|e| e == current.as_str()),
-                )
+                (entries.is_empty(), row_of(entries, current.as_str()))
             });
-            self.dropdown = (self.field_enabled(field) && !empty).then(|| DropDown {
+            self.dropdown = (self.field_enabled(field) && !empty).then_some(DropDown {
                 field,
-                highlight: at.unwrap_or(0),
+                highlight: at,
             });
-            if let Some(open) = self.dropdown {
-                self.list_scroll.scroll_to_item(open.highlight);
+            if let Some(row) = self.dropdown.and_then(|open| open.highlight) {
+                self.list_scroll.scroll_to_item(row);
             }
         }
         cx.notify();
     }
 
-    /// Enter in an open list: the highlighted row goes into the box and the list closes.
-    fn take_open_row(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(open) = self.dropdown.filter(|d| d.field == field) else {
-            return;
-        };
-        let text = field.with_entries(cx, |entries| entries.get(open.highlight).cloned());
-        match text {
-            Some(text) => self.pick(field, text.into(), window, cx),
-            None => {
-                self.dropdown = None;
-                cx.notify();
-            }
+    /// The open history list, for the tests: none when it is closed, else its highlighted row.
+    #[cfg(test)]
+    pub(crate) fn list_row(&self) -> Option<Option<usize>> {
+        self.dropdown.map(|open| open.highlight)
+    }
+
+    /// Enter in an open list: the list closes and the box keeps its text, which the arrow keys
+    /// have put there.
+    fn close_open_list(&mut self, field: Field, cx: &mut Context<Self>) {
+        if self.dropdown.is_some_and(|d| d.field == field) {
+            self.dropdown = None;
+            cx.notify();
         }
     }
 
@@ -675,11 +674,7 @@ impl GrepPanel {
             if entries.is_empty() {
                 return None;
             }
-            let next = match (entries.iter().position(|e| e == current.as_str()), down) {
-                (Some(i), true) => (i + 1).min(entries.len() - 1),
-                (Some(i), false) => i.saturating_sub(1),
-                (None, _) => 0,
-            };
+            let next = arrow_row(row_of(entries, current.as_str()), down, entries.len());
             Some(entries[next].clone())
         });
         if let Some(next) = next {
@@ -706,7 +701,12 @@ impl GrepPanel {
         let key = event.keystroke.key.as_str();
         let m = &event.keystroke.modifiers;
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
-        if key == "f4" || (key == "down" && m.alt) {
+        // Alt+Up closes an open list, as F4 does (measured on a Windows combo box).
+        let alt_up_closes = key == "up" && m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4"
+            || (key == "down" && m.alt)
+            || (alt_up_closes && self.dropdown.is_some_and(|d| d.field == field))
+        {
             self.toggle_dropdown(field, cx);
             return true;
         }
@@ -722,13 +722,15 @@ impl GrepPanel {
         let count = field.with_entries(cx, <[String]>::len);
         match key {
             "down" | "up" if plain && count > 0 => {
-                let highlight = if key == "down" {
-                    (open.highlight + 1).min(count - 1)
-                } else {
-                    open.highlight.saturating_sub(1)
-                };
-                self.dropdown = Some(DropDown { highlight, ..open });
-                self.list_scroll.scroll_to_item(highlight);
+                let row = arrow_row(open.highlight, key == "down", count);
+                let text = field.with_entries(cx, |entries| entries[row].clone());
+                self.dropdown = Some(DropDown {
+                    highlight: Some(row),
+                    ..open
+                });
+                self.list_scroll.scroll_to_item(row);
+                self.field_input(field)
+                    .update(cx, |state, cx| state.set_value(text, window, cx));
                 cx.notify();
             }
             "escape" => {
@@ -779,10 +781,10 @@ impl GrepPanel {
             });
             let entries = texts.into_iter().enumerate().map(|(i, text)| {
                 let picked = text.clone();
-                crate::a11y::list_row(div().id((id, i)), &text, i == open.highlight)
+                crate::a11y::list_row(div().id((id, i)), &text, Some(i) == open.highlight)
                     .px_2()
                     .truncate()
-                    .when(i == open.highlight, |d| d.bg(rgb(0xcce4f7)))
+                    .when(Some(i) == open.highlight, |d| d.bg(rgb(0xcce4f7)))
                     .hover(|d| d.bg(rgb(0xe5f1fb)))
                     .child(text)
                     .on_click(cx.listener(move |this, _, window, cx| {

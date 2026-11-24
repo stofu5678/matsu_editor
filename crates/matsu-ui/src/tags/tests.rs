@@ -740,3 +740,61 @@ fn enter_in_an_open_history_list_only_takes_the_keyword(cx: &mut TestAppContext)
     cx.run_until_parked();
     assert_eq!(windows(cx), 2);
 }
+
+fn keyword_and_row(w: &Win, cx: &mut TestAppContext) -> (String, Option<Option<usize>>) {
+    w.view.read_with(cx, |v, app| {
+        let list = v.support.tag_list.as_ref().unwrap().read(app);
+        (list.keyword_text(app), list.history_row())
+    })
+}
+
+/// A combo box puts the row of the open list in its box as the arrows move (`CBN_SELCHANGE`), and
+/// Sakura starts the timer of the search then (`CDlgTagJumpList::OnCbnSelChange`).
+#[gpui::test]
+fn the_arrows_of_an_open_history_list_put_the_row_in_the_box_and_start_the_search(
+    cx: &mut TestAppContext,
+) {
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    cx.update(|app| {
+        crate::search::history::remember_tag_keyword(app, "foob");
+        crate::search::history::remember_tag_keyword(app, "foo");
+    });
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("typed".into())]);
+    settle(cx, SHORT_DELAY);
+    // the text is not a row: the list opens with none highlighted and the text stays
+    w.cx(cx).simulate_keystrokes("f4");
+    assert_eq!(keyword_and_row(&w, cx), ("typed".to_owned(), Some(None)));
+    // Down takes the first row, then the second; the last row is the end
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(keyword_and_row(&w, cx), ("foo".to_owned(), Some(Some(0))));
+    // the search follows after the typing delay
+    settle(cx, TYPING_DELAY);
+    assert_eq!(w.list(cx).unwrap().0, ["foo", "foobar"]);
+    w.cx(cx).simulate_keystrokes("down down");
+    assert_eq!(keyword_and_row(&w, cx), ("foob".to_owned(), Some(Some(1))));
+    // Escape closes the list and keeps the text; nothing was jumped to
+    w.cx(cx).simulate_keystrokes("escape");
+    assert_eq!(keyword_and_row(&w, cx), ("foob".to_owned(), None));
+    assert!(w.list(cx).is_some());
+    assert_eq!(windows(cx), 1);
+}
+
+#[gpui::test]
+fn up_after_opening_takes_the_first_row_and_alt_up_closes(cx: &mut TestAppContext) {
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    cx.update(|app| {
+        crate::search::history::remember_tag_keyword(app, "foob");
+        crate::search::history::remember_tag_keyword(app, "foo");
+    });
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("typed".into())]);
+    settle(cx, SHORT_DELAY);
+    w.cx(cx).simulate_keystrokes("f4 up");
+    assert_eq!(keyword_and_row(&w, cx), ("foo".to_owned(), Some(Some(0))));
+    w.cx(cx).simulate_keystrokes("down alt-up");
+    assert_eq!(keyword_and_row(&w, cx), ("foob".to_owned(), None));
+    // F4 closes it too, and the text stays
+    w.cx(cx).simulate_keystrokes("f4 up f4");
+    assert_eq!(keyword_and_row(&w, cx), ("foo".to_owned(), None));
+}

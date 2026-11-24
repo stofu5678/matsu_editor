@@ -33,6 +33,7 @@ pub mod back_image;
 mod bars;
 mod boxes;
 mod clipboard;
+mod combo_rows;
 mod command_line;
 mod common_settings;
 mod copy_html;
