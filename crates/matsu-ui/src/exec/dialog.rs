@@ -13,6 +13,7 @@ use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::combo_rows::{arrow_row, row_of};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -23,12 +24,12 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::radio::Radio;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 use matsu_config::settings::ExecHistory;
 use matsu_core::exec::{
     DIALOG_ENCODINGS, ExecFlags, INPUT_BITS, OUTPUT_BITS, input_choice, output_choice,
 };
+use std::rc::Rc;
 
 use crate::view::EditorView;
 
@@ -100,6 +101,9 @@ pub(crate) struct ExecDialog {
     /// Scrolls the open list to its row.
     list_scroll: ScrollHandle,
     result: Option<async_channel::Sender<Option<Choice>>>,
+    /// The focus of the two radio buttons of 標準出力リダイレクト先 (`IDC_RADIO_OUTPUT`,
+    /// `IDC_RADIO_EDITWINDOW`: one group).
+    pub(super) redirect_ring: Ring,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -156,6 +160,7 @@ impl ExecDialog {
             list: None,
             list_scroll: ScrollHandle::new(),
             result: Some(result),
+            redirect_ring: Ring::default(),
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -527,6 +532,16 @@ impl Render for ExecDialog {
         let stdout = self.get_stdout;
         let output_item = self.output_item;
         let input_item = self.input_item;
+        // `IDC_RADIO_OUTPUT` and `IDC_RADIO_EDITWINDOW`: one group
+        let redirect = Group::new(
+            &self.redirect_ring,
+            2,
+            Some(usize::from(self.to_window)),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.to_window = *index == 1;
+                cx.notify();
+            })),
+        );
         let command_row = h_flex()
             .gap_2()
             .child(div().flex_1().child(Input::new(&self.command)))
@@ -619,26 +634,27 @@ impl Render for ExecDialog {
                     .child(
                         h_flex()
                             .gap_3()
-                            .child(
-                                Radio::new("exec-to-output")
-                                    .labelled(TO_OUTPUT)
-                                    .checked(!self.to_window)
-                                    .disabled(!stdout)
-                                    .on_click(cx.listener(|this, _: &bool, _, cx| {
+                            .child(redirect.radio(0, "exec-to-output", stdout, |radio| {
+                                radio.labelled(TO_OUTPUT).checked(!self.to_window).on_click(
+                                    cx.listener(|this, _: &bool, _, cx| {
                                         this.to_window = false;
                                         cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Radio::new("exec-to-window")
-                                    .labelled(TO_WINDOW)
-                                    .checked(self.to_window)
-                                    .disabled(!(stdout && self.editable))
-                                    .on_click(cx.listener(|this, _: &bool, _, cx| {
-                                        this.to_window = true;
-                                        cx.notify();
-                                    })),
-                            ),
+                                    }),
+                                )
+                            }))
+                            .child(redirect.radio(
+                                1,
+                                "exec-to-window",
+                                stdout && self.editable,
+                                |radio| {
+                                    radio.labelled(TO_WINDOW).checked(self.to_window).on_click(
+                                        cx.listener(|this, _: &bool, _, cx| {
+                                            this.to_window = true;
+                                            cx.notify();
+                                        }),
+                                    )
+                                },
+                            )),
                     ),
             )
             .child(

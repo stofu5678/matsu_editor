@@ -12,6 +12,8 @@
 //! * A document that cannot be edited offers only アウトプットに出す, as 外部コマンド実行's 編集中のウィンドウ is not
 //!   offered then.
 
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, AsyncWindowContext, Context, Entity, FocusHandle, Focusable,
@@ -20,7 +22,6 @@ use gpui::{
 };
 use gpui_component::button::Button;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::radio::Radio;
 use gpui_component::{h_flex, v_flex};
 use matsu_config::settings::oneliner::OutputTo;
 
@@ -29,6 +30,7 @@ use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::radio_group::{Group, GroupRadio, Ring};
 use crate::view::EditorView;
 
 /// The labels with their access keys (Alt+letter, [`OneLinerDialog::use_access_key`]).
@@ -56,6 +58,13 @@ pub(crate) struct Choice {
     pub output: OutputTo,
 }
 
+/// The radio buttons of 結果の置き場所, in the order they are drawn in.
+const PLACES: [OutputTo; 3] = [
+    OutputTo::Replace,
+    OutputTo::NextLine,
+    OutputTo::OutputWindow,
+];
+
 pub(crate) struct OneLinerDialog {
     view: WeakEntity<EditorView>,
     pub(crate) line: Entity<InputState>,
@@ -63,6 +72,8 @@ pub(crate) struct OneLinerDialog {
     /// The history, the most recent first.
     history: Vec<String>,
     pub(crate) output: OutputTo,
+    /// The focus of the radio buttons of 結果の置き場所 (one group, in the order of [`PLACES`]).
+    pub(super) places_ring: Ring,
     /// The document can be edited (otherwise only アウトプットに出す is offered).
     editable: bool,
     list: bool,
@@ -119,6 +130,7 @@ impl OneLinerDialog {
             } else {
                 OutputTo::OutputWindow
             },
+            places_ring: Ring::default(),
             editable,
             list: false,
             registering: false,
@@ -299,22 +311,26 @@ impl OneLinerDialog {
         list
     }
 
+    /// The radio button of `PLACES[index]`.
     fn radio(
         &self,
+        group: &Group,
+        index: usize,
         id: &'static str,
         label: &'static str,
-        to: OutputTo,
         enabled: bool,
         cx: &mut Context<Self>,
-    ) -> Radio {
-        Radio::new(id)
-            .labelled(label)
-            .checked(self.output == to)
-            .disabled(!enabled)
-            .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                this.output = to;
-                cx.notify();
-            }))
+    ) -> GroupRadio {
+        let to = PLACES[index];
+        group.radio(index, id, enabled, |radio| {
+            radio
+                .labelled(label)
+                .checked(self.output == to)
+                .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                    this.output = to;
+                    cx.notify();
+                }))
+        })
     }
 }
 
@@ -336,6 +352,15 @@ impl Render for OneLinerDialog {
                     .labelled("履歴")
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_list(cx))),
             );
+        let group = Group::new(
+            &self.places_ring,
+            PLACES.len(),
+            PLACES.iter().position(|to| *to == self.output),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.output = PLACES[*index];
+                cx.notify();
+            })),
+        );
         let places = v_flex()
             .gap_1()
             .p_1()
@@ -345,15 +370,9 @@ impl Render for OneLinerDialog {
             .child(
                 h_flex()
                     .gap_3()
-                    .child(self.radio("oneliner-replace", REPLACE, OutputTo::Replace, editable, cx))
-                    .child(self.radio(
-                        "oneliner-next-line",
-                        NEXT_LINE,
-                        OutputTo::NextLine,
-                        editable,
-                        cx,
-                    ))
-                    .child(self.radio("oneliner-output", OUTPUT, OutputTo::OutputWindow, true, cx)),
+                    .child(self.radio(&group, 0, "oneliner-replace", REPLACE, editable, cx))
+                    .child(self.radio(&group, 1, "oneliner-next-line", NEXT_LINE, editable, cx))
+                    .child(self.radio(&group, 2, "oneliner-output", OUTPUT, true, cx)),
             );
         let buttons = if self.registering {
             h_flex()

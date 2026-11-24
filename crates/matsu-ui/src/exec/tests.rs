@@ -1153,3 +1153,58 @@ fn an_arrow_after_typing_in_the_open_list_starts_from_the_text(cx: &mut TestAppC
     assert_eq!(command_box_text(cx, &dialog), "newest");
     assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
 }
+
+/// The place of the output of 外部コマンド実行 as the dialog has it: `to_window`, and the button of
+/// 標準出力リダイレクト先 that has the focus.
+fn redirect_state(
+    w: &Win,
+    cx: &mut TestAppContext,
+    dialog: &gpui::Entity<super::dialog::ExecDialog>,
+) -> (bool, Option<usize>) {
+    let ring = dialog.read_with(cx, |d, _| d.redirect_ring.clone());
+    let at = crate::radio_group::testing::at(w.cx(cx), &[&ring]).map(|(_, button)| button);
+    (dialog.read_with(cx, |d, _| d.to_window), at)
+}
+
+#[gpui::test]
+fn the_two_radio_buttons_of_the_redirect_are_one_group(cx: &mut TestAppContext) {
+    use crate::radio_group::testing::{assert_stops_at_checked, trail};
+    // `IDC_RADIO_OUTPUT` has `WS_GROUP | WS_TABSTOP`, `IDC_RADIO_EDITWINDOW` follows in the group
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    dialog.update(cx, |d, cx| {
+        d.get_stdout = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let ring = dialog.read_with(cx, |d, _| d.redirect_ring.clone());
+    // Tab and Shift+Tab stop on the group once, at the checked button
+    let forward = trail(w.cx(cx), &[&ring], "tab", 30);
+    assert_stops_at_checked(&forward, &[0]);
+    let back = trail(w.cx(cx), &[&ring], "shift-tab", 30);
+    assert_stops_at_checked(&back, &[0]);
+    // the arrow keys choose the other one, and round the end again
+    for _ in 0..30 {
+        if redirect_state(&w, cx, &dialog).1.is_some() {
+            break;
+        }
+        w.cx(cx).simulate_keystrokes("tab");
+    }
+    assert_eq!(redirect_state(&w, cx, &dialog), (false, Some(0)));
+    for (key, to_window, at) in [
+        ("down", true, 1),
+        ("down", false, 0),
+        ("up", true, 1),
+        ("left", false, 0),
+        ("right", true, 1),
+    ] {
+        w.cx(cx).simulate_keystrokes(key);
+        assert_eq!(
+            redirect_state(&w, cx, &dialog),
+            (to_window, Some(at)),
+            "{key}"
+        );
+    }
+    // Tab leaves the group
+    w.cx(cx).simulate_keystrokes("tab");
+    assert_eq!(redirect_state(&w, cx, &dialog).1, None);
+}

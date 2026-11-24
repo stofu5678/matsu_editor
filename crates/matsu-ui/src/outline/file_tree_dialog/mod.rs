@@ -26,6 +26,7 @@ mod tests;
 use std::path::PathBuf;
 
 use crate::input_select::input_field;
+use crate::radio_group::Ring;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, PromptLevel, ScrollHandle,
     Subscription, WeakEntity, Window,
@@ -47,6 +48,9 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
+    /// The radio buttons of 種類 in the order they are drawn in (one group in `IDD_FILETREE`).
+    pub(crate) const ALL: [Kind; 3] = [Kind::Grep, Kind::File, Kind::Folder];
+
     fn of(item_type: ItemType) -> Self {
         match item_type {
             ItemType::File => Self::File,
@@ -84,6 +88,8 @@ pub(crate) struct FileTreeDialog {
     pub(crate) tree: Tree,
     /// 種類.
     pub(crate) kind: Kind,
+    /// The focus of the radio buttons of 種類.
+    kind_ring: Ring,
     /// パス (`IDC_EDIT_PATH`).
     pub(crate) path: Entity<InputState>,
     /// ラベル (`IDC_EDIT_LABEL`).
@@ -159,6 +165,7 @@ impl FileTreeDialog {
             path_menu_at: 0,
             busy: false,
             focus: cx.focus_handle(),
+            kind_ring: Ring::default(),
             tree_focus: cx.focus_handle().tab_stop(true),
             tree_scroll: ScrollHandle::new(),
             revealed: None,

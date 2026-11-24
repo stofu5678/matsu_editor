@@ -253,3 +253,66 @@ fn the_spin_buttons_of_the_numbers_have_the_ranges_of_sakura(cx: &mut TestAppCon
     click(cx, "win-size-spin-幅(&W)-down");
     assert_eq!(values(cx).width, 0);
 }
+
+fn visual(cx: &mut TestAppContext) -> &mut gpui::VisualTestContext {
+    let (_, handle) = cx.update(|app| current(app)).unwrap();
+    gpui::VisualTestContext::from_window(handle, cx).into_mut()
+}
+
+/// Where the focus is: the position of the radio button in its group (`IDC_RADIO_WINPOS_*`, then
+/// `IDC_RADIO_WINSIZE_*`), if it is on one.
+fn radio_focus(cx: &mut TestAppContext) -> (Option<usize>, Option<usize>) {
+    with_dialog(cx, |d, window, _| {
+        (d.pos_ring.focused(window), d.size_ring.focused(window))
+    })
+}
+
+#[gpui::test]
+fn each_group_of_radio_buttons_is_one_tab_stop_at_the_checked_one(cx: &mut TestAppContext) {
+    use crate::radio_group::testing::{assert_stops_at_checked, trail};
+    // 起動時の位置 指定しない (0) and 大きさ 継承する (1): `WS_GROUP | WS_TABSTOP` on the first of
+    // each group, and Windows' dialog manager tabs to the checked button (`IDD_WINPOSSIZE`)
+    let _got = open_dialog(cx, START);
+    let (pos, size) = with_dialog(cx, |d, _, _| (d.pos_ring.clone(), d.size_ring.clone()));
+    let forward = trail(visual(cx), &[&pos, &size], "tab", 24);
+    assert_stops_at_checked(&forward, &[0, 1]);
+    let back = trail(visual(cx), &[&pos, &size], "shift-tab", 24);
+    assert_stops_at_checked(&back, &[0, 1]);
+}
+
+#[gpui::test]
+fn the_arrow_keys_move_among_the_radio_buttons_of_a_group_and_choose(cx: &mut TestAppContext) {
+    let _got = open_dialog(cx, START);
+    let (pos, size) = with_dialog(cx, |d, _, _| (d.pos_ring.clone(), d.size_ring.clone()));
+    // Tab until the focus is on the checked button of 起動時の位置
+    for _ in 0..24 {
+        if radio_focus(cx).0.is_some() {
+            break;
+        }
+        keys(cx, "tab");
+    }
+    assert_eq!(radio_focus(cx), (Some(0), None));
+    for (key, mode, focus) in [
+        ("down", MODE_SAVE, 1),
+        ("right", MODE_SET, 2),
+        // round the end to the first one
+        ("down", MODE_DEFAULT, 0),
+        // and from the first one to the last
+        ("up", MODE_SET, 2),
+        ("left", MODE_SAVE, 1),
+    ] {
+        keys(cx, key);
+        let now = with_dialog(cx, |d, _, dcx| d.values(dcx));
+        assert_eq!(now.pos_mode, mode, "{key}");
+        assert_eq!(radio_focus(cx), (Some(focus), None), "{key}");
+        assert_eq!(
+            now.size_mode, START.size_mode,
+            "{key}: the other group stays"
+        );
+    }
+    // Tab leaves the group at once, and Shift+Tab comes back to the one that is checked now
+    keys(cx, "tab");
+    assert_eq!(radio_focus(cx).0, None);
+    let back = crate::radio_group::testing::trail(visual(cx), &[&pos, &size], "shift-tab", 1);
+    assert_eq!(back, [Some((0, 1))]);
+}

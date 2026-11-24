@@ -5,6 +5,8 @@
 //! ヘルプ at the bottom. The texts are Sakura's; an access key `(&X)` is drawn as `(X)` and left
 //! out of the name that a screen reader says (`crate::a11y::label_name`).
 
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
@@ -14,7 +16,6 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputState};
-use gpui_component::radio::Radio;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use super::actions::PATH_MENU;
@@ -24,6 +25,7 @@ use crate::access_keys::OnAccessKey as _;
 use crate::common_settings::model::parse_label;
 use crate::dialog_focus::tab_inside;
 use crate::outline::file_tree::source::SettingFrom;
+use crate::radio_group::{Group, GroupRadio};
 use crate::support::help::OnHelpKey as _;
 
 /// The name of the "..." button of the box 「デフォルト設定ファイル名」 (`IDC_BUTTON_REF1`) for a
@@ -124,18 +126,23 @@ impl FileTreeDialog {
             )
     }
 
+    /// The radio button of `Kind::ALL[index]`.
     fn radio(
         &self,
+        group: &Group,
+        index: usize,
         id: &'static str,
         label: &'static str,
-        kind: Kind,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        Radio::new(id)
-            .label(parse_label(label).0)
-            .accessibility_label(label_name(label))
-            .checked(self.kind == kind)
-            .on_click(cx.listener(move |this, _: &bool, _, cx| this.set_kind(kind, cx)))
+    ) -> GroupRadio {
+        let kind = Kind::ALL[index];
+        group.radio(index, id, true, |radio| {
+            radio
+                .label(parse_label(label).0)
+                .accessibility_label(label_name(label))
+                .checked(self.kind == kind)
+                .on_click(cx.listener(move |this, _: &bool, _, cx| this.set_kind(kind, cx)))
+        })
     }
 
     fn check(
@@ -177,6 +184,12 @@ impl FileTreeDialog {
         let path_on = self.path_enabled();
         let grep_on = self.grep_enabled();
         let can_load = self.loaded_from() != SettingFrom::File;
+        let kinds = Group::new(
+            &self.kind_ring,
+            Kind::ALL.len(),
+            Kind::ALL.iter().position(|kind| *kind == self.kind),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| this.set_kind(Kind::ALL[*index], cx))),
+        );
         let path_menu = self.path_menu.then(|| {
             let mut menu = v_flex()
                 .id("ft-path-menu")
@@ -252,9 +265,9 @@ impl FileTreeDialog {
                 Self::group("種類").child(
                     h_flex()
                         .gap_3()
-                        .child(self.radio("ft-grep", "Grep(&G)", Kind::Grep, cx))
-                        .child(self.radio("ft-file", "ファイル(&F)", Kind::File, cx))
-                        .child(self.radio("ft-folder", "フォルダー(&2)", Kind::Folder, cx)),
+                        .child(self.radio(&kinds, 0, "ft-grep", "Grep(&G)", cx))
+                        .child(self.radio(&kinds, 1, "ft-file", "ファイル(&F)", cx))
+                        .child(self.radio(&kinds, 2, "ft-folder", "フォルダー(&2)", cx)),
                 ),
             )
             .child(
