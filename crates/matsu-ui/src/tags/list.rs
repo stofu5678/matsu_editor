@@ -26,6 +26,7 @@
 //! that Sakura's dialog remembers (`rcTagJumpDialog`; a panel in the editor window has none), the
 //! help button.
 
+use crate::combo_rows::{arrow_row, row_of};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::support::help::OnHelpKey as _;
 use std::path::PathBuf;
@@ -120,8 +121,10 @@ pub(crate) struct TagList {
     result: Option<async_channel::Sender<Choice>>,
     focus: FocusHandle,
     scroll: ScrollHandle,
-    /// The history list of the keyword while it is open, with the entry that Enter takes.
-    history_open: Option<usize>,
+    /// Whether the history list of the keyword is open. The highlighted row is not kept: it is
+    /// the row that holds the text of the box (`row_of`), read when it is needed, so that typing
+    /// in the box cannot leave a stale row.
+    history_open: bool,
     history_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -153,16 +156,10 @@ impl TagList {
                 InputEvent::Change => this.search(true, TYPING_DELAY, cx),
                 InputEvent::PressEnter { .. } => {
                     // The key binding of Enter runs before the key listeners (`history_key`),
-                    // so an open list takes the key here: only the row is taken.
-                    if let Some(at) = this.history_open {
-                        let keywords = crate::search::history::tag_keywords(cx);
-                        match keywords.get(at) {
-                            Some(keyword) => this.pick_keyword(keyword.clone(), window, cx),
-                            None => {
-                                this.history_open = None;
-                                cx.notify();
-                            }
-                        }
+                    // so an open list takes the key here: it only closes, and the box keeps the
+                    // text that the arrow keys put there.
+                    if std::mem::take(&mut this.history_open) {
+                        cx.notify();
                     } else {
                         this.choose(window, cx);
                     }
@@ -192,7 +189,7 @@ impl TagList {
             result: Some(result),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
-            history_open: None,
+            history_open: false,
             history_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
@@ -282,6 +279,18 @@ impl TagList {
     #[cfg(test)]
     pub(crate) fn selected(&self) -> Option<usize> {
         self.selected
+    }
+
+    /// The text of the keyword box, for the tests.
+    #[cfg(test)]
+    pub(crate) fn keyword_text(&self, cx: &gpui::App) -> String {
+        self.keyword.read(cx).value().to_string()
+    }
+
+    /// Whether the history list is open, for the tests.
+    #[cfg(test)]
+    pub(crate) fn history_is_open(&self) -> bool {
+        self.history_open
     }
 
     #[cfg(test)]
@@ -435,16 +444,16 @@ impl TagList {
     /// Opens the history list of the keyword (`CDlgTagJumpList` fills the combo box from
     /// `CRecentTagjumpKeyword`), or closes it. With no history there is nothing to open.
     fn toggle_history(&mut self, cx: &mut Context<Self>) {
-        if self.history_open.take().is_none() {
+        if self.history_open {
+            self.history_open = false;
+        } else {
             let keywords = crate::search::history::tag_keywords(cx);
             let current = self.keyword.read(cx).value();
             if !keywords.is_empty() {
-                let at = keywords
-                    .iter()
-                    .position(|k| k == current.as_str())
-                    .unwrap_or(0);
-                self.history_open = Some(at);
-                self.history_scroll.scroll_to_item(at);
+                self.history_open = true;
+                if let Some(at) = row_of(&keywords, current.as_str()) {
+                    self.history_scroll.scroll_to_item(at);
+                }
             }
         }
         cx.notify();
@@ -452,7 +461,7 @@ impl TagList {
 
     /// Puts a keyword of the history in the box and searches for it.
     fn pick_keyword(&mut self, keyword: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.history_open = None;
+        self.history_open = false;
         self.keyword.update(cx, |state, cx| {
             state.set_value(keyword, window, cx);
             state.focus(window, cx);
@@ -461,33 +470,51 @@ impl TagList {
         cx.notify();
     }
 
-    /// The keys of the history list: F4 and Alt+Down open or close it; with it open Up, Down,
-    /// Enter (taken in the `PressEnter` handler) and Escape work in it. Returns whether the key was used.
-    fn history_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
+    /// The keys of the history list: F4 and Alt+Down open or close it (Alt+Up closes it); with it
+    /// open Up, Down, Enter (taken in the `PressEnter` handler) and Escape work in it. Returns
+    /// whether the key was used.
+    ///
+    /// Up and Down put the row's text in the box and start the search after the typing delay: the
+    /// combo box's `CBN_SELCHANGE` does `StartTimer()` as `CBN_EDITCHANGE` does
+    /// (`CDlgTagJumpList::OnCbnSelChange`, `CDlgTagJumpList.cpp` 663-669). Escape and the other
+    /// ways to close the list keep the text and start nothing.
+    fn history_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let key = event.keystroke.key.as_str();
         let m = &event.keystroke.modifiers;
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
-        if key == "f4" || (key == "down" && m.alt) {
+        let alt_up_closes = key == "up" && m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4" || (key == "down" && m.alt) || (alt_up_closes && self.history_open) {
             self.toggle_history(cx);
             return true;
         }
-        let Some(at) = self.history_open else {
+        if !self.history_open {
             return false;
-        };
+        }
         let keywords = crate::search::history::tag_keywords(cx);
         match key {
             "down" | "up" if plain && !keywords.is_empty() => {
-                let at = if key == "down" {
-                    (at + 1).min(keywords.len() - 1)
-                } else {
-                    at.saturating_sub(1)
-                };
-                self.history_open = Some(at);
-                self.history_scroll.scroll_to_item(at);
+                // From the row that holds the text now, which may have been typed since the last
+                // arrow: a text that is not a row starts at the first row.
+                let current = self.keyword.read(cx).value();
+                let row = arrow_row(
+                    row_of(&keywords, current.as_str()),
+                    key == "down",
+                    keywords.len(),
+                );
+                self.history_scroll.scroll_to_item(row);
+                let keyword = keywords[row].clone();
+                self.keyword
+                    .update(cx, |state, cx| state.set_value(keyword, window, cx));
+                self.search(true, TYPING_DELAY, cx);
                 cx.notify();
             }
             "escape" => {
-                self.history_open = None;
+                self.history_open = false;
                 cx.notify();
             }
             _ => return false,
@@ -496,7 +523,7 @@ impl TagList {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.form == Form::Keyword && self.history_key(event, cx) {
+        if self.form == Form::Keyword && self.history_key(event, window, cx) {
             cx.stop_propagation();
             return;
         }
@@ -673,23 +700,22 @@ impl Render for TagList {
         };
         let ignore_case = self.ignore_case;
         let partial = self.partial;
-        let history_list = self.history_open.map(|open| {
-            let entries = crate::search::history::tag_keywords(cx)
-                .into_iter()
-                .enumerate()
-                .map(|(i, text)| {
-                    let picked = text.clone();
-                    div()
-                        .id(("tag-keyword-history", i))
-                        .px_2()
-                        .truncate()
-                        .when(i == open, |d| d.bg(rgb(0xcce4f7)))
-                        .hover(|d| d.bg(rgb(0xe5f1fb)))
-                        .child(SharedString::from(text))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.pick_keyword(picked.clone(), window, cx);
-                        }))
-                });
+        let history_list = self.history_open.then(|| {
+            let keywords = crate::search::history::tag_keywords(cx);
+            let open = row_of(&keywords, self.keyword.read(cx).value().as_str());
+            let entries = keywords.into_iter().enumerate().map(|(i, text)| {
+                let picked = text.clone();
+                div()
+                    .id(("tag-keyword-history", i))
+                    .px_2()
+                    .truncate()
+                    .when(Some(i) == open, |d| d.bg(rgb(0xcce4f7)))
+                    .hover(|d| d.bg(rgb(0xe5f1fb)))
+                    .child(SharedString::from(text))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.pick_keyword(picked.clone(), window, cx);
+                    }))
+            });
             div()
                 .id("tag-keyword-history")
                 .max_h(px(120.))

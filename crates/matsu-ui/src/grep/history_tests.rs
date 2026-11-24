@@ -270,8 +270,8 @@ fn the_list_of_a_box_opens_and_enter_picks_from_it(cx: &mut TestAppContext) {
     panel.update_in(cx, |p, window, cx| {
         p.file.update(cx, |s, cx| s.focus(window, cx));
     });
-    cx.simulate_keystrokes("alt-down down enter");
-    // c, b, a: "zzz" is not in the list, so it opens on the first; one Down reaches b
+    cx.simulate_keystrokes("alt-down down down enter");
+    // c, b, a: "zzz" is not in the list, so nothing is highlighted; two Downs reach b
     let file = panel.read_with(cx, |p, app| p.file.read(app).value().to_string());
     assert_eq!(file, "*.b");
     // the dialog is still open: Enter picked, it did not search
@@ -362,7 +362,8 @@ fn the_dialog_has_a_list_for_each_of_its_boxes(cx: &mut TestAppContext) {
                 s.focus(window, cx);
             });
         });
-        cx.simulate_keystrokes("alt-down enter");
+        // the box is empty, so no row is highlighted: Down takes the first
+        cx.simulate_keystrokes("alt-down down enter");
         let got = panel.read_with(cx, |p, app| {
             let state = match pick {
                 "file" => &p.file,
@@ -565,4 +566,111 @@ fn enter_in_an_open_list_only_takes_the_row_and_does_not_run_the_dialog(cx: &mut
     let [file, ..] = boxes(cx, &panel);
     assert_eq!(file, "*.a");
     assert!(f.view.read_with(cx, |v, _| v.grep_panel_open()));
+}
+
+fn list_open(cx: &mut VisualTestContext, panel: &Entity<GrepPanel>) -> bool {
+    panel.read_with(cx, |p, _| p.list_open())
+}
+
+/// Measured on a Windows combo box: Down in the open list puts the row in the box at once; Escape
+/// or Alt+Up closes the list and keeps that text; Up right after opening, from a text that is not
+/// a row, takes the first row; Down stops at the last row.
+#[gpui::test]
+fn the_arrows_of_an_open_list_put_the_row_in_the_box(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    cx.update(|_, app| {
+        for file in ["*.a", "*.b", "*.c"] {
+            history::remember_grep_boxes(
+                app,
+                &GrepBoxes {
+                    file,
+                    folder: "",
+                    exclude_file: "",
+                    exclude_folder: "",
+                },
+            );
+        }
+    });
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    fill(cx, &panel, ["zzz", "typed", "", "", ""]);
+    panel.update_in(cx, |p, window, cx| {
+        p.file.update(cx, |s, cx| s.focus(window, cx));
+    });
+    let file = |cx: &mut VisualTestContext| boxes(cx, &panel)[0].clone();
+    cx.simulate_keystrokes("f4");
+    assert_eq!(
+        (file(cx), list_open(cx, &panel)),
+        ("typed".to_owned(), true)
+    );
+    cx.simulate_keystrokes("down");
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.c".to_owned(), true));
+    cx.simulate_keystrokes("down");
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.b".to_owned(), true));
+    cx.simulate_keystrokes("escape");
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.b".to_owned(), false));
+    assert!(f.view.read_with(cx, |v, _| v.grep_panel_open()));
+    cx.simulate_keystrokes("f4 down alt-up");
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.a".to_owned(), false));
+    cx.simulate_keystrokes("f4 down down down");
+    assert_eq!((file(cx), list_open(cx, &panel)), ("*.a".to_owned(), true));
+}
+
+#[gpui::test]
+fn up_right_after_opening_takes_the_first_row(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    cx.update(|_, app| {
+        for file in ["*.a", "*.b"] {
+            history::remember_grep_boxes(
+                app,
+                &GrepBoxes {
+                    file,
+                    folder: "",
+                    exclude_file: "",
+                    exclude_folder: "",
+                },
+            );
+        }
+    });
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    fill(cx, &panel, ["zzz", "typed", "", "", ""]);
+    panel.update_in(cx, |p, window, cx| {
+        p.file.update(cx, |s, cx| s.focus(window, cx));
+    });
+    cx.simulate_keystrokes("f4 up");
+    assert_eq!(boxes(cx, &panel)[0], "*.b");
+    assert!(list_open(cx, &panel));
+    cx.simulate_keystrokes("up");
+    assert_eq!(boxes(cx, &panel)[0], "*.b");
+}
+
+/// The highlighted row is the row that holds the text of the box, not a number kept when the list
+/// opened: after the text is typed over, the next arrow starts from the first row.
+#[gpui::test]
+fn an_arrow_after_typing_in_the_open_list_starts_from_the_text(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    cx.update(|_, app| {
+        for file in ["*.a", "*.b", "*.c"] {
+            history::remember_grep_boxes(
+                app,
+                &GrepBoxes {
+                    file,
+                    folder: "",
+                    exclude_file: "",
+                    exclude_folder: "",
+                },
+            );
+        }
+    });
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    fill(cx, &panel, ["zzz", "typed", "", "", ""]);
+    panel.update_in(cx, |p, window, cx| {
+        p.file.update(cx, |s, cx| s.focus(window, cx));
+    });
+    cx.simulate_keystrokes("f4 down down");
+    assert_eq!(boxes(cx, &panel)[0], "*.b");
+    cx.simulate_input("x");
+    assert_eq!(boxes(cx, &panel)[0], "*.bx");
+    cx.simulate_keystrokes("down");
+    assert_eq!(boxes(cx, &panel)[0], "*.c");
+    assert!(list_open(cx, &panel));
 }

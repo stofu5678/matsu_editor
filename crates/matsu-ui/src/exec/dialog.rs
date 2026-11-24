@@ -10,6 +10,7 @@
 
 use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
+use crate::combo_rows::{arrow_row, row_of};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
 use crate::support::help::OnHelpKey as _;
@@ -74,14 +75,6 @@ enum Field {
     CurDir,
 }
 
-/// The open history list: its box and the row that Enter takes (one value, so that the row
-/// cannot belong to another box).
-#[derive(Clone, Copy)]
-struct OpenList {
-    field: Field,
-    row: usize,
-}
-
 pub(crate) struct ExecDialog {
     view: WeakEntity<EditorView>,
     pub(crate) command: Entity<InputState>,
@@ -100,7 +93,10 @@ pub(crate) struct ExecDialog {
     pub(crate) input_item: usize,
     /// The document can be edited (otherwise 編集中のウィンドウ is not offered).
     editable: bool,
-    list: Option<OpenList>,
+    /// The box whose history list is open (one value: only one list is open). The highlighted
+    /// row is not kept: it is the row that holds the text of the box (`row_of`), read when it is
+    /// needed, so that typing in the box cannot leave a stale row.
+    list: Option<Field>,
     /// Scrolls the open list to its row.
     list_scroll: ScrollHandle,
     result: Option<async_channel::Sender<Option<Choice>>>,
@@ -136,8 +132,8 @@ impl ExecDialog {
                         // The key binding of Enter runs before the key listeners, so the open
                         // list of this box takes it here: the row is taken and the command
                         // does not run. A list of the other box does not take it.
-                        if this.list.is_some_and(|open| open.field == field) {
-                            this.take_row(field, window, cx);
+                        if this.list == Some(field) {
+                            this.close_open_list(field, cx);
                         } else {
                             this.ok(window, cx);
                         }
@@ -238,7 +234,7 @@ impl ExecDialog {
     /// カレントディレクトリ is switched; off, its history list closes.
     fn set_use_cur_dir(&mut self, on: bool, cx: &mut Context<Self>) {
         self.use_cur_dir = on;
-        if !on && self.list.is_some_and(|open| open.field == Field::CurDir) {
+        if !on && self.list == Some(Field::CurDir) {
             self.list = None;
         }
         cx.notify();
@@ -307,17 +303,15 @@ impl ExecDialog {
     /// 履歴: opens or closes the list of the box. It opens on the row that holds the text of the box.
     /// The box gets the focus, as in a combo box: the keys of the list go to the box that has it.
     fn toggle_list(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
-        if self.list.is_some_and(|open| open.field == field) {
+        if self.list == Some(field) {
             self.list = None;
         } else {
             let current = self.input(field).read(cx).value();
-            let row = self
-                .history_rows(field)
-                .iter()
-                .position(|row| row == current.as_str())
-                .unwrap_or(0);
-            self.list = Some(OpenList { field, row });
-            self.list_scroll.scroll_to_item(row);
+            let row = row_of(&self.history_rows(field), current.as_str());
+            self.list = Some(field);
+            if let Some(row) = row {
+                self.list_scroll.scroll_to_item(row);
+            }
         }
         let input = self.input(field).clone();
         input.update(cx, |state, cx| state.focus(window, cx));
@@ -346,7 +340,7 @@ impl ExecDialog {
     }
 
     /// The keys of a combo box (`CBS_DROPDOWN`): F4 and Alt+Down open or close the list; with it
-    /// open Up, Down, Enter (see `take_row`) and Escape work in it; with it closed Up and Down go
+    /// open Up, Down, Enter (see `close_open_list`) and Escape work in it; with it closed Up and Down go
     /// through the history. Returns whether the key was used.
     fn combo_key(
         &mut self,
@@ -355,7 +349,7 @@ impl ExecDialog {
         cx: &mut Context<Self>,
     ) -> bool {
         let focused = self.focused_field(window, cx);
-        if self.list.is_some_and(|open| Some(open.field) != focused) {
+        if self.list.is_some_and(|open| Some(open) != focused) {
             // The focus left the box of the list: the list closes.
             self.list = None;
             cx.notify();
@@ -366,7 +360,9 @@ impl ExecDialog {
         let key = event.keystroke.key.as_str();
         let m = &event.keystroke.modifiers;
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
-        if key == "f4" || (key == "down" && m.alt) {
+        // Alt+Up closes an open list, as F4 does (measured on a Windows combo box).
+        let alt_up_closes = key == "up" && m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4" || (key == "down" && m.alt) || (alt_up_closes && self.list == Some(field)) {
             self.toggle_list(field, window, cx);
             return true;
         }
@@ -375,40 +371,26 @@ impl ExecDialog {
         if !(plain && (down || key == "up")) || rows.is_empty() {
             return false;
         }
-        let Some(open) = self.list else {
-            // closed: the next row after the one that holds the text of the box
-            let current = self.input(field).read(cx).value();
-            let next = match (rows.iter().position(|r| r == current.as_str()), down) {
-                (Some(i), true) => (i + 1).min(rows.len() - 1),
-                (Some(i), false) => i.saturating_sub(1),
-                (None, _) => 0,
-            };
-            let text = rows[next].clone();
-            self.input(field)
-                .update(cx, |state, cx| state.set_value(text, window, cx));
-            return true;
-        };
-        let row = if down {
-            (open.row + 1).min(rows.len() - 1)
-        } else {
-            open.row.saturating_sub(1)
-        };
-        self.list = Some(OpenList { field, row });
-        self.list_scroll.scroll_to_item(row);
-        cx.notify();
+        // From the row that holds the text of the box now, which may have been typed since the
+        // last arrow: a text that is not a row starts at the first row.
+        let current = self.input(field).read(cx).value();
+        let row = arrow_row(row_of(&rows, current.as_str()), down, rows.len());
+        let text = rows[row].clone();
+        self.input(field)
+            .update(cx, |state, cx| state.set_value(text, window, cx));
+        if self.list.is_some() {
+            self.list_scroll.scroll_to_item(row);
+            cx.notify();
+        }
         true
     }
 
-    /// Enter in an open list: the highlighted row goes into the box.
-    fn take_row(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
-        let rows = self.history_rows(field);
-        let row = self.list.map_or(0, |open| open.row);
-        match rows.get(row) {
-            Some(text) => self.pick(field, text, window, cx),
-            None => {
-                self.list = None;
-                cx.notify();
-            }
+    /// Enter in an open list: the list closes and the box keeps its text, which the arrow keys
+    /// have put there.
+    fn close_open_list(&mut self, field: Field, cx: &mut Context<Self>) {
+        if self.list == Some(field) {
+            self.list = None;
+            cx.notify();
         }
     }
 
@@ -424,7 +406,7 @@ impl ExecDialog {
     /// Which list is open: "command" or "dir".
     #[cfg(test)]
     pub(crate) fn open_list(&self) -> Option<&'static str> {
-        self.list.map(|open| match open.field {
+        self.list.map(|field| match field {
             Field::Command => "command",
             Field::CurDir => "dir",
         })
@@ -474,7 +456,8 @@ impl ExecDialog {
             Field::Command => "コマンドの履歴",
             Field::CurDir => "カレントディレクトリの履歴",
         };
-        let row = self.list.map_or(usize::MAX, |open| open.row);
+        let current = self.input(field).read(cx).value();
+        let row = row_of(&rows, current.as_str());
         let mut list = crate::a11y::list_box(v_flex().id(id), name)
             .max_h(px(140.))
             .overflow_y_scroll()
@@ -488,9 +471,9 @@ impl ExecDialog {
         for (i, text) in rows.into_iter().enumerate() {
             let pick = text.clone();
             list = list.child(
-                crate::a11y::list_row(div().id((id, i)), &text, i == row)
+                crate::a11y::list_row(div().id((id, i)), &text, Some(i) == row)
                     .px_1()
-                    .when(i == row, |d| d.bg(rgb(0xcce4f7)))
+                    .when(Some(i) == row, |d| d.bg(rgb(0xcce4f7)))
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xdde8f5)))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -595,9 +578,7 @@ impl Render for ExecDialog {
             .child(NAME)
             .child(command_row)
             .when_some(
-                self.list
-                    .is_some_and(|open| open.field == Field::Command)
-                    .then(|| self.history_list(Field::Command, cx)),
+                (self.list == Some(Field::Command)).then(|| self.history_list(Field::Command, cx)),
                 |this, list| this.child(list),
             )
             .child(
@@ -691,9 +672,7 @@ impl Render for ExecDialog {
             )
             .child(dir_row)
             .when_some(
-                self.list
-                    .is_some_and(|open| open.field == Field::CurDir)
-                    .then(|| self.history_list(Field::CurDir, cx)),
+                (self.list == Some(Field::CurDir)).then(|| self.history_list(Field::CurDir, cx)),
                 |this, list| this.child(list),
             )
             .child(

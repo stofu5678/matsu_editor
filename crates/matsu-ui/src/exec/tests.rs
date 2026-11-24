@@ -1071,3 +1071,85 @@ fn the_help_of_the_dialog_is_alt_h_and_f1_and_the_dialog_stays(cx: &mut TestAppC
     // the letter was not typed into the box
     assert_eq!(command_text(&w, cx), "");
 }
+
+fn command_box_text(
+    cx: &mut TestAppContext,
+    dialog: &gpui::Entity<super::dialog::ExecDialog>,
+) -> String {
+    dialog.read_with(cx, |d, app| d.command.read(app).value().to_string())
+}
+
+/// Measured on a Windows combo box: Down in the open list puts the row in the box at once; Escape
+/// or Alt+Up closes the list and keeps that text; Up right after opening, from a text that is not
+/// a row, takes the first row; Down stops at the last row.
+#[gpui::test]
+fn the_arrows_of_an_open_list_put_the_row_in_the_box(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    focus_box(&w, cx, &dialog, false);
+    // a text that is not a row
+    w.handle
+        .update(cx, |_, window, app| {
+            dialog.update(app, |d, cx| {
+                d.command
+                    .update(cx, |state, cx| state.set_value("typed", window, cx));
+            })
+        })
+        .unwrap();
+    w.cx(cx).simulate_keystrokes("f4");
+    assert_eq!(command_box_text(cx, &dialog), "typed");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(command_box_text(cx, &dialog), "newest");
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(command_box_text(cx, &dialog), "older");
+    // the end stays
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(command_box_text(cx, &dialog), "older");
+    // Escape keeps the text and closes the list only
+    w.cx(cx).simulate_keystrokes("escape");
+    assert_eq!(command_box_text(cx, &dialog), "older");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), None);
+    assert!(w.dialog(cx).is_some());
+    // Alt+Up closes it too, with the text of the arrows
+    w.cx(cx).simulate_keystrokes("f4 up alt-up");
+    assert_eq!(command_box_text(cx, &dialog), "newest");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), None);
+    // the folder box has its own list
+    focus_box(&w, cx, &dialog, true);
+    w.cx(cx).simulate_keystrokes("f4 down escape");
+    let dir = dialog.read_with(cx, |d, app| d.cur_dir.read(app).value().to_string());
+    assert_eq!(dir, "dir-old");
+    assert_eq!(command_box_text(cx, &dialog), "newest");
+}
+
+#[gpui::test]
+fn up_right_after_opening_takes_the_first_row(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    focus_box(&w, cx, &dialog, false);
+    w.handle
+        .update(cx, |_, window, app| {
+            dialog.update(app, |d, cx| {
+                d.command
+                    .update(cx, |state, cx| state.set_value("typed", window, cx));
+            })
+        })
+        .unwrap();
+    w.cx(cx).simulate_keystrokes("f4 up");
+    assert_eq!(command_box_text(cx, &dialog), "newest");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
+}
+
+/// The highlighted row is the row that holds the text of the box, not a number kept when the list
+/// opened: after the text is typed over, the next arrow starts from the first row.
+#[gpui::test]
+fn an_arrow_after_typing_in_the_open_list_starts_from_the_text(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    focus_box(&w, cx, &dialog, false);
+    w.cx(cx).simulate_keystrokes("f4 down");
+    assert_eq!(command_box_text(cx, &dialog), "older");
+    w.cx(cx).simulate_input("x");
+    assert_eq!(command_box_text(cx, &dialog), "olderx");
+    w.cx(cx).simulate_keystrokes("down");
+    assert_eq!(command_box_text(cx, &dialog), "newest");
+    assert_eq!(dialog.read_with(cx, |d, _| d.open_list()), Some("command"));
+}
