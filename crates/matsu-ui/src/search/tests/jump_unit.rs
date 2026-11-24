@@ -334,3 +334,52 @@ fn the_line_number_box_is_as_wide_as_sakuras_50_dialog_units(cx: &mut TestAppCon
     let whole = f32::from(field.size.width) + crate::spin::ARROW_WIDTH;
     assert!((whole - 75.0).abs() < 0.5, "{whole}");
 }
+
+/// The unit of the panel and the radio button of it that has the focus (0: rows, 1: lines).
+fn unit_state(f: &Fixture, cx: &mut VisualTestContext) -> (JumpUnit, Option<usize>) {
+    let ring = f.view.read_with(cx, |v, cx| {
+        v.panel.clone().unwrap().read(cx).unit_ring.clone()
+    });
+    let at = crate::radio_group::testing::at(cx, &[&ring]).map(|(_, button)| button);
+    (panel_unit(f, cx), at)
+}
+
+#[gpui::test]
+fn the_two_units_are_one_group_of_radio_buttons(cx: &mut TestAppContext) {
+    use crate::radio_group::testing::{assert_stops_at_checked, trail};
+    // `IDC_RADIO_LINENUM_LAYOUT` has `WS_GROUP | WS_TABSTOP` and `IDC_RADIO_LINENUM_CRLF` follows:
+    // Tab stops on the group once, at the checked one (改行単位 at first), and the arrow keys move
+    // and choose
+    let (f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    let ring = f.view.read_with(cx, |v, cx| {
+        v.panel.clone().unwrap().read(cx).unit_ring.clone()
+    });
+    let forward = trail(cx, &[&ring], "tab", 20);
+    assert_stops_at_checked(&forward, &[1]);
+    let back = trail(cx, &[&ring], "shift-tab", 20);
+    assert_stops_at_checked(&back, &[1]);
+    for _ in 0..20 {
+        if unit_state(&f, cx).1.is_some() {
+            break;
+        }
+        cx.simulate_keystrokes("tab");
+    }
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Lines, Some(1)));
+    for (key, unit, at) in [
+        // round the end to the first one, and from there to the last
+        ("down", JumpUnit::Rows, 0),
+        ("up", JumpUnit::Lines, 1),
+        ("left", JumpUnit::Rows, 0),
+        ("right", JumpUnit::Lines, 1),
+    ] {
+        cx.simulate_keystrokes(key);
+        assert_eq!(unit_state(&f, cx), (unit, Some(at)), "{key}");
+    }
+    // the unit that the arrow keys chose is the one the jump uses (row 2 is in the first line)
+    cx.simulate_keystrokes("up");
+    cx.simulate_keystrokes("alt-n");
+    cx.simulate_input("2");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(f.caret(cx), Pos::new(0, 15));
+}

@@ -23,8 +23,11 @@
 //! The dialog is a window of its own that is not modal (GPUI has no modal child window); one is
 //! open at a time.
 
+use std::rc::Rc;
+
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
+use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
@@ -33,7 +36,6 @@ use gpui::{
     rgb, size,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::radio::Radio;
 use gpui_component::{Disableable as _, Root, Selectable as _};
 
 use crate::common_settings::parse_signed_number;
@@ -141,6 +143,10 @@ pub(crate) struct WinSizeDialog {
     width: Entity<InputState>,
     height: Entity<InputState>,
     on_done: Option<Done>,
+    /// The focus of the radio buttons of 起動時の位置 and 大きさ (two groups in `IDD_WINPOSSIZE`:
+    /// the first of each has `WS_GROUP`).
+    pos_ring: Ring,
+    size_ring: Ring,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -178,6 +184,8 @@ impl WinSizeDialog {
             width,
             height,
             on_done: Some(on_done),
+            pos_ring: Ring::default(),
+            size_ring: Ring::default(),
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -325,7 +333,10 @@ impl Focusable for WinSizeDialog {
 impl Render for WinSizeDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
-        let focused = self.focus.is_focused(window)
+        // The focus is somewhere in the dialog: the panel, a box, or a button that Tab or an arrow
+        // key moved it to (it used to go back to the panel at the next drawing, so the radio
+        // buttons could not keep it)
+        let focused = self.focus.contains_focused(window, cx)
             || [&self.x, &self.y, &self.width, &self.height]
                 .iter()
                 .any(|input| input.read(cx).focus_handle(cx).is_focused(window));
@@ -336,26 +347,41 @@ impl Render for WinSizeDialog {
         let pos_set = self.pos_mode == MODE_SET;
         let size_set = self.size_mode == MODE_SET;
 
+        // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
         let modes = |group: &'static str,
                      labels: [&'static str; 3],
                      current: i32,
                      cx: &mut Context<Self>| {
+            let ring = if group == "win-pos" {
+                &self.pos_ring
+            } else {
+                &self.size_ring
+            };
+            let choose = Group::new(
+                ring,
+                labels.len(),
+                usize::try_from(current).ok(),
+                Rc::new(cx.listener(move |this, index: &usize, _, cx| {
+                    let mode = i32::try_from(*index).unwrap_or(MODE_DEFAULT);
+                    if group == "win-pos" {
+                        this.set_pos_mode(mode, cx);
+                    } else {
+                        this.set_size_mode(mode, cx);
+                    }
+                })),
+            );
             let radios = labels
                 .into_iter()
                 .zip([MODE_DEFAULT, MODE_SAVE, MODE_SET])
                 .map(|(label, mode)| {
                     let (shown, name) = radio_texts(label);
-                    Radio::new((group, mode as usize))
-                        .label(shown)
-                        .accessibility_label(name)
-                        .checked(current == mode)
-                        .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                            if group == "win-pos" {
-                                this.set_pos_mode(mode, cx);
-                            } else {
-                                this.set_size_mode(mode, cx);
-                            }
-                        }))
+                    let index = usize::try_from(mode).unwrap_or_default();
+                    choose.radio(index, (group, index), true, |radio| {
+                        radio
+                            .label(shown)
+                            .accessibility_label(name)
+                            .checked(current == mode)
+                    })
                 });
             div()
                 .id(group)

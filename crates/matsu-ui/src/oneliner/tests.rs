@@ -894,3 +894,75 @@ mod access_keys;
 mod ai;
 mod ai_ask;
 mod ai_menus;
+
+/// The place of the result as the dialog has it, and the button of 結果の置き場所 that has the focus.
+fn place_state(
+    w: &Win,
+    cx: &mut TestAppContext,
+    dialog: &Entity<super::dialog::OneLinerDialog>,
+) -> (OutputTo, Option<usize>) {
+    let ring = dialog.read_with(cx, |d, _| d.places_ring.clone());
+    let at = crate::radio_group::testing::at(w.cx(cx), &[&ring]).map(|(_, button)| button);
+    (dialog.read_with(cx, |d, _| d.output), at)
+}
+
+#[gpui::test]
+fn the_places_of_the_result_are_one_group_of_radio_buttons(cx: &mut TestAppContext) {
+    use crate::radio_group::testing::{assert_stops_at_checked, trail};
+    let (_dir, w) = open(cx, &ini(&[], &["older"]), "abc\n");
+    let dialog = open_dialog(&w, cx);
+    let ring = dialog.read_with(cx, |d, _| d.places_ring.clone());
+    // Tab and Shift+Tab stop on the group once, at the checked button (置換 at first)
+    let forward = trail(w.cx(cx), &[&ring], "tab", 30);
+    assert_stops_at_checked(&forward, &[0]);
+    let back = trail(w.cx(cx), &[&ring], "shift-tab", 30);
+    assert_stops_at_checked(&back, &[0]);
+    for _ in 0..30 {
+        if place_state(&w, cx, &dialog).1.is_some() {
+            break;
+        }
+        w.cx(cx).simulate_keystrokes("tab");
+    }
+    assert_eq!(place_state(&w, cx, &dialog), (OutputTo::Replace, Some(0)));
+    for (key, to, at) in [
+        ("down", OutputTo::NextLine, 1),
+        ("right", OutputTo::OutputWindow, 2),
+        // round the end to the first one, and from the first to the last
+        ("down", OutputTo::Replace, 0),
+        ("up", OutputTo::OutputWindow, 2),
+        ("left", OutputTo::NextLine, 1),
+    ] {
+        w.cx(cx).simulate_keystrokes(key);
+        assert_eq!(place_state(&w, cx, &dialog), (to, Some(at)), "{key}");
+    }
+    w.cx(cx).simulate_keystrokes("tab");
+    assert_eq!(place_state(&w, cx, &dialog).1, None);
+}
+
+#[gpui::test]
+fn the_arrow_keys_skip_the_places_that_a_document_that_cannot_be_edited_does_not_offer(
+    cx: &mut TestAppContext,
+) {
+    let (_dir, w) = open(cx, &ini(&[], &["older"]), "abc\n");
+    w.view_mode(cx);
+    let dialog = open_dialog(&w, cx);
+    for _ in 0..30 {
+        if place_state(&w, cx, &dialog).1.is_some() {
+            break;
+        }
+        w.cx(cx).simulate_keystrokes("tab");
+    }
+    // only アウトプットに出す is offered: it is the group, and the arrows stay on it
+    assert_eq!(
+        place_state(&w, cx, &dialog),
+        (OutputTo::OutputWindow, Some(2))
+    );
+    for key in ["down", "up", "left", "right"] {
+        w.cx(cx).simulate_keystrokes(key);
+        assert_eq!(
+            place_state(&w, cx, &dialog),
+            (OutputTo::OutputWindow, Some(2)),
+            "{key}"
+        );
+    }
+}

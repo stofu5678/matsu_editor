@@ -12,11 +12,14 @@
 //! live in the view's [`SearchState`](super::state::SearchState), so the menu, F3 and the panel
 //! always agree.
 
+use std::rc::Rc;
+
 use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::combo_rows::{arrow_row, row_of};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -27,7 +30,6 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::radio::Radio;
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use matsu_core::buffer::Pos;
 use matsu_core::search::{Direction, ReplaceTarget};
@@ -72,6 +74,8 @@ const LINE_BOX_WIDTH: f32 = 50. * 1.5;
 // `IDC_RADIO_LINENUM_LAYOUT` and `IDC_RADIO_LINENUM_CRLF` (`IDD_JUMP`)
 const UNIT_ROWS: &str = "折り返し単位の行番号(R)";
 const UNIT_LINES: &str = "改行単位の行番号(W)";
+/// The units in the order the radio buttons are drawn in (the group of `IDD_JUMP`).
+const UNITS: [JumpUnit; 2] = [JumpUnit::Rows, JumpUnit::Lines];
 
 /// A check box of the options.
 #[derive(Clone, Copy, Debug)]
@@ -174,6 +178,9 @@ pub struct SearchPanel {
     /// shows and commits the remembered unit (`jump_unit`, the one owner of that value), so a
     /// macro's `Jump` is not written back over.
     chosen: Option<JumpUnit>,
+    /// The focus of the two radio buttons of the unit (`IDC_RADIO_LINENUM_LAYOUT` and
+    /// `IDC_RADIO_LINENUM_CRLF`, one group in `IDD_JUMP`).
+    pub(super) unit_ring: Ring,
     /// Where the caret was when the panel opened: the search start position that
     /// `F_JUMP_SRCHSTARTPOS` returns to, registered with the first search (`m_bSearch`,
     /// `m_ptEscCaretPos_PHY` in `CDlgFind.cpp`).
@@ -254,6 +261,7 @@ impl SearchPanel {
             replacement,
             line,
             chosen: None,
+            unit_ring: Ring::default(),
             pending_start: Some(pending_start),
             _subscriptions: subscriptions,
         }
@@ -862,22 +870,23 @@ impl SearchPanel {
             .child(self.option_box("search-wrap", WRAP, options.wrap, |o, v| o.wrap = v, cx))
     }
 
-    /// A radio button of the unit of the line number.
+    /// A radio button of the unit of the line number, at `index` of [`UNITS`].
     fn unit_choice(
         &self,
+        group: &Group,
+        index: usize,
         id: &'static str,
         label: &'static str,
-        unit: JumpUnit,
-        cx: &mut Context<Self>,
+        cx: &App,
     ) -> impl IntoElement {
+        let unit = UNITS[index];
         // `BS_AUTORADIOBUTTON` (`IDD_JUMP`, `sakura_rc.rc`): a circle and the label. The radio
         // reports its role and checked state to UI Automation itself (GPUI's `checked`).
-        div().debug_selector(|| id.to_owned()).child(
-            Radio::new(id)
-                .labelled(label)
-                .checked(self.unit(cx) == unit)
-                .on_click(cx.listener(move |this, _: &bool, _, cx| this.set_unit(unit, cx))),
-        )
+        div()
+            .debug_selector(|| id.to_owned())
+            .child(group.radio(index, id, true, |radio| {
+                radio.labelled(label).checked(self.unit(cx) == unit)
+            }))
     }
 
     fn render_replace_targets(
@@ -994,78 +1003,27 @@ impl Render for SearchPanel {
                 .on_click(cx.listener(|this, _, _, cx| this.open_help(cx))),
         );
         let help_function = self.help_function();
-        let body =
-            match self.mode {
-                PanelMode::Find => {
-                    v_flex()
-                        .gap_2()
-                        .child(self.combo_box(Combo::Search, cx))
-                        .child(self.render_find_options(options, cx))
-                        .child(self.option_box(
-                            "search-auto-close",
-                            AUTO_CLOSE,
-                            options.auto_close,
-                            |o, v| o.auto_close = v,
-                            cx,
-                        ))
-                        .child(
-                            // The buttons wrap instead of sticking out of the panel when the labels are
-                            // wider than the fixed panel (a large scale factor, a wide font).
-                            h_flex()
-                                .gap_2()
-                                .flex_wrap()
-                                .child(Button::new("search-prev").labelled(PREV).on_click(
-                                    cx.listener(|this, _, window, cx| {
-                                        this.find(Direction::Backward, window, cx);
-                                    }),
-                                ))
-                                .child(Button::new("search-next").labelled(NEXT).on_click(
-                                    cx.listener(|this, _, window, cx| {
-                                        this.find(Direction::Forward, window, cx);
-                                    }),
-                                ))
-                                .child(Button::new("search-mark").labelled(MARK).on_click(
-                                    cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
-                                ))
-                                .child(close)
-                                .child(help),
-                        )
-                        .into_any_element()
-                }
-                PanelMode::Replace => v_flex()
+        let units = Group::new(
+            &self.unit_ring,
+            UNITS.len(),
+            UNITS.iter().position(|unit| *unit == self.unit(cx)),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_unit(UNITS[*index], cx);
+            })),
+        );
+        let body = match self.mode {
+            PanelMode::Find => {
+                v_flex()
                     .gap_2()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(BEFORE_LABEL)
-                            .child(self.combo_box(Combo::Search, cx)),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(AFTER_LABEL)
-                            .child(self.combo_box(Combo::Replace, cx)),
-                    )
+                    .child(self.combo_box(Combo::Search, cx))
                     .child(self.render_find_options(options, cx))
-                    .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
-                    // `IDC_CHECK_bAutoCloseDlgReplace`
                     .child(self.option_box(
-                        "replace-auto-close",
-                        AUTO_CLOSE_REPLACE,
-                        options.auto_close_replace,
-                        |o, v| o.auto_close_replace = v,
+                        "search-auto-close",
+                        AUTO_CLOSE,
+                        options.auto_close,
+                        |o, v| o.auto_close = v,
                         cx,
                     ))
-                    // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
-                    .child(
-                        Checkbox::new("replace-consecutive")
-                            .labelled(CONSECUTIVE)
-                            .checked(replace.consecutive_all)
-                            .disabled(!options.regex)
-                            .on_click(cx.listener(|this, value: &bool, _, cx| {
-                                this.set_consecutive(*value, cx);
-                            })),
-                    )
                     .child(
                         // The buttons wrap instead of sticking out of the panel when the labels are
                         // wider than the fixed panel (a large scale factor, a wide font).
@@ -1086,70 +1044,124 @@ impl Render for SearchPanel {
                                         this.find(Direction::Forward, window, cx);
                                     })),
                             )
-                            .child(Button::new("replace-one").labelled(REPLACE_ONE).on_click(
-                                cx.listener(|this, _, window, cx| this.replace_one(window, cx)),
-                            ))
-                            .child(Button::new("replace-all").labelled(REPLACE_ALL).on_click(
-                                cx.listener(|this, _, window, cx| this.replace_all(window, cx)),
-                            ))
                             .child(Button::new("search-mark").labelled(MARK).on_click(
                                 cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
                             ))
                             .child(close)
                             .child(help),
                     )
-                    .into_any_element(),
-                PanelMode::Jump => {
-                    v_flex()
+                    .into_any_element()
+            }
+            PanelMode::Replace => v_flex()
+                .gap_2()
+                .child(
+                    h_flex()
                         .gap_2()
+                        .child(BEFORE_LABEL)
+                        .child(self.combo_box(Combo::Search, cx)),
+                )
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(AFTER_LABEL)
+                        .child(self.combo_box(Combo::Replace, cx)),
+                )
+                .child(self.render_find_options(options, cx))
+                .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
+                // `IDC_CHECK_bAutoCloseDlgReplace`
+                .child(self.option_box(
+                    "replace-auto-close",
+                    AUTO_CLOSE_REPLACE,
+                    options.auto_close_replace,
+                    |o, v| o.auto_close_replace = v,
+                    cx,
+                ))
+                // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
+                .child(
+                    Checkbox::new("replace-consecutive")
+                        .labelled(CONSECUTIVE)
+                        .checked(replace.consecutive_all)
+                        .disabled(!options.regex)
+                        .on_click(cx.listener(|this, value: &bool, _, cx| {
+                            this.set_consecutive(*value, cx);
+                        })),
+                )
+                .child(
+                    // The buttons wrap instead of sticking out of the panel when the labels are
+                    // wider than the fixed panel (a large scale factor, a wide font).
+                    h_flex()
+                        .gap_2()
+                        .flex_wrap()
                         .child(
-                            h_flex()
-                                .gap_2()
-                                .child(LINE_LABEL)
-                                // `IDC_SPIN_LINENUM`: 1 to INT_MAX (`CDlgJump::SetData`)
-                                .child(crate::spin::spin_box(
-                                    "jump-line-spin",
-                                    &self.line,
-                                    "行番号",
-                                    (1, i32::MAX),
-                                    true,
-                                    div()
-                                        .debug_selector(|| "jump-line-box".to_owned())
-                                        .w(px(LINE_BOX_WIDTH - crate::spin::ARROW_WIDTH))
-                                        .child(Input::new(&self.line).aria_label("行番号")),
-                                    window,
-                                    cx,
-                                )),
+                            Button::new("search-prev")
+                                .labelled(PREV)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.find(Direction::Backward, window, cx);
+                                })),
                         )
                         .child(
-                            v_flex()
-                                .gap_1()
-                                .items_start()
-                                .child(self.unit_choice(
-                                    "jump-unit-rows",
-                                    UNIT_ROWS,
-                                    JumpUnit::Rows,
-                                    cx,
-                                ))
-                                .child(self.unit_choice(
-                                    "jump-unit-lines",
-                                    UNIT_LINES,
-                                    JumpUnit::Lines,
-                                    cx,
-                                )),
+                            Button::new("search-next")
+                                .labelled(NEXT)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.find(Direction::Forward, window, cx);
+                                })),
                         )
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(Button::new("jump-ok").labelled("OK").on_click(
+                        .child(Button::new("replace-one").labelled(REPLACE_ONE).on_click(
+                            cx.listener(|this, _, window, cx| this.replace_one(window, cx)),
+                        ))
+                        .child(Button::new("replace-all").labelled(REPLACE_ALL).on_click(
+                            cx.listener(|this, _, window, cx| this.replace_all(window, cx)),
+                        ))
+                        .child(Button::new("search-mark").labelled(MARK).on_click(
+                            cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
+                        ))
+                        .child(close)
+                        .child(help),
+                )
+                .into_any_element(),
+            PanelMode::Jump => {
+                v_flex()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(LINE_LABEL)
+                            // `IDC_SPIN_LINENUM`: 1 to INT_MAX (`CDlgJump::SetData`)
+                            .child(crate::spin::spin_box(
+                                "jump-line-spin",
+                                &self.line,
+                                "行番号",
+                                (1, i32::MAX),
+                                true,
+                                div()
+                                    .debug_selector(|| "jump-line-box".to_owned())
+                                    .w(px(LINE_BOX_WIDTH - crate::spin::ARROW_WIDTH))
+                                    .child(Input::new(&self.line).aria_label("行番号")),
+                                window,
+                                cx,
+                            )),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .items_start()
+                            .child(self.unit_choice(&units, 0, "jump-unit-rows", UNIT_ROWS, cx))
+                            .child(self.unit_choice(&units, 1, "jump-unit-lines", UNIT_LINES, cx)),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("jump-ok").labelled("OK").on_click(
                                     cx.listener(|this, _, window, cx| this.jump(window, cx)),
-                                ))
-                                .child(close)
-                                .child(help),
-                        )
-                        .into_any_element()
-                }
-            };
+                                ),
+                            )
+                            .child(close)
+                            .child(help),
+                    )
+                    .into_any_element()
+            }
+        };
         crate::a11y::dialog(div().id("search-panel"), &title)
             .track_focus(&self.scope)
             .keep_tab_inside(&self.scope)

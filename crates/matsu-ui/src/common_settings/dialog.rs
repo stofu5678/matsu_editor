@@ -14,9 +14,11 @@
 //! values and writes to a `Types(N)` section.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 use crate::input_select::input_field;
+use crate::radio_group::{Group, Ring};
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext as _, ClickEvent, Context, ElementId, Entity,
     FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
@@ -98,6 +100,10 @@ pub(crate) struct CommonSettingsDialog {
     /// key of its label or of its group box moves the focus here and keeps the chosen row. Made
     /// with the choices' ([`ensure_choice_focus`](Self::ensure_choice_focus)).
     list_focus: HashMap<&'static str, FocusHandle>,
+    /// The groups of radio buttons of the page by control id (a group is the radio controls that
+    /// share an id; `WS_GROUP` in the rc files). Made, and the values made again, with the choices'
+    /// ([`ensure_choice_focus`](Self::ensure_choice_focus)), the one place that makes them.
+    pub(super) radio_groups: HashMap<&'static str, RadioSet>,
     focus: FocusHandle,
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
@@ -315,6 +321,7 @@ impl CommonSettingsDialog {
             table_selected,
             opener,
             choice_focus: HashMap::new(),
+            radio_groups: HashMap::new(),
             list_focus: HashMap::new(),
             focus: cx.focus_handle(),
             focused: false,
@@ -1068,7 +1075,14 @@ impl CommonSettingsDialog {
             .as_deref()
             .map(super::model::drawn_controls)
             .unwrap_or_default();
+        // the values of each group of radio buttons, in the order they are drawn in, found once
+        // for the page (every radio button asks for its group on every drawing)
+        let mut radio_values: HashMap<&'static str, Vec<i32>> = HashMap::new();
         for control in drawn {
+            if let Kind::Radio { value } = control.kind {
+                radio_values.entry(control.id).or_default().push(value);
+                continue;
+            }
             if matches!(control.kind, Kind::List { .. }) {
                 self.list_focus
                     .entry(control.id)
@@ -1086,6 +1100,9 @@ impl CommonSettingsDialog {
                     .entry((control.id, value))
                     .or_insert_with(|| cx.focus_handle().tab_stop(true));
             }
+        }
+        for (id, values) in radio_values {
+            self.radio_groups.entry(id).or_default().values = values.into();
         }
     }
 
@@ -1147,6 +1164,39 @@ impl CommonSettingsDialog {
             .child(NOT_AVAILABLE)
     }
 
+    /// The group of radio buttons that the radio control belongs to (the radio controls of the
+    /// page that share its id, in the order they are drawn in), and the position of the control
+    /// in it.
+    ///
+    /// `None` when the page was not prepared for it (`ensure_choice_focus` makes every group
+    /// before the page is drawn, so a debug build stops here): the button is then drawn alone.
+    fn radio_group(&self, control: &Control, cx: &mut Context<Self>) -> Option<(Group, usize)> {
+        let id = control.id;
+        let set = self.radio_groups.get(id);
+        debug_assert!(
+            set.is_some(),
+            "the group {id} was not made before the drawing"
+        );
+        let set = set?.clone();
+        let Kind::Radio { value } = control.kind else {
+            return None;
+        };
+        let here = set.values.iter().position(|v| *v == value)?;
+        let selected = set.values.iter().position(|v| *v == self.values.int(id));
+        let values = set.values;
+        let group = Group::new(
+            &set.ring,
+            values.len(),
+            selected,
+            Rc::new(cx.listener(move |this, index: &usize, _, cx| {
+                if let Some(value) = values.get(*index) {
+                    this.set_int(id, *value, cx);
+                }
+            })),
+        );
+        Some((group, here))
+    }
+
     fn control_element(
         &self,
         control: &Control,
@@ -1175,22 +1225,37 @@ impl CommonSettingsDialog {
                 )
                 .children(note)
                 .into_any_element(),
-            Kind::Radio { value } => h_flex()
-                .gap_2()
-                .items_center()
-                .child(
-                    Radio::new(Self::element_id(control))
+            Kind::Radio { value } => {
+                let checked = self.values.int(id) == value;
+                let button = match self.radio_group(control, cx) {
+                    Some((group, index)) => group
+                        .radio(index, Self::element_id(control), usable, |radio| {
+                            radio
+                                .label(label)
+                                .accessibility_label(name)
+                                .checked(checked)
+                                .aria_disabled(!usable)
+                        })
+                        .into_any_element(),
+                    // no group to move in: the button chooses itself, as a plain radio button
+                    None => Radio::new(Self::element_id(control))
                         .label(label)
                         .accessibility_label(name)
-                        .checked(self.values.int(id) == value)
+                        .checked(checked)
                         .disabled(!usable)
                         .aria_disabled(!usable)
                         .on_click(cx.listener(move |this, _: &bool, _, cx| {
                             this.set_int(id, value, cx);
-                        })),
-                )
-                .children(note)
-                .into_any_element(),
+                        }))
+                        .into_any_element(),
+                };
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(button)
+                    .children(note)
+                    .into_any_element()
+            }
             Kind::List { options } => {
                 let current = self.values.int(id);
                 let rows = options.iter().map(|(text, value)| {
@@ -1616,6 +1681,13 @@ impl Focusable for CommonSettingsDialog {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
     }
+}
+
+/// A group of radio buttons of a page: the focus of its buttons and the value of each.
+#[derive(Clone, Default)]
+pub(super) struct RadioSet {
+    pub(super) ring: Ring,
+    values: Rc<[i32]>,
 }
 
 impl Render for CommonSettingsDialog {

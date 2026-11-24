@@ -616,3 +616,59 @@ fn the_spin_buttons_and_the_arrow_keys_move_a_number(cx: &mut TestAppContext) {
     press_ok(&dialog, cx);
     assert_eq!(saved(cx).get(0).print_font_height, 9);
 }
+
+/// The orientation the dialog has, and the button of 用紙の向き that has the focus.
+fn orientation_state(
+    dialog: &Entity<PrintSettingDialog>,
+    cx: &mut VisualTestContext,
+) -> (Orientation, Option<usize>) {
+    let ring = dialog.read_with(cx, |d, _| d.orientation_ring.clone());
+    let at = crate::radio_group::testing::at(cx, &[&ring]).map(|(_, button)| button);
+    (
+        dialog.read_with(cx, |d, _| d.shown().print_paper_orientation),
+        at,
+    )
+}
+
+#[gpui::test]
+fn the_two_orientations_are_one_group_of_radio_buttons(cx: &mut TestAppContext) {
+    use crate::radio_group::testing::{assert_stops_at_checked, trail};
+    // `IDC_RADIO_PORTRAIT` has `WS_GROUP | WS_TABSTOP`, `IDC_RADIO_LANDSCAPE` follows it
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    cx.run_until_parked();
+    let ring = dialog.read_with(cx, |d, _| d.orientation_ring.clone());
+    let forward = trail(cx, &[&ring], "tab", 80);
+    assert_stops_at_checked(&forward, &[0]);
+    let back = trail(cx, &[&ring], "shift-tab", 80);
+    assert_stops_at_checked(&back, &[0]);
+    for _ in 0..80 {
+        if orientation_state(&dialog, cx).1.is_some() {
+            break;
+        }
+        cx.simulate_keystrokes("tab");
+    }
+    assert_eq!(
+        orientation_state(&dialog, cx),
+        (Orientation::Portrait, Some(0))
+    );
+    for (key, orientation, at) in [
+        ("down", Orientation::Landscape, 1),
+        // round the end to the first one, and back
+        ("right", Orientation::Portrait, 0),
+        ("up", Orientation::Landscape, 1),
+        ("left", Orientation::Portrait, 0),
+    ] {
+        cx.simulate_keystrokes(key);
+        assert_eq!(
+            orientation_state(&dialog, cx),
+            (orientation, Some(at)),
+            "{key}"
+        );
+    }
+    // Tab leaves the group, and Shift+Tab comes back to the checked button
+    cx.simulate_keystrokes("tab");
+    assert_eq!(orientation_state(&dialog, cx).1, None);
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(orientation_state(&dialog, cx).1, Some(0));
+}

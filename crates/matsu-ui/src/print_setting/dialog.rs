@@ -19,6 +19,7 @@
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -29,13 +30,13 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::radio::Radio;
 use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_component::{Disableable as _, h_flex, v_flex};
 use matsu_config::settings::print::{NAME_MAX, PrintSettings};
 use matsu_config::settings::{FontSetting, LogFont};
 use matsu_print::{HeaderFooterFont, Orientation, PAPER_INFO, PrintSetting, find_paper_info};
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use super::model::{self, Number};
 use crate::font_dialog::model::families;
@@ -168,6 +169,8 @@ pub(crate) struct PrintSettingDialog {
     /// it); keys of the button reach this element too.
     combo_focus: [FocusHandle; 4],
     result: Option<async_channel::Sender<Option<Answer>>>,
+    /// The focus of the radio buttons of 用紙の向き (`IDC_RADIO_PORTRAIT`, `IDC_RADIO_LANDSCAPE`).
+    pub(super) orientation_ring: Ring,
     focus: FocusHandle,
     /// The scroll position of the dialog, which the scroll bar draws from.
     pub(super) scroll: ScrollHandle,
@@ -219,6 +222,7 @@ impl PrintSettingDialog {
             list_scroll: ScrollHandle::default(),
             combo_focus: std::array::from_fn(|_| cx.focus_handle()),
             result: Some(result),
+            orientation_ring: Ring::default(),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::default(),
             _subscriptions: subscriptions,
@@ -477,6 +481,12 @@ impl PrintSettingDialog {
         self.settings.get_mut(self.current)
     }
 
+    /// 用紙の向き: the radio buttons, the arrow keys and the access keys all come here.
+    fn choose_orientation(&mut self, orientation: Orientation, cx: &mut Context<Self>) {
+        self.shown_mut().print_paper_orientation = orientation;
+        cx.notify();
+    }
+
     /// The setting shown.
     pub(super) fn shown(&self) -> &PrintSetting {
         self.settings.get(self.current)
@@ -642,7 +652,7 @@ impl PrintSettingDialog {
             }
             Use::Form(Part::Header) => focus_selecting(&self.header[0], window, cx),
             Use::Form(Part::Footer) => focus_selecting(&self.footer[0], window, cx),
-            Use::Orientation(orientation) => self.shown_mut().print_paper_orientation = orientation,
+            Use::Orientation(orientation) => self.choose_orientation(orientation, cx),
             Use::LineNumber => {
                 let on = &mut self.shown_mut().print_line_number;
                 *on = !*on;
@@ -1010,6 +1020,23 @@ impl Render for PrintSettingDialog {
         if self.list.is_some() && !self.focus.is_focused(window) {
             self.list = None;
         }
+        let orientations = Group::new(
+            &self.orientation_ring,
+            2,
+            Some(usize::from(
+                self.shown().print_paper_orientation == Orientation::Landscape,
+            )),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.choose_orientation(
+                    if *index == 0 {
+                        Orientation::Portrait
+                    } else {
+                        Orientation::Landscape
+                    },
+                    cx,
+                );
+            })),
+        );
         let now = self.collect(cx);
         let printable = model::printable(&now, self.number_columns);
         let ok_enabled = model::has_printable_area(&now, self.number_columns);
@@ -1095,24 +1122,16 @@ impl Render for PrintSettingDialog {
                     .gap_3()
                     .items_center()
                     .child(div().w(px(104.)).text_right().child("用紙の向き"))
-                    .child(
-                        Radio::new("ps-portrait")
+                    .child(orientations.radio(0, "ps-portrait", true, |radio| {
+                        radio
                             .label(labels::PORTRAIT)
                             .checked(self.shown().print_paper_orientation == Orientation::Portrait)
-                            .on_click(cx.listener(|this, _: &bool, _, cx| {
-                                this.shown_mut().print_paper_orientation = Orientation::Portrait;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Radio::new("ps-landscape")
+                    }))
+                    .child(orientations.radio(1, "ps-landscape", true, |radio| {
+                        radio
                             .label(labels::LANDSCAPE)
                             .checked(self.shown().print_paper_orientation == Orientation::Landscape)
-                            .on_click(cx.listener(|this, _: &bool, _, cx| {
-                                this.shown_mut().print_paper_orientation = Orientation::Landscape;
-                                cx.notify();
-                            })),
-                    ),
+                    })),
             )
             .child(self.number_row(labels::MARGIN_TOP, Number::MarginTop, "(mm)", window, cx))
             .child(self.number_row(

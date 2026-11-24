@@ -1510,3 +1510,57 @@ fn the_help_of_the_file_tree_dialog_is_alt_h_and_f1_and_the_dialog_stays(cx: &mu
     assert_eq!(take(), [page_of_function("F_FILETREE")]);
     assert!(is_open(keys, handle));
 }
+
+/// The kind as the dialog has it, and the button of 種類 that has the focus.
+fn kind_state(cx: &mut TestAppContext, handle: AnyWindowHandle) -> (Kind, Option<usize>) {
+    let ring = with_dialog(cx, handle, |d, _, _| d.kind_ring.clone());
+    let at = crate::radio_group::testing::at(
+        VisualTestContext::from_window(handle, cx).into_mut(),
+        &[&ring],
+    )
+    .map(|(_, button)| button);
+    (with_dialog(cx, handle, |d, _, _| d.kind), at)
+}
+
+#[gpui::test]
+fn the_three_kinds_are_one_group_of_radio_buttons(cx: &mut TestAppContext) {
+    use crate::radio_group::testing::{assert_stops_at_checked, trail};
+    // `IDC_RADIO_GREP` has `WS_GROUP | WS_TABSTOP`, `IDC_RADIO_FILE` and `IDC_RADIO_FOLDER` follow
+    let (_ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    // the first item is a Folder item: the third button is checked
+    assert_eq!(kind_state(cx, handle).0, Kind::Folder);
+    let ring = with_dialog(cx, handle, |d, _, _| d.kind_ring.clone());
+    let keys = VisualTestContext::from_window(handle, cx).into_mut();
+    let forward = trail(keys, &[&ring], "tab", 40);
+    assert_stops_at_checked(&forward, &[2]);
+    let back = trail(keys, &[&ring], "shift-tab", 40);
+    assert_stops_at_checked(&back, &[2]);
+    for _ in 0..40 {
+        if kind_state(cx, handle).1.is_some() {
+            break;
+        }
+        VisualTestContext::from_window(handle, cx)
+            .into_mut()
+            .simulate_keystrokes("tab");
+    }
+    assert_eq!(kind_state(cx, handle), (Kind::Folder, Some(2)));
+    for (key, kind, at) in [
+        // round the end to the first one
+        ("down", Kind::Grep, 0),
+        ("right", Kind::File, 1),
+        ("up", Kind::Grep, 0),
+        // and from the first one to the last
+        ("left", Kind::Folder, 2),
+    ] {
+        VisualTestContext::from_window(handle, cx)
+            .into_mut()
+            .simulate_keystrokes(key);
+        assert_eq!(kind_state(cx, handle), (kind, Some(at)), "{key}");
+    }
+    VisualTestContext::from_window(handle, cx)
+        .into_mut()
+        .simulate_keystrokes("tab");
+    assert_eq!(kind_state(cx, handle).1, None);
+}
