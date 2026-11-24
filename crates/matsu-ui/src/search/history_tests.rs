@@ -610,7 +610,17 @@ fn the_arrow_opens_the_list_by_click_and_the_keys_still_work(cx: &mut TestAppCon
     }
     assert_eq!(f.pattern(cx), "a");
     assert_eq!(f.replacement(cx), "a");
-    // F4 opens it as well, on the string that the box has ("a"); Up reaches "b"
-    cx.simulate_keystrokes("f4 up enter");
-    assert_eq!(f.replacement(cx), "b");
+}
+
+#[gpui::test]
+fn f4_still_opens_the_list_of_the_replacement(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    other_window(cx, "s", Some("r1"));
+    other_window(cx, "s", Some("r2"));
+    cx.simulate_keystrokes("ctrl-r");
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.focus_replacement(window, cx));
+    // the box has "r2" (the newest); the list opens on it and Down reaches "r1"
+    cx.simulate_keystrokes("f4 down enter");
+    assert_eq!(f.replacement(cx), "r1");
 }
