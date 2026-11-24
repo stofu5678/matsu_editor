@@ -12,10 +12,11 @@
 //! the file. Sakura asks nothing about a type of the same name: two types may have the same name.
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Role,
-    ScrollHandle, StatefulInteractiveElement, Styled, Toggled, Window, div, px, rgb, rgba,
+    ScrollHandle, StatefulInteractiveElement, Styled, Window, div, px, rgb, rgba,
 };
 use matsu_config::settings::DocumentTypes;
 use matsu_config::settings::type_file::{
@@ -26,10 +27,12 @@ use matsu_config::settings::type_list::ListError;
 use super::edit::edit_types;
 use super::list::{SELECTED_BG, TEXT, TypeList};
 use super::with_user;
+use crate::a11y::Labelled as _;
 use crate::access_keys::OnAccessKey as _;
 use crate::common_settings::transfer::{cannot_export, cannot_open, exported};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::file_dialog::{self, Ask, import_folder};
+use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
 
 /// `STR_IMPEXP_ERR_TYPE`
@@ -62,6 +65,8 @@ pub(crate) struct Ascertain {
     choices: Vec<(ColorChoice, String)>,
     pub(super) color: usize,
     scroll: ScrollHandle,
+    /// The focus of the two radio buttons of 読込先 (one group).
+    pub(super) location_ring: Ring,
 }
 
 impl Ascertain {
@@ -182,7 +187,20 @@ impl TypeList {
             choices,
             color: 0,
             scroll: ScrollHandle::new(),
+            location_ring: Ring::default(),
         });
+        cx.notify();
+    }
+
+    /// 読込先: a new type (true, while there is room) or the selected one. The one writer of the
+    /// choice: the click, the arrow keys and the access key all come here.
+    pub(super) fn set_location(&mut self, add: bool, cx: &mut Context<Self>) {
+        if add && !self.has_room() {
+            return;
+        }
+        if let Some(q) = self.ascertain.as_mut() {
+            q.add = add;
+        }
         cx.notify();
     }
 
@@ -390,22 +408,19 @@ impl TypeList {
         let Some(q) = self.ascertain.as_ref() else {
             return div().into_any_element();
         };
-        let radio = |id: &'static str, text: String, checked: bool, enabled: bool| {
-            let row = div()
-                .id(id)
-                .role(Role::RadioButton)
-                .aria_label(crate::a11y::label_name(&text))
-                .aria_toggled(if checked {
-                    Toggled::True
-                } else {
-                    Toggled::False
-                })
-                .px_2()
-                .cursor_pointer()
-                .child(format!("{} {text}", if checked { "(●)" } else { "(　)" }));
-            if enabled { row } else { row.opacity(0.45) }
-        };
         let has_room = self.has_room();
+        let this = cx.entity();
+        // `IDD_TYPE_ASCERTAIN`: `IDC_RADIO_TYPE_ADD` and `IDC_RADIO_TYPE_TO` are two
+        // `BS_AUTORADIOBUTTON` that follow each other. Neither has `WS_TABSTOP` in the resource
+        // file, so Tab never reaches them in Sakura; here they are one Tab stop, like the other
+        // groups (the rc looks like an oversight: `CDlgTypeAscertain.cpp` sets no focus and
+        // handles no key of them).
+        let locations = Group::new(
+            &q.location_ring,
+            2,
+            Some(usize::from(!q.add)),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| this.set_location(*index == 0, cx))),
+        );
         let rows: Vec<_> = q
             .choices
             .iter()
@@ -449,12 +464,17 @@ impl TypeList {
         let panel = crate::a11y::dialog(div().id("type-ascertain"), "インポート確認")
             // F1 and Alt+H: the page of the type list (`HLP000338` is a topic of it)
             .on_help_key("F_TYPE_LIST")
-            .on_access_key(|letter, _, cx| {
-                let help = letter == 'h';
-                if help {
+            .on_access_key(move |letter, _, cx| match letter {
+                'h' => {
                     super::list::open_help(cx);
+                    true
                 }
-                help
+                // `IDC_RADIO_TYPE_ADD` is `新規追加(&A)`; a button that is grey is not an access key
+                'a' if has_room => {
+                    this.update(cx, |list, cx| list.set_location(true, cx));
+                    true
+                }
+                _ => false,
             })
             .key_context("TypeList")
             .track_focus(&self.focus)
@@ -476,40 +496,16 @@ impl TypeList {
                     .flex()
                     .items_center()
                     .child("読込先:")
-                    .child(
-                        radio(
-                            "type-ascertain-add",
-                            "新規追加(A)".to_owned(),
-                            q.add,
-                            has_room,
-                        )
-                        .on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                if this.has_room()
-                                    && let Some(q) = this.ascertain.as_mut()
-                                {
-                                    q.add = true;
-                                }
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .child(
-                        radio(
-                            "type-ascertain-to",
-                            format!("{}(B)", q.to_name),
-                            !q.add,
-                            true,
-                        )
-                        .on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                if let Some(q) = this.ascertain.as_mut() {
-                                    q.add = false;
-                                }
-                                cx.notify();
-                            },
-                        )),
-                    ),
+                    .child(locations.radio(0, "type-ascertain-add", has_room, |radio| {
+                        radio.labelled("新規追加(A)").checked(q.add)
+                    }))
+                    .child(locations.radio(1, "type-ascertain-to", true, |radio| {
+                        // the name of a type is no label with an access key, whatever it ends with
+                        radio
+                            .label(q.to_name.clone())
+                            .accessibility_label(q.to_name.clone())
+                            .checked(!q.add)
+                    })),
             )
             .child(div().child(format!("新タイプ名: {}", q.file.type_name())))
             .child(div().child("色選択(C):"))

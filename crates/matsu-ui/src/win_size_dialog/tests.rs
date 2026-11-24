@@ -11,7 +11,7 @@ use super::{
     WinSize, current, open,
 };
 
-const START: WinSize = WinSize {
+pub(super) const START: WinSize = WinSize {
     size_mode: MODE_SAVE,
     size_type: SIZE_RESTORED,
     width: 640,
@@ -23,7 +23,7 @@ const START: WinSize = WinSize {
 
 type Got = Rc<RefCell<Vec<WinSize>>>;
 
-fn open_dialog(cx: &mut TestAppContext, start: WinSize) -> Got {
+pub(super) fn open_dialog(cx: &mut TestAppContext, start: WinSize) -> Got {
     cx.update(gpui_component::init);
     let got: Got = Rc::default();
     let sink = got.clone();
@@ -38,7 +38,7 @@ fn open_dialog(cx: &mut TestAppContext, start: WinSize) -> Got {
     got
 }
 
-fn with_dialog<R>(
+pub(super) fn with_dialog<R>(
     cx: &mut TestAppContext,
     f: impl FnOnce(
         &mut super::WinSizeDialog,
@@ -132,7 +132,7 @@ fn enter_and_escape_close_the_dialog_like_the_button(cx: &mut TestAppContext) {
     }
 }
 
-fn keys(cx: &mut TestAppContext, keys: &str) {
+pub(super) fn keys(cx: &mut TestAppContext, keys: &str) {
     let (_, handle) = cx.update(|app| current(app)).unwrap();
     let vcx = gpui::VisualTestContext::from_window(handle, cx).into_mut();
     vcx.simulate_keystrokes(keys);
@@ -254,7 +254,7 @@ fn the_spin_buttons_of_the_numbers_have_the_ranges_of_sakura(cx: &mut TestAppCon
     assert_eq!(values(cx).width, 0);
 }
 
-fn visual(cx: &mut TestAppContext) -> &mut gpui::VisualTestContext {
+pub(super) fn visual(cx: &mut TestAppContext) -> &mut gpui::VisualTestContext {
     let (_, handle) = cx.update(|app| current(app)).unwrap();
     gpui::VisualTestContext::from_window(handle, cx).into_mut()
 }

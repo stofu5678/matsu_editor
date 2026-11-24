@@ -13,9 +13,11 @@ use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
 use crate::support::help::OnHelpKey as _;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::a11y::Labelled as _;
 use crate::input_select::{focus_selecting, input_field};
+use crate::radio_group::{Group, Ring};
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
@@ -24,7 +26,7 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{Selectable as _, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex};
 use matsu_core::diff::DiffOptions;
 
 use super::{
@@ -84,6 +86,11 @@ pub struct DiffPanel {
     options: DiffOptions,
     notify_not_found: bool,
     wrap: bool,
+    /// The focus of the two radio buttons of 比較するファイル (`IDC_RADIO_DIFF_DST1` and `_DST2`,
+    /// one group in `IDD_DIFF`) and of the two of 編集中ファイルが... (`IDC_RADIO_DIFF_FILE1`
+    /// and `_FILE2`, another).
+    pub(crate) destination_ring: Ring,
+    pub(crate) side_ring: Ring,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -119,6 +126,8 @@ impl DiffPanel {
             options: DiffOptions::from_flags(remembered(cx).flags),
             notify_not_found: search.notify_not_found,
             wrap: search.wrap,
+            destination_ring: Ring::default(),
+            side_ring: Ring::default(),
             _subscriptions: vec![subscription],
         }
     }
@@ -161,7 +170,7 @@ impl DiffPanel {
                 self.options.ignore_blank_lines = !self.options.ignore_blank_lines;
             }
             Found::One(Use::TabSpace) => self.options.expand_tabs = !self.options.expand_tabs,
-            Found::One(Use::OwnIsOld(old)) => self.options.own_is_old = old,
+            Found::One(Use::OwnIsOld(old)) => self.set_side(old, cx),
             Found::One(Use::Notify) => self.notify_not_found = !self.notify_not_found,
             Found::One(Use::Wrap) => self.wrap = !self.wrap,
             Found::One(Use::Ok) => {
@@ -176,6 +185,28 @@ impl DiffPanel {
         }
         cx.notify();
         true
+    }
+
+    /// 比較するファイル: the file named in the box (true) or a window of the list. The one writer of
+    /// the choice: the click, the arrow keys and the focus all come here.
+    fn set_destination(&mut self, use_file: bool, cx: &mut Context<Self>) {
+        if use_file {
+            self.use_file = true;
+        } else {
+            // "ListBoxが選択されていなかったら，先頭のファイルを選択する"
+            if self.selected.is_none() {
+                self.selected = candidates(cx, self.owner).first().map(|c| c.doc);
+            }
+            self.use_file = self.selected.is_none();
+        }
+        cx.notify();
+    }
+
+    /// 編集中ファイルが...: the new file (false) or the old file (true). The one writer of the
+    /// choice, also for the access keys.
+    fn set_side(&mut self, own_is_old: bool, cx: &mut Context<Self>) {
+        self.options.own_is_old = own_is_old;
+        cx.notify();
     }
 
     /// The flags of the options as the dialog has them now.
@@ -341,21 +372,32 @@ impl Render for DiffPanel {
             item
         });
         let o = self.options;
+        // `IDD_DIFF`: the first radio button of each group has `WS_GROUP | WS_TABSTOP`
+        // (`sakura_rc.rc`). The two radio buttons of 比較するファイル are the two ends of the
+        // group, with the box, 参照 and the list drawn between them.
+        let destinations = Group::new(
+            &self.destination_ring,
+            2,
+            Some(usize::from(!self.use_file)),
+            Rc::new(
+                cx.listener(|this, index: &usize, _, cx| this.set_destination(*index == 0, cx)),
+            ),
+        );
+        let sides = Group::new(
+            &self.side_ring,
+            2,
+            Some(usize::from(o.own_is_old)),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| this.set_side(*index == 1, cx))),
+        );
         let destination = v_flex()
             .gap_1()
             .p_2()
             .border_1()
             .border_color(rgb(0xb0b0b0))
             .child("比較するファイル")
-            .child(
-                Button::new("diff-use-file")
-                    .labelled("外部ファイルを指定")
-                    .selected(self.use_file)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.use_file = true;
-                        cx.notify();
-                    })),
-            )
+            .child(destinations.radio(0, "diff-use-file", true, |radio| {
+                radio.labelled("外部ファイルを指定").checked(self.use_file)
+            }))
             .child(
                 h_flex()
                     .gap_2()
@@ -366,19 +408,11 @@ impl Render for DiffPanel {
                             .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
                     ),
             )
-            .child(
-                Button::new("diff-use-window")
+            .child(destinations.radio(1, "diff-use-window", true, |radio| {
+                radio
                     .labelled("他の編集中のファイル")
-                    .selected(!self.use_file)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        // "ListBoxが選択されていなかったら，先頭のファイルを選択する"
-                        if this.selected.is_none() {
-                            this.selected = candidates(cx, this.owner).first().map(|c| c.doc);
-                        }
-                        this.use_file = this.selected.is_none();
-                        cx.notify();
-                    })),
-            )
+                    .checked(!self.use_file)
+            }))
             .child(
                 crate::a11y::list_box(div().id("diff-windows"), "他の編集中のファイル")
                     .min_h(px(66.))
@@ -432,24 +466,12 @@ impl Render for DiffPanel {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(
-                        Button::new("diff-new")
-                            .labelled(labels::NEW)
-                            .selected(!o.own_is_old)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.options.own_is_old = false;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("diff-old")
-                            .labelled(labels::OLD)
-                            .selected(o.own_is_old)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.options.own_is_old = true;
-                                cx.notify();
-                            })),
-                    ),
+                    .child(sides.radio(0, "diff-new", true, |radio| {
+                        radio.labelled(labels::NEW).checked(!o.own_is_old)
+                    }))
+                    .child(sides.radio(1, "diff-old", true, |radio| {
+                        radio.labelled(labels::OLD).checked(o.own_is_old)
+                    })),
             )
             .child("次の差分(前の差分)へ移動時")
             .child(self.option(

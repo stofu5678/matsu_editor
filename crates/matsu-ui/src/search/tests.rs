@@ -639,6 +639,7 @@ fn the_replace_panel_stays_open_after_replace_one_and_a_wrong_pattern(cx: &mut T
 
 mod access_keys;
 mod jump_unit;
+mod replace_groups;
 
 #[gpui::test]
 fn the_up_and_down_keys_of_the_jump_panel_step_the_line_number(cx: &mut TestAppContext) {

@@ -25,18 +25,21 @@
 
 use std::rc::Rc;
 
+mod kind_combo;
+
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
 use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Role,
     StatefulInteractiveElement, Styled, Subscription, Window, WindowBounds, WindowOptions, div, px,
     rgb, size,
 };
+use gpui_component::Root;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{Disableable as _, Root, Selectable as _};
 
 use crate::common_settings::parse_signed_number;
 
@@ -147,6 +150,11 @@ pub(crate) struct WinSizeDialog {
     /// the first of each has `WS_GROUP`).
     pos_ring: Ring,
     size_ring: Ring,
+    /// The combo box of the kind of window: its focus (it holds the button's), whether its list is
+    /// open and the row the keys are on in the open list (`kind_combo`).
+    kind_focus: FocusHandle,
+    kind_open: bool,
+    kind_cursor: usize,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -186,6 +194,9 @@ impl WinSizeDialog {
             on_done: Some(on_done),
             pos_ring: Ring::default(),
             size_ring: Ring::default(),
+            kind_focus: cx.focus_handle(),
+            kind_open: false,
+            kind_cursor: 0,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -346,6 +357,8 @@ impl Render for WinSizeDialog {
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let pos_set = self.pos_mode == MODE_SET;
         let size_set = self.size_mode == MODE_SET;
+        // a combo box that cannot be used has no list open
+        self.kind_open &= size_set;
 
         // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
         let modes = |group: &'static str,
@@ -417,18 +430,6 @@ impl Render for WinSizeDialog {
                     cx,
                 ))
         };
-        let kinds = KINDS
-            .into_iter()
-            .map(|(label, kind)| {
-                gpui_component::button::Button::new(("win-kind", kind as usize))
-                    .label(label)
-                    .selected(self.size_type == kind)
-                    .role(Role::RadioButton)
-                    .toggled(self.size_type == kind)
-                    .disabled(!size_set)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_size_type(kind, cx)))
-            })
-            .collect::<Vec<_>>();
         let group = |title: &'static str| {
             div()
                 .flex()
@@ -449,6 +450,7 @@ impl Render for WinSizeDialog {
                 this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
             })
             .on_key_down(cx.listener(Self::on_key_down))
+            .capture_key_down(cx.listener(Self::on_kind_capture_key))
             .size_full()
             .p_3()
             .flex()
@@ -499,15 +501,8 @@ impl Render for WinSizeDialog {
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(
-                                    div()
-                                        .id("win-kinds")
-                                        .role(Role::RadioGroup)
-                                        .aria_label("起動時の大きさ")
-                                        .flex()
-                                        .gap_1()
-                                        .children(kinds),
-                                )
+                                .child(self.kind_combo(size_set, cx))
+                                .when(self.kind_open, |column| column.child(self.kind_list(cx)))
                                 .child(number(
                                     WIDTH_LABEL,
                                     &self.width,
@@ -663,5 +658,7 @@ pub(crate) fn open(cx: &mut App, start: WinSize, on_done: Done) -> Option<Entity
     Some(dialog)
 }
 
+#[cfg(test)]
+mod kind_tests;
 #[cfg(test)]
 mod tests;

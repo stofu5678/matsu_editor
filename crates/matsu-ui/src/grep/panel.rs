@@ -20,6 +20,7 @@
 
 use crate::dialog_focus::KeepTabInside as _;
 use std::path::Path;
+use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 
@@ -27,6 +28,7 @@ use crate::a11y::Labelled as _;
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::combo_rows::{arrow_row, row_of};
 use crate::input_select::{focus_selecting, input_field};
+use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -37,7 +39,7 @@ use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::scroll::{Scrollbar, ScrollbarMode};
-use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 use matsu_core::encoding::Encoding;
 
 use super::format::{LineType, OutputStyle};
@@ -88,6 +90,19 @@ const REPLACE: &str = "置換(R)";
 const CANCEL: &str = "キャンセル(X)";
 const HELP: &str = crate::support::help::BUTTON_LABEL;
 
+/// The radio buttons of 結果出力 in the order they are drawn in: the id, the label and the value.
+const LINE_TYPES: [(&str, &str, LineType); 3] = [
+    ("grep-line", LINE, LineType::Line),
+    ("grep-part", PART, LineType::MatchPart),
+    ("grep-nohit", NO_HIT, LineType::NoHitLine),
+];
+/// The radio buttons of 結果出力形式: the id, the label and the value.
+const STYLES: [(&str, &str, OutputStyle); 3] = [
+    ("grep-normal", NORMAL, OutputStyle::Normal),
+    ("grep-per-file", PER_FILE, OutputStyle::PerFile),
+    ("grep-result-only", RESULT_ONLY, OutputStyle::ResultOnly),
+];
+
 /// What an access key does.
 #[derive(Clone, Copy)]
 enum Use {
@@ -95,8 +110,10 @@ enum Use {
     Focus(Field),
     /// A check box: switches its value.
     Toggle(fn(&mut GrepSettings)),
-    /// A radio button (a button of a choice): chooses.
-    Choose(fn(&mut GrepSettings)),
+    /// A radio button of 結果出力: chooses.
+    LineType(LineType),
+    /// A radio button of 結果出力形式: chooses.
+    Style(OutputStyle),
     ThisText,
     DefaultFolder,
     Browse,
@@ -294,6 +311,9 @@ pub struct GrepPanel {
     /// The boxes of the files and folders as they were before 編集中のテキストから検索 was
     /// turned on, to put back when it is turned off (`SetDataFromThisText`).
     saved_boxes: Option<[String; 4]>,
+    /// The focus of the radio buttons of 結果出力 and of 結果出力形式 (`IDD_GREP`, one group each).
+    pub(crate) line_type_ring: Ring,
+    pub(crate) style_ring: Ring,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -355,6 +375,8 @@ impl GrepPanel {
             dropdown: None,
             list_scroll: ScrollHandle::new(),
             saved_boxes: None,
+            line_type_ring: Ring::default(),
+            style_ring: Ring::default(),
             _subscriptions: subscriptions,
         };
         panel.show_settings(window, cx);
@@ -985,28 +1007,12 @@ impl GrepPanel {
             Entry::labelled(DEFAULT_FOLDER, true, Use::DefaultFolder),
             Entry::labelled(PASTE, replace, Use::Toggle(|s| s.paste = !s.paste)),
             Entry::labelled(BACKUP, replace, Use::Toggle(|s| s.backup = !s.backup)),
-            Entry::labelled(LINE, true, Use::Choose(|s| s.line_type = LineType::Line)),
-            Entry::labelled(
-                PART,
-                true,
-                Use::Choose(|s| s.line_type = LineType::MatchPart),
-            ),
-            Entry::labelled(
-                NO_HIT,
-                true,
-                Use::Choose(|s| s.line_type = LineType::NoHitLine),
-            ),
-            Entry::labelled(NORMAL, true, Use::Choose(|s| s.style = OutputStyle::Normal)),
-            Entry::labelled(
-                PER_FILE,
-                true,
-                Use::Choose(|s| s.style = OutputStyle::PerFile),
-            ),
-            Entry::labelled(
-                RESULT_ONLY,
-                true,
-                Use::Choose(|s| s.style = OutputStyle::ResultOnly),
-            ),
+            Entry::labelled(LINE, true, Use::LineType(LineType::Line)),
+            Entry::labelled(PART, true, Use::LineType(LineType::MatchPart)),
+            Entry::labelled(NO_HIT, true, Use::LineType(LineType::NoHitLine)),
+            Entry::labelled(NORMAL, true, Use::Style(OutputStyle::Normal)),
+            Entry::labelled(PER_FILE, true, Use::Style(OutputStyle::PerFile)),
+            Entry::labelled(RESULT_ONLY, true, Use::Style(OutputStyle::ResultOnly)),
             Entry::labelled(FILE_ONLY, true, Use::Toggle(|s| s.file_only = !s.file_only)),
             Entry::labelled(
                 SEPARATE_FOLDER,
@@ -1033,7 +1039,9 @@ impl GrepPanel {
                 let input = self.field_input(field).clone();
                 focus_selecting(&input, window, cx);
             }
-            Use::Toggle(toggle) | Use::Choose(toggle) => self.change(toggle, cx),
+            Use::Toggle(toggle) => self.change(toggle, cx),
+            Use::LineType(line_type) => self.set_line_type(line_type, cx),
+            Use::Style(style) => self.set_style(style, cx),
             Use::ThisText => {
                 self.set_from_this_text(!self.settings.from_this_text, window, cx);
             }
@@ -1072,18 +1080,14 @@ impl GrepPanel {
             }))
     }
 
-    fn choice(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        selected: bool,
-        change: impl Fn(&mut GrepSettings) + 'static,
-        cx: &mut Context<Self>,
-    ) -> Button {
-        Button::new(id)
-            .labelled(label)
-            .selected(selected)
-            .on_click(cx.listener(move |this, _, _, cx| this.change(|s| change(s), cx)))
+    /// 結果出力: the one writer of the choice (the click, the arrow keys and the access keys).
+    fn set_line_type(&mut self, line_type: LineType, cx: &mut Context<Self>) {
+        self.change(|s| s.line_type = line_type, cx);
+    }
+
+    /// 結果出力形式: the one writer of the choice.
+    fn set_style(&mut self, style: OutputStyle, cx: &mut Context<Self>) {
+        self.change(|s| s.style = style, cx);
     }
 
     fn row(label: &'static str, content: impl IntoElement) -> impl IntoElement {
@@ -1203,60 +1207,45 @@ impl Render for GrepPanel {
                 .child(self.check_box("grep-paste", PASTE, paste, |s, v| s.paste = v, cx))
                 .child(self.check_box("grep-backup", BACKUP, s.backup, |s, v| s.backup = v, cx));
         }
+        // `IDD_GREP`: the first radio button of each of the two groups has `WS_GROUP | WS_TABSTOP`
+        // (`sakura_rc.rc`).
+        let line_types = Group::new(
+            &self.line_type_ring,
+            LINE_TYPES.len(),
+            LINE_TYPES.iter().position(|(_, _, t)| *t == s.line_type),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_line_type(LINE_TYPES[*index].2, cx);
+            })),
+        );
+        let styles = Group::new(
+            &self.style_ring,
+            STYLES.len(),
+            STYLES.iter().position(|(_, _, t)| *t == s.style),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_style(STYLES[*index].2, cx);
+            })),
+        );
         let output = h_flex()
             .gap_4()
             .child(
-                v_flex()
-                    .gap_1()
-                    .child("結果出力")
-                    .child(self.choice(
-                        "grep-line",
-                        LINE,
-                        s.line_type == LineType::Line,
-                        |s| s.line_type = LineType::Line,
-                        cx,
-                    ))
-                    .child(self.choice(
-                        "grep-part",
-                        PART,
-                        s.line_type == LineType::MatchPart,
-                        |s| s.line_type = LineType::MatchPart,
-                        cx,
-                    ))
-                    .child(self.choice(
-                        "grep-nohit",
-                        NO_HIT,
-                        s.line_type == LineType::NoHitLine,
-                        |s| s.line_type = LineType::NoHitLine,
-                        cx,
-                    )),
+                v_flex().gap_1().items_start().child("結果出力").children(
+                    LINE_TYPES
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (id, label, t))| {
+                            line_types.radio(index, *id, true, |radio| {
+                                radio.labelled(*label).checked(s.line_type == *t)
+                            })
+                        }),
+                ),
             )
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child("出力形式")
-                    .child(self.choice(
-                        "grep-normal",
-                        NORMAL,
-                        s.style == OutputStyle::Normal,
-                        |s| s.style = OutputStyle::Normal,
-                        cx,
-                    ))
-                    .child(self.choice(
-                        "grep-per-file",
-                        PER_FILE,
-                        s.style == OutputStyle::PerFile,
-                        |s| s.style = OutputStyle::PerFile,
-                        cx,
-                    ))
-                    .child(self.choice(
-                        "grep-result-only",
-                        RESULT_ONLY,
-                        s.style == OutputStyle::ResultOnly,
-                        |s| s.style = OutputStyle::ResultOnly,
-                        cx,
-                    )),
-            )
+            .child(v_flex().gap_1().items_start().child("出力形式").children(
+                STYLES.iter().enumerate().map(|(index, (id, label, t))| {
+                    styles.radio(index, *id, true, |radio| {
+                        radio.labelled(*label).checked(s.style == *t)
+                    })
+                }),
+            ))
             .child(
                 v_flex()
                     .gap_1()
