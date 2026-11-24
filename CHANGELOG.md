@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.25.0](https://github.com/stofu5678/matsu_editor/compare/v0.24.0...v0.25.0) (2026-11-24)
+
+
+### Features
+
+* **macro:** read the lock argument of the box moves and bAutoColmnPaste ([#563](https://github.com/stofu5678/matsu_editor/issues/563)) ([a35bcb0](https://github.com/stofu5678/matsu_editor/commit/a35bcb0a649c69cf5d1991e07337df09f8be7804))
+* **macro:** record every panel jump as Jump and let a macro's Jump set the panel's unit ([#559](https://github.com/stofu5678/matsu_editor/issues/559)) ([666b2f2](https://github.com/stofu5678/matsu_editor/commit/666b2f27b30b19ec196c95f7629e4cc2a11bfd23))
+* **search:** close the replace panel after replace all ([#560](https://github.com/stofu5678/matsu_editor/issues/560)) ([aa211bc](https://github.com/stofu5678/matsu_editor/commit/aa211bc7e8bd2f1c70d60ec101ff2591b4558a2b))
+* **view:** move a held left or right key by nRepeatedMoveCaretNum columns ([#562](https://github.com/stofu5678/matsu_editor/issues/562)) ([10db121](https://github.com/stofu5678/matsu_editor/commit/10db12120cfc9e9ff8778be67100118e9f67409f))
+
+
+### Bug Fixes
+
+* **search:** start replace and replace all with the search of the other windows ([#558](https://github.com/stofu5678/matsu_editor/issues/558)) ([211fd68](https://github.com/stofu5678/matsu_editor/commit/211fd683daa90ddecb1c66d2c0bb6c4a4de2cb0b))
+
 ## [0.24.0](https://github.com/stofu5678/matsu_editor/compare/v0.23.0...v0.24.0) (2026-11-21)
 
 
