@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn a_drag_from_a_click_with_a_mark_keeps_the_mark_on_its_anchor() {
-        let mut e = Editor::new("abcdef");
+        let mut e = Editor::new("abcdef|");
         let p = |col| Pos::new(0, col);
         let from_click = DragSelection {
             bgn: (p(3), p(3)),
