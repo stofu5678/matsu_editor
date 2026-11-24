@@ -62,7 +62,7 @@
 - 失敗が 3 回続くと、そのプラグインを止めます。
 - `SmartIndent` と入力補完を呼ぶ場面が少なくなっています。サクラエディタは、文字を打つたびに呼びます。
 - 動かせる言語が違います。サクラエディタは Windows のスクリプトエンジン（JScript など）で動かし、MATSU Editor は QuickJS で動かします。`WScript` や `ActiveXObject` はありません。これらを使うハンドラは、エラーで終わります。
-- プラグインのコマンドやマクロが、そのウィンドウで動いている間に起きたイベントは、どのプラグインにも配りません。
+- プラグインのコマンドが動いている間や、マクロが 1 つの呼び出しを実行している間に起きたイベントは、どのプラグインにも配りません。マクロが保存や読み込みの終わりを待っている間は、その保存や読み込みのイベントを配ります。
 - 1 つのウィンドウに文書が 1 つのサクラエディタと違い、MATSU Editor はタブを持ちます。プラグインは、呼び出しを起こした文書に対して動きます（[ハンドラの中で使えるもの](plugin-api.md)）。
 
 ## 根拠
@@ -73,6 +73,6 @@
 - 動かせる言語: `crates/matsu-plugin/src/session.rs` の `Language::FILE_EXTENSIONS`、`Language::of_file`。`crates/matsu-ui/src/macros/plugin_call.rs` の `prepare`（言語ごとのホスト）。同梱の言語の待ち受け: `crates/matsu-script/src/plugin.rs`
 - Node.js、Python、Ruby、PHP、PowerShell、Perl、Emacs Lisp、AppleScript の待ち受け: `crates/matsu-plugin/src/boot/boot.cjs`、`boot.py`、`boot.rb`、`boot.php`、`boot.ps1`、`boot.pl`、`boot.el`、`boot.applescript`（`servePlugin`、`_serve_plugin`、`MatsuPlugin.serve`、`nextInvoke`、`Start-MatsuPlugin`、`serve`、`plugin--serve`、`pluginServe`）
 - 自動で呼ぶ場面が何も言わず飛ばすこと: `prepare_event`（`.ok()` で失敗を捨てる）
-- コマンドやマクロの間はイベントを配らないこと: `crates/matsu-ui/src/plugin_events.rs` の冒頭の説明、`crates/matsu-ui/src/macros/plugin_call.rs` の `Turn::Taken`
+- コマンドや、マクロの呼び出しの間はイベントを配らないこと（マクロが待っている間は配る）: `crates/matsu-ui/src/plugin_events.rs` の冒頭の説明、`crates/matsu-ui/src/macros/plugin_call.rs` の `Turn::Taken`
 - サクラのソース: `sakura_core/plugin/CJackManager.cpp`（ジャックの名前）、`CWSHPlugin.cpp`（`wsh` の動かし方）
 - `docs/sakura-gaps.md` の「プラグイン」の表

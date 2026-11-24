@@ -228,9 +228,6 @@ pub(crate) struct MacroState {
     running: Option<Running>,
     /// A plugin is in a call on this window (`plugin_call`): the calls of plugins go one at a time.
     plugin_running: bool,
-    /// The call of the plugin is an event jack (`DocumentOpen`...), not a command: another event may
-    /// wait for it; a command's own events are not given (ADR-0026, chapter 2).
-    plugin_event: bool,
     /// A call of the `SmartIndent` jack is on: the version of the text and the cursor (caret and
     /// selection) as the call left them. If the user changes any, the plugin has lost its place and is
     /// stopped (`plugin_call::indent`).
@@ -269,6 +266,11 @@ pub(crate) struct MacroState {
     /// The wait for a call that finishes later (`wait.rs`): the number of the wait that is on,
     /// if any. A key macro does not go on, and a script gets no answer, until it ends.
     waiting: Option<u64>,
+    /// The call of the plugin is an event jack (`DocumentOpen`...), not a command: `Some` with the generation
+    /// of the document that the call began on (set when it starts, cleared when it ends; see
+    /// [`Self::event_call`]). Another event may wait for it; a command's own events are not given (ADR-0026,
+    /// chapter 2). The macro's deferred closing of undo blocks (`close_undo_blocks`) is tied to the generation.
+    event_generation: Option<u64>,
     /// Counts the waits that began, so that a wait that was stopped can tell.
     epoch: u64,
     /// What the macro functions keep between two calls (cookies, the draw switch).
@@ -344,11 +346,24 @@ impl MacroState {
             .flatten()
     }
 
+    /// The generation of the document that the running event call began on, if the call that runs is an event.
+    pub(crate) fn event_call(&self) -> Option<u64> {
+        self.event_generation.filter(|_| self.plugin_running)
+    }
+
+    /// The macro is in the middle of a call or between two calls, so it owns the window. A macro that
+    /// waits for a flow (`waiting`) does not: the window is the flow's until it ends, and the macro does
+    /// nothing to the text, the undo blocks or the plugin hosts meanwhile, so an event call
+    /// (`plugin_events`) of this window may take it (the macro waits for the flow that raised it).
+    /// See [`Turn`](plugin_call::Turn).
+    pub(crate) fn owns_window(&self) -> bool {
+        self.waiting.is_none() && (self.running.is_some() || !self.queue.is_empty())
+    }
+
+    /// Anything of the macros has the window: [`Self::owns_window`], a wait for a flow, or a call of a
+    /// plugin. It differs from `owns_window` by those named conditions only.
     fn busy(&self) -> bool {
-        self.running.is_some()
-            || self.plugin_running
-            || !self.queue.is_empty()
-            || self.waiting.is_some()
+        self.owns_window() || self.waiting.is_some() || self.plugin_running
     }
 }
 
@@ -547,6 +562,19 @@ impl EditorView {
         // The block of an IME composition that the user started is not the macro's: it closes
         // when the text is committed.
         if self.composing {
+            return;
+        }
+        // An event call that runs now has opened a block on top of the macro's: closing all would cut the
+        // call's edits in two, and its end would put the macro's blocks back (`leave_undo_block`). The call
+        // closes them when it ends (the obligation is the document's: the pane may be gone by then).
+        // A call that began on a document that was replaced since has no block on the document that is
+        // there now (its end takes nothing of it), so the blocks are closed at once.
+        if let Some(generation) = self.macros.event_call()
+            && self.document.read(cx).generation() == generation
+        {
+            self.document.update(cx, |shared, _| {
+                shared.set_close_blocks_after_event(generation)
+            });
             return;
         }
         let cursor = &self.cursor;
@@ -1188,4 +1216,4 @@ fn dialog_error(error: &impl std::fmt::Display) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

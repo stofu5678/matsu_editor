@@ -108,7 +108,7 @@ impl Place {
 pub(super) struct Files(PathBuf);
 
 impl Files {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = tempfile::tempdir().unwrap().keep();
         Self(dir)
     }
@@ -119,7 +119,7 @@ impl Files {
         path
     }
 
-    fn path(&self, name: &str) -> PathBuf {
+    pub(super) fn path(&self, name: &str) -> PathBuf {
         self.0.join(name)
     }
 }
@@ -142,7 +142,12 @@ pub(super) fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut Visual
     (view, vcx)
 }
 
-fn run(view: &Entity<EditorView>, cx: &mut VisualTestContext, function: &str, args: &[Arg]) {
+pub(super) fn run(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    function: &str,
+    args: &[Arg],
+) {
     let code = FUNCTIONS.iter().find(|f| f.name == function).unwrap().code;
     view.update_in(cx, |view, window, cx| {
         view.run_function(code, args, window, cx)
@@ -163,7 +168,7 @@ pub(super) fn jacks(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> Ve
 }
 
 /// Lets the window and the plugin process run until `count` jacks have run.
-fn wait_for_jacks(
+pub(super) fn wait_for_jacks(
     view: &Entity<EditorView>,
     cx: &mut VisualTestContext,
     count: usize,
@@ -190,7 +195,7 @@ fn wait_for_jacks(
     );
 }
 
-fn text_of(path: &Path) -> String {
+pub(super) fn text_of(path: &Path) -> String {
     fs::read_to_string(path).unwrap()
 }
 
@@ -201,7 +206,7 @@ pub(super) fn begin(cx: &mut TestAppContext, scripts: &[(&str, &str)]) -> Option
     Some((Place::new(scripts), Files::new()))
 }
 
-fn finish(cx: &mut VisualTestContext) {
+pub(super) fn finish(cx: &mut VisualTestContext) {
     set_test_interpreter(None);
     cx.update(|_, app| shutdown(app, ID));
 }

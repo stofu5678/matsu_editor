@@ -416,7 +416,7 @@ fn an_unknown_extension_is_refused(cx: &mut TestAppContext) {
 
 // ---- macro files in JavaScript and Python ----
 
-fn available(language: Language) -> bool {
+pub(crate) fn available(language: Language) -> bool {
     let interpreter = language.default_interpreter();
     let ok = Command::new(&interpreter)
         .arg("--version")

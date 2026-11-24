@@ -37,6 +37,7 @@ use std::path::Path;
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, CommandError, Result};
 use matsu_config::dialog_dir::split_default_name;
+use matsu_config::plugins::def::Jack;
 use matsu_core::encoding::Encoding;
 
 use super::int_arg;
@@ -201,6 +202,7 @@ fn read_here(
                 view.restore_from_history(entry, options, cx);
             }
             view.record_history(cx);
+            tell_plugins_of_the_open(view, window, cx);
         }
         Err(error) => {
             let (message, detail) = open_error_message(path, &error);
@@ -208,6 +210,21 @@ fn read_here(
         }
     }
     true
+}
+
+/// `DocumentOpen` for the file that was read into this window (`CDocFileOperation::FileLoad` calls the
+/// plugins after the load, whoever asked for it). The read was made here, not by the flow of `load_here`
+/// that raises the event, so the event is raised by a flow of its own; the macro that called waits for it
+/// (`start` is tracked), and goes on after the plugins (`plugin_events`, `Turn`).
+fn tell_plugins_of_the_open(view: &EditorView, window: &mut Window, cx: &mut Context<EditorView>) {
+    if !crate::plugin_events::has_plugs(cx, &[Jack::DocumentOpen]) {
+        return;
+    }
+    let generation = view.document().read(cx).generation();
+    start(window, cx, async move |view, cx| {
+        crate::plugin_events::fire_and_wait_for(&view, cx, Jack::DocumentOpen, Some(generation))
+            .await;
+    });
 }
 
 register_ui_command!(FileOpen2);

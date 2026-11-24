@@ -797,7 +797,9 @@ pub(crate) enum Turn {
     Free,
     /// Another event call runs: wait for it.
     AfterEvent,
-    /// A command of a plugin or a macro has the window: the event is not given.
+    /// A command of a plugin, or a macro that is in a call, has the window: the event is not given. A
+    /// macro that waits for a flow (a save, a file that is read) has not: the events of that flow run, and
+    /// the macro goes on after them.
     Taken,
 }
 
@@ -808,14 +810,64 @@ impl EditorView {
         self.macros.plugin_running = on;
     }
 
+    /// For tests: the macro's undo blocks wait for the end of an event call.
+    #[cfg(test)]
+    pub(crate) fn close_blocks_pending_for_test(&self, cx: &gpui::App) -> bool {
+        self.document.read(cx).close_blocks_after_event()
+    }
+
+    /// For tests: an event call runs on this window, on the document that it shows now (its end is not
+    /// polled: the state is what the call leaves between the replacement of the document and its `Done`).
+    #[cfg(test)]
+    pub(crate) fn pretend_event_call_for_test(&mut self, on: bool, cx: &gpui::App) {
+        self.macros.plugin_running = on;
+        self.macros.event_generation = on.then(|| self.document.read(cx).generation());
+    }
+
+    /// For tests: a macro of this window waits for a flow.
+    #[cfg(test)]
+    pub(crate) fn pretend_macro_waits_for_test(&mut self, on: bool) {
+        self.macros.waiting = on.then_some(1);
+        self.macros.suspended = on;
+        self.macros.queue.clear();
+        if on {
+            self.macros.queue.push_back(super::Item::Leave);
+        }
+    }
+
+    /// For tests: a macro of this window is in a call, which has the window (a macro that waits for a flow
+    /// has not).
+    #[cfg(test)]
+    pub(crate) fn pretend_macro_call_for_test(&mut self, on: bool) {
+        self.macros.suspended = on;
+        self.macros.queue.clear();
+        if on {
+            self.macros.queue.push_back(super::Item::Leave);
+        }
+    }
+
     /// See [`Turn`].
+    ///
+    /// A macro that waits for a flow (`MacroState::waiting`: a save, a file that is read) lends the window to
+    /// the flow, and the flow's events are the macro's own (Sakura calls the plugins from inside the
+    /// macro's command: `CDocFileOperation::DoSaveFlow`). A macro that runs a call now takes it.
     pub(crate) fn event_turn(&self, cx: &gpui::App) -> Turn {
-        if !(self.macros.busy() || self.plugin_in_call(cx)) {
-            Turn::Free
-        } else if self.macros.plugin_running && self.macros.plugin_event {
-            Turn::AfterEvent
-        } else {
+        if self.macros.plugin_running {
+            if self.macros.event_call().is_some() {
+                Turn::AfterEvent
+            } else {
+                Turn::Taken
+            }
+        } else if self.macros.owns_window()
+            || self.document.read(cx).plugin_busy()
+            || self.macro_in_other_pane(cx)
+        {
+            // A macro of another pane of the document takes the window too, also one that waits: the event
+            // call would end where this window's tickets do not tell that macro (the undo block and the
+            // plugin call of the document are shared by the panes).
             Turn::Taken
+        } else {
+            Turn::Free
         }
     }
 
@@ -954,6 +1006,14 @@ fn release_document(
                 .0
                 .restore_block_depth(depth, &matsu_core::cursor::Cursor::default());
         }
+        // The macro that ended during the call left its blocks to it: they are closed now, though its pane
+        // is gone (the depth above includes them).
+        if shared.take_close_blocks_after_event(generation) {
+            shared
+                .parts_mut()
+                .0
+                .close_blocks(&matsu_core::cursor::Cursor::default());
+        }
     });
 }
 
@@ -1042,9 +1102,14 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
     // One plugin at a time on a window: the calls would share the undo block of the document, and
     // a macro that runs has the window already.
     let busy = editor.update(cx, |view, cx| {
-        // The whole state of the macros: a script, a key macro that plays or waits for a dialog (the
-        // settings that started this call may be the dialog it waits for), or another call.
-        view.plugin_in_call(cx) || view.macros.busy()
+        if event {
+            // An event may come while a macro waits for the flow that raised it (`Turn`).
+            view.event_turn(cx) != Turn::Free
+        } else {
+            // The whole state of the macros: a script, a key macro that plays or waits for a dialog (the
+            // settings that started this call may be the dialog it waits for), or another call.
+            view.plugin_in_call(cx) || view.macros.busy()
+        }
     });
     if busy {
         // An event is dropped when another call has the window (a plugin that makes its own events
@@ -1089,7 +1154,7 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
             cx.notify();
         }
         view.macros.plugin_running = true;
-        view.macros.plugin_event = event;
+        view.macros.event_generation = event.then(|| view.document.read(cx).generation());
         view.document
             .update(cx, |shared, _| shared.set_plugin_busy(true));
         let depth = view.enter_undo_block(cx);
@@ -1222,7 +1287,7 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                     }
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
-                        view.macros.plugin_event = false;
+                        view.macros.event_generation = None;
                         view.macros.indent_guard = None;
                         // Only the document the call began on: a replaced one is not ours to free.
                         let mut closed = std::mem::take(&mut view.macros.indent_closed);
@@ -1230,6 +1295,10 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                         if view.document.read(cx).generation() == generation {
                             // Whoever cut the call off says so on the document (`release_document` reads it too).
                             closed |= view.document.read(cx).plugin_block_closed();
+                            // The macro's blocks that were left for the end of this call.
+                            let close_later = view
+                                .document
+                                .update(cx, |shared, _| shared.take_close_blocks_after_event(generation));
                             view.document.update(cx, |shared, _| {
                                 shared.set_plugin_busy(false);
                                 shared.set_plugin_block_closed(false);
@@ -1240,6 +1309,10 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                             // the call would end.
                             if !closed && (complement.is_none() || !view.composing) {
                                 view.leave_undo_block(depth, cx);
+                            }
+                            // A macro that ended while this call ran left its blocks for now.
+                            if close_later {
+                                view.close_undo_blocks(cx);
                             }
                         }
                         // A smart indent that was stopped because the user went on says nothing.
