@@ -240,10 +240,7 @@ impl OneLinerDialog {
             Found::One(Use::Run) => self.ok(window, cx),
             Found::One(Use::Register) => self.start_registering(window, cx),
             Found::One(Use::Cancel) => self.cancel(window, cx),
-            Found::One(Use::Place(output)) => {
-                self.output = output;
-                cx.notify();
-            }
+            Found::One(Use::Place(output)) => self.choose_place(output, cx),
         }
         true
     }
@@ -311,6 +308,12 @@ impl OneLinerDialog {
         list
     }
 
+    /// 結果の置き場所: the radio buttons, the arrow keys and the access keys all come here.
+    fn choose_place(&mut self, to: OutputTo, cx: &mut Context<Self>) {
+        self.output = to;
+        cx.notify();
+    }
+
     /// The radio button of `PLACES[index]`.
     fn radio(
         &self,
@@ -350,8 +353,7 @@ impl Render for OneLinerDialog {
             PLACES.len(),
             PLACES.iter().position(|to| *to == self.output),
             Rc::new(cx.listener(|this, index: &usize, _, cx| {
-                this.output = PLACES[*index];
-                cx.notify();
+                this.choose_place(PLACES[*index], cx);
             })),
         );
         let places = v_flex()

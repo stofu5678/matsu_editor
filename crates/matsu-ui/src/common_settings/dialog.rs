@@ -29,6 +29,7 @@ use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::radio::Radio;
 use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use matsu_config::Profile;
@@ -1166,19 +1167,21 @@ impl CommonSettingsDialog {
     /// The group of radio buttons that the radio control belongs to (the radio controls of the
     /// page that share its id, in the order they are drawn in), and the position of the control
     /// in it.
-    fn radio_group(&self, control: &Control, cx: &mut Context<Self>) -> (Group, usize) {
+    ///
+    /// `None` when the page was not prepared for it (`ensure_choice_focus` makes every group
+    /// before the page is drawn, so a debug build stops here): the button is then drawn alone.
+    fn radio_group(&self, control: &Control, cx: &mut Context<Self>) -> Option<(Group, usize)> {
         let id = control.id;
-        // `ensure_choice_focus` makes every group before the page is drawn
         let set = self.radio_groups.get(id);
         debug_assert!(
             set.is_some(),
             "the group {id} was not made before the drawing"
         );
-        let set = set.cloned().unwrap_or_default();
-        let here = match control.kind {
-            Kind::Radio { value } => set.values.iter().position(|v| *v == value).unwrap_or(0),
-            _ => 0,
+        let set = set?.clone();
+        let Kind::Radio { value } = control.kind else {
+            return None;
         };
+        let here = set.values.iter().position(|v| *v == value)?;
         let selected = set.values.iter().position(|v| *v == self.values.int(id));
         let values = set.values;
         let group = Group::new(
@@ -1191,7 +1194,7 @@ impl CommonSettingsDialog {
                 }
             })),
         );
-        (group, here)
+        Some((group, here))
     }
 
     fn control_element(
@@ -1223,19 +1226,33 @@ impl CommonSettingsDialog {
                 .children(note)
                 .into_any_element(),
             Kind::Radio { value } => {
-                let (group, index) = self.radio_group(control, cx);
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        group.radio(index, Self::element_id(control), usable, |radio| {
+                let checked = self.values.int(id) == value;
+                let button = match self.radio_group(control, cx) {
+                    Some((group, index)) => group
+                        .radio(index, Self::element_id(control), usable, |radio| {
                             radio
                                 .label(label)
                                 .accessibility_label(name)
-                                .checked(self.values.int(id) == value)
+                                .checked(checked)
                                 .aria_disabled(!usable)
-                        }),
-                    )
+                        })
+                        .into_any_element(),
+                    // no group to move in: the button chooses itself, as a plain radio button
+                    None => Radio::new(Self::element_id(control))
+                        .label(label)
+                        .accessibility_label(name)
+                        .checked(checked)
+                        .disabled(!usable)
+                        .aria_disabled(!usable)
+                        .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                            this.set_int(id, value, cx);
+                        }))
+                        .into_any_element(),
+                };
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(button)
                     .children(note)
                     .into_any_element()
             }

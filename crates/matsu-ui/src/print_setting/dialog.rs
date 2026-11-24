@@ -481,6 +481,12 @@ impl PrintSettingDialog {
         self.settings.get_mut(self.current)
     }
 
+    /// 用紙の向き: the radio buttons, the arrow keys and the access keys all come here.
+    fn choose_orientation(&mut self, orientation: Orientation, cx: &mut Context<Self>) {
+        self.shown_mut().print_paper_orientation = orientation;
+        cx.notify();
+    }
+
     /// The setting shown.
     pub(super) fn shown(&self) -> &PrintSetting {
         self.settings.get(self.current)
@@ -646,7 +652,7 @@ impl PrintSettingDialog {
             }
             Use::Form(Part::Header) => focus_selecting(&self.header[0], window, cx),
             Use::Form(Part::Footer) => focus_selecting(&self.footer[0], window, cx),
-            Use::Orientation(orientation) => self.shown_mut().print_paper_orientation = orientation,
+            Use::Orientation(orientation) => self.choose_orientation(orientation, cx),
             Use::LineNumber => {
                 let on = &mut self.shown_mut().print_line_number;
                 *on = !*on;
@@ -1021,12 +1027,14 @@ impl Render for PrintSettingDialog {
                 self.shown().print_paper_orientation == Orientation::Landscape,
             )),
             Rc::new(cx.listener(|this, index: &usize, _, cx| {
-                this.shown_mut().print_paper_orientation = if *index == 0 {
-                    Orientation::Portrait
-                } else {
-                    Orientation::Landscape
-                };
-                cx.notify();
+                this.choose_orientation(
+                    if *index == 0 {
+                        Orientation::Portrait
+                    } else {
+                        Orientation::Landscape
+                    },
+                    cx,
+                );
             })),
         );
         let now = self.collect(cx);

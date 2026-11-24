@@ -166,6 +166,12 @@ impl ExecDialog {
         }
     }
 
+    /// 標準出力リダイレクト先: the radio buttons, the arrow keys and the access keys all come here.
+    fn choose_redirect(&mut self, to_window: bool, cx: &mut Context<Self>) {
+        self.to_window = to_window;
+        cx.notify();
+    }
+
     pub(crate) fn focus_first(&self, window: &mut Window, cx: &mut Context<Self>) {
         focus_selecting(&self.command, window, cx);
     }
@@ -274,14 +280,8 @@ impl ExecDialog {
                 self.get_stdout = !self.get_stdout;
                 cx.notify();
             }
-            Found::One(Use::ToOutput) => {
-                self.to_window = false;
-                cx.notify();
-            }
-            Found::One(Use::ToWindow) => {
-                self.to_window = true;
-                cx.notify();
-            }
+            Found::One(Use::ToOutput) => self.choose_redirect(false, cx),
+            Found::One(Use::ToWindow) => self.choose_redirect(true, cx),
             Found::One(Use::SendStdin) => {
                 self.send_stdin = !self.send_stdin;
                 cx.notify();
@@ -538,8 +538,7 @@ impl Render for ExecDialog {
             2,
             Some(usize::from(self.to_window)),
             Rc::new(cx.listener(|this, index: &usize, _, cx| {
-                this.to_window = *index == 1;
-                cx.notify();
+                this.choose_redirect(*index == 1, cx);
             })),
         );
         let command_row = h_flex()
