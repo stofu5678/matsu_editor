@@ -810,6 +810,12 @@ impl EditorView {
         self.macros.plugin_running = on;
     }
 
+    /// For tests: the macro's undo blocks wait for the end of an event call.
+    #[cfg(test)]
+    pub(crate) fn close_blocks_pending_for_test(&self) -> bool {
+        self.macros.close_blocks_after_event
+    }
+
     /// For tests: a macro of this window waits for a flow.
     #[cfg(test)]
     pub(crate) fn pretend_macro_waits_for_test(&mut self, on: bool) {
@@ -1270,6 +1276,10 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                         // Only the document the call began on: a replaced one is not ours to free.
                         let mut closed = std::mem::take(&mut view.macros.indent_closed);
                         view.macros.indent_undo_depth = None;
+                        // The macro's debt of closing its blocks ends with this call whatever came of the
+                        // document: it is paid only on the document the call began on.
+                        let close_later =
+                            std::mem::take(&mut view.macros.close_blocks_after_event);
                         if view.document.read(cx).generation() == generation {
                             // Whoever cut the call off says so on the document (`release_document` reads it too).
                             closed |= view.document.read(cx).plugin_block_closed();
@@ -1285,7 +1295,7 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                                 view.leave_undo_block(depth, cx);
                             }
                             // A macro that ended while this call ran left its blocks for now.
-                            if std::mem::take(&mut view.macros.close_blocks_after_event) {
+                            if close_later {
                                 view.close_undo_blocks(cx);
                             }
                         }

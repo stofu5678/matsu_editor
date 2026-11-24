@@ -272,7 +272,9 @@ pub(crate) struct MacroState {
     /// The macro ended (or was cancelled) while an event call of a plugin ran on this window: its undo
     /// blocks are closed when that call ends (`close_undo_blocks`, `plugin_call`), so that the blocks that
     /// the call opened on top of them stay whole, and its end does not open them again. Set by the macro's
-    /// end, read and cleared by the end of the event call.
+    /// end, read and cleared by the end of the event call: `Progress::Done` takes it on every end of the
+    /// call (the call's document replaced meanwhile too, where nothing is closed, since the blocks of the
+    /// new document are not the macro's). A view that is gone takes the flag with it.
     close_blocks_after_event: bool,
     /// Counts the waits that began, so that a wait that was stopped can tell.
     epoch: u64,

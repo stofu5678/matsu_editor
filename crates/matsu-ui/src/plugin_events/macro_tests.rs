@@ -309,3 +309,72 @@ fn a_script_that_ends_during_an_event_leaves_the_undo_blocks_whole(cx: &mut Test
         )
     });
 }
+
+#[gpui::test]
+fn a_macro_cancelled_during_an_event_leaves_nothing_for_a_document_that_replaced_the_old_one(
+    cx: &mut TestAppContext,
+) {
+    let handler = "Editor.InsText('X'); var t = Date.now(); while (Date.now() - t < 1500) {} Editor.InsText('Y');";
+    let Some((place, files)) = begin(cx, &[("DocumentBeforeSave", handler)]) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let first = files.path("first.dat");
+    let mac = files.write(
+        "first.mac",
+        format!("Char(97);\nFileSaveAs({});\nChar(98);\n", quoted(&first)).as_bytes(),
+    );
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_EXECEXTMACRO")
+        .unwrap()
+        .code;
+    let arg = Arg::Text(mac.to_string_lossy().into_owned());
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[arg], window, cx)
+    });
+    spin(cx, "the handler did not edit", |cx| {
+        text_in(&view, cx).contains('X')
+    });
+    // The macro is cancelled during the event, and a file is read into the window before the handler ends.
+    view.update(cx, |v, cx| v.cancel_macro(cx));
+    assert!(view.read_with(cx, |v, _| v.close_blocks_pending_for_test()));
+    view.update(cx, |v, cx| {
+        v.load_document(crate::document::SharedDocument::empty(), None, cx);
+    });
+    spin(cx, "the handler did not end", |cx| {
+        !view.read_with(cx, |v, _| v.plugin_call_running())
+    });
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // The call's end took the debt, and closed nothing of the new document.
+    assert!(!view.read_with(cx, |v, _| v.close_blocks_pending_for_test()));
+    // A new macro on the new document goes through its own event with its blocks whole.
+    let second = files.path("second.dat");
+    let mac = files.write(
+        "second.mac",
+        format!("Char(99);\nFileSaveAs({});\nChar(100);\n", quoted(&second)).as_bytes(),
+    );
+    play(&view, cx, &mac);
+    assert_eq!(text_in(&view, cx), "cXYd");
+    let depth = view.read_with(cx, |v, app| {
+        v.document().read(app).model().history().depth()
+    });
+    assert_eq!(depth, 0, "no undo block is left open");
+    assert!(!view.read_with(cx, |v, _| v.close_blocks_pending_for_test()));
+    let undo = FUNCTIONS.iter().find(|f| f.name == "F_UNDO").unwrap().code;
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(undo, &[], window, cx)
+    });
+    assert_eq!(text_in(&view, cx), "cXY");
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(undo, &[], window, cx)
+    });
+    assert_eq!(text_in(&view, cx), "c", "the handler's edits are one step");
+    finish(cx);
+}
