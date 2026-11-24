@@ -49,25 +49,37 @@ use matsu_core::cursor::char_left;
 use super::CommandContext;
 use crate::command::Result;
 use crate::edit_options;
-use crate::layout::X;
+use crate::layout::{WrappedGap, X};
 
 /// A place where the free caret may stand ([`CommandContext::gap_at`]).
 #[derive(Clone, Copy)]
-struct Gap {
-    /// Where the text of the row ends.
-    text_end: X,
-    /// The row ends because the line wraps there.
-    wrapped: bool,
+enum Gap {
+    /// The end of the text of the last row of a line.
+    Last { text_end: X },
+    /// The end of a wrapped row.
+    Wrapped(WrappedGap),
 }
 
 impl Gap {
-    /// Whether the caret may stand at `x`: right of the end of the text, and at the end of the text
-    /// too on a wrapped row, where that is the end of the row and not the start of the next one.
+    /// Where the text of the row ends.
+    fn text_end(self) -> X {
+        match self {
+            Self::Last { text_end } => text_end,
+            Self::Wrapped(gap) => gap.text_end,
+        }
+    }
+
+    fn is_wrapped(self) -> bool {
+        matches!(self, Self::Wrapped(_))
+    }
+
+    /// Whether the caret may stand at `x`: right of the end of the text; on a wrapped row at the
+    /// end of the text too, where that is the end of the row and not the start of the next one
+    /// ([`WrappedGap::takes`]).
     fn takes(self, x: X) -> bool {
-        if self.wrapped {
-            x >= self.text_end
-        } else {
-            x > self.text_end
+        match self {
+            Self::Last { text_end } => x > text_end,
+            Self::Wrapped(gap) => gap.takes(x),
         }
     }
 }
@@ -88,17 +100,11 @@ impl CommandContext<'_> {
         }
         if self.layout.row_end(self.doc(), pos)? == pos && !self.row_is_wrapped(pos)? {
             let text_end = self.layout.display_x(self.doc(), pos)?;
-            return Ok(Some(Gap {
-                text_end,
-                wrapped: false,
-            }));
+            return Ok(Some(Gap::Last { text_end }));
         }
         // The start of a row that continues a line: the row before it ends here, wrapped.
         if let Some(gap) = crate::layout::wrapped_gap_before(&*self.layout, self.doc(), pos)? {
-            return Ok(Some(Gap {
-                text_end: gap.text_end,
-                wrapped: true,
-            }));
+            return Ok(Some(Gap::Wrapped(gap)));
         }
         Ok(None)
     }
@@ -120,7 +126,7 @@ impl CommandContext<'_> {
     pub fn caret_free_x(&self) -> Result<Option<X>> {
         Ok(self
             .standing()?
-            .filter(|(x, gap)| *x > gap.text_end)
+            .filter(|(x, gap)| *x > gap.text_end())
             .map(|(x, _)| x))
     }
 
@@ -133,13 +139,13 @@ impl CommandContext<'_> {
     /// Whether the caret stands at the end of a wrapped row, or right of it. Its position is the
     /// start of the next row then, and the layout would put it there.
     fn caret_at_wrapped_row_end(&self) -> Result<bool> {
-        Ok(self.standing()?.is_some_and(|(_, gap)| gap.wrapped))
+        Ok(self.standing()?.is_some_and(|(_, gap)| gap.is_wrapped()))
     }
 
     /// A position on the row that the caret is on, to ask the layout for the row (`row_start`,
     /// `move_rows`, ...): the caret, except at the end of a wrapped row, where the caret position
     /// belongs to the next row and the last char of the row is asked for.
-    pub(super) fn caret_row_pos(&self) -> Result<Pos> {
+    pub fn caret_row_pos(&self) -> Result<Pos> {
         let caret = self.caret();
         if self.caret_at_wrapped_row_end()?
             && let Some(last) = char_left(self.doc(), caret)?
@@ -147,6 +153,16 @@ impl CommandContext<'_> {
             return Ok(last);
         }
         Ok(caret)
+    }
+
+    /// The `X` of the caret as it is drawn, for the commands that work on its row and keep the
+    /// column: at the end of a wrapped row or in the gap right of it, the column in the gap;
+    /// elsewhere that of the position ([`caret_display_x`](Self::caret_display_x)).
+    pub fn caret_row_x(&self) -> Result<X> {
+        match self.standing()? {
+            Some((x, gap)) if gap.is_wrapped() => Ok(x),
+            _ => self.caret_display_x(),
+        }
     }
 
     /// Lets the caret, which is at a position already, stand at `x` if that is to the right of
@@ -161,7 +177,7 @@ impl CommandContext<'_> {
         {
             // up to the width of a row, or the end of the text if that is wider
             // (`nMaxX = max(nPosX, GetMaxLineLayout())`)
-            self.set_free_x(Some(x.min(self.max_box_x().max(gap.text_end))));
+            self.set_free_x(Some(x.min(self.max_box_x().max(gap.text_end()))));
         }
         Ok(())
     }
@@ -199,7 +215,10 @@ impl CommandContext<'_> {
             self.move_caret(self.caret(), extend)?;
             return Ok(true);
         }
-        if !self.gap_at(self.caret())?.is_some_and(|gap| !gap.wrapped) {
+        if !self
+            .gap_at(self.caret())?
+            .is_some_and(|gap| !gap.is_wrapped())
+        {
             return Ok(false);
         }
         let next = self.caret_x_with_free()? + self.layout.column_x();
@@ -220,10 +239,10 @@ impl CommandContext<'_> {
     /// Sakura: `x = max(x - dx_default, end of the text)` (`Command_LEFT`,
     /// `sakura_core/cmd/CViewCommander_Cursor.cpp`): the caret does not go left of the text.
     pub(super) fn free_left(&mut self, extend: bool) -> Result<bool> {
-        let Some((x, gap)) = self.standing()?.filter(|(x, gap)| *x > gap.text_end) else {
+        let Some((x, gap)) = self.standing()?.filter(|(x, gap)| *x > gap.text_end()) else {
             return Ok(false);
         };
-        let end = gap.text_end;
+        let end = gap.text_end();
         let back = x.saturating_sub(self.layout.column_x()).max(end);
         self.move_caret_free(self.caret(), back, extend)?;
         Ok(true)
@@ -238,7 +257,7 @@ impl CommandContext<'_> {
             return Ok(());
         };
         let caret = self.caret();
-        let gap = x - self.gap_at(caret)?.map_or(x, |gap| gap.text_end);
+        let gap = x - self.gap_at(caret)?.map_or(x, |gap| gap.text_end());
         let edit = self.replace(caret, caret, &" ".repeat(self.spaces_to_fill(gap)))?;
         self.cursor.move_to(edit.end, false);
         Ok(())

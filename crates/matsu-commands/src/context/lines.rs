@@ -301,10 +301,11 @@ impl CommandContext<'_> {
         let (from, to) = match selected {
             Some(range) => range,
             None => {
-                let caret = self.caret();
+                // the row that the caret is drawn on
+                let row = self.caret_row_pos()?;
                 (
-                    self.layout().row_start(self.doc(), caret)?,
-                    self.layout().row_end(self.doc(), caret)?,
+                    self.layout().row_start(self.doc(), row)?,
+                    self.layout().row_end(self.doc(), row)?,
                 )
             }
         };

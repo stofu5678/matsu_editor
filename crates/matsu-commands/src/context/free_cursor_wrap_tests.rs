@@ -13,6 +13,7 @@ use matsu_core::model::DocumentModel;
 
 use super::CommandContext;
 use super::box_edit_tests::Wrap;
+use crate::clipboard::MemoryClipboard;
 use crate::command::Arg;
 use crate::edit_options::{EditOptions, with_options};
 use crate::layout::X;
@@ -30,6 +31,7 @@ struct Rig {
     model: DocumentModel,
     cursor: Cursor,
     layout: Wrap,
+    clip: MemoryClipboard,
 }
 
 impl Rig {
@@ -40,11 +42,13 @@ impl Rig {
             model,
             cursor: Cursor::default(),
             layout: Wrap(3),
+            clip: MemoryClipboard::default(),
         }
     }
 
     fn cx<R>(&mut self, f: impl FnOnce(&mut CommandContext<'_>) -> R) -> R {
-        let mut cx = CommandContext::new(&mut self.model, &mut self.cursor, &mut self.layout, None);
+        let mut cx = CommandContext::new(&mut self.model, &mut self.cursor, &mut self.layout, None)
+            .with_clipboard(&mut self.clip);
         f(&mut cx)
     }
 
@@ -381,5 +385,41 @@ fn the_other_gaps_are_unchanged() {
         assert_eq!((r.caret(), r.col()), (Pos::new(1, 2), Some(3)));
         r.run("cursor_left");
         assert_eq!((r.caret(), r.col()), (Pos::new(1, 2), None));
+    });
+}
+
+#[test]
+fn row_commands_work_on_the_row_that_the_caret_is_drawn_on() {
+    with_options(free(), || {
+        // `Command_DELETE_LINE`, `Command_CUT_LINE` and `Command_DUPLICATELINE` take the row of
+        // the caret's layout Y, which is the first row for a caret in its gap, not the second
+        let mut r = Rig::new("abcdefgh");
+        r.click(P1, 5);
+        r.run("delete_line");
+        assert_eq!(r.text(), "defgh");
+        // the end of the row is the same place
+        let mut r = Rig::new("abcdefgh");
+        r.click(P1, 3);
+        r.run("delete_line");
+        assert_eq!(r.text(), "defgh");
+        // without the mark the caret is at the start of the second row, as before
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(P1, false);
+        r.run("delete_line");
+        assert_eq!(r.text(), "abcgh");
+
+        let mut r = Rig::new("abcdefgh");
+        r.click(P1, 5);
+        r.run("duplicate_line");
+        assert_eq!(r.text(), "abcabcdefgh");
+
+        let mut r = Rig::new("abcdefgh");
+        r.click(P1, 5);
+        r.run("cut_line");
+        assert_eq!(r.text(), "defgh");
+        assert_eq!(
+            r.clip.data().map(|d| d.text.clone()).as_deref(),
+            Some("abc")
+        );
     });
 }

@@ -27,11 +27,13 @@ impl Command for DeleteLine {
             cx.beep();
             return Ok(());
         }
-        let col = cx.caret_display_x()?;
-        let start = cx.layout().row_start(cx.doc(), caret)?;
-        let end = match cx.layout().next_row_start(cx.doc(), caret)? {
+        let col = cx.caret_row_x()?;
+        // the row that the caret is drawn on (at the end of a wrapped row, the one before)
+        let row = cx.caret_row_pos()?;
+        let start = cx.layout().row_start(cx.doc(), row)?;
+        let end = match cx.layout().next_row_start(cx.doc(), row)? {
             Some(next) => next,
-            None => cx.layout().row_end(cx.doc(), caret)?,
+            None => cx.layout().row_end(cx.doc(), row)?,
         };
         cx.delete_range(start, end)?;
         // keep the display column on the row that took the place of the deleted one

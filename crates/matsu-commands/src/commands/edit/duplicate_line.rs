@@ -32,8 +32,10 @@ impl Command for DuplicateLine {
             cx.beep();
             return Ok(());
         };
-        let start = cx.layout().row_start(cx.doc(), caret)?;
-        let end = cx.layout().row_end(cx.doc(), caret)?;
+        // the row that the caret is drawn on (at the end of a wrapped row, the one before)
+        let row = cx.caret_row_pos()?;
+        let start = cx.layout().row_start(cx.doc(), row)?;
+        let end = cx.layout().row_end(cx.doc(), row)?;
         let mut copy = cx.doc().text_between(start, end)?;
         // only the last row of a line has the line ending (a wrapped line has more rows)
         if end.col == line.text.len() {

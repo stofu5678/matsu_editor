@@ -3,7 +3,7 @@
 //! layout what is at a row and an `X`.
 
 use matsu_commands::context::cursor_x;
-use matsu_commands::layout::wrapped_gap_before;
+use matsu_commands::layout::{row_is_wrapped, wrapped_gap_before};
 use matsu_core::buffer::{Document, Pos, Result};
 use matsu_core::cursor::Cursor;
 use matsu_layout::{DocumentLayout, RowInfo, RowPos, X};
@@ -84,8 +84,10 @@ pub fn caret_row_pos(
 
 /// Whether `pos` is the end of the text of `row` and the row ends because the line wraps there.
 fn ends_wrapped_row(layout: &DocumentLayout, doc: &Document, row: usize, pos: Pos) -> Result<bool> {
+    // The same question as the commands ask (`matsu_commands::layout::row_is_wrapped`), of the
+    // first position of the row, since the end of a wrapped row belongs to the next row.
     let info = layout.row(doc, row)?;
-    Ok(info.wrapped && info.end == pos)
+    Ok(info.end == pos && row_is_wrapped(&RowRead(layout), doc, info.start)?)
 }
 
 /// Like [`position_at`], on a given row.
