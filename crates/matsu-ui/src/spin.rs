@@ -14,8 +14,21 @@
 //! name for a screen reader.
 //!
 //! Holding an arrow repeats and goes faster after a while ([`Hold`]). The Up and Down keys repeat with
-//! the operating system's key repeat (the box gets the key again and again), one step each, so the
-//! acceleration is only for the arrows.
+//! the operating system's key repeat (the box gets the key again and again), one step each, and the
+//! step grows with the time since the first key-down of the hold ([`KeyHold`]), as the arrows' does.
+//!
+//! How a hold of a key is known: not by `KeyDownEvent::is_held`. GPUI runs the actions of a matched
+//! key binding first (`Window::dispatch_key_event`, `gpui-pre` 0.3.8 `src/window.rs` lines 5871 to
+//! 6038, the actions at 6013 to 6027) and returns there when the handler does not `propagate`; the
+//! key-down listeners, the capture phase too, run only after that (`finish_dispatch_key_event` and
+//! `dispatch_key_down_up_event`, 6079 to 6150). For Up and Down, which `SpinUp` and `SpinDown` take,
+//! a key-down listener of the box is never called, and neither the action nor `KeystrokeEvent`
+//! carries `is_held`. So the hold is followed where the step is taken, in the two actions: a hold
+//! begins at an action when none is on or the direction changed, goes on with each action of the same
+//! direction, and ends at the key-up of Up or Down (a `KeyUpEvent` matches no binding, so the box's
+//! `capture_key_up` sees it), when the box loses the focus, or when more than [`KEY_GAP`] has passed
+//! since the last step (a safety net for a missed key-up). A real tap has a key-up between two presses,
+//! so a new press starts at 1 as in Windows, and the repeats of a hold have none between them.
 //!
 //! The delays and steps are those of the system's up-down control (`msctls_updown32`), which Sakura
 //! does not change (no `UDM_SETACCEL` in `sakura_core`). They were measured on Windows 11 (arm64,
@@ -29,8 +42,20 @@
 //! step every [`INTERVAL`] (100 ms: the system's timer of 100 ms is rounded up to its 15.6 ms
 //! tick, which is why it shows as about 110 ms there), and a step of 1, 5 after 2 seconds, 20 after
 //! 5 seconds.
+//!
+//! The keys were measured on Windows 11 (arm64, 2026-11-24, in Windows Sandbox) with the same
+//! control, the focus in its buddy edit, Up held (a key-down, then one every 33 ms from 500 ms, no
+//! key-up, as Windows sends a held key), the position read every 3 ms. Every key-down steps once;
+//! the control has no timer for keys (one key-down held for 3 seconds stepped once). The step is 1
+//! until about 2 seconds after the first key-down of the hold (the switches came at 2.04 to
+//! 2.07 s and 5.10 to 5.13 s), 5 from then and 20 from about 5 seconds, the same table as the mouse.
+//! When the step is 5 or 20 the new position is lined up on a multiple of the step, in the
+//! direction of the step: up 49 + 5 is 55 and 515 + 20 is 540, and a position set by hand during
+//! the hold goes 51 to 60 and 1003 to 1040; down 8949 - 5 is 8940 and 7997 - 20 is 7960. Then it
+//! goes on by whole steps. That is [`stepped`]. The mouse hold of #547 lines up the same way (45 at
+//! 2.691 s, 95, 145, then 340, 540).
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -179,10 +204,87 @@ impl Hold {
     }
 }
 
-/// The number after one step of `delta` (a multiple of 1 or -1) from the number in `text`, kept in `min..=max`
-/// (the range of `UDM_SETRANGE`; the control has no `UDS_WRAP`). The text is read as a number
-/// (`GetDlgItemInt`: a sign only where the range goes below 0); text that is not a number counts
-/// as 0.
+/// The longest wait between two steps of a held key. Windows' longest first repeat delay is 1 second
+/// (keyboard delay setting 3), so a longer wait is not a repeat: the key-up was missed.
+pub(crate) const KEY_GAP: Duration = Duration::from_millis(1500);
+
+/// A hold of Up or Down in the box of a spin button (see the top of this file).
+#[derive(Clone, Copy)]
+struct KeyRun {
+    /// The first step of the hold.
+    started: Instant,
+    /// The last step of the hold.
+    last: Instant,
+    /// 1 for Up, -1 for Down.
+    delta: i32,
+}
+
+/// The keys held in the box of a spin button. Windows' control has no timer for keys; it steps at
+/// every key-down (the press and each repeat) and takes the step from the time since the first key-down
+/// of the hold. Nothing is cached: the step is worked out from the times at each key-down.
+pub(crate) struct KeyHold {
+    /// `None`: no hold.
+    run: Option<KeyRun>,
+    /// The box's loss of the focus ends the hold.
+    _focus_out: Subscription,
+    /// So does the deactivation of the window: the key-up that comes while another program is
+    /// active goes there, and the focus may stay in the box.
+    _activation: Subscription,
+}
+
+impl KeyHold {
+    fn new(input: &Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let _focus_out = cx.on_focus_out(&input.focus_handle(cx), window, |this, _, _, _| {
+            this.end();
+        });
+        let _activation = cx.observe_window_activation(window, |this, window, _| {
+            if !window.is_window_active() {
+                this.end();
+            }
+        });
+        Self {
+            run: None,
+            _focus_out,
+            _activation,
+        }
+    }
+
+    /// The key-up: the hold ends.
+    pub(crate) fn end(&mut self) {
+        self.run = None;
+    }
+
+    /// A key-down of the direction `delta` (1 or -1) at `now`. Returns what the number moves by:
+    /// `delta` times the step of the time since the hold began.
+    pub(crate) fn press(&mut self, delta: i32, now: Instant) -> i32 {
+        let (run, by) = press_run(self.run, delta, now);
+        self.run = Some(run);
+        by
+    }
+}
+
+/// The hold after a key-down of the direction `delta` at `now`, and what the number moves by.
+fn press_run(run: Option<KeyRun>, delta: i32, now: Instant) -> (KeyRun, i32) {
+    let run = match run {
+        Some(run) if run.delta == delta && now.saturating_duration_since(run.last) <= KEY_GAP => {
+            run
+        }
+        _ => KeyRun {
+            started: now,
+            last: now,
+            delta,
+        },
+    };
+    let by = delta * increment_after(now.saturating_duration_since(run.started));
+    (KeyRun { last: now, ..run }, by)
+}
+
+/// The number after one step of `delta` (1 or -1 times the step of [`increment_after`]) from the
+/// number in `text`, kept in `min..=max` (the range of `UDM_SETRANGE`; the control has no
+/// `UDS_WRAP`). The text is read as a number (`GetDlgItemInt`: a sign only where the range goes
+/// below 0); text that is not a number counts as 0. A step of 5 or 20 lines the number up on a
+/// multiple of the step, in the direction of the step (measured, see the top of this file); a step
+/// of 1 never does.
 pub(crate) fn stepped(text: &str, delta: i32, min: i32, max: i32) -> i32 {
     let text = text.trim();
     let digits = text.strip_prefix('-').filter(|_| min < 0).unwrap_or(text);
@@ -195,10 +297,29 @@ pub(crate) fn stepped(text: &str, delta: i32, min: i32, max: i32) -> i32 {
     } else {
         0
     };
-    let next = parsed
-        .saturating_add(i64::from(delta))
-        .clamp(i64::from(min), i64::from(max));
+    let moved = parsed.saturating_add(i64::from(delta));
+    let size = i64::from(delta).abs();
+    let next = if size > 1 {
+        // up: `ceil((pos + step) / step) * step`; down: `floor((pos - step) / step) * step`
+        if delta > 0 {
+            moved
+                .saturating_add(size - 1)
+                .div_euclid(size)
+                .saturating_mul(size)
+        } else {
+            moved.div_euclid(size).saturating_mul(size)
+        }
+    } else {
+        moved
+    }
+    .clamp(i64::from(min), i64::from(max));
     i32::try_from(next).unwrap_or(max)
+}
+
+/// Whether `keystroke` is the Up or Down key (a key-up has no bindings to match, so its modifiers
+/// are not asked: letting go of Shift first must not leave the hold on).
+fn is_arrow_key(keystroke: &gpui::Keystroke) -> bool {
+    matches!(keystroke.key.as_str(), "up" | "down")
 }
 
 /// One step of `delta` on the box `input`: the number in it moves, the box shows it and has the
@@ -315,6 +436,12 @@ pub(crate) fn spin_box(
     };
     let up = arrow("up", "▲", format!("{name}を増やす"), 1);
     let down = arrow("down", "▼", format!("{name}を減らす"), -1);
+    let keys = window.use_keyed_state(
+        ElementId::from(SharedString::from(format!("{id}-keys"))),
+        cx,
+        |window, cx| KeyHold::new(input, window, cx),
+    );
+    let (release_keys, up_keys, down_keys) = (keys.clone(), keys.clone(), keys);
     let up_input = input.clone();
     let down_input = input.clone();
     div()
@@ -324,15 +451,26 @@ pub(crate) fn spin_box(
         .items_stretch()
         .child(field)
         .child(div().flex().flex_col().child(up).child(down))
+        // The key-down listeners come after the actions of Up and Down and are not called for
+        // them (see the top of this file); the key-up is seen here.
+        .capture_key_up(move |event, _, cx| {
+            if is_arrow_key(&event.keystroke) {
+                release_keys.update(cx, |keys, _| keys.end());
+            }
+        })
         // `UDS_ARROWKEYS`
         .on_action(move |_: &SpinUp, window, cx| {
             if enabled {
-                step(&up_input, 1, min, max, window, cx);
+                let now = cx.background_executor().now();
+                let by = up_keys.update(cx, |keys, _| keys.press(1, now));
+                step(&up_input, by, min, max, window, cx);
             }
         })
         .on_action(move |_: &SpinDown, window, cx| {
             if enabled {
-                step(&down_input, -1, min, max, window, cx);
+                let now = cx.background_executor().now();
+                let by = down_keys.update(cx, |keys, _| keys.press(-1, now));
+                step(&down_input, by, min, max, window, cx);
             }
         })
 }
@@ -400,7 +538,80 @@ mod tests {
     fn a_step_of_several_still_stops_at_the_ends() {
         assert_eq!(stepped("90", 20, 1, 99), 99);
         assert_eq!(stepped("10", -20, 1, 99), 1);
-        assert_eq!(stepped("-10", -20, -30000, 30000), -30);
+        assert_eq!(stepped("-10", -20, -30000, 30000), -40);
+    }
+
+    #[test]
+    fn a_step_of_five_or_twenty_lines_up_on_a_multiple_in_the_direction_of_the_step() {
+        // measured on Windows 2026-11-24 (see the top of this file)
+        assert_eq!(stepped("49", 5, 0, 100_000), 55);
+        assert_eq!(stepped("515", 20, 0, 100_000), 540);
+        assert_eq!(stepped("51", 5, 0, 100_000), 60);
+        assert_eq!(stepped("1003", 20, 0, 100_000), 1040);
+        assert_eq!(stepped("8949", -5, 0, 100_000), 8940);
+        assert_eq!(stepped("7997", -20, 0, 100_000), 7960);
+        // then whole steps
+        assert_eq!(stepped("55", 5, 0, 100_000), 60);
+        assert_eq!(stepped("540", 20, 0, 100_000), 560);
+        assert_eq!(stepped("60", -5, 0, 100_000), 55);
+        // a step of 1 never lines up
+        assert_eq!(stepped("49", 1, 0, 100_000), 50);
+        assert_eq!(stepped("51", -1, 0, 100_000), 50);
+        assert_eq!(stepped("52", 1, 0, 100_000), 53);
+        // the range ends win over the multiples
+        assert_eq!(stepped("98", 5, 0, 99), 99);
+        assert_eq!(stepped("3", -5, 1, 99), 1);
+    }
+
+    /// The steps of a list of key-downs `(direction, ms)` that have no key-up between them.
+    fn steps(downs: &[(i32, u64)]) -> Vec<i32> {
+        let t0 = Instant::now();
+        let mut run = None;
+        downs
+            .iter()
+            .map(|&(delta, ms)| {
+                let (next, by) = press_run(run, delta, t0 + Duration::from_millis(ms));
+                run = Some(next);
+                by
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_held_key_steps_by_one_then_five_then_twenty() {
+        let held: Vec<(i32, u64)> = [0, 500, 1000, 1500, 1999, 2000, 3000, 4000, 4999, 5000, 6000]
+            .into_iter()
+            .map(|ms| (1, ms))
+            .collect();
+        assert_eq!(steps(&held), [1, 1, 1, 1, 1, 5, 5, 5, 5, 20, 20]);
+        // down: the same steps, negative
+        let held: Vec<(i32, u64)> = [0, 1000, 1999, 2000, 3000, 4000, 5000]
+            .into_iter()
+            .map(|ms| (-1, ms))
+            .collect();
+        assert_eq!(steps(&held), [-1, -1, -1, -5, -5, -5, -20]);
+    }
+
+    #[test]
+    fn another_direction_or_a_long_wait_starts_the_hold_again() {
+        // the direction changed with no key-up seen: a new hold
+        assert_eq!(
+            steps(&[(1, 0), (1, 1000), (1, 2000), (-1, 2033), (-1, 3000)]),
+            [1, 1, 5, -1, -1]
+        );
+        // more than `KEY_GAP` since the last step: the key-up was missed
+        assert_eq!(
+            steps(&[(1, 0), (1, 1400), (1, 2800), (1, 4400)]),
+            [1, 1, 5, 1]
+        );
+    }
+
+    #[test]
+    fn the_keys_of_a_hold_are_up_and_down_whatever_the_modifiers() {
+        let key = |s: &str| gpui::Keystroke::parse(s).unwrap();
+        assert!(is_arrow_key(&key("up")));
+        assert!(is_arrow_key(&key("shift-down")));
+        assert!(!is_arrow_key(&key("left")));
     }
 
     #[test]

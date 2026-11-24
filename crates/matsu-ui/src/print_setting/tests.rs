@@ -581,6 +581,7 @@ fn cancel_leaves_every_setting_as_it_was_after_editing_two(cx: &mut TestAppConte
 }
 
 mod access_keys;
+mod held_keys;
 
 #[gpui::test]
 fn the_spin_buttons_and_the_arrow_keys_move_a_number(cx: &mut TestAppContext) {
