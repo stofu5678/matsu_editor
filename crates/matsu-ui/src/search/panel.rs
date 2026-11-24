@@ -427,16 +427,22 @@ impl SearchPanel {
                         .child(Input::new(self.combo_input(combo)).aria_label(name)),
                 )
                 .child(
-                    Button::new(toggle_id)
-                        .label("▼")
-                        .accessibility_label(toggle_name)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            // The button does not take the focus; the keys of the list go to
-                            // the combo box that has it, so give it to this one.
-                            let input = this.combo_input(combo).clone();
-                            input.update(cx, |state, cx| state.focus(window, cx));
-                            this.toggle_dropdown(combo, cx);
-                        })),
+                    div().debug_selector(|| toggle_id.to_owned()).child(
+                        Button::new(toggle_id)
+                            .label("▼")
+                            .accessibility_label(toggle_name)
+                            // Sakura's 置換前 and 置換後 are combo boxes (`IDD_REPLACE`,
+                            // `CBS_DROPDOWN`): Tab goes from one to the next control, and the
+                            // arrow is reached by the mouse, F4 or Alt+Down only.
+                            .tab_stop(false)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                // The button does not take the focus; the keys of the list go
+                                // to the combo box that has it, so give it to this one.
+                                let input = this.combo_input(combo).clone();
+                                input.update(cx, |state, cx| state.focus(window, cx));
+                                this.toggle_dropdown(combo, cx);
+                            })),
+                    ),
                 ),
         );
         if let Some(open) = self.dropdown.filter(|d| d.combo == combo) {

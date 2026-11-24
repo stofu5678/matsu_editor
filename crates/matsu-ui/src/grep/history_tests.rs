@@ -491,3 +491,44 @@ fn values_that_are_given_come_before_the_histories(cx: &mut TestAppContext) {
         )
     );
 }
+
+#[gpui::test]
+fn tab_walks_the_boxes_and_skips_the_arrows(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    panel.update_in(cx, |p, window, cx| {
+        p.key.update(cx, |s, cx| s.focus(window, cx));
+    });
+    // `IDD_GREP`: 条件, ファイル, フォルダー are `CBS_DROPDOWN` combo boxes in this order
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("f");
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("d");
+    let [file, folder] = panel.read_with(cx, |p, app| {
+        [&p.file, &p.folder].map(|s| s.read(app).value().to_string())
+    });
+    assert!(file.ends_with('f'), "{file}");
+    assert!(folder.ends_with('d'), "{folder}");
+}
+
+#[gpui::test]
+fn the_arrow_of_a_box_opens_its_list_by_click(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    cx.update(|_, app| {
+        history::remember_grep_boxes(
+            app,
+            &GrepBoxes {
+                file: "*.a",
+                folder: "",
+                exclude_file: "",
+                exclude_folder: "",
+            },
+        );
+    });
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    let arrow = cx.debug_bounds("grep-file-toggle").expect("the arrow");
+    cx.simulate_click(arrow.center(), gpui::Modifiers::none());
+    cx.simulate_keystrokes("enter");
+    let file = panel.read_with(cx, |p, app| p.file.read(app).value().to_string());
+    assert_eq!(file, "*.a");
+}

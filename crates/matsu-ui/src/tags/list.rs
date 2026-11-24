@@ -760,6 +760,9 @@ impl Render for TagList {
                                             Button::new("tag-keyword-history-toggle")
                                                 .label("▼")
                                                 .accessibility_label("キーワードの履歴")
+                                                // `IDC_KEYWORD` is a combo box (`CBS_DROPDOWN`):
+                                                // Tab skips the arrow.
+                                                .tab_stop(false)
                                                 .on_click(cx.listener(|this, _, window, cx| {
                                                     this.keyword
                                                         .update(cx, |s, cx| s.focus(window, cx));

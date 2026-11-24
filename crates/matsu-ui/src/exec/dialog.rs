@@ -425,6 +425,8 @@ impl Render for ExecDialog {
             .child(
                 Button::new("exec-command-history-button")
                     .labelled("履歴")
+                    // `IDC_COMBO_m_szCommand` is a combo box: Tab skips the button.
+                    .tab_stop(false)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_list(Field::Command, cx))),
             )
             .child(
@@ -442,6 +444,8 @@ impl Render for ExecDialog {
                 Button::new("exec-dir-history-button")
                     .labelled("履歴")
                     .disabled(!self.use_cur_dir)
+                    // `IDC_COMBO_CUR_DIR` is a combo box: Tab skips the button.
+                    .tab_stop(false)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_list(Field::CurDir, cx))),
             )
             .child(

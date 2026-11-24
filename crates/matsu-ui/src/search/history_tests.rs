@@ -581,3 +581,36 @@ fn the_list_of_a_panel_without_history_does_not_open(cx: &mut TestAppContext) {
     // Enter went to the input: 下検索
     assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 1))));
 }
+
+// ---- the ▼ of a combo box is not a Tab stop ----
+
+#[gpui::test]
+fn tab_from_the_search_string_goes_to_the_replacement_and_not_to_the_arrow(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx, "x");
+    // `IDD_REPLACE`: 置換前 and 置換後 are `CBS_DROPDOWN` combo boxes; Tab goes from one to the next
+    cx.simulate_keystrokes("ctrl-r tab");
+    cx.simulate_input("zz");
+    assert_eq!(f.replacement(cx), "zz");
+}
+
+#[gpui::test]
+fn the_arrow_opens_the_list_by_click_and_the_keys_still_work(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "x");
+    for s in ["a", "b"] {
+        other_window(cx, s, Some(s));
+    }
+    cx.simulate_keystrokes("ctrl-r");
+    for toggle in ["search-history-toggle", "replace-history-toggle"] {
+        let arrow = cx.debug_bounds(toggle).expect("the arrow");
+        cx.simulate_click(arrow.center(), gpui::Modifiers::none());
+        // the list opened on the newest, "b"; Down goes to "a" and Enter takes it
+        cx.simulate_keystrokes("down enter");
+    }
+    assert_eq!(f.pattern(cx), "a");
+    assert_eq!(f.replacement(cx), "a");
+    // F4 opens it as well, on the string that the box has ("a"); Up reaches "b"
+    cx.simulate_keystrokes("f4 up enter");
+    assert_eq!(f.replacement(cx), "b");
+}

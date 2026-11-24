@@ -738,17 +738,22 @@ impl GrepPanel {
                     ),
                 )
                 .child(
-                    Button::new(toggle_id)
-                        .label("▼")
-                        .accessibility_label(toggle_name)
-                        .disabled(!enabled)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            // The button does not take the focus; the keys of the list go to
-                            // the box that has it, so give it to this one.
-                            let input = this.field_input(field).clone();
-                            input.update(cx, |state, cx| state.focus(window, cx));
-                            this.toggle_dropdown(field, cx);
-                        })),
+                    div().debug_selector(|| toggle_id.to_owned()).child(
+                        Button::new(toggle_id)
+                            .label("▼")
+                            .accessibility_label(toggle_name)
+                            .disabled(!enabled)
+                            // The boxes of `IDD_GREP` are combo boxes (`CBS_DROPDOWN`): Tab
+                            // skips the arrow.
+                            .tab_stop(false)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                // The button does not take the focus; the keys of the list go
+                                // to the box that has it, so give it to this one.
+                                let input = this.field_input(field).clone();
+                                input.update(cx, |state, cx| state.focus(window, cx));
+                                this.toggle_dropdown(field, cx);
+                            })),
+                    ),
                 ),
         );
         if let Some(open) = self.dropdown.filter(|d| d.field == field) {
