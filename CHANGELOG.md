@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.27.0](https://github.com/stofu5678/matsu_editor/compare/v0.26.0...v0.27.0) (2026-11-24)
+
+
+### Features
+
+* **view:** keep the caret at the end of a wrapped row in every mode ([#575](https://github.com/stofu5678/matsu_editor/issues/575)) ([2151ce4](https://github.com/stofu5678/matsu_editor/commit/2151ce460dc3e32580e08900ff91329df7c9f30d))
+
+
+### Bug Fixes
+
+* **dialog:** move and choose within a group of radio buttons with the arrow keys ([#577](https://github.com/stofu5678/matsu_editor/issues/577)) ([5962b32](https://github.com/stofu5678/matsu_editor/commit/5962b328b597b585876a75315ae5a829073e1ef2))
+* **search:** put the row of an open history list in the box as the arrows move ([#576](https://github.com/stofu5678/matsu_editor/issues/576)) ([3bef702](https://github.com/stofu5678/matsu_editor/commit/3bef70284f5c42bfa58fb05a4ec123b07f193319))
+
 ## [0.26.0](https://github.com/stofu5678/matsu_editor/compare/v0.25.0...v0.26.0) (2026-11-24)
 
 
