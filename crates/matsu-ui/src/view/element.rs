@@ -844,10 +844,15 @@ impl Element for EditorElement {
         let diff_marks = model.diff_marks();
         let mut widest = 0;
         let mut painted = Vec::with_capacity(rows.len());
-        let caret_row_index = layout
-            .pos_to_row(doc, editor.cursor.caret())
-            .ok()
-            .map(|at| at.row);
+        // the row of the caret; a free caret in the gap after a wrapped row is on that row
+        let caret_on_screen = crate::hit::caret_row_pos(
+            layout,
+            doc,
+            &editor.cursor,
+            matsu_commands::edit_options::get().free_cursor,
+        )
+        .ok();
+        let caret_row_index = caret_on_screen.map(|at| at.row);
         // The colors of the line the rows are in, and the state the next line starts in: lines
         // come one after the other, so the state of the first is asked for and the others follow.
         let mut line_colors: Option<(usize, std::sync::Arc<Vec<matsu_coloring::ColorRun>>)> = None;
@@ -1176,7 +1181,11 @@ impl Element for EditorElement {
             .map_or(X::ZERO, cursor_x);
         // While the selected text is dragged, the caret shows where it would drop.
         let caret_at = editor.drop_caret.unwrap_or(editor.cursor.caret());
-        let caret = layout.pos_to_row(doc, caret_at).ok().and_then(|at| {
+        let caret_row = match editor.drop_caret {
+            Some(_) => layout.pos_to_row(doc, caret_at).ok(),
+            None => caret_on_screen,
+        };
+        let caret = caret_row.and_then(|at| {
             at.row
                 .checked_sub(first_row)
                 .filter(|i| *i < painted.len())
@@ -1201,10 +1210,7 @@ impl Element for EditorElement {
         // Text that is selected, or being selected, has no lines of the caret and no pair
         // (`IsTextSelecting`).
         let selecting = editor.cursor.has_selection() || editor.cursor.selecting_lock();
-        let caret_total_x = layout
-            .pos_to_row(doc, caret_pos)
-            .ok()
-            .map(|at| caret_x.max(at.x));
+        let caret_total_x = caret_on_screen.map(|at| caret_x.max(at.x));
 
         // The right end of the selection, which the range of the horizontal scroll bar covers when
         // the text does not wrap (`GetRightEdgeForScrollBar`), and the caret of the free cursor.

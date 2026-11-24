@@ -846,7 +846,7 @@ fn cut_then_paste_moves_a_box() {
 
 /// A layout that wraps every line after `n` ASCII chars. Rows of a line are `[0, n)`, `[n, 2n)`,
 /// and so on; positions are always buffer positions.
-struct Wrap(usize);
+pub(super) struct Wrap(pub(super) usize);
 
 impl Wrap {
     fn rows(&self, doc: &Document) -> Vec<Pos> {
@@ -1151,7 +1151,7 @@ fn delete_back_at_the_start_of_a_wrapped_row_deletes_the_last_char_of_the_row_be
 }
 
 #[test]
-fn the_free_caret_stands_only_after_the_last_row_of_a_line() {
+fn the_free_caret_does_not_go_right_from_the_end_of_a_wrapped_row() {
     // "abcdef" is the rows "abc" and "def"; "x" is a row of its own
     let run = |from: Pos, ids: &[&str]| run_wrapped_ids("abcdef\nx", from, true, ids).1;
     // down from the end of "def" (column 3) to "x": the caret stands at column 3
@@ -1160,10 +1160,15 @@ fn the_free_caret_stands_only_after_the_last_row_of_a_line() {
         (cursor.caret(), cursor.free_col()),
         (Pos::new(1, 1), Some(3))
     );
-    // up from there to the row "def" and then to "abc", which wraps: the caret is on the text at
-    // the end of the row, which is the start of the next row; the gap is not there
+    // up from there to the row "def" and then to "abc", which wraps: the goal column 3 is the end
+    // of the text of "abc", where the caret stands on that row (`Cursor_UPDOWN`: `i >= nLineLen`
+    // at the end of a layout row). Its position is the start of the next row, which the stored
+    // column tells apart (see `free_cursor_wrap_tests`)
     let cursor = run(Pos::new(0, 6), &["cursor_down", "cursor_up", "cursor_up"]);
-    assert_eq!(cursor.free_col(), None);
+    assert_eq!(
+        (cursor.caret(), cursor.free_col()),
+        (Pos::new(0, 3), Some(3))
+    );
     // right at the end of the last row goes on into the gap
     let cursor = run(Pos::new(0, 6), &["cursor_right"]);
     assert_eq!(

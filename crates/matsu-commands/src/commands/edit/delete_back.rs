@@ -8,7 +8,9 @@
 //! * In the free cursor mode a caret to the right of the end of the line only moves one column
 //!   left and deletes nothing: `Command_LEFT` puts the caret at or past the end of the text, and
 //!   the code deletes only when the caret ends on a char (`LineColumnToIndex2` reports a column
-//!   past the line through `nLineLen`) or when it went up a row.
+//!   past the line through `nLineLen`) or when it went up a row. At the end of a wrapped row,
+//!   where the free caret is just at the end of the text, the next `Command_LEFT` goes onto the
+//!   last char of the row, which is deleted: the char before the caret position, as below.
 //! * Wrapping: from the start of a wrapped row `Command_LEFT` puts the caret on the last char of
 //!   the row before, and that char is deleted; the line ending is deleted only when the row before
 //!   ends with one (`nIdx < GetLengthWithoutEOL() || y < y_old`). The end of a wrapped row is the

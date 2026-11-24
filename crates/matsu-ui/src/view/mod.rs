@@ -855,12 +855,13 @@ impl EditorView {
 
     /// Where the caret is on the screen: row and column.
     pub(crate) fn caret_row(&self, cx: &App) -> RowPos {
-        self.layout
-            .pos_to_row(self.doc(cx), self.cursor.caret())
-            .unwrap_or(RowPos {
+        let free = matsu_commands::edit_options::get().free_cursor;
+        crate::hit::caret_row_pos(&self.layout, self.doc(cx), &self.cursor, free).unwrap_or(
+            RowPos {
                 row: 0,
                 x: matsu_layout::X::ZERO,
-            })
+            },
+        )
     }
 
     /// The `X` of the caret on its row. In a box selection the caret can be to the right of the

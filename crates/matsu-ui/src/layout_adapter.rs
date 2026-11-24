@@ -274,6 +274,66 @@ mod tests {
         });
     }
 
+    /// The free caret in the gap after a wrapped row, on the real layout: the gap starts where the
+    /// text of the row ends, which is column 4 here (the third wide char does not fit in 5), and
+    /// goes up to the wrap column. The row before the caret position is the one the caret is on.
+    #[test]
+    fn the_gap_after_a_wrapped_row_starts_at_the_end_of_its_text() {
+        use matsu_commands::edit_options::{EditOptions, with_options};
+
+        let d = doc("日本語日本語");
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(5),
+            ..LayoutConfig::default()
+        };
+        let options = EditOptions {
+            free_cursor: true,
+            ..EditOptions::DEFAULT
+        };
+        let end_of_row = Pos::new(0, 6);
+        // a click at `x` columns, then the keys; the caret, the mark and the text after them
+        let after = |x: u32, keys: &[&str]| {
+            let mut model = DocumentModel::new(d.clone());
+            let mut cursor = Cursor::default();
+            let mut layout = laid_out(&d, cfg.clone());
+            let mut row_layout = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut row_layout, None);
+            cx.move_caret_free(end_of_row, X::from_raw(x), false)
+                .unwrap();
+            for key in keys {
+                let args = match *key {
+                    "input_char" => vec![matsu_commands::command::Arg::Char('x')],
+                    _ => Vec::new(),
+                };
+                Registry::global().run(key, &mut cx, &args).unwrap();
+            }
+            drop(cx);
+            let doc = model.doc();
+            let text = doc
+                .text_between(Pos::new(0, 0), doc.end_pos().unwrap())
+                .unwrap();
+            (cursor.caret(), cursor.free_col(), text)
+        };
+        with_options(options, || {
+            // left of the end of the text: no gap
+            assert_eq!(after(3, &[]).1, None);
+            // the end of the text of the row is a place of its own
+            assert_eq!(after(4, &[]).0, end_of_row);
+            assert_eq!(after(4, &[]).1, Some(4));
+            // the gap goes up to the wrap column, 5 (`nMaxX = max(nPosX, GetMaxLineLayout())`)
+            assert_eq!(after(7, &[]).1, Some(5));
+            // 5 - 4 = 1 space, then the char
+            let (caret, mark, text) = after(7, &["input_char"]);
+            assert_eq!((caret, mark), (Pos::new(0, 8), None));
+            assert_eq!(text, "日本 x語日本語");
+            // Left comes back one column to the end, then onto the last char
+            assert_eq!(after(7, &["cursor_left"]).1, Some(4));
+            assert_eq!(after(7, &["cursor_left"; 2]).0, Pos::new(0, 3));
+            // Right goes to the start of the next row
+            assert_eq!(after(7, &["cursor_right"]).1, None);
+        });
+    }
+
     /// A box sort of more than 4096 wrapped lines is one big edit, after which the index of the
     /// layout only estimates the rows of those lines: the corners go back to the same screen rows
     /// all the same (here every line has two rows, so the rows are the same lines).

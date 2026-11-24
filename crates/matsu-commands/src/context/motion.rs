@@ -123,9 +123,9 @@ impl CommandContext<'_> {
             Some(goal) => goal,
             None => self.caret_x_with_free()?,
         };
-        let target = self
-            .layout
-            .move_rows(self.model.doc(), self.caret(), rows, goal)?;
+        // From the gap of a wrapped row the move starts on that row (`caret_row_pos`).
+        let from = self.caret_row_pos()?;
+        let target = self.layout.move_rows(self.model.doc(), from, rows, goal)?;
         self.cursor.move_to(target, extend);
         // The free cursor mode keeps the goal column on a row that is shorter
         // (`m_bIsFreeCursorMode` in `CCaret::Cursor_UPDOWN`).
@@ -151,7 +151,7 @@ impl CommandContext<'_> {
         let top = if line_unit {
             Pos::new(caret.line, 0)
         } else {
-            self.layout.row_start(self.doc(), caret)?
+            self.layout.row_start(self.doc(), self.caret_row_pos()?)?
         };
         if flags & LINE_TOP_ONLY != 0 {
             return self.move_caret(top, extend);
@@ -182,7 +182,7 @@ impl CommandContext<'_> {
     /// to the end of the last row of the line instead of the end of the row.
     pub fn move_line_end_flags(&mut self, extend: bool, flags: i64) -> Result<()> {
         let extend = self.extends(extend || flags & LINE_TOP_SELECT != 0);
-        let mut row = self.caret();
+        let mut row = self.caret_row_pos()?;
         if flags & LINE_TOP_LINE_UNIT != 0 {
             while let Some(next) = self.layout.next_row_start(self.doc(), row)? {
                 if next.line != row.line {

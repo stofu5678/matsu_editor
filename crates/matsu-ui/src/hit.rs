@@ -4,7 +4,8 @@
 
 use matsu_commands::context::cursor_x;
 use matsu_core::buffer::{Document, Pos, Result};
-use matsu_layout::{DocumentLayout, RowInfo, X};
+use matsu_core::cursor::Cursor;
+use matsu_layout::{DocumentLayout, RowInfo, RowPos, X};
 
 use crate::geometry::{Metrics, XScale, row_at};
 
@@ -43,6 +44,38 @@ pub fn free_x_at(
     let at = scale.column_start(x);
     let target = layout.row_to_pos(doc, row, at)?;
     Ok((target.extra_x > X::ZERO).then_some(at))
+}
+
+/// The row and the `X` that the caret of `cursor` is drawn at: where the layout puts its position
+/// (`DocumentLayout::pos_to_row`), except for a free caret in the gap after a wrapped row.
+///
+/// The position of such a caret is the end of the wrapped row, which the layout puts at the start
+/// of the next row. The stored free column (`Cursor::free_col`) is the mark that it is on the row
+/// before, at that column (`matsu_commands::context`, the free cursor mode). `free_cursor` is
+/// whether the mode is on.
+pub fn caret_row_pos(
+    layout: &DocumentLayout,
+    doc: &Document,
+    cursor: &Cursor,
+    free_cursor: bool,
+) -> Result<RowPos> {
+    let caret = cursor.caret();
+    let at = layout.pos_to_row(doc, caret)?;
+    let Some(col) = cursor.free_col().filter(|_| free_cursor) else {
+        return Ok(at);
+    };
+    if caret.col == 0 || at.row == 0 {
+        return Ok(at);
+    }
+    let before = layout.row(doc, at.row - 1)?;
+    // The row before wrapped and ends at the caret, and the column is not left of its text.
+    if !before.wrapped || before.end != caret || cursor_x(col) < before.end_x {
+        return Ok(at);
+    }
+    Ok(RowPos {
+        row: before.row,
+        x: before.end_x,
+    })
 }
 
 /// Like [`position_at`], on a given row.

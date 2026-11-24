@@ -25,6 +25,8 @@ mod clipboard;
 mod convert;
 mod diff;
 mod free_cursor;
+#[cfg(test)]
+mod free_cursor_wrap_tests;
 mod funclist;
 mod indent;
 mod lines;
