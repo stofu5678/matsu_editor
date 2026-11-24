@@ -863,13 +863,17 @@ impl EditorView {
 
     /// Where the caret is on the screen: row and column.
     pub(crate) fn caret_row(&self, cx: &App) -> RowPos {
+        self.caret_row_checked(cx).unwrap_or(RowPos {
+            row: 0,
+            x: matsu_layout::X::ZERO,
+        })
+    }
+
+    /// Like [`caret_row`](Self::caret_row), but `None` when the layout cannot say (for a caller
+    /// that must not put something at the top left of the view then).
+    pub(crate) fn caret_row_checked(&self, cx: &App) -> Option<RowPos> {
         let free = matsu_commands::edit_options::get().free_cursor;
-        crate::hit::caret_row_pos(&self.layout, self.doc(cx), &self.cursor, free).unwrap_or(
-            RowPos {
-                row: 0,
-                x: matsu_layout::X::ZERO,
-            },
-        )
+        crate::hit::caret_row_pos(&self.layout, self.doc(cx), &self.cursor, free).ok()
     }
 
     /// The `X` of the caret on its row. In a box selection the caret can be to the right of the

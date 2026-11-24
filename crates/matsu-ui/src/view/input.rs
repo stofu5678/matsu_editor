@@ -189,7 +189,7 @@ impl EditorView {
     pub(crate) fn point_of(&self, pos: Pos, cx: &gpui::App) -> Option<Point<Pixels>> {
         let paint = self.paint?;
         let at = if pos == self.cursor.caret() {
-            let at = self.caret_row(cx);
+            let at = self.caret_row_checked(cx)?;
             RowPos {
                 x: self.caret_x(cx),
                 ..at
