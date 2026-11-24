@@ -26,6 +26,9 @@ pub struct SearchOptions {
     pub notify_not_found: bool,
     /// 検索ダイアログを自動的に閉じる (`m_bAutoCloseDlgFind`, on by default).
     pub auto_close: bool,
+    /// 置換ダイアログを自動的に閉じる (`m_bAutoCloseDlgReplace`, on by default). Sakura keeps it apart
+    /// from [`Self::auto_close`] (`CDlgReplace.cpp` 164, 255).
+    pub auto_close_replace: bool,
     /// 先頭（末尾）から再検索 (`m_bSearchAll`, off by default).
     pub wrap: bool,
     /// 正規表現 (`bRegularExp`). The pattern is bregonig's syntax ([`matsu_regex`]). 単語単位 is
@@ -42,6 +45,7 @@ impl Default for SearchOptions {
             whole_word: false,
             notify_not_found: true,
             auto_close: true,
+            auto_close_replace: true,
             wrap: false,
             regex: false,
         }

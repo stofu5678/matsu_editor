@@ -1423,7 +1423,7 @@ impl EditorView {
         // The choices the file keeps (`DoModal`): the dialog starts with them, not with what a
         // dialog that was cancelled held.
         crate::saved_state::grep::saved(cx).apply(&mut settings, replace);
-        settings.options = crate::saved_state::search::saved(cx).options(settings.options);
+        settings.options = crate::saved_state::search::saved(cx).options();
         settings.paste = false;
         // The check box starts off (`m_bFromThisText` is FALSE in a new dialog).
         settings.from_this_text = false;

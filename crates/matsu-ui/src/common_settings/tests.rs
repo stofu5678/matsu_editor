@@ -1485,11 +1485,67 @@ fn the_search_options_of_a_search_are_kept_for_the_next_dialog(cx: &mut TestAppC
                 assert!(view.search.options().regex);
                 assert!(view.search.options().whole_word);
                 assert!(view.search.options().wrap);
-                assert!(view.search.options().auto_close, "not kept by Sakura");
+                assert!(view.search.options().auto_close);
                 assert!(view.search.replace.consecutive_all);
             })
         })
         .unwrap();
+}
+
+#[gpui::test]
+fn the_two_auto_close_choices_are_read_at_the_start_and_written_by_their_own_dialog(
+    cx: &mut TestAppContext,
+) {
+    use crate::saved_state::search::saved;
+    // read at the start (`CShareData_IO.cpp` 658 and 660)
+    let (_ini, handle) = setup(
+        cx,
+        "[Common]\r\nbAutoCloseDlgFind=0\r\nbAutoCloseDlgReplace=0\r\n",
+    );
+    let now = cx.update(|app| saved(app));
+    assert!(!now.auto_close_find && !now.auto_close_replace);
+    // a dialog that opens now starts with them
+    let view = cx
+        .update(|app| crate::file_ops::windows::workspace_of(app, handle))
+        .unwrap()
+        .read_with(cx, |ws, _| ws.editor().clone());
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.open_search_panel(crate::search::panel::PanelMode::Replace, window, cx);
+                assert!(!view.search.options().auto_close);
+                assert!(!view.search.options().auto_close_replace);
+            })
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn the_auto_close_choices_default_to_on_and_each_search_writes_only_its_own(
+    cx: &mut TestAppContext,
+) {
+    use crate::saved_state::search::{remember, saved};
+    use crate::search::state::{ReplaceSettings, SearchOptions};
+    let (ini, _handle) = setup(cx, "");
+    let now = cx.update(|app| saved(app));
+    assert!(now.auto_close_find && now.auto_close_replace);
+    // the find dialog writes its own and leaves the other
+    let find_off = SearchOptions {
+        auto_close: false,
+        ..Default::default()
+    };
+    cx.update(|app| remember(app, find_off, None));
+    assert_eq!(ini.get("bAutoCloseDlgFind").as_deref(), Some("0"));
+    assert_eq!(ini.get("bAutoCloseDlgReplace").as_deref(), Some("1"));
+    // the replace dialog writes its own and leaves the find dialog's
+    let replace_off = SearchOptions {
+        auto_close: true,
+        auto_close_replace: false,
+        ..Default::default()
+    };
+    cx.update(|app| remember(app, replace_off, Some(&ReplaceSettings::default())));
+    assert_eq!(ini.get("bAutoCloseDlgFind").as_deref(), Some("0"));
+    assert_eq!(ini.get("bAutoCloseDlgReplace").as_deref(), Some("0"));
 }
 
 #[gpui::test]

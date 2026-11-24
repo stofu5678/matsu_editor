@@ -44,6 +44,7 @@ const REGEX: &str = "正規表現(E)";
 const NOTIFY_NOT_FOUND: &str = "見つからないときにメッセージを表示(M)";
 const WRAP: &str = "先頭（末尾）から再検索する(Z)";
 const AUTO_CLOSE: &str = "検索ダイアログを自動的に閉じる(L)";
+const AUTO_CLOSE_REPLACE: &str = "置換ダイアログを自動的に閉じる(L)";
 const CONSECUTIVE: &str = "「すべて置換」は置換の繰返し(I)";
 const TARGET_MATCH: &str = "選択文字(0)";
 const TARGET_BEFORE: &str = "選択始点(1)挿入";
@@ -74,6 +75,7 @@ enum Opt {
     NotifyNotFound,
     Wrap,
     AutoClose,
+    AutoCloseReplace,
 }
 
 impl Opt {
@@ -85,6 +87,7 @@ impl Opt {
             Opt::NotifyNotFound => &mut options.notify_not_found,
             Opt::Wrap => &mut options.wrap,
             Opt::AutoClose => &mut options.auto_close,
+            Opt::AutoCloseReplace => &mut options.auto_close_replace,
         };
         *flag = !*flag;
     }
@@ -542,6 +545,11 @@ impl SearchPanel {
             ),
             Entry::labelled(WRAP, searching, Use::Option(Opt::Wrap)),
             Entry::labelled(AUTO_CLOSE, find, Use::Option(Opt::AutoClose)),
+            Entry::labelled(
+                AUTO_CLOSE_REPLACE,
+                replacing,
+                Use::Option(Opt::AutoCloseReplace),
+            ),
             Entry::labelled(CONSECUTIVE, replacing && options.regex, Use::Consecutive),
             Entry::labelled(TARGET_MATCH, replacing, Use::Target(ReplaceTarget::Match)),
             // the keys of these two labels are in the middle of them
@@ -693,18 +701,27 @@ impl SearchPanel {
             return;
         };
         let mode = self.mode;
-        editor.update(cx, |editor, cx| {
+        let finished = editor.update(cx, |editor, cx| {
             if editor.search.pattern().is_empty() {
                 editor.info_box("置換条件を指定してください。", window, cx);
-            } else {
-                remember_keys(editor, mode, cx);
-                // The count is told by the dialog (`TopOkMessage( STR_DLGREPLC_REPLACE )`).
-                if let Some(count) = editor.replace_all(window, cx) {
-                    editor.info_box(&super::state::replaced_count_message(count), window, cx);
-                }
+                return false;
             }
+            remember_keys(editor, mode, cx);
+            // The count is told by the dialog (`TopOkMessage( STR_DLGREPLC_REPLACE )`).
+            let Some(count) = editor.replace_all(window, cx) else {
+                return false;
+            };
+            editor.info_box(&super::state::replaced_count_message(count), window, cx);
+            // Nothing in MATSU cancels it (`m_bCanceled`), so it always ends the way Sakura's does.
+            editor.search.options().auto_close_replace
         });
         self.register_start(cx);
+        // After すべて置換 the dialog closes itself (`m_bAutoCloseDlgReplace`, `OnBnClicked` of
+        // `IDC_BUTTON_REPALCEALL` in `CDlgReplace.cpp` 570-585), also when nothing was replaced; not
+        // after 置換 or 検索, nor when the pattern is empty or wrong (`GetData` fails).
+        if finished {
+            self.close(window, cx);
+        }
     }
 
     pub(crate) fn jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -979,6 +996,14 @@ impl Render for SearchPanel {
                     )
                     .child(self.render_find_options(options, cx))
                     .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
+                    // `IDC_CHECK_bAutoCloseDlgReplace`
+                    .child(self.option_box(
+                        "replace-auto-close",
+                        AUTO_CLOSE_REPLACE,
+                        options.auto_close_replace,
+                        |o, v| o.auto_close_replace = v,
+                        cx,
+                    ))
                     // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
                     .child(
                         Checkbox::new("replace-consecutive")
@@ -1143,8 +1168,7 @@ impl EditorView {
             // The dialog starts with the options the last search of any window left
             // (`CDlgFind::SetData`: `m_sSearchOption = m_pShareData->...m_sSearchOption`).
             let saved = crate::saved_state::search::saved(cx);
-            self.search
-                .set_options(saved.options(self.search.options()));
+            self.search.set_options(saved.options());
             if mode == PanelMode::Replace {
                 self.search.replace.consecutive_all = saved.consecutive_all;
             }
