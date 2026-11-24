@@ -329,7 +329,7 @@ impl GrepPanel {
             subscriptions.push(cx.subscribe_in(
                 state,
                 window,
-                |this: &mut Self, _, event: &InputEvent, window, cx| {
+                move |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         // The key binding of Enter runs before the key listeners
                         // (`combo_key`), so the open list of this box takes the key here: only

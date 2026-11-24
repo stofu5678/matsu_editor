@@ -462,13 +462,8 @@ impl TagList {
     }
 
     /// The keys of the history list: F4 and Alt+Down open or close it; with it open Up, Down,
-    /// Enter and Escape work in it. Returns whether the key was used.
-    fn history_key(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
+    /// Enter (taken in the `PressEnter` handler) and Escape work in it. Returns whether the key was used.
+    fn history_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
         let key = event.keystroke.key.as_str();
         let m = &event.keystroke.modifiers;
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
@@ -501,7 +496,7 @@ impl TagList {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.form == Form::Keyword && self.history_key(event, window, cx) {
+        if self.form == Form::Keyword && self.history_key(event, cx) {
             cx.stop_propagation();
             return;
         }

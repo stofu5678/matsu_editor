@@ -131,7 +131,7 @@ impl ExecDialog {
             subscriptions.push(cx.subscribe_in(
                 input,
                 window,
-                |this: &mut Self, _, event: &InputEvent, window, cx| {
+                move |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         // The key binding of Enter runs before the key listeners, so the open
                         // list of this box takes it here: the row is taken and the command
