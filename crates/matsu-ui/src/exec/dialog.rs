@@ -15,7 +15,7 @@ use crate::input_select::{focus_selecting, input_field};
 use crate::support::help::OnHelpKey as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, PathPromptOptions, Render,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
@@ -93,6 +93,8 @@ pub(crate) struct ExecDialog {
     /// The document can be edited (otherwise 編集中のウィンドウ is not offered).
     editable: bool,
     list: Option<Field>,
+    /// The row of the open list that Enter takes.
+    highlight: usize,
     result: Option<async_channel::Sender<Option<Choice>>>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -123,7 +125,13 @@ impl ExecDialog {
                 window,
                 |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
-                        this.ok(window, cx);
+                        // The key binding of Enter runs before the key listeners, so an open
+                        // list takes it here: the row is taken and the command does not run.
+                        if let Some(field) = this.list {
+                            this.take_highlighted(field, window, cx);
+                        } else {
+                            this.ok(window, cx);
+                        }
                     }
                 },
             ));
@@ -141,6 +149,7 @@ impl ExecDialog {
             input_item: input_choice(flags),
             editable,
             list: None,
+            highlight: 0,
             result: Some(result),
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -286,26 +295,116 @@ impl ExecDialog {
         }
     }
 
-    /// 履歴: opens or closes the list of the box.
+    /// 履歴: opens or closes the list of the box. It opens on the row that holds the text of the box.
     fn toggle_list(&mut self, field: Field, cx: &mut Context<Self>) {
-        self.list = if self.list == Some(field) {
-            None
+        if self.list == Some(field) {
+            self.list = None;
         } else {
-            Some(field)
-        };
+            let current = self.input(field).read(cx).value();
+            self.highlight = self
+                .history_rows(field)
+                .iter()
+                .position(|row| row == current.as_str())
+                .unwrap_or(0);
+            self.list = Some(field);
+        }
         cx.notify();
+    }
+
+    fn input(&self, field: Field) -> &Entity<InputState> {
+        match field {
+            Field::Command => &self.command,
+            Field::CurDir => &self.cur_dir,
+        }
+    }
+
+    /// The box that has the focus, if it is one of the two combo boxes.
+    fn focused_field(&self, window: &Window, cx: &App) -> Option<Field> {
+        [Field::Command, Field::CurDir]
+            .into_iter()
+            // `IDC_COMBO_CUR_DIR` is disabled while カレントディレクトリ is not checked
+            .filter(|field| *field == Field::Command || self.use_cur_dir)
+            .find(|field| {
+                self.input(*field)
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            })
+    }
+
+    /// The keys of a combo box (`CBS_DROPDOWN`): F4 and Alt+Down open or close the list; with it
+    /// open Up, Down, Enter (see `take_highlighted`) and Escape work in it; with it closed Up and Down go through the
+    /// history. Returns whether the key was used.
+    fn combo_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(field) = self.focused_field(window, cx) else {
+            return false;
+        };
+        let key = event.keystroke.key.as_str();
+        let m = &event.keystroke.modifiers;
+        let plain = !m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4" || (key == "down" && m.alt) {
+            self.toggle_list(field, cx);
+            return true;
+        }
+        let rows = self.history_rows(field);
+        let down = key == "down";
+        if !(plain && (down || key == "up")) || rows.is_empty() {
+            return false;
+        }
+        if self.list != Some(field) {
+            // closed: the next row after the one that holds the text of the box
+            let current = self.input(field).read(cx).value();
+            let next = match (rows.iter().position(|r| r == current.as_str()), down) {
+                (Some(i), true) => (i + 1).min(rows.len() - 1),
+                (Some(i), false) => i.saturating_sub(1),
+                (None, _) => 0,
+            };
+            let text = rows[next].clone();
+            self.input(field)
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+            return true;
+        }
+        match key {
+            "down" => self.highlight = (self.highlight + 1).min(rows.len() - 1),
+            _ => self.highlight = self.highlight.saturating_sub(1),
+        }
+        cx.notify();
+        true
+    }
+
+    /// Enter in an open list: the highlighted row goes into the box.
+    fn take_highlighted(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+        let rows = self.history_rows(field);
+        match rows.get(self.highlight) {
+            Some(text) => self.pick(field, text, window, cx),
+            None => {
+                self.list = None;
+                cx.notify();
+            }
+        }
     }
 
     /// A row of the list: its text goes into the box (`CBN_SELCHANGE`).
     fn pick(&mut self, field: Field, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let input = match field {
-            Field::Command => &self.command,
-            Field::CurDir => &self.cur_dir,
-        };
+        let input = self.input(field);
         let text = text.to_owned();
         input.update(cx, |state, cx| state.set_value(text, window, cx));
         self.list = None;
         cx.notify();
+    }
+
+    /// Which list is open: "command" or "dir".
+    #[cfg(test)]
+    pub(crate) fn open_list(&self) -> Option<&'static str> {
+        self.list.map(|field| match field {
+            Field::Command => "command",
+            Field::CurDir => "dir",
+        })
     }
 
     #[cfg(test)]
@@ -364,8 +463,9 @@ impl ExecDialog {
         for (i, text) in rows.into_iter().enumerate() {
             let pick = text.clone();
             list = list.child(
-                crate::a11y::list_row(div().id((id, i)), &text, false)
+                crate::a11y::list_row(div().id((id, i)), &text, i == self.highlight)
                     .px_1()
+                    .when(i == self.highlight, |d| d.bg(rgb(0xcce4f7)))
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xdde8f5)))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -589,6 +689,12 @@ impl Render for ExecDialog {
             // F1: the page of the dialog
             .on_help_key("F_EXECMD_DIALOG")
             .key_context("ExecDialog")
+            // The combo box keys come first: Up, Down and Enter would otherwise reach the input.
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if this.combo_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)
             }))
