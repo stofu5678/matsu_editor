@@ -34,10 +34,19 @@
 //! the caret ([`wrapped_gap_before`](crate::layout::wrapped_gap_before)). The mark is dropped by
 //! every move and edit that does not set it (`Cursor`), by every change of the layout of the view
 //! (`EditorView::relayout_in`: a new wrap width, tab width or font, a resize of a window-wide
-//! wrap), and by a command run while the mode is off (`EditorView::run_with`), so that a layout
-//! that changes and changes back does not bring the caret back into the gap. A column that is just the end of the text (not beyond it)
-//! is kept there too: it is the end of the wrapped row, where `Command_LEFT` from the gap stops
-//! before it goes on to the last char.
+//! wrap), and by a command run while the mode is off (`EditorView::run_with`), except that a
+//! column that is just the end of the text stays (below), so that a layout that changes and
+//! changes back does not bring the caret back into the gap.
+//!
+//! # The end of a wrapped row, with the mode off
+//!
+//! A column that is just the end of the text (not beyond it) is the end of the wrapped row, where
+//! `Command_LEFT` from the gap stops before it goes on to the last char. Sakura's caret is in
+//! layout coordinates (`CLayoutPoint`), so this place exists whatever the mode is: `End`
+//! (`Command_GOLINEEND`: `nPosXY.x = CalcLayoutWidth`, the row stays), a click right of the row
+//! and a vertical move onto a row that is shorter than the goal column reach it. The mark is the
+//! same stored column, and only this one column is taken when the mode is off
+//! ([`Gap::takes`]); anything right of the text needs the mode.
 //!
 //! From there `Command_RIGHT` goes to the start of the next row at once (`to_x >= x_max`,
 //! `MOVE_NEXTLINE_IMMEDIATELY` of a wrapped row), and `Command_DELETE` fills the gap, then deletes
@@ -73,13 +82,13 @@ impl Gap {
         matches!(self, Self::Wrapped(_))
     }
 
-    /// Whether the caret may stand at `x`: right of the end of the text; on a wrapped row at the
-    /// end of the text too, where that is the end of the row and not the start of the next one
-    /// ([`WrappedGap::takes`]).
-    fn takes(self, x: X) -> bool {
+    /// Whether the caret may stand at `x`. Right of the end of the text only the free cursor mode
+    /// lets it; on a wrapped row the end of the text is a place of its own in every mode: it is
+    /// the end of the row and not the start of the next one ([`WrappedGap::takes`]).
+    fn takes(self, x: X, free_cursor: bool) -> bool {
         match self {
-            Self::Last { text_end } => x > text_end,
-            Self::Wrapped(gap) => gap.takes(x),
+            Self::Last { text_end } => free_cursor && x > text_end,
+            Self::Wrapped(gap) => gap.takes(x, free_cursor),
         }
     }
 }
@@ -109,16 +118,28 @@ impl CommandContext<'_> {
         Ok(None)
     }
 
-    /// The stored column of the caret and the gap it stands in, when the mode is on and the
-    /// column is one that the gap takes ([`Gap::takes`]).
+    /// The stored column of the caret and the gap it stands in, when the column is one that the
+    /// gap takes in the current mode ([`Gap::takes`]).
     fn standing(&self) -> Result<Option<(X, Gap)>> {
-        let Some(x) = self.stored_free_x().filter(|_| self.is_free_cursor()) else {
+        let Some(x) = self.stored_free_x() else {
             return Ok(None);
         };
+        let free = self.is_free_cursor();
         Ok(self
             .gap_at(self.caret())?
-            .filter(|gap| gap.takes(x))
+            .filter(|gap| gap.takes(x, free))
             .map(|gap| (x, gap)))
+    }
+
+    /// Puts the mark on the end of the wrapped row that the caret position ends, if it is one: the
+    /// caret is on that row, at the end of its text, and not at the start of the next row. For a
+    /// move that goes to the end of a row (`Command_GOLINEEND`, the goal column of a vertical
+    /// move). Does nothing at any other place, and does not need the free cursor mode.
+    pub(super) fn mark_wrapped_row_end(&mut self) -> Result<()> {
+        if let Some(Gap::Wrapped(gap)) = self.gap_at(self.caret())? {
+            self.set_free_x(Some(gap.text_end));
+        }
+        Ok(())
     }
 
     /// The `X` the caret stands at when it is to the right of the end of its line, if the mode is
@@ -168,16 +189,20 @@ impl CommandContext<'_> {
     /// Lets the caret, which is at a position already, stand at `x` if that is to the right of
     /// the text of its row and the mode is on. `x` goes up to the width of a row
     /// ([`max_box_x`](Self::max_box_x)). A drag calls it after it moved the selection.
+    ///
+    /// Without the mode the caret still stands at the end of a wrapped row, and only there: `x`
+    /// is the end of the text then, wherever the click or the goal column was right of it.
     pub fn stand_free(&mut self, x: X) -> Result<()> {
-        if !self.is_free_cursor() {
+        let free = self.is_free_cursor();
+        let Some(gap) = self.gap_at(self.caret())? else {
             return Ok(());
-        }
-        if let Some(gap) = self.gap_at(self.caret())?
-            && gap.takes(x)
-        {
+        };
+        if free && gap.takes(x, true) {
             // up to the width of a row, or the end of the text if that is wider
             // (`nMaxX = max(nPosX, GetMaxLineLayout())`)
             self.set_free_x(Some(x.min(self.max_box_x().max(gap.text_end()))));
+        } else if gap.is_wrapped() && x >= gap.text_end() {
+            self.set_free_x(Some(gap.text_end()));
         }
         Ok(())
     }
@@ -206,14 +231,15 @@ impl CommandContext<'_> {
     /// at once (`MOVE_NEXTLINE_NEXTTIME` when `x_wrap + dx_default >= GetMaxLineLayout()`). Returns `false` when the move is not a free one
     /// (the caret is not at the end of a row, or it goes to the next line).
     pub(super) fn free_right(&mut self, extend: bool) -> Result<bool> {
-        if !self.is_free_cursor() {
-            return Ok(false);
-        }
-        // At the end of a wrapped row, or right of it: the start of the next row, at once. A
-        // caret that is at the start of the next row (no stored column) is not there.
+        // At the end of a wrapped row, or right of it: the start of the next row, at once, also
+        // without the mode (`x_max <= to_x`). A caret that is at the start of the next row (no
+        // stored column) is not there.
         if self.caret_at_wrapped_row_end()? {
             self.move_caret(self.caret(), extend)?;
             return Ok(true);
+        }
+        if !self.is_free_cursor() {
+            return Ok(false);
         }
         if !self
             .gap_at(self.caret())?

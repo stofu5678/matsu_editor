@@ -59,7 +59,8 @@ pub fn free_x_at(
 /// The position of such a caret is the end of the wrapped row, which the layout puts at the start
 /// of the next row. The stored free column (`Cursor::free_col`) is the mark that it is on the row
 /// before, at that column (`matsu_commands::context`, the free cursor mode). `free_cursor` is
-/// whether the mode is on.
+/// whether the mode is on: with it off, only the end of the text of the row is a place of the
+/// caret (`End`, a click right of the row), not the space right of it.
 pub fn caret_row_pos(
     layout: &DocumentLayout,
     doc: &Document,
@@ -68,18 +69,32 @@ pub fn caret_row_pos(
 ) -> Result<RowPos> {
     let caret = cursor.caret();
     let at = layout.pos_to_row(doc, caret)?;
-    let Some(col) = cursor.free_col().filter(|_| free_cursor) else {
+    let Some(col) = cursor.free_col() else {
         return Ok(at);
     };
     // The same rule as the commands use (`matsu_commands::layout::wrapped_gap_before`).
     let rows = RowRead(layout);
     match wrapped_gap_before(&rows, doc, caret)? {
-        Some(gap) if gap.takes(cursor_x(col)) => Ok(RowPos {
+        Some(gap) if gap.takes(cursor_x(col), free_cursor) => Ok(RowPos {
             row: layout.pos_to_row(doc, gap.last)?.row,
             x: gap.text_end,
         }),
         _ => Ok(at),
     }
+}
+
+/// Whether the stored column of `cursor` is the mark of the end of a wrapped row, the one place
+/// right of the text that the caret keeps when the free cursor mode is off (the view drops every
+/// other column then, so that it does not come back when the mode is turned on).
+pub fn is_wrapped_row_end_mark(layout: &DocumentLayout, doc: &Document, cursor: &Cursor) -> bool {
+    let Some(col) = cursor.free_col() else {
+        return false;
+    };
+    let rows = RowRead(layout);
+    matches!(
+        wrapped_gap_before(&rows, doc, cursor.caret()),
+        Ok(Some(gap)) if gap.takes(cursor_x(col), false)
+    )
 }
 
 /// Whether `pos` is the end of the text of `row` and the row ends because the line wraps there.

@@ -119,10 +119,15 @@ fn the_end_of_the_text_of_a_wrapped_row_is_a_place_of_its_own() {
 }
 
 #[test]
-fn without_the_mode_a_click_leaves_no_mark() {
+fn without_the_mode_a_click_right_of_the_row_marks_only_the_end_of_its_text() {
     let mut r = Rig::new("abcdefgh");
     r.click(P1, 7);
-    assert_eq!((r.caret(), r.col()), (P1, None));
+    // the space right of the text is for the mode; the end of the row is a place in every mode
+    assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+    assert_eq!(r.row_pos(), Pos::new(0, 2));
+    // left of the end of the text: the char there
+    r.click(P1, 2);
+    assert_eq!(r.col(), None);
 }
 
 #[test]
@@ -356,12 +361,13 @@ fn home_and_end_work_on_the_row_of_the_gap() {
         let mut r = Rig::new("abcdefgh");
         r.click(P1, 7);
         r.run("go_line_end");
-        // the end of the first row, not of the second
-        assert_eq!((r.caret(), r.col()), (P1, None));
+        // the end of the first row, not of the second: the mark keeps the caret on the first
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
         let mut r = Rig::new("abcdefgh");
         r.click(P2, 7);
         r.run("go_line_end");
-        assert_eq!(r.caret(), P2);
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
     });
 }
 
@@ -422,4 +428,213 @@ fn row_commands_work_on_the_row_that_the_caret_is_drawn_on() {
             Some("abc")
         );
     });
+}
+
+/// The end of a wrapped row with the free cursor mode off: Sakura's caret is in layout
+/// coordinates (`CLayoutPoint`), so `End`, a click right of the row and a vertical move reach the
+/// end of the row, not the start of the next one. The expectations come from
+/// `Command_GOLINEEND`, `MoveCursorProperly`, `Cursor_UPDOWN`, `Command_LEFT` and `Command_RIGHT`.
+mod end_of_a_wrapped_row_without_the_mode {
+    use super::*;
+
+    const END: Option<usize> = Some(3);
+
+    /// "abcdefgh" with the caret on the first row, at its end, by `End`.
+    fn at_end() -> Rig {
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        r.run("go_line_end");
+        r
+    }
+
+    #[test]
+    fn end_stays_on_the_row() {
+        let r = &mut at_end();
+        assert_eq!((r.caret(), r.col()), (P1, END));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+        // the caret is at the end of the text: no gap to fill
+        assert_eq!(r.cx(|cx| cx.caret_free_x().unwrap()), None);
+        assert_eq!(r.cx(|cx| cx.caret_row_x().unwrap()), X::from_raw(3));
+        // End again stays
+        r.run("go_line_end");
+        assert_eq!((r.caret(), r.col()), (P1, END));
+        // the second row, and the last row of the line
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 4), false);
+        r.run("go_line_end");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        r.run("go_line_end");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 7), false);
+        r.run("go_line_end");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 8), None));
+    }
+
+    #[test]
+    fn end_with_the_flags_of_a_macro() {
+        // flag 8: the end of the line, which is not the end of a row
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        r.run_with("go_line_end", &[Arg::Int(8)]);
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 8), None));
+        // flag 4: the selection grows to the end of the row
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        r.run_with("go_line_end", &[Arg::Int(4)]);
+        assert_eq!(r.cursor.selection(), Some((Pos::new(0, 1), P1)));
+        assert_eq!((r.caret(), r.col()), (P1, END));
+        r.run("go_line_end_sel");
+        assert_eq!((r.caret(), r.col()), (P1, END));
+    }
+
+    #[test]
+    fn a_click_right_of_the_row_stands_on_its_end() {
+        let mut r = Rig::new("abcdefgh");
+        r.click(P1, 40);
+        assert_eq!((r.caret(), r.col()), (P1, END));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+        // the last row of the line is no wrapped row: the end of the line, no mark
+        r.click(Pos::new(0, 8), 40);
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 8), None));
+    }
+
+    #[test]
+    fn typing_inserts_at_the_end_of_the_row() {
+        let mut r = at_end();
+        r.run_with("input_char", &[Arg::Char('x')]);
+        assert_eq!(r.text(), "abcxdefgh");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 4), None));
+        // a new line: the same place, nothing to fill
+        let mut r = at_end();
+        r.run_with("input_char", &[Arg::Char('\n')]);
+        assert_eq!(r.text(), "abc\ndefgh");
+    }
+
+    #[test]
+    fn delete_and_backspace_act_around_the_end_of_the_row() {
+        let mut r = at_end();
+        r.run("delete");
+        assert_eq!(r.text(), "abcefgh");
+        let mut r = at_end();
+        r.run("delete_back");
+        assert_eq!(r.text(), "abdefgh");
+    }
+
+    #[test]
+    fn left_goes_before_the_last_char_and_right_to_the_next_row() {
+        let mut r = at_end();
+        r.run("cursor_left");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 2), None));
+        let mut r = at_end();
+        r.run("cursor_right");
+        // `x_max <= to_x`: the start of the next row at once, and then the ordinary move
+        assert_eq!((r.caret(), r.col()), (P1, None));
+        assert_eq!(r.row_pos(), P1);
+        r.run("cursor_right");
+        assert_eq!(r.caret(), Pos::new(0, 4));
+        // the key from before the last char goes to the start of the next row too
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 2), false);
+        r.run("cursor_right");
+        assert_eq!((r.caret(), r.col()), (P1, None));
+    }
+
+    #[test]
+    fn vertical_moves_go_from_the_row_and_keep_its_end_as_the_goal() {
+        let mut r = at_end();
+        r.run("cursor_down");
+        // the goal column is 3, the end of the text of "def": the end of that row
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 5));
+        r.run("cursor_up");
+        assert_eq!((r.caret(), r.col()), (P1, END));
+        // up from the start of the second row: column 0 of the first row
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(P1, false);
+        r.run("cursor_up");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 0), None));
+    }
+
+    #[test]
+    fn a_vertical_move_onto_a_shorter_wrapped_row_stands_on_its_end() {
+        let mut r = Rig::new("abcdefghi");
+        r.cursor.move_to(Pos::new(0, 7), false);
+        r.cursor.set_goal_col(Some(8));
+        r.run("cursor_up");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 5));
+        // a goal on the text: the char there
+        let mut r = Rig::new("abcdefghi");
+        r.cursor.move_to(Pos::new(0, 7), false);
+        r.run("cursor_up");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 4), None));
+    }
+
+    #[test]
+    fn home_and_the_row_commands_act_on_the_row_of_the_caret() {
+        let mut r = at_end();
+        r.run("go_line_top");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 0), None));
+        let mut r = at_end();
+        r.run("delete_line");
+        assert_eq!(r.text(), "defgh");
+        let mut r = at_end();
+        r.run("duplicate_line");
+        assert_eq!(r.text(), "abcabcdefgh");
+        let mut r = at_end();
+        r.run("cut_line");
+        assert_eq!(r.text(), "defgh");
+        // without the mark the caret is on the second row, as it was
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(P1, false);
+        r.run("delete_line");
+        assert_eq!(r.text(), "abcgh");
+    }
+
+    #[test]
+    fn a_selection_from_the_end_of_the_row_runs_to_the_next_row() {
+        let mut r = at_end();
+        r.run("cursor_down_sel");
+        assert_eq!(r.cursor.selection(), Some((P1, P2)));
+    }
+
+    #[test]
+    fn the_mark_is_dropped_by_moves_and_by_the_text_changing_under_it() {
+        let mut r = at_end();
+        r.run("go_file_end");
+        assert_eq!(r.col(), None);
+        let mut r = at_end();
+        r.run("select_all");
+        assert_eq!(r.col(), None);
+        // an edit of another view clamps the cursor of this one
+        let mut r = at_end();
+        r.cursor.clamp(r.model.doc()).unwrap();
+        assert_eq!(r.col(), None);
+    }
+
+    #[test]
+    fn rows_that_do_not_wrap_have_no_mark() {
+        let mut r = Rig::new("ab\ncd");
+        r.run("go_line_end");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 2), None));
+        // a line of exactly one row
+        let mut r = Rig::new("abc\ndef");
+        r.run("go_line_end");
+        assert_eq!((r.caret(), r.col()), (P1, None));
+        r.click(P1, 40);
+        assert_eq!(r.col(), None);
+    }
+
+    #[test]
+    fn a_column_right_of_the_text_is_the_modes_alone() {
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(P1, false);
+        r.cursor.set_free_col(Some(7));
+        assert_eq!(r.row_pos(), P1);
+        assert_eq!(r.cx(|cx| cx.caret_free_x().unwrap()), None);
+        // the end of the text is taken
+        r.cursor.set_free_col(Some(3));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+    }
 }

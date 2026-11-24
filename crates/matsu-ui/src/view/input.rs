@@ -19,6 +19,7 @@ use gpui::{
     Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size,
 };
 use matsu_core::buffer::{Pos, col_from_utf16, col_to_utf16};
+use matsu_layout::RowPos;
 
 use super::{EditorView, Marked};
 
@@ -182,13 +183,22 @@ impl EditorView {
         self.end_composition(cx);
     }
 
-    /// The pixel position of `pos` in the window, if the view has been painted.
+    /// The pixel position of `pos` in the window, if the view has been painted. The caret is where
+    /// it is drawn (`caret_row`, `caret_x`): at the end of a wrapped row its position is the start
+    /// of the next row, and the window of the IME goes with the caret, not with the position.
     pub(crate) fn point_of(&self, pos: Pos, cx: &gpui::App) -> Option<Point<Pixels>> {
         let paint = self.paint?;
-        let at = self
-            .layout
-            .pos_to_row(self.document.read(cx).doc(), pos)
-            .ok()?;
+        let at = if pos == self.cursor.caret() {
+            let at = self.caret_row(cx);
+            RowPos {
+                x: self.caret_x(cx),
+                ..at
+            }
+        } else {
+            self.layout
+                .pos_to_row(self.document.read(cx).doc(), pos)
+                .ok()?
+        };
         Some(point(
             px(paint.origin_x + self.x_scale().px(at.x) - self.scroll_x),
             px(paint.origin_y + at.row as f32 * self.metrics.line_height - self.scroll_y),

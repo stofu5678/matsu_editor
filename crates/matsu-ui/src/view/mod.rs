@@ -487,8 +487,11 @@ impl EditorView {
         f: impl FnOnce(&mut CommandContext<'_>) -> R,
     ) -> R {
         // The free column means nothing once the mode is off: it must not come back when the mode
-        // is turned on again (the dialog changes the options of the process, not the cursor).
-        if !matsu_commands::edit_options::get().free_cursor {
+        // is turned on again (the dialog changes the options of the process, not the cursor). The
+        // end of a wrapped row is no free column: the caret is there in every mode.
+        if !matsu_commands::edit_options::get().free_cursor
+            && !crate::hit::is_wrapped_row_end_mark(&self.layout, self.doc(cx), &self.cursor)
+        {
             self.cursor.set_free_col(None);
         }
         let document = self.document.clone();

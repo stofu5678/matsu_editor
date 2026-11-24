@@ -1363,7 +1363,15 @@ impl Element for EditorElement {
                 .ok()
                 .map(|r| a11y_text::Spot { row: r.row, pos })
         };
-        let focus = at(editor.cursor.caret());
+        // The caret is on the row it is drawn on: at the end of a wrapped row that is not the row
+        // of its position.
+        let focus = match caret_on_screen {
+            Some(on) => Some(a11y_text::Spot {
+                row: on.row,
+                pos: editor.cursor.caret(),
+            }),
+            None => at(editor.cursor.caret()),
+        };
         let anchor = editor
             .cursor
             .anchor()

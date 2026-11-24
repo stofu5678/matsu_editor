@@ -1298,3 +1298,115 @@ fn a_change_of_the_metrics_makes_the_shape_again(cx: &mut TestAppContext) {
     });
     assert_eq!(now, gpui::CursorStyle::IBeam);
 }
+
+// ---- the end of a wrapped row, with the free cursor mode off ----
+
+#[gpui::test]
+fn without_the_mode_a_click_right_of_a_wrapped_row_stands_on_its_end(cx: &mut TestAppContext) {
+    // Sakura's caret is in layout coordinates (`CLayoutPoint`): the end of a wrapped row and the
+    // start of the next row are two places in every mode.
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 14, 1, Modifiers::default());
+    up_at(&f, cx, 0, 14, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        // the end of the text only: the space right of it is for the mode
+        assert_eq!(v.cursor.free_col(), Some(10 * 64));
+        assert_eq!(v.caret_row(app).row, 0);
+        assert_eq!(v.caret_x(app).raw(), 10 * 64);
+        // the status bar shows the end of the first row: line 1, column 11
+        let status = crate::status_options::StatusbarOptions::default();
+        assert_eq!(v.status_position(status, app), (1, 11));
+    });
+    // typing inserts at the end of the row, and the mark goes
+    cx.simulate_input("z");
+    assert_eq!(f.lines(cx), ["abcdefghijzklmnop", "xy"]);
+    f.view
+        .read_with(cx, |v, _| assert_eq!(v.cursor.free_col(), None));
+    // a click on the text of the next row leaves it
+    down_at(&f, cx, 1, 1, 1, Modifiers::default());
+    up_at(&f, cx, 1, 1, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.free_col(), None);
+        assert_eq!(v.caret_row(app).row, 1);
+    });
+}
+
+#[gpui::test]
+fn end_on_a_wrapped_row_stays_on_it_and_a_row_command_takes_that_row(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 3, 1, Modifiers::default());
+    up_at(&f, cx, 0, 3, Modifiers::default());
+    cx.simulate_keystrokes("end");
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        assert_eq!(v.cursor.free_col(), Some(10 * 64));
+        assert_eq!(v.caret_row(app).row, 0);
+    });
+    // 行削除 (Shift+Ctrl+E) takes the first row, not the second
+    cx.simulate_keystrokes("shift-ctrl-e");
+    assert_eq!(f.lines(cx), ["klmnop", "xy"]);
+}
+
+#[gpui::test]
+fn the_ime_and_the_screen_reader_follow_the_caret_in_the_gap_of_a_wrapped_row(
+    cx: &mut TestAppContext,
+) {
+    use gpui::EntityInputHandler as _;
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 14, 1, Modifiers::default());
+    up_at(&f, cx, 0, 14, Modifiers::default());
+    cx.run_until_parked();
+    let line_height = f.view.read_with(cx, |v, _| v.metrics.line_height);
+    f.view.read_with(cx, |v, app| {
+        let paint = v.paint.expect("the window was painted");
+        // the caret is drawn at the end of the first row, which the position `(0, 10)` is not
+        assert_eq!(v.caret_row(app).row, 0);
+        let at = v.point_of(Pos::new(0, 10), app).unwrap();
+        assert_eq!(f32::from(at.y), paint.origin_y - v.scroll_y);
+        let end = v.x_scale().px(matsu_layout::X::from_raw(10 * 64));
+        assert_eq!(f32::from(at.x), paint.origin_x + end - v.scroll_x);
+        // what the screen reader is told: the focus is on the first row
+        let snapshot = v.a11y_text.borrow();
+        let focus = snapshot.as_ref().expect("a paint left the rows").focus;
+        assert_eq!((focus.row, focus.pos), (0, Pos::new(0, 10)));
+    });
+    // the window of the IME is asked for the place of the caret
+    let bounds = f
+        .view
+        .update_in(cx, |v, window, cx| {
+            v.bounds_for_range(10..10, gpui::Bounds::default(), window, cx)
+        })
+        .expect("bounds");
+    f.view.read_with(cx, |v, _| {
+        let paint = v.paint.expect("the window was painted");
+        assert_eq!(f32::from(bounds.origin.y), paint.origin_y - v.scroll_y);
+    });
+    // without the mark the caret is at the start of the second row, and so is the window
+    down_at(&f, cx, 1, 0, 1, Modifiers::default());
+    up_at(&f, cx, 1, 0, Modifiers::default());
+    cx.run_until_parked();
+    f.view.read_with(cx, |v, app| {
+        let paint = v.paint.expect("the window was painted");
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        assert_eq!(v.cursor.free_col(), None);
+        let at = v.point_of(Pos::new(0, 10), app).unwrap();
+        assert_eq!(f32::from(at.y), paint.origin_y + line_height - v.scroll_y);
+        assert_eq!(f32::from(at.x), paint.origin_x - v.scroll_x);
+        let snapshot = v.a11y_text.borrow();
+        assert_eq!(snapshot.as_ref().unwrap().focus.row, 1);
+    });
+}

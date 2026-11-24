@@ -197,9 +197,12 @@ pub struct WrappedGap {
 }
 
 impl WrappedGap {
-    /// Whether a free caret may stand at `x` here: at the end of the text or right of it.
-    pub fn takes(&self, x: X) -> bool {
-        x >= self.text_end
+    /// Whether the mark of a caret that stands at the column `x` is good here. The end of the text
+    /// is the end of the row, which is a place of the caret whatever the mode is (Sakura's caret
+    /// is in layout coordinates: `CLayoutPoint`); right of the end only the free cursor mode
+    /// lets it stand.
+    pub fn takes(&self, x: X, free_cursor: bool) -> bool {
+        x == self.text_end || (free_cursor && x > self.text_end)
     }
 }
 
