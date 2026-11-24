@@ -147,6 +147,8 @@ pub(crate) enum Drag {
     Select {
         bgn: (Pos, Pos),
         words: bool,
+        /// The mark of the click that began the drag ([`DragSelection::bgn_col`]).
+        bgn_col: Option<usize>,
     },
     /// Selecting rows (the line number column) or logical lines (a triple click) from `bgn`.
     Lines {
@@ -494,6 +496,12 @@ impl EditorView {
         {
             self.cursor.set_free_col(None);
         }
+        // The same for the mark of the anchor.
+        if !matsu_commands::edit_options::get().free_cursor
+            && !crate::hit::is_anchor_wrapped_row_end_mark(&self.layout, self.doc(cx), &self.cursor)
+        {
+            self.cursor.set_anchor_free_col(None);
+        }
         let document = self.document.clone();
         // The macro that runs before a save is told the file it will be written to.
         let save_path = self.macros.save_path();
@@ -826,7 +834,7 @@ impl EditorView {
             let _ = self.cursor.clamp_if_outside(shared.doc());
         }
         // The text of the line may have grown under a caret that stood right of its end.
-        self.cursor.set_free_col(None);
+        self.cursor.drop_free_cols();
         self.layout_version = version;
         self.drop_composition(cx);
         // the candidates were made for the old text

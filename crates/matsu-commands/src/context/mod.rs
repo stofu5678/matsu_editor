@@ -368,6 +368,7 @@ impl<'a> CommandContext<'a> {
             || self.cursor.box_caret_col() != self.start.box_caret_col()
             || self.cursor.free_col() != self.start.free_col();
         self.changes.selection_changed = self.cursor.anchor() != self.start.anchor()
+            || self.cursor.anchor_free_col() != self.start.anchor_free_col()
             || self.cursor.mode() != self.start.mode()
             || self.cursor.box_anchor_col() != self.start.box_anchor_col();
         self.changes.overwrite = self.overwrite;

@@ -10,6 +10,7 @@ use gpui::App;
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::encoding::{Encoding, char_code, sakura_utf16_len};
 use matsu_core::model::eol_text;
+use matsu_layout::RowPos;
 
 use super::EditorView;
 use crate::status::eol_name;
@@ -178,12 +179,20 @@ impl EditorView {
     pub(crate) fn selection_message(&self, options: StatusbarOptions, cx: &App) -> Option<String> {
         let doc = self.doc(cx);
         let cursor = &self.cursor;
-        let rows = |a: Pos, b: Pos| {
-            let row = |p: Pos| self.layout.pos_to_row(doc, p).map_or(0, |r| r.row);
+        let free = matsu_commands::edit_options::get().free_cursor;
+        // The rows where the two ends stand, as layout points (`m_sSelect.GetFrom().y` and
+        // `GetTo().y`): an end at the end of a wrapped row stands on that row, not on the next
+        // one (`hit::caret_row_pos`, `hit::anchor_row_pos`).
+        let caret_at = crate::hit::caret_row_pos(&self.layout, doc, cursor, free).ok();
+        let anchor_at = crate::hit::anchor_row_pos(&self.layout, doc, cursor, free)
+            .ok()
+            .flatten();
+        let select_line = |a: Option<RowPos>, b: Option<RowPos>| {
+            let row = |at: Option<RowPos>| at.map_or(0, |r| r.row);
             row(a).abs_diff(row(b)) + 1
         };
         if cursor.is_box() {
-            let Some(((a, a_col), (c, c_col))) = cursor.box_corners() else {
+            let Some(((_, a_col), (_, c_col))) = cursor.box_corners() else {
                 return Some("box selecting".to_owned());
             };
             // The width in columns (`select_col / GetLayoutXDefault()`), and in the pixels of the
@@ -193,7 +202,7 @@ impl EditorView {
             let px = self.x_scale().px(width).round() as i64;
             return Some(format!(
                 "{cols} col ({px}px) * {} lines selected.",
-                rows(a, c)
+                select_line(anchor_at, caret_at)
             ));
         }
         let Some((from, to)) = cursor.selection() else {
@@ -206,13 +215,17 @@ impl EditorView {
             .select_count
             .by_byte(options.select_count_by_byte);
         let size = self.count_selection(doc, shared.version(), encoding, from, to, by_byte);
-        // The last line is not counted when the selection ends at the start of its row.
-        let mut lines = rows(from, to);
-        let ends_at_row_start = self
-            .layout
-            .pos_to_row(doc, to)
-            .ok()
-            .and_then(|r| self.layout.row(doc, r.row).ok())
+        // The last line is not counted when the selection ends at the start of its row
+        // (`LineColumnToIndex(pcLayout, To.x) == 0` on the row of `To.y`). An end that stands at
+        // the end of the row before is on that row, and not at the start of the next.
+        let (from_at, to_at) = if cursor.caret() == to {
+            (anchor_at, caret_at)
+        } else {
+            (caret_at, anchor_at)
+        };
+        let mut lines = select_line(from_at, to_at);
+        let ends_at_row_start = to_at
+            .and_then(|at| self.layout.row(doc, at.row).ok())
             .is_none_or(|row| row.start == to);
         if ends_at_row_start {
             lines -= 1;

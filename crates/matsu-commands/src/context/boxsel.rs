@@ -82,8 +82,22 @@ impl CommandContext<'_> {
     }
 
     fn start_box(&mut self, lock: bool) -> Result<()> {
+        self.land_on_caret_row()?;
         let x = self.box_caret_x()?;
         self.begin_box_at(x, lock);
+        Ok(())
+    }
+
+    /// A caret at the end of a wrapped row, or right of it (`Cursor::free_col`), stands on that
+    /// row, but its position is the start of the next row. A box that begins there begins on that
+    /// row (Sakura's caret is a layout point, and `BeginSelectArea` copies it): the caret goes to
+    /// the last char of the row, where the corner of a box on a wrapped row stands at most
+    /// ([`box_move_to_x`](Self::box_move_to_x)). Does nothing at any other place.
+    pub(super) fn land_on_caret_row(&mut self) -> Result<()> {
+        let row_pos = self.caret_row_pos()?;
+        if row_pos != self.caret() {
+            self.cursor.move_to(row_pos, false);
+        }
         Ok(())
     }
 
@@ -96,8 +110,9 @@ impl CommandContext<'_> {
 
     /// The `X` where a box that starts at the caret starts: that of the caret, counting the free
     /// cursor's space to the right of the text. A box corner is never at the end of a wrapped
-    /// row, so a free caret in the gap after one starts the box where its position is, at the
-    /// start of the next row.
+    /// row: a box that begins from a free caret in the gap after one first puts the caret on the
+    /// last char of that row ([`land_on_caret_row`](Self::land_on_caret_row)); a caller that does
+    /// not begin a box gets the `X` of the position, at the start of the next row.
     pub(super) fn caret_x_for_box(&self) -> Result<X> {
         if self.caret_row_pos()? == self.caret() {
             self.caret_x_with_free()

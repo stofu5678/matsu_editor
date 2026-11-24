@@ -67,14 +67,42 @@ pub fn caret_row_pos(
     cursor: &Cursor,
     free_cursor: bool,
 ) -> Result<RowPos> {
-    let caret = cursor.caret();
-    let at = layout.pos_to_row(doc, caret)?;
-    let Some(col) = cursor.free_col() else {
+    marked_row_pos(layout, doc, cursor.caret(), cursor.free_col(), free_cursor)
+}
+
+/// The row and the `X` of the anchor of the selection of `cursor`, or `None` without an anchor.
+/// As [`caret_row_pos`]: an anchor that started from a caret at the end of a wrapped row keeps its
+/// mark (`Cursor::anchor_free_col`) and stands on that row, as Sakura's layout points do
+/// (`BeginSelectArea` copies the caret's point into `m_sSelectBgn`).
+pub fn anchor_row_pos(
+    layout: &DocumentLayout,
+    doc: &Document,
+    cursor: &Cursor,
+    free_cursor: bool,
+) -> Result<Option<RowPos>> {
+    let Some(anchor) = cursor.anchor() else {
+        return Ok(None);
+    };
+    marked_row_pos(layout, doc, anchor, cursor.anchor_free_col(), free_cursor).map(Some)
+}
+
+/// The row and `X` of `pos` with the mark `col` of a caret or an anchor (see [`caret_row_pos`]).
+/// A mark that does not fit (`pos` does not start a row that continues a line, or the column is
+/// not one that the gap takes) is ignored: the point stays where the layout puts `pos`.
+fn marked_row_pos(
+    layout: &DocumentLayout,
+    doc: &Document,
+    pos: Pos,
+    col: Option<usize>,
+    free_cursor: bool,
+) -> Result<RowPos> {
+    let at = layout.pos_to_row(doc, pos)?;
+    let Some(col) = col else {
         return Ok(at);
     };
     // The same rule as the commands use (`matsu_commands::layout::wrapped_gap_before`).
     let rows = RowRead(layout);
-    match wrapped_gap_before(&rows, doc, caret)? {
+    match wrapped_gap_before(&rows, doc, pos)? {
         Some(gap) if gap.takes(cursor_x(col), free_cursor) => Ok(RowPos {
             row: layout.pos_to_row(doc, gap.last)?.row,
             x: gap.text_end,
@@ -87,12 +115,32 @@ pub fn caret_row_pos(
 /// right of the text that the caret keeps when the free cursor mode is off (the view drops every
 /// other column then, so that it does not come back when the mode is turned on).
 pub fn is_wrapped_row_end_mark(layout: &DocumentLayout, doc: &Document, cursor: &Cursor) -> bool {
-    let Some(col) = cursor.free_col() else {
+    is_wrapped_end_mark_at(layout, doc, cursor.caret(), cursor.free_col())
+}
+
+/// As [`is_wrapped_row_end_mark`], for the anchor of the selection.
+pub fn is_anchor_wrapped_row_end_mark(
+    layout: &DocumentLayout,
+    doc: &Document,
+    cursor: &Cursor,
+) -> bool {
+    cursor
+        .anchor()
+        .is_some_and(|anchor| is_wrapped_end_mark_at(layout, doc, anchor, cursor.anchor_free_col()))
+}
+
+fn is_wrapped_end_mark_at(
+    layout: &DocumentLayout,
+    doc: &Document,
+    pos: Pos,
+    col: Option<usize>,
+) -> bool {
+    let Some(col) = col else {
         return false;
     };
     let rows = RowRead(layout);
     matches!(
-        wrapped_gap_before(&rows, doc, cursor.caret()),
+        wrapped_gap_before(&rows, doc, pos),
         Ok(Some(gap)) if gap.takes(cursor_x(col), false)
     )
 }
@@ -382,6 +430,37 @@ mod tests {
                 selected_x(&l, &d, &rows[1], sel).unwrap(),
                 Some((col(per, 0), col(per, 2)))
             );
+        }
+    }
+
+    #[test]
+    fn the_anchor_with_the_mark_of_a_wrapped_row_end_is_on_that_row() {
+        for per in PER_COLUMN {
+            let cfg = LayoutConfig {
+                wrap: Wrap::Columns(4),
+                ..config(per)
+            };
+            let (d, l, _) = setup("abcdefgh", cfg);
+            let end = Pos::new(0, 4);
+            let mut cursor = Cursor::new(end);
+            cursor.set_free_col(Some(4 * per as usize));
+            cursor.move_to(Pos::new(0, 6), true);
+            assert_eq!(cursor.anchor(), Some(end));
+            // the mark: the end of the first row, at the end of its text
+            let at = anchor_row_pos(&l, &d, &cursor, false).unwrap().unwrap();
+            assert_eq!((at.row, at.x), (0, col(per, 4)));
+            // a mark on the wrong place (the position does not start a continued row) is ignored
+            cursor.select(Pos::new(0, 2), Pos::new(0, 6));
+            cursor.set_anchor_free_col(Some(4 * per as usize));
+            let at = anchor_row_pos(&l, &d, &cursor, false).unwrap().unwrap();
+            assert_eq!(at.row, 0);
+            // without an anchor there is no row
+            cursor.clear_selection();
+            assert_eq!(anchor_row_pos(&l, &d, &cursor, false).unwrap(), None);
+            // no mark: the next row
+            cursor.select(end, Pos::new(0, 6));
+            let at = anchor_row_pos(&l, &d, &cursor, false).unwrap().unwrap();
+            assert_eq!(at.row, 1);
         }
     }
 

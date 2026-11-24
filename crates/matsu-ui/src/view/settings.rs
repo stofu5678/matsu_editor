@@ -389,7 +389,7 @@ impl EditorView {
         // row is a mark on the start of the next row), so any change of the layout drops it. The
         // goal of the vertical moves is an `X` of the old columns when a column changed its width
         // (the character spacing and the font size).
-        self.cursor.set_free_col(None);
+        self.cursor.drop_free_cols();
         if width_changed {
             self.cursor.set_goal_col(None);
         }
