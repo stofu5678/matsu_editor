@@ -812,8 +812,8 @@ impl EditorView {
 
     /// For tests: the macro's undo blocks wait for the end of an event call.
     #[cfg(test)]
-    pub(crate) fn close_blocks_pending_for_test(&self) -> bool {
-        self.macros.close_blocks_after_event
+    pub(crate) fn close_blocks_pending_for_test(&self, cx: &gpui::App) -> bool {
+        self.document.read(cx).close_blocks_after_event()
     }
 
     /// For tests: a macro of this window waits for a flow.
@@ -997,6 +997,14 @@ fn release_document(
                 .parts_mut()
                 .0
                 .restore_block_depth(depth, &matsu_core::cursor::Cursor::default());
+        }
+        // The macro that ended during the call left its blocks to it: they are closed now, though its pane
+        // is gone (the depth above includes them).
+        if shared.take_close_blocks_after_event() {
+            shared
+                .parts_mut()
+                .0
+                .close_blocks(&matsu_core::cursor::Cursor::default());
         }
     });
 }
@@ -1276,13 +1284,13 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                         // Only the document the call began on: a replaced one is not ours to free.
                         let mut closed = std::mem::take(&mut view.macros.indent_closed);
                         view.macros.indent_undo_depth = None;
-                        // The macro's debt of closing its blocks ends with this call whatever came of the
-                        // document: it is paid only on the document the call began on.
-                        let close_later =
-                            std::mem::take(&mut view.macros.close_blocks_after_event);
                         if view.document.read(cx).generation() == generation {
                             // Whoever cut the call off says so on the document (`release_document` reads it too).
                             closed |= view.document.read(cx).plugin_block_closed();
+                            // The macro's blocks that were left for the end of this call.
+                            let close_later = view
+                                .document
+                                .update(cx, |shared, _| shared.take_close_blocks_after_event());
                             view.document.update(cx, |shared, _| {
                                 shared.set_plugin_busy(false);
                                 shared.set_plugin_block_closed(false);

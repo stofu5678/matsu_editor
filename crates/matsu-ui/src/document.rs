@@ -111,6 +111,12 @@ pub struct SharedDocument {
     /// again, one of them may be the user's (an IME composition in another pane). It is the document's,
     /// not a pane's, so that it is still there when the pane that began the call is gone.
     plugin_block_closed: bool,
+    /// A macro ended (or was cancelled) while an event call of a plugin ran on this document, and its
+    /// undo blocks are still open under the call's own: whoever ends the call closes them
+    /// (`plugin_call`, `release_document`). It is the document's, like the blocks, so that it is still
+    /// there when the pane of the macro, or of the call, is gone; a document that replaces this one
+    /// starts without it.
+    close_blocks_after_event: bool,
     /// The views that show this document, to ask them whether a macro runs in one of them (the
     /// state of a macro is the view's; a view that is gone no longer counts).
     views: Vec<gpui::WeakEntity<crate::view::EditorView>>,
@@ -235,6 +241,7 @@ impl SharedDocument {
             generation: 0,
             plugin_busy: false,
             plugin_block_closed: false,
+            close_blocks_after_event: false,
             views: Vec::new(),
             overwrite: false,
             view_mode: false,
@@ -387,6 +394,7 @@ impl SharedDocument {
             generation: 0,
             plugin_busy: false,
             plugin_block_closed: false,
+            close_blocks_after_event: false,
             views: Vec::new(),
             overwrite: false,
             view_mode: false,
@@ -945,6 +953,21 @@ impl SharedDocument {
 
     pub fn set_plugin_block_closed(&mut self, closed: bool) {
         self.plugin_block_closed = closed;
+    }
+
+    /// See the field `close_blocks_after_event`.
+    pub fn set_close_blocks_after_event(&mut self) {
+        self.close_blocks_after_event = true;
+    }
+
+    /// Takes the obligation to close the macro's blocks (see the field).
+    pub fn take_close_blocks_after_event(&mut self) -> bool {
+        std::mem::take(&mut self.close_blocks_after_event)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn close_blocks_after_event(&self) -> bool {
+        self.close_blocks_after_event
     }
 
     pub fn set_plugin_busy(&mut self, busy: bool) {

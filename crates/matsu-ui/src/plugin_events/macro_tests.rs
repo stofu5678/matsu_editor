@@ -340,7 +340,7 @@ fn a_macro_cancelled_during_an_event_leaves_nothing_for_a_document_that_replaced
     });
     // The macro is cancelled during the event, and a file is read into the window before the handler ends.
     view.update(cx, |v, cx| v.cancel_macro(cx));
-    assert!(view.read_with(cx, |v, _| v.close_blocks_pending_for_test()));
+    assert!(view.read_with(cx, |v, app| v.close_blocks_pending_for_test(app)));
     view.update(cx, |v, cx| {
         v.load_document(crate::document::SharedDocument::empty(), None, cx);
     });
@@ -353,7 +353,7 @@ fn a_macro_cancelled_during_an_event_leaves_nothing_for_a_document_that_replaced
         std::thread::sleep(Duration::from_millis(5));
     }
     // The call's end took the debt, and closed nothing of the new document.
-    assert!(!view.read_with(cx, |v, _| v.close_blocks_pending_for_test()));
+    assert!(!view.read_with(cx, |v, app| v.close_blocks_pending_for_test(app)));
     // A new macro on the new document goes through its own event with its blocks whole.
     let second = files.path("second.dat");
     let mac = files.write(
@@ -366,7 +366,7 @@ fn a_macro_cancelled_during_an_event_leaves_nothing_for_a_document_that_replaced
         v.document().read(app).model().history().depth()
     });
     assert_eq!(depth, 0, "no undo block is left open");
-    assert!(!view.read_with(cx, |v, _| v.close_blocks_pending_for_test()));
+    assert!(!view.read_with(cx, |v, app| v.close_blocks_pending_for_test(app)));
     let undo = FUNCTIONS.iter().find(|f| f.name == "F_UNDO").unwrap().code;
     view.update_in(cx, |view, window, cx| {
         view.run_function(undo, &[], window, cx)
@@ -376,5 +376,85 @@ fn a_macro_cancelled_during_an_event_leaves_nothing_for_a_document_that_replaced
         view.run_function(undo, &[], window, cx)
     });
     assert_eq!(text_in(&view, cx), "c", "the handler's edits are one step");
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_macro_cancelled_during_an_event_has_its_blocks_closed_when_its_pane_is_gone(
+    cx: &mut TestAppContext,
+) {
+    let handler = "Editor.InsText('X'); var t = Date.now(); while (Date.now() - t < 1500) {} Editor.InsText('Y');";
+    let Some((place, files)) = begin(cx, &[("DocumentBeforeSave", handler)]) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let shared = view.read_with(cx, |v, _| v.document().clone());
+    let handle = cx.update(|_, app| app.windows()[0]);
+    let target = files.path("gone.dat");
+    // The macro has a block of undo open (`AddRefUndoBuffer`) when the handler begins.
+    let mac = files.write(
+        "gone.mac",
+        format!(
+            "AddRefUndoBuffer();\nChar(97);\nFileSaveAs({});\nChar(98);\n",
+            quoted(&target)
+        )
+        .as_bytes(),
+    );
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_EXECEXTMACRO")
+        .unwrap()
+        .code;
+    let arg = Arg::Text(mac.to_string_lossy().into_owned());
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[arg], window, cx)
+    });
+    spin(cx, "the handler did not edit", |cx| {
+        text_in(&view, cx).contains('X')
+    });
+    // A second pane keeps the document.
+    let (other, cx) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(shared, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    cx.executor().allow_parking();
+    // The macro is cancelled during the event, and then its pane is closed before the handler ends.
+    view.update(cx, |v, cx| v.cancel_macro(cx));
+    assert!(view.read_with(cx, |v, app| v.close_blocks_pending_for_test(app)));
+    cx.update(|_, app| {
+        handle
+            .update(app, |_, window, _| window.remove_window())
+            .unwrap();
+    });
+    drop(view);
+    spin(cx, "the call did not end", |cx| {
+        !other.read_with(cx, |v, app| v.document().read(app).plugin_busy())
+    });
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // The blocks of the macro are closed, though the pane that owed it is gone.
+    let depth = other.read_with(cx, |v, app| {
+        v.document().read(app).model().history().depth()
+    });
+    assert_eq!(depth, 0, "no undo block is left open");
+    assert!(!other.read_with(cx, |v, app| v.close_blocks_pending_for_test(app)));
+    let before = text_in(&other, cx);
+    assert!(before.contains('X'), "{before}");
+    cx.simulate_input("z");
+    let undo = FUNCTIONS.iter().find(|f| f.name == "F_UNDO").unwrap().code;
+    other.update_in(cx, |view, window, cx| {
+        view.run_function(undo, &[], window, cx)
+    });
+    assert_eq!(
+        text_in(&other, cx),
+        before,
+        "the next edit is a step of its own"
+    );
     finish(cx);
 }

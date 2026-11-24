@@ -269,13 +269,6 @@ pub(crate) struct MacroState {
     /// The wait for a call that finishes later (`wait.rs`): the number of the wait that is on,
     /// if any. A key macro does not go on, and a script gets no answer, until it ends.
     waiting: Option<u64>,
-    /// The macro ended (or was cancelled) while an event call of a plugin ran on this window: its undo
-    /// blocks are closed when that call ends (`close_undo_blocks`, `plugin_call`), so that the blocks that
-    /// the call opened on top of them stay whole, and its end does not open them again. Set by the macro's
-    /// end, read and cleared by the end of the event call: `Progress::Done` takes it on every end of the
-    /// call (the call's document replaced meanwhile too, where nothing is closed, since the blocks of the
-    /// new document are not the macro's). A view that is gone takes the flag with it.
-    close_blocks_after_event: bool,
     /// Counts the waits that began, so that a wait that was stopped can tell.
     epoch: u64,
     /// What the macro functions keep between two calls (cookies, the draw switch).
@@ -566,9 +559,10 @@ impl EditorView {
         }
         // An event call that runs now has opened a block on top of the macro's: closing all would cut the
         // call's edits in two, and its end would put the macro's blocks back (`leave_undo_block`). The call
-        // closes them when it ends.
+        // closes them when it ends (the obligation is the document's: the pane may be gone by then).
         if self.macros.plugin_running && self.macros.plugin_event {
-            self.macros.close_blocks_after_event = true;
+            self.document
+                .update(cx, |shared, _| shared.set_close_blocks_after_event());
             return;
         }
         let cursor = &self.cursor;
