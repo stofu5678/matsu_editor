@@ -635,25 +635,13 @@ impl Render for ExecDialog {
                         h_flex()
                             .gap_3()
                             .child(redirect.radio(0, "exec-to-output", stdout, |radio| {
-                                radio.labelled(TO_OUTPUT).checked(!self.to_window).on_click(
-                                    cx.listener(|this, _: &bool, _, cx| {
-                                        this.to_window = false;
-                                        cx.notify();
-                                    }),
-                                )
+                                radio.labelled(TO_OUTPUT).checked(!self.to_window)
                             }))
                             .child(redirect.radio(
                                 1,
                                 "exec-to-window",
                                 stdout && self.editable,
-                                |radio| {
-                                    radio.labelled(TO_WINDOW).checked(self.to_window).on_click(
-                                        cx.listener(|this, _: &bool, _, cx| {
-                                            this.to_window = true;
-                                            cx.notify();
-                                        }),
-                                    )
-                                },
+                                |radio| radio.labelled(TO_WINDOW).checked(self.to_window),
                             )),
                     ),
             )

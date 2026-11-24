@@ -17,7 +17,7 @@
 //!
 //! ```ignore
 //! let group = Group::new(&self.ring, 3, Some(selected), select);
-//! group.radio(0, "id-0", true, |radio| radio.labelled("...").on_click(...))
+//! group.radio(0, "id-0", true, |radio| radio.labelled("..."))
 //! ```
 //!
 //! Who owns what: the dialog owns which button is checked (its own state, as before, which also
@@ -34,8 +34,8 @@ use gpui::{
 };
 use gpui_component::radio::Radio;
 
-/// What a group does when the arrow keys choose a button: choose the button with this index.
-/// Made with `cx.listener` of the dialog, the same function that a click on the button calls.
+/// What a group does to choose the button with this index: the arrow keys and a click on a button
+/// both call it. Made with `cx.listener` of the dialog; it is the one place that writes the choice.
 pub(crate) type Select = Rc<dyn Fn(&usize, &mut Window, &mut App)>;
 
 /// The focus handles of the buttons of one group, by position.
@@ -129,8 +129,8 @@ impl Group {
     }
 
     /// The button at `index` (from 0, in the order of the group) with the id `id`. `build` makes
-    /// the plain `Radio` of it (label, checked state, click); it must not change the button's
-    /// `disabled` state, `enabled` does, nor its tab stop.
+    /// the plain `Radio` of it (label, name, checked state); it must not change the button's
+    /// `disabled` state (`enabled` does), its tab stop or its click (the group's `select` is it).
     pub(crate) fn radio(
         &self,
         index: usize,
@@ -187,14 +187,26 @@ impl RenderOnce for GroupRadio {
             None => self.index == 0,
         };
         let index = self.index;
+        let clicked = select.clone();
         self.radio
             .disabled(!self.enabled)
             .tab_stop(tab_stop)
+            // A click, Space or Enter chooses the button by the same function as the arrow keys,
+            // so that no dialog can write the two out of step.
+            .on_click(move |_, window, cx| clicked(&index, window, cx))
             .on_key_down(move |event: &KeyDownEvent, window, cx| {
                 let Some(forward) = direction(event) else {
                     return;
                 };
                 cx.stop_propagation();
+                // This handler runs because this button has the focus. When the handle in the
+                // ring is not the one the `Radio` tracks (gpui-component or GPUI changed how it
+                // keeps it), the arrow keys would silently stop working: say so in a debug build.
+                debug_assert!(
+                    ring.focus_of(index)
+                        .is_some_and(|focus| focus.is_focused(window)),
+                    "radio_group: the focus handle of the ring is not the one of the Radio"
+                );
                 let to = ring.step(index, size, forward);
                 if to == index {
                     return;

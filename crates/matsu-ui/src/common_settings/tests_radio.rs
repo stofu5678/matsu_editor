@@ -15,9 +15,10 @@ const GROUP: &str = "open_dialog_dir";
 
 fn ring(cx: &mut TestAppContext) -> Ring {
     with_dialog(cx, |d, _, _| {
-        d.radio_rings
+        d.radio_groups
             .get(GROUP)
             .expect("the group is drawn")
+            .ring
             .clone()
     })
 }

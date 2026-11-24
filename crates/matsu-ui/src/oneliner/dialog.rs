@@ -319,17 +319,10 @@ impl OneLinerDialog {
         id: &'static str,
         label: &'static str,
         enabled: bool,
-        cx: &mut Context<Self>,
     ) -> GroupRadio {
         let to = PLACES[index];
         group.radio(index, id, enabled, |radio| {
-            radio
-                .labelled(label)
-                .checked(self.output == to)
-                .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                    this.output = to;
-                    cx.notify();
-                }))
+            radio.labelled(label).checked(self.output == to)
         })
     }
 }
@@ -370,9 +363,9 @@ impl Render for OneLinerDialog {
             .child(
                 h_flex()
                     .gap_3()
-                    .child(self.radio(&group, 0, "oneliner-replace", REPLACE, editable, cx))
-                    .child(self.radio(&group, 1, "oneliner-next-line", NEXT_LINE, editable, cx))
-                    .child(self.radio(&group, 2, "oneliner-output", OUTPUT, true, cx)),
+                    .child(self.radio(&group, 0, "oneliner-replace", REPLACE, editable))
+                    .child(self.radio(&group, 1, "oneliner-next-line", NEXT_LINE, editable))
+                    .child(self.radio(&group, 2, "oneliner-output", OUTPUT, true)),
             );
         let buttons = if self.registering {
             h_flex()

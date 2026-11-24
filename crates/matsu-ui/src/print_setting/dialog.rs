@@ -1118,19 +1118,11 @@ impl Render for PrintSettingDialog {
                         radio
                             .label(labels::PORTRAIT)
                             .checked(self.shown().print_paper_orientation == Orientation::Portrait)
-                            .on_click(cx.listener(|this, _: &bool, _, cx| {
-                                this.shown_mut().print_paper_orientation = Orientation::Portrait;
-                                cx.notify();
-                            }))
                     }))
                     .child(orientations.radio(1, "ps-landscape", true, |radio| {
                         radio
                             .label(labels::LANDSCAPE)
                             .checked(self.shown().print_paper_orientation == Orientation::Landscape)
-                            .on_click(cx.listener(|this, _: &bool, _, cx| {
-                                this.shown_mut().print_paper_orientation = Orientation::Landscape;
-                                cx.notify();
-                            }))
                     })),
             )
             .child(self.number_row(labels::MARGIN_TOP, Number::MarginTop, "(mm)", window, cx))

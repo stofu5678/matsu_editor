@@ -133,7 +133,6 @@ impl FileTreeDialog {
         index: usize,
         id: &'static str,
         label: &'static str,
-        cx: &mut Context<Self>,
     ) -> GroupRadio {
         let kind = Kind::ALL[index];
         group.radio(index, id, true, |radio| {
@@ -141,7 +140,6 @@ impl FileTreeDialog {
                 .label(parse_label(label).0)
                 .accessibility_label(label_name(label))
                 .checked(self.kind == kind)
-                .on_click(cx.listener(move |this, _: &bool, _, cx| this.set_kind(kind, cx)))
         })
     }
 
@@ -265,9 +263,9 @@ impl FileTreeDialog {
                 Self::group("種類").child(
                     h_flex()
                         .gap_3()
-                        .child(self.radio(&kinds, 0, "ft-grep", "Grep(&G)", cx))
-                        .child(self.radio(&kinds, 1, "ft-file", "ファイル(&F)", cx))
-                        .child(self.radio(&kinds, 2, "ft-folder", "フォルダー(&2)", cx)),
+                        .child(self.radio(&kinds, 0, "ft-grep", "Grep(&G)"))
+                        .child(self.radio(&kinds, 1, "ft-file", "ファイル(&F)"))
+                        .child(self.radio(&kinds, 2, "ft-folder", "フォルダー(&2)")),
                 ),
             )
             .child(

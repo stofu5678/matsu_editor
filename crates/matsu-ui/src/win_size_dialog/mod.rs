@@ -381,13 +381,6 @@ impl Render for WinSizeDialog {
                             .label(shown)
                             .accessibility_label(name)
                             .checked(current == mode)
-                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                                if group == "win-pos" {
-                                    this.set_pos_mode(mode, cx);
-                                } else {
-                                    this.set_size_mode(mode, cx);
-                                }
-                            }))
                     })
                 });
             div()

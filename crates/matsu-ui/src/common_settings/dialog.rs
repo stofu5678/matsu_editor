@@ -99,10 +99,10 @@ pub(crate) struct CommonSettingsDialog {
     /// key of its label or of its group box moves the focus here and keeps the chosen row. Made
     /// with the choices' ([`ensure_choice_focus`](Self::ensure_choice_focus)).
     list_focus: HashMap<&'static str, FocusHandle>,
-    /// The focus of the radio buttons of each group of radio buttons by control id (a group is
-    /// the radio controls that share an id; `WS_GROUP` in the rc files). Made with the choices'
-    /// ([`ensure_choice_focus`](Self::ensure_choice_focus)).
-    pub(super) radio_rings: HashMap<&'static str, Ring>,
+    /// The groups of radio buttons of the page by control id (a group is the radio controls that
+    /// share an id; `WS_GROUP` in the rc files). Made, and the values made again, with the choices'
+    /// ([`ensure_choice_focus`](Self::ensure_choice_focus)), the one place that makes them.
+    pub(super) radio_groups: HashMap<&'static str, RadioSet>,
     focus: FocusHandle,
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
@@ -320,7 +320,7 @@ impl CommonSettingsDialog {
             table_selected,
             opener,
             choice_focus: HashMap::new(),
-            radio_rings: HashMap::new(),
+            radio_groups: HashMap::new(),
             list_focus: HashMap::new(),
             focus: cx.focus_handle(),
             focused: false,
@@ -1074,9 +1074,12 @@ impl CommonSettingsDialog {
             .as_deref()
             .map(super::model::drawn_controls)
             .unwrap_or_default();
+        // the values of each group of radio buttons, in the order they are drawn in, found once
+        // for the page (every radio button asks for its group on every drawing)
+        let mut radio_values: HashMap<&'static str, Vec<i32>> = HashMap::new();
         for control in drawn {
-            if matches!(control.kind, Kind::Radio { .. }) {
-                self.radio_rings.entry(control.id).or_default();
+            if let Kind::Radio { value } = control.kind {
+                radio_values.entry(control.id).or_default().push(value);
                 continue;
             }
             if matches!(control.kind, Kind::List { .. }) {
@@ -1096,6 +1099,9 @@ impl CommonSettingsDialog {
                     .entry((control.id, value))
                     .or_insert_with(|| cx.focus_handle().tab_stop(true));
             }
+        }
+        for (id, values) in radio_values {
+            self.radio_groups.entry(id).or_default().values = values.into();
         }
     }
 
@@ -1162,28 +1168,22 @@ impl CommonSettingsDialog {
     /// in it.
     fn radio_group(&self, control: &Control, cx: &mut Context<Self>) -> (Group, usize) {
         let id = control.id;
-        let values: Vec<i32> = self.pages[self.page]
-            .items
-            .as_deref()
-            .map(super::model::drawn_controls)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|member| member.id == id)
-            .filter_map(|member| match member.kind {
-                Kind::Radio { value } => Some(value),
-                _ => None,
-            })
-            .collect();
+        // `ensure_choice_focus` makes every group before the page is drawn
+        let set = self.radio_groups.get(id);
+        debug_assert!(
+            set.is_some(),
+            "the group {id} was not made before the drawing"
+        );
+        let set = set.cloned().unwrap_or_default();
         let here = match control.kind {
-            Kind::Radio { value } => values.iter().position(|v| *v == value).unwrap_or(0),
+            Kind::Radio { value } => set.values.iter().position(|v| *v == value).unwrap_or(0),
             _ => 0,
         };
-        let ring = self.radio_rings.get(id).cloned().unwrap_or_default();
-        let size = values.len();
-        let selected = values.iter().position(|v| *v == self.values.int(id));
+        let selected = set.values.iter().position(|v| *v == self.values.int(id));
+        let values = set.values;
         let group = Group::new(
-            &ring,
-            size,
+            &set.ring,
+            values.len(),
             selected,
             Rc::new(cx.listener(move |this, index: &usize, _, cx| {
                 if let Some(value) = values.get(*index) {
@@ -1234,9 +1234,6 @@ impl CommonSettingsDialog {
                                 .accessibility_label(name)
                                 .checked(self.values.int(id) == value)
                                 .aria_disabled(!usable)
-                                .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                                    this.set_int(id, value, cx);
-                                }))
                         }),
                     )
                     .children(note)
@@ -1667,6 +1664,13 @@ impl Focusable for CommonSettingsDialog {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
     }
+}
+
+/// A group of radio buttons of a page: the focus of its buttons and the value of each.
+#[derive(Clone, Default)]
+pub(super) struct RadioSet {
+    pub(super) ring: Ring,
+    values: Rc<[i32]>,
 }
 
 impl Render for CommonSettingsDialog {

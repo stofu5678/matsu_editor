@@ -877,7 +877,7 @@ impl SearchPanel {
         index: usize,
         id: &'static str,
         label: &'static str,
-        cx: &mut Context<Self>,
+        cx: &App,
     ) -> impl IntoElement {
         let unit = UNITS[index];
         // `BS_AUTORADIOBUTTON` (`IDD_JUMP`, `sakura_rc.rc`): a circle and the label. The radio
@@ -885,10 +885,7 @@ impl SearchPanel {
         div()
             .debug_selector(|| id.to_owned())
             .child(group.radio(index, id, true, |radio| {
-                radio
-                    .labelled(label)
-                    .checked(self.unit(cx) == unit)
-                    .on_click(cx.listener(move |this, _: &bool, _, cx| this.set_unit(unit, cx)))
+                radio.labelled(label).checked(self.unit(cx) == unit)
             }))
     }
 

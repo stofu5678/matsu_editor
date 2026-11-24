@@ -51,6 +51,9 @@ log = "0.4.34"
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["wayland", "x11"] }
 # The root view and the title bar that the window draws itself on Wayland without server-side
 # decorations (WSLg).
+# `src/radio_group.rs` depends on how `Radio` keeps its focus handle (GPUI keyed state under its type
+# name, keyed by its id): after any bump of gpui-component or GPUI, the tests of `radio_group` and of
+# the dialogs with radio buttons must pass.
 gpui-component = "=0.7.2"
 # The actions and `ElementExt` that gpui-component's own menu bar uses (the version it depends on).
 # Our menu bar (`menu_bar.rs`) needs them; gpui-component does not re-export them.
