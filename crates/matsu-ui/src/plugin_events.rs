@@ -30,7 +30,7 @@
 //! macro. Here the command starts a flow and the macro waits for it (`macros/wait.rs`); while it waits, the macro
 //! does nothing to the window, so the event calls take it ([`Turn`]: `MacroState::owns_window` is false), and the
 //! macro goes on when the flow and its events are over. The state of an event call is its own (`plugin_running`,
-//! `plugin_event`, the block of undo that it opens and closes at its own depth, the tickets); the macro keeps
+//! `event_generation`, the block of undo that it opens and closes at its own depth, the tickets); the macro keeps
 //! `running`, `queue` and `waiting`. A macro that is in a call (not waiting) still takes the window, and its events
 //! are not given. Each call has the time limit of its jack, so a plugin that never answers ends the wait.
 //!

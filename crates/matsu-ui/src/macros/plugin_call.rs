@@ -821,7 +821,6 @@ impl EditorView {
     #[cfg(test)]
     pub(crate) fn pretend_event_call_for_test(&mut self, on: bool, cx: &gpui::App) {
         self.macros.plugin_running = on;
-        self.macros.plugin_event = on;
         self.macros.event_generation = on.then(|| self.document.read(cx).generation());
     }
 
@@ -854,7 +853,7 @@ impl EditorView {
     /// macro's command: `CDocFileOperation::DoSaveFlow`). A macro that runs a call now takes it.
     pub(crate) fn event_turn(&self, cx: &gpui::App) -> Turn {
         if self.macros.plugin_running {
-            if self.macros.plugin_event {
+            if self.macros.event_call().is_some() {
                 Turn::AfterEvent
             } else {
                 Turn::Taken
@@ -1155,7 +1154,6 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
             cx.notify();
         }
         view.macros.plugin_running = true;
-        view.macros.plugin_event = event;
         view.macros.event_generation = event.then(|| view.document.read(cx).generation());
         view.document
             .update(cx, |shared, _| shared.set_plugin_busy(true));
@@ -1289,7 +1287,6 @@ pub(crate) fn run(editor: &Entity<EditorView>, prepared: Prepared, cx: &mut App)
                     }
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
-                        view.macros.plugin_event = false;
                         view.macros.event_generation = None;
                         view.macros.indent_guard = None;
                         // Only the document the call began on: a replaced one is not ours to free.
