@@ -629,19 +629,20 @@ fn f4_still_opens_the_list_of_the_replacement(cx: &mut TestAppContext) {
 fn enter_in_an_open_list_only_takes_the_row_and_does_not_search(cx: &mut TestAppContext) {
     // `CBS_DROPDOWN`: with the list dropped down, Enter takes the item and closes the list; the
     // default button of the dialog is not pressed
-    // the caret is on a space, so that the panel starts with the newest string
     let (f, cx) = setup(cx, " bbb ccc");
     for s in ["aaa", "bbb", "ccc"] {
         other_window(cx, s, None);
     }
-    cx.simulate_keystrokes("ctrl-f");
+    // the panel starts with the word at the caret; Down from a string that is not in the list
+    // takes the first (the newest)
+    cx.simulate_keystrokes("ctrl-f down");
     assert_eq!(f.pattern(cx), "ccc");
     let before = f.selection(cx);
     // the list opens on "ccc"; Down goes to "bbb"
     cx.simulate_keystrokes("f4 down enter");
     assert_eq!(f.pattern(cx), "bbb");
     assert_eq!(f.selection(cx), before, "the caret did not move");
-    // the list is closed: Down steps through the history, and a second Enter searches
+    // the list is closed: a second Enter searches
     cx.simulate_keystrokes("enter");
     assert_eq!(f.selection(cx), Some((Pos::new(0, 1), Pos::new(0, 4))));
 }
