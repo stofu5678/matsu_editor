@@ -82,7 +82,7 @@ const TEXT: u32 = 0x222222;
 const DISABLED_TEXT: u32 = 0xaaaaaa;
 
 /// The width of the column of arrows.
-const ARROW_WIDTH: f32 = 18.;
+pub(crate) const ARROW_WIDTH: f32 = 18.;
 
 /// The wait before the first repeat of a held arrow (measured: 554 ms on Windows, see the top of this file).
 pub(crate) const FIRST_DELAY: Duration = Duration::from_millis(500);

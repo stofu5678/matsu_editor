@@ -296,3 +296,41 @@ fn a_jump_with_a_number_that_is_not_valid_keeps_the_radio_of_the_panel(cx: &mut 
         JumpUnit::Rows
     );
 }
+
+#[gpui::test]
+fn the_access_keys_choose_the_radio_buttons(cx: &mut TestAppContext) {
+    let (f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
+    // Alt+R chooses the rows and Alt+W the lines again: the access keys stay with the radio buttons
+    cx.simulate_keystrokes("alt-r");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Rows);
+    cx.simulate_keystrokes("alt-w");
+    assert_eq!(panel_unit(&f, cx), JumpUnit::Lines);
+}
+
+#[gpui::test]
+fn the_unit_choices_are_two_small_radio_buttons_one_above_the_other(cx: &mut TestAppContext) {
+    // `IDC_RADIO_LINENUM_LAYOUT` and `_CRLF` (`BS_AUTORADIOBUTTON`): a circle and the label, not
+    // two wide buttons that fill the panel
+    let (_f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    let panel = cx.debug_bounds("search-panel").expect("the panel");
+    let rows = cx.debug_bounds("jump-unit-rows").expect("the radio button");
+    let lines = cx
+        .debug_bounds("jump-unit-lines")
+        .expect("the radio button");
+    assert!(rows.bottom() <= lines.top(), "one above the other");
+    assert!(rows.size.width < panel.size.width / 2.0, "{rows:?}");
+}
+
+#[gpui::test]
+fn the_line_number_box_is_as_wide_as_sakuras_50_dialog_units(cx: &mut TestAppContext) {
+    // `IDC_EDIT_LINENUM` is 50 dialog units wide, spin button included (`IDD_JUMP`): 75 px at 1.5
+    // px a unit, of which the arrows take `spin::ARROW_WIDTH`
+    let (_f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    let field = cx.debug_bounds("jump-line-box").expect("the box");
+    let whole = f32::from(field.size.width) + crate::spin::ARROW_WIDTH;
+    assert!((whole - 75.0).abs() < 0.5, "{whole}");
+}

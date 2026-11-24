@@ -26,6 +26,7 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::radio::Radio;
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use matsu_core::buffer::Pos;
 use matsu_core::search::{Direction, ReplaceTarget};
@@ -62,6 +63,11 @@ const HELP: &str = crate::support::help::BUTTON_LABEL;
 const BEFORE_LABEL: &str = "置換前(N)";
 const AFTER_LABEL: &str = "置換後(P)";
 const LINE_LABEL: &str = "行番号(N)";
+/// `IDC_EDIT_LINENUM` is 50 dialog units wide, spin button included (`IDD_JUMP`, `sakura_rc.rc`
+/// line 91: the edit spans x 40 to 90 and the spin sits at 82 to 91). The dialog font is 9 point
+/// MS PGothic, whose half-width letter is 6 px at 96 dpi, so a dialog unit is 1.5 px (the width of
+/// a letter / 4); the box is 75 px. The arrows (`spin::ARROW_WIDTH`) are inside it.
+const LINE_BOX_WIDTH: f32 = 50. * 1.5;
 // `IDC_RADIO_LINENUM_LAYOUT` and `IDC_RADIO_LINENUM_CRLF` (`IDD_JUMP`)
 const UNIT_ROWS: &str = "折り返し単位の行番号(R)";
 const UNIT_LINES: &str = "改行単位の行番号(W)";
@@ -830,11 +836,13 @@ impl SearchPanel {
         unit: JumpUnit,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        // `BS_AUTORADIOBUTTON` (`IDD_JUMP`, `sakura_rc.rc`): a circle and the label. The radio
+        // reports its role and checked state to UI Automation itself (GPUI's `checked`).
         div().debug_selector(|| id.to_owned()).child(
-            Button::new(id)
+            Radio::new(id)
                 .labelled(label)
-                .selected(self.unit(cx) == unit)
-                .on_click(cx.listener(move |this, _, _, cx| this.set_unit(unit, cx))),
+                .checked(self.unit(cx) == unit)
+                .on_click(cx.listener(move |this, _: &bool, _, cx| this.set_unit(unit, cx))),
         )
     }
 
@@ -1071,7 +1079,10 @@ impl Render for SearchPanel {
                                     "行番号",
                                     (1, i32::MAX),
                                     true,
-                                    Input::new(&self.line).aria_label("行番号"),
+                                    div()
+                                        .debug_selector(|| "jump-line-box".to_owned())
+                                        .w(px(LINE_BOX_WIDTH - crate::spin::ARROW_WIDTH))
+                                        .child(Input::new(&self.line).aria_label("行番号")),
                                     window,
                                     cx,
                                 )),
@@ -1079,6 +1090,7 @@ impl Render for SearchPanel {
                         .child(
                             v_flex()
                                 .gap_1()
+                                .items_start()
                                 .child(self.unit_choice(
                                     "jump-unit-rows",
                                     UNIT_ROWS,
