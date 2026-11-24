@@ -14,8 +14,8 @@
 //! name for a screen reader.
 //!
 //! Holding an arrow repeats and goes faster after a while ([`Hold`]). The Up and Down keys repeat with
-//! the operating system's key repeat (the box gets the key again and again), one step each, so the
-//! acceleration is only for the arrows.
+//! the operating system's key repeat (the box gets the key again and again), one step each, and the
+//! step grows with the time since the first key-down of the hold ([`KeyHold`]), as the arrows' does.
 //!
 //! The delays and steps are those of the system's up-down control (`msctls_updown32`), which Sakura
 //! does not change (no `UDM_SETACCEL` in `sakura_core`). They were measured on Windows 11 (arm64,
@@ -29,8 +29,20 @@
 //! step every [`INTERVAL`] (100 ms: the system's timer of 100 ms is rounded up to its 15.6 ms
 //! tick, which is why it shows as about 110 ms there), and a step of 1, 5 after 2 seconds, 20 after
 //! 5 seconds.
+//!
+//! The keys were measured on Windows 11 (arm64, 2026-11-24, in Windows Sandbox) with the same
+//! control, the focus in its buddy edit, Up held (a key-down, then one every 33 ms from 500 ms, no
+//! key-up, as Windows sends a held key), the position read every 3 ms. Every key-down steps once;
+//! the control has no timer for keys (one key-down held for 3 seconds stepped once). The step is 1
+//! until about 2 seconds after the first key-down of the hold (the switches came at 2.04 to
+//! 2.07 s and 5.10 to 5.13 s), 5 from then and 20 from about 5 seconds, the same table as the mouse.
+//! When the step is 5 or 20 the new position is lined up on a multiple of the step, in the
+//! direction of the step: up 49 + 5 is 55 and 515 + 20 is 540, and a position set by hand during
+//! the hold goes 51 to 60 and 1003 to 1040; down 8949 - 5 is 8940 and 7997 - 20 is 7960. Then it
+//! goes on by whole steps. That is [`stepped`]. The mouse hold of #547 lines up the same way (45 at
+//! 2.691 s, 95, 145, then 340, 540).
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -179,10 +191,41 @@ impl Hold {
     }
 }
 
-/// The number after one step of `delta` (a multiple of 1 or -1) from the number in `text`, kept in `min..=max`
-/// (the range of `UDM_SETRANGE`; the control has no `UDS_WRAP`). The text is read as a number
-/// (`GetDlgItemInt`: a sign only where the range goes below 0); text that is not a number counts
-/// as 0.
+/// The keys held in the box of a spin button: when the hold began, to know the step of the next
+/// key-down. Windows' control has no timer for keys; it steps at every key-down (the press and each
+/// repeat) and takes the step from the time since the first key-down of the hold.
+#[derive(Default)]
+pub(crate) struct KeyHold {
+    started: Option<Instant>,
+    /// The step (1, 5 or 20) of the last key-down.
+    step: i32,
+}
+
+impl KeyHold {
+    /// A key-down at `now`; `is_held` is the operating system's key repeat (`KeyDownEvent::is_held`).
+    /// A key-down that is not a repeat starts a hold. Returns the step it takes.
+    pub(crate) fn key_down(&mut self, is_held: bool, now: Instant) -> i32 {
+        let started = match self.started {
+            Some(started) if is_held => started,
+            _ => now,
+        };
+        self.started = Some(started);
+        self.step = increment_after(now.saturating_duration_since(started));
+        self.step
+    }
+
+    /// The step of the last key-down (1 when no key has come).
+    fn step(&self) -> i32 {
+        self.step.max(1)
+    }
+}
+
+/// The number after one step of `delta` (1 or -1 times the step of [`increment_after`]) from the
+/// number in `text`, kept in `min..=max` (the range of `UDM_SETRANGE`; the control has no
+/// `UDS_WRAP`). The text is read as a number (`GetDlgItemInt`: a sign only where the range goes
+/// below 0); text that is not a number counts as 0. A step of 5 or 20 lines the number up on a
+/// multiple of the step, in the direction of the step (measured, see the top of this file); a step
+/// of 1 never does.
 pub(crate) fn stepped(text: &str, delta: i32, min: i32, max: i32) -> i32 {
     let text = text.trim();
     let digits = text.strip_prefix('-').filter(|_| min < 0).unwrap_or(text);
@@ -195,10 +238,28 @@ pub(crate) fn stepped(text: &str, delta: i32, min: i32, max: i32) -> i32 {
     } else {
         0
     };
-    let next = parsed
-        .saturating_add(i64::from(delta))
-        .clamp(i64::from(min), i64::from(max));
+    let moved = parsed.saturating_add(i64::from(delta));
+    let size = i64::from(delta).abs();
+    let next = if size > 1 {
+        // up: `ceil((pos + step) / step) * step`; down: `floor((pos - step) / step) * step`
+        if delta > 0 {
+            moved
+                .saturating_add(size - 1)
+                .div_euclid(size)
+                .saturating_mul(size)
+        } else {
+            moved.div_euclid(size).saturating_mul(size)
+        }
+    } else {
+        moved
+    }
+    .clamp(i64::from(min), i64::from(max));
     i32::try_from(next).unwrap_or(max)
+}
+
+/// Whether `keystroke` is Up or Down alone (what `bind_keys` binds).
+fn is_plain_arrow(keystroke: &gpui::Keystroke) -> bool {
+    matches!(keystroke.key.as_str(), "up" | "down") && !keystroke.modifiers.modified()
 }
 
 /// One step of `delta` on the box `input`: the number in it moves, the box shows it and has the
@@ -315,6 +376,12 @@ pub(crate) fn spin_box(
     };
     let up = arrow("up", "▲", format!("{name}を増やす"), 1);
     let down = arrow("down", "▼", format!("{name}を減らす"), -1);
+    let keys = window.use_keyed_state(
+        ElementId::from(SharedString::from(format!("{id}-keys"))),
+        cx,
+        |_, _| KeyHold::default(),
+    );
+    let (press_keys, up_keys, down_keys) = (keys.clone(), keys.clone(), keys);
     let up_input = input.clone();
     let down_input = input.clone();
     div()
@@ -324,15 +391,26 @@ pub(crate) fn spin_box(
         .items_stretch()
         .child(field)
         .child(div().flex().flex_col().child(up).child(down))
+        // The capture phase comes before the action: the action does not tell a repeat from a
+        // press, the key-down does.
+        .capture_key_down(move |event, _, cx| {
+            if is_plain_arrow(&event.keystroke) {
+                press_keys.update(cx, |keys, _| {
+                    keys.key_down(event.is_held, Instant::now());
+                });
+            }
+        })
         // `UDS_ARROWKEYS`
         .on_action(move |_: &SpinUp, window, cx| {
             if enabled {
-                step(&up_input, 1, min, max, window, cx);
+                let by = up_keys.read(cx).step();
+                step(&up_input, by, min, max, window, cx);
             }
         })
         .on_action(move |_: &SpinDown, window, cx| {
             if enabled {
-                step(&down_input, -1, min, max, window, cx);
+                let by = down_keys.read(cx).step();
+                step(&down_input, -by, min, max, window, cx);
             }
         })
 }
@@ -400,7 +478,90 @@ mod tests {
     fn a_step_of_several_still_stops_at_the_ends() {
         assert_eq!(stepped("90", 20, 1, 99), 99);
         assert_eq!(stepped("10", -20, 1, 99), 1);
-        assert_eq!(stepped("-10", -20, -30000, 30000), -30);
+        assert_eq!(stepped("-10", -20, -30000, 30000), -40);
+    }
+
+    #[test]
+    fn a_step_of_five_or_twenty_lines_up_on_a_multiple_in_the_direction_of_the_step() {
+        // measured on Windows 2026-11-24 (see the top of this file)
+        assert_eq!(stepped("49", 5, 0, 100_000), 55);
+        assert_eq!(stepped("515", 20, 0, 100_000), 540);
+        assert_eq!(stepped("51", 5, 0, 100_000), 60);
+        assert_eq!(stepped("1003", 20, 0, 100_000), 1040);
+        assert_eq!(stepped("8949", -5, 0, 100_000), 8940);
+        assert_eq!(stepped("7997", -20, 0, 100_000), 7960);
+        // then whole steps
+        assert_eq!(stepped("55", 5, 0, 100_000), 60);
+        assert_eq!(stepped("540", 20, 0, 100_000), 560);
+        assert_eq!(stepped("60", -5, 0, 100_000), 55);
+        // a step of 1 never lines up
+        assert_eq!(stepped("49", 1, 0, 100_000), 50);
+        assert_eq!(stepped("51", -1, 0, 100_000), 50);
+        assert_eq!(stepped("52", 1, 0, 100_000), 53);
+        // the range ends win over the multiples
+        assert_eq!(stepped("98", 5, 0, 99), 99);
+        assert_eq!(stepped("3", -5, 1, 99), 1);
+    }
+
+    #[test]
+    fn a_held_key_steps_by_one_then_five_then_twenty() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut keys = KeyHold::default();
+        assert_eq!(keys.key_down(false, at(0)), 1);
+        // the repeats: the first at 500 ms, then every 33 ms
+        assert_eq!(keys.key_down(true, at(500)), 1);
+        assert_eq!(keys.key_down(true, at(1999)), 1);
+        assert_eq!(keys.key_down(true, at(2000)), 5);
+        assert_eq!(keys.key_down(true, at(4999)), 5);
+        assert_eq!(keys.key_down(true, at(5000)), 20);
+        assert_eq!(keys.step(), 20);
+        // a key-down that is not a repeat starts again at 1
+        assert_eq!(keys.key_down(false, at(5100)), 1);
+        assert_eq!(keys.key_down(true, at(7099)), 1);
+        assert_eq!(keys.key_down(true, at(7100)), 5);
+    }
+
+    #[test]
+    fn a_repeat_with_no_press_before_starts_the_hold() {
+        let mut keys = KeyHold::default();
+        assert_eq!(keys.step(), 1);
+        assert_eq!(keys.key_down(true, Instant::now()), 1);
+    }
+
+    #[test]
+    fn a_held_key_in_the_box_goes_one_by_one_then_on_multiples() {
+        let t0 = Instant::now();
+        let mut keys = KeyHold::default();
+        let mut text = "0".to_owned();
+        let mut shown = vec![];
+        // a key-down at 0, then one every 33 ms from 500 ms, to 6.5 seconds
+        let mut times = vec![0u64];
+        times.extend((0..).map(|n| 500 + n * 33).take_while(|&t| t <= 6500));
+        for (n, ms) in times.into_iter().enumerate() {
+            let by = keys.key_down(n > 0, t0 + Duration::from_millis(ms));
+            text = stepped(&text, by, 0, 100_000).to_string();
+            shown.push(text.parse::<i32>().unwrap());
+        }
+        // by 1 at first
+        assert_eq!(&shown[..5], &[1, 2, 3, 4, 5]);
+        let diffs: Vec<i32> = shown.windows(2).map(|w| w[1] - w[0]).collect();
+        // by 5 on multiples of 5 in the middle, by 20 on multiples of 20 at the end
+        let first_five = diffs.iter().position(|&d| d == 5).unwrap();
+        // lined up on a multiple of 5 at once, and every number after it is one
+        assert!(shown[first_five + 1..].iter().all(|n| n % 5 == 0));
+        assert_eq!(*diffs.last().unwrap(), 20);
+        assert_eq!(shown.last().unwrap() % 20, 0);
+        assert!(diffs.iter().all(|&d| d >= 1));
+    }
+
+    #[test]
+    fn only_up_and_down_alone_count_as_the_keys_of_a_hold() {
+        let key = |s: &str| gpui::Keystroke::parse(s).unwrap();
+        assert!(is_plain_arrow(&key("up")));
+        assert!(is_plain_arrow(&key("down")));
+        assert!(!is_plain_arrow(&key("shift-up")));
+        assert!(!is_plain_arrow(&key("left")));
     }
 
     #[test]

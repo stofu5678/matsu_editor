@@ -213,11 +213,12 @@ fn a_held_arrow_goes_faster_after_two_seconds_and_after_five(cx: &mut TestAppCon
     // 2 after the press, then a step at 500 ms and one every 100 ms up to 1900 ms: 15 repeats of 1
     advance(cx, 1900);
     assert_eq!(text_in(cx, HOLD_BOX), "17");
-    // held for 2 s: the steps are 5 (the table of the measurement in `spin.rs`)
+    // held for 2 s: the steps are 5 (the table of the measurement in `spin.rs`), and the number
+    // is lined up on a multiple of 5 (17 + 5 goes to 25), then goes on by whole steps
     advance(cx, 100);
-    assert_eq!(text_in(cx, HOLD_BOX), "22");
+    assert_eq!(text_in(cx, HOLD_BOX), "25");
     advance(cx, 100);
-    assert_eq!(text_in(cx, HOLD_BOX), "27");
+    assert_eq!(text_in(cx, HOLD_BOX), "30");
     // the range stops it at its end (1 to 99), not wrapping
     advance(cx, 3000);
     assert_eq!(text_in(cx, HOLD_BOX), "99");

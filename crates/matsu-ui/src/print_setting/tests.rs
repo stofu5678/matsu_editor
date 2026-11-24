@@ -615,3 +615,33 @@ fn the_spin_buttons_and_the_arrow_keys_move_a_number(cx: &mut TestAppContext) {
     press_ok(&dialog, cx);
     assert_eq!(saved(cx).get(0).print_font_height, 9);
 }
+
+/// A held Up key (the operating system's repeat, `is_held`) steps once per key-down. The clock is
+/// the real one, so only the first seconds of the hold (step 1) can be seen here; the step table
+/// and the lining up are tested in `spin.rs` with times given by hand.
+#[gpui::test]
+fn a_held_arrow_key_steps_once_per_key_down(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    cx.run_until_parked();
+    let bounds = cx
+        .debug_bounds("print-setting-spin-0-up")
+        .expect("the up arrow");
+    cx.simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    type_number(&dialog, Number::FontHeight, "50", cx);
+    cx.simulate_keystrokes("up");
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "51");
+    for held in [true, true, true] {
+        cx.simulate_event(gpui::KeyDownEvent {
+            keystroke: gpui::Keystroke::parse("up").unwrap(),
+            is_held: held,
+            prefer_character_input: false,
+        });
+        cx.run_until_parked();
+    }
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "54");
+    // a key-down that is not a repeat steps by 1 again
+    cx.simulate_keystrokes("down");
+    assert_eq!(shown(&dialog, Number::FontHeight, cx), "53");
+}
