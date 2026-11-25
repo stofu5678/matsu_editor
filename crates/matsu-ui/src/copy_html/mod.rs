@@ -19,7 +19,17 @@ use matsu_commands::clipboard::{ClipData, ClipKind, Clipboard as _, copy_limit, 
 use crate::clipboard::GpuiClipboard;
 use crate::view::EditorView;
 
-pub(crate) use collect::{Found, Source, color_html_within};
+pub(crate) use collect::{Found, Refusal, Source, color_html_within};
+
+/// What the editor says when a line of the selection is too long for the colored HTML copy (Sakura
+/// has no such limit, ADR-0018 type F).
+pub(crate) fn long_line_message(bytes: usize) -> String {
+    format!(
+        "選択範囲に長すぎる行（{} MB。上限は {} MB）があるので、色付きHTMLをコピーできません。範囲を小さくしてやり直してください。",
+        bytes.div_ceil(1024 * 1024),
+        collect::LINE_LIMIT / (1024 * 1024)
+    )
+}
 
 /// Lays out the lines up to the one after `last_line` (the copy looks at the row that follows the
 /// last row of the selection), so that the row numbers up to there are exact. The rows of a large
@@ -97,8 +107,12 @@ impl EditorView {
         let html = match html {
             Ok(Some(html)) => html,
             Ok(None) => return,
-            Err(written) => {
+            Err(Refusal::Output(written)) => {
                 self.queue_message_box(too_big_message(written, false), cx);
+                return;
+            }
+            Err(Refusal::Line(bytes)) => {
+                self.queue_message_box(long_line_message(bytes), cx);
                 return;
             }
         };
