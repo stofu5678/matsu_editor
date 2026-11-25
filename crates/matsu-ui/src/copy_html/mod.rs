@@ -14,7 +14,7 @@ mod builder;
 mod collect;
 
 use gpui::Context;
-use matsu_commands::clipboard::{ClipData, ClipKind, Clipboard as _};
+use matsu_commands::clipboard::{ClipData, ClipKind, Clipboard as _, copy_limit, too_big_message};
 
 use crate::clipboard::GpuiClipboard;
 use crate::view::EditorView;
@@ -45,6 +45,20 @@ impl EditorView {
         let Some((from, to)) = self.cursor.selection() else {
             return;
         };
+        // The same limit as the copy of the text (ADR-0020), asked before anything is read: the
+        // HTML is several times the size of the text it colors.
+        let bytes = self
+            .document
+            .read(cx)
+            .doc()
+            .raw_len_between(from, to)
+            .unwrap_or(0);
+        if bytes >= copy_limit() {
+            self.pending_message_boxes
+                .push(too_big_message(bytes, false));
+            cx.notify();
+            return;
+        }
         let shared = self.document.read(cx);
         let doc = shared.doc();
         let rules = &self.prefs.settings.coloring;

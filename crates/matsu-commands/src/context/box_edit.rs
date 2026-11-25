@@ -94,6 +94,31 @@ impl CommandContext<'_> {
         }))
     }
 
+    /// The bytes that the text of the box selection takes in the document, counted by the
+    /// positions of its rows without reading the text, up to `limit` (the count stops there).
+    /// Without a box it is 0. The rows are not listed, as a box can cover the whole document
+    /// ([`box_rect`](Self::box_rect) lists them).
+    pub(super) fn box_bytes(&self, limit: usize) -> Result<usize> {
+        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
+            return Ok(0);
+        };
+        let (left, right) = (a_x.min(c_x), a_x.max(c_x));
+        let last = self.layout.row_start(self.doc(), a.max(c))?;
+        let mut row = self.layout.row_start(self.doc(), a.min(c))?;
+        let mut bytes = 0usize;
+        loop {
+            let (from, to) = self.box_row_range(row, left, right)?;
+            bytes = bytes.saturating_add(self.doc().raw_len_between(from, to)?);
+            if bytes >= limit || row >= last {
+                return Ok(bytes);
+            }
+            match self.layout.next_row_start(self.doc(), row)? {
+                Some(next) => row = next,
+                None => return Ok(bytes),
+            }
+        }
+    }
+
     fn box_row_info(&self, row: Pos) -> Result<RowInfo> {
         if row.line >= self.doc().line_count() {
             return Ok(RowInfo {
@@ -478,12 +503,9 @@ impl CommandContext<'_> {
             // Sakura: a row that does not end with a line ending gets one (the last line of the
             // document, the empty row at the end, and also a wrapped row).
             let info = self.box_row_info(row)?;
-            let has_eol = !info.eof
-                && !self.row_is_wrapped(row)?
-                && self
-                    .doc()
-                    .line(row.line)?
-                    .is_some_and(|line| line.eol.is_some());
+            // (The ending is read from the line index: a very long line is not decoded for it.)
+            let has_eol =
+                !info.eof && !self.row_is_wrapped(row)? && self.doc().line_eol(row.line)?.is_some();
             if !has_eol {
                 let end = if info.eof { row } else { info.end };
                 self.replace(end, end, new_line)?;

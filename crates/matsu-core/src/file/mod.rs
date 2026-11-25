@@ -53,7 +53,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use error::{FileError, Result};
-pub use lines::{DEFAULT_STREAM_CHUNK, LineReader, LineStream, open_line_stream};
+pub use lines::{DEFAULT_STREAM_CHUNK, Limited, LineReader, LineStream, open_line_stream};
 pub use ranged::{
     CacheStats, ChangedOutside, DEFAULT_BLOCK_SIZE, DEFAULT_CACHE_BLOCKS, RangedFile,
     RangedOptions, is_changed_outside,

@@ -9,6 +9,50 @@
 //! and `CClipboard::SetText` in `sakura_core/_os/CClipboard.cpp`): a line copy
 //! (`MSDEVLineSelect`) and a box copy (`MSDEVColumnSelect`). [`ClipKind`] is that mark.
 
+/// The most bytes of the document that one copy or cut takes (ADR-0020, chapter 5 and 9-8): the
+/// selection of a huge file is a range, but the clipboard and the string that carries it into it
+/// are not, so a bigger selection is refused with [`too_big_message`] and nothing is deleted. The
+/// macro functions `GetSelectedString` and `GetLineStr` have the same limit. The bytes are those
+/// the document holds, in the file's own encoding.
+pub const MAX_COPY_BYTES: usize = 256 * 1024 * 1024;
+
+thread_local! {
+    static COPY_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_COPY_BYTES) };
+}
+
+/// The limit that is in force: [`MAX_COPY_BYTES`], or a smaller one that a test asked for on this
+/// thread ([`with_copy_limit`]).
+pub fn copy_limit() -> usize {
+    COPY_LIMIT.with(std::cell::Cell::get)
+}
+
+/// Runs `f` with `limit` bytes as the limit of a copy on this thread, so that a test does not need
+/// a selection of 256 MiB.
+#[doc(hidden)]
+pub fn with_copy_limit<R>(limit: usize, f: impl FnOnce() -> R) -> R {
+    let before = COPY_LIMIT.with(|l| l.replace(limit));
+    let result = f();
+    COPY_LIMIT.with(|l| l.set(before));
+    result
+}
+
+/// What the editor says when a copy or a cut of `bytes` bytes is refused (Sakura has no limit and
+/// no text for it, ADR-0018 type F; the ADR asks for a refusal that tells the way out).
+pub fn too_big_message(bytes: usize, cut: bool) -> String {
+    let megabytes = |n: usize| n.div_ceil(1024 * 1024).max(1);
+    format!(
+        "選択範囲が大きすぎる（{} MB。上限は {} MB）ので、{}できません。{}範囲を小さくしてやり直してください。",
+        megabytes(bytes),
+        megabytes(copy_limit()),
+        if cut { "切り取り" } else { "コピー" },
+        if cut {
+            "文字は削除していません。"
+        } else {
+            ""
+        },
+    )
+}
+
 /// How the text on the clipboard was copied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ClipKind {

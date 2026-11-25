@@ -460,7 +460,16 @@ fn measure_a_big_file() {
         info.huge_file_len = huge;
         let started = std::time::Instant::now();
         let mut sink = Text(String::new());
-        let outcome = run(&info, &AtomicBool::new(false), &mut sink).unwrap();
+        // `MATSU_GREP_MEASURE_NO_LINE_LIMIT` turns the limit of a line off: how a Grep read a very
+        // long line before it (ADR-0020)
+        let limit = if std::env::var_os("MATSU_GREP_MEASURE_NO_LINE_LIMIT").is_some() {
+            usize::MAX
+        } else {
+            super::engine::LONG_LINE_LIMIT
+        };
+        let outcome = stream_probe::with_line_limit(limit, || {
+            run(&info, &AtomicBool::new(false), &mut sink).unwrap()
+        });
         let secs = started.elapsed().as_secs_f64();
         println!(
             "grep ({name}): {} hits, {secs:.2} s, {:.0} MB/s, peak memory {} MB",
@@ -500,5 +509,115 @@ fn measure_a_big_file() {
         outcome.hits,
         mb / secs,
         peak_rss_mb()
+    );
+}
+
+// ---- a line over the limit (ADR-0020, chapter 5) ----
+
+/// A text with a very long line between two short ones; each has the key.
+fn text_with_a_long_line(len: usize) -> String {
+    format!("first hit\r\n{}hit\r\nlast hit\r\n", "x".repeat(len))
+}
+
+#[test]
+fn a_line_over_the_limit_of_a_file_read_in_order_is_told_and_not_searched_or_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let limit = 1024 * 1024;
+    std::fs::write(
+        dir.path().join("data.txt"),
+        text_with_a_long_line(3 * limit - 100),
+    )
+    .unwrap();
+    let mut info = info(&dir, "hit");
+    info.huge_file_len = Some(1);
+    let (text, outcome, seen) = stream_probe::with_line_limit(limit, || grep(&info, 4096));
+    // the two short lines are hits, the long one is neither a hit nor a failure of the search
+    assert_eq!(outcome.hits, 2, "{}", body(&text));
+    let result = body(&text);
+    assert!(result.contains("first hit"), "{result}");
+    assert!(result.contains("last hit"), "{result}");
+    assert!(
+        result.contains("2行目が長すぎる（3 MB。上限は 1 MB）ので検索しませんでした。"),
+        "{result}"
+    );
+    assert!(result.contains("data.txt]"), "{result}");
+    // the line was read to its end and never held: the limit and a chunk
+    assert_eq!(seen.files, 1);
+    assert!(seen.bytes >= 3 * limit as u64 - 100);
+    assert!(
+        seen.peak <= limit + 3 * 4096,
+        "held {} bytes at once",
+        seen.peak
+    );
+}
+
+#[test]
+fn a_line_of_exactly_the_limit_is_searched() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("data.txt"),
+        format!("{}hit\nnext hit\n", "x".repeat(97)),
+    )
+    .unwrap();
+    let mut info = info(&dir, "hit");
+    info.huge_file_len = Some(1);
+    // the first line has 100 bytes
+    let (text, outcome, _) = stream_probe::with_line_limit(100, || grep(&info, 16));
+    assert_eq!(outcome.hits, 2, "{}", body(&text));
+    assert!(!text.contains("長すぎる"), "{text}");
+    let (text, outcome, _) = stream_probe::with_line_limit(99, || grep(&info, 16));
+    assert_eq!(outcome.hits, 1, "{}", body(&text));
+    assert!(text.contains("1行目が長すぎる"), "{text}");
+}
+
+#[test]
+fn a_file_that_is_read_whole_has_no_limit_of_a_line() {
+    // under the threshold of a huge file the text is in memory anyway (ADR-0020)
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("data.txt"), text_with_a_long_line(5000)).unwrap();
+    let info = info(&dir, "hit");
+    let (text, outcome, seen) = stream_probe::with_line_limit(100, || grep(&info, 16));
+    assert_eq!(seen.files, 0);
+    assert_eq!(outcome.hits, 3, "{}", body(&text));
+}
+
+#[test]
+fn a_line_over_the_limit_of_a_window_of_a_huge_file_is_not_read() {
+    let long = "x".repeat(60_000);
+    let text = format!("first hit\n{long}hit\nlast hit\n");
+    let source = Counting::new(text.as_bytes());
+    let index = scan_blocks(
+        source.clone(),
+        Arc::new(EncodingCodec(Encoding::Utf8)),
+        ScanOptions {
+            block_size: 4096,
+            window_blocks: 4,
+            long_line: 8192,
+            ..ScanOptions::default()
+        },
+        |_| ControlFlow::Continue(()),
+    )
+    .unwrap();
+    let document = Document::from_block_index(index).unwrap();
+    assert!(document.is_ranged() && document.is_long_line(1));
+    source.reset();
+    let info = window_info("hit", window(document, ":HWND:[7]big", None));
+    let mut sink = Text(String::new());
+    let outcome = stream_probe::with_line_limit(50_000, || {
+        run(&info, &AtomicBool::new(false), &mut sink).unwrap()
+    });
+    assert_eq!(outcome.hits, 2, "{}", body(&sink.0));
+    assert!(
+        sink.0.contains("2行目が長すぎる（1 MB。上限は 1 MB）"),
+        "{}",
+        body(&sink.0)
+    );
+    // the long line was not read: no read was bigger than a few blocks and the bytes read are a
+    // little over the two short lines
+    assert!(source.largest.load(Ordering::Relaxed) <= 4 * 4096);
+    assert!(
+        source.total.load(Ordering::Relaxed) <= 4 * 4096,
+        "read {} bytes",
+        source.total.load(Ordering::Relaxed)
     );
 }

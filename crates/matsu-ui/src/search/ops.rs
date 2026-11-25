@@ -122,6 +122,14 @@ impl EditorView {
         let doc = self.document.read(cx).doc();
         let caret = self.cursor.caret();
         let selected = self.selected_first_line(cx);
+        // A very long line (1 MiB or more, ADR-0020) is not decoded for the word at the caret: the
+        // part around the caret is (a word cut at its edge is shorter; ADR-0018 type C).
+        if selected.is_none() && doc.is_long_line(caret.line) {
+            let from = caret.col.saturating_sub(LONG_LINE_SEED_BYTES);
+            let to = caret.col.saturating_add(LONG_LINE_SEED_BYTES);
+            let slice = doc.line_slice(caret.line, from, to).ok().flatten()?;
+            return seed_text(None, &slice.text, caret.col.saturating_sub(slice.start_col));
+        }
         let line = doc
             .line(caret.line)
             .ok()
@@ -563,6 +571,9 @@ fn regex_core_target(target: ReplaceTarget) -> ReplaceTarget {
 /// The most that a pattern taken from the selection can be: a selection of a whole large document
 /// must not be read to use its first line.
 const MAX_SEED_BYTES: usize = 8 * 1024;
+
+/// How far from the caret the word at the caret is looked for in a very long line, each way.
+const LONG_LINE_SEED_BYTES: usize = 4 * 1024;
 
 /// The text of the selection `a..b` up to the end of its first line (and at most
 /// [`MAX_SEED_BYTES`]), which is all that [`seed_text`] uses.

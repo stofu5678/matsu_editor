@@ -260,7 +260,7 @@ pub struct EditorView {
     pub(crate) notice: Option<String>,
     /// Message boxes that commands asked for (`Changes::message_box`), shown by the next paint,
     /// which has the window.
-    pending_message_boxes: Vec<String>,
+    pub(crate) pending_message_boxes: Vec<String>,
     /// A jump to a place the scan of the file has not reached, held back until it is done
     /// (`view/scan.rs`).
     pub(crate) pending_scan_jump: Option<scan::PendingScanJump>,
@@ -1032,12 +1032,13 @@ impl EditorView {
         };
         let mut ctx = crate::file_names::title::context(&subject, &crate::file_names::current(cx));
         // `$x` counts UTF-16 units from the start of the line (`GetCaretLogicPos().x + 1`), not
-        // the bytes of UTF-8 that a position holds.
+        // the bytes of UTF-8 that a position holds. A very long line (1 MiB or more, ADR-0020) is
+        // not decoded for it: the byte column stands for the units, as in the status bar.
         if wants("$x") {
             let caret = self.cursor.caret();
-            if let Ok(Some(line)) = shared.doc().line(caret.line) {
-                let upto = line.text.get(..caret.col).unwrap_or(&line.text);
-                ctx.caret_x = upto.encode_utf16().count() + 1;
+            let doc = shared.doc();
+            if matches!(doc.line_raw_len(caret.line), Ok(Some(_))) {
+                ctx.caret_x = doc.utf16_col(caret.line, caret.col) + 1;
             }
         }
         if wants("$C") {

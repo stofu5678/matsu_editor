@@ -512,6 +512,16 @@ pub fn file_open_error(path: &str) -> String {
     format!("file open error [{path}]{EOL}")
 }
 
+/// A line of a huge file that is too long to be searched (ADR-0020; Sakura has no text for it,
+/// type F). It names the file as the other errors do, and is not a hit.
+pub fn line_too_long(path: &str, line: u64, bytes: u64, limit: u64) -> String {
+    format!(
+        "{line}行目が長すぎる（{} MB。上限は {} MB）ので検索しませんでした。 [{path}]{EOL}",
+        bytes.div_ceil(1024 * 1024),
+        limit.div_ceil(1024 * 1024)
+    )
+}
+
 /// `STR_GREP_ERR_FILEREAD`: a file that failed while it was read.
 pub fn file_read_error(path: &str) -> String {
     format!("ファイルの読み込み中にエラーが発生しました。[{path}]{EOL}")
