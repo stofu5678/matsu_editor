@@ -244,7 +244,53 @@ fn number_width(max: usize) -> usize {
 }
 
 /// The HTML for the selection of the cursor, or `None` when nothing is selected.
+#[cfg(test)]
 pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
+    color_html_within(source, usize::MAX).ok().flatten()
+}
+
+/// The HTML has reached its limit while it was written: the bytes written so far.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OutputFull(pub usize);
+
+/// Like [`color_html`], but refuses (`Err`) when the HTML has `limit` bytes or more, so that a big
+/// selection does not use memory without a bound (the tags make the HTML several times the text;
+/// ADR-0020). The builder stops writing at the limit, inside a row, and the closing tags count.
+pub(crate) fn color_html_within(
+    source: &Source<'_>,
+    limit: usize,
+) -> Result<Option<String>, OutputFull> {
+    html_rows(source, limit).transpose()
+}
+
+/// The first line of the selection that has `limit` bytes or more, as its bytes, in a document
+/// that is not read by ranges (ADR-0020, a very long line). The colored HTML copy is refused
+/// there, before anything is laid out or colored: the colors of a line are worked out for the
+/// whole line at once, and the colors of a part need the state of the whole line before it
+/// (ADR-0018 type C/E; the way out is to select less). A document read by ranges colors no line of
+/// 64 KiB or more and gives its rows from the blocks, so it has no such limit.
+///
+/// The lines are all the lines from the one of `from` to the one of `to`, also when the selection
+/// ends at column 0: the copy has to find the row of `to`, which lays out that whole line. (The rule "a selection that ends at column 0 does not
+/// take that line" is about what is copied, not about what is laid out, so it is not this
+/// check's.) A box takes the lines between its corners.
+pub(crate) fn line_over(doc: &Document, cursor: &Cursor, limit: usize) -> Option<usize> {
+    if doc.is_ranged() {
+        return None;
+    }
+    let (from, to) = cursor.selection()?;
+    let (first, last) = match cursor.box_corners() {
+        Some(((a, _), (c, _))) => (a.line.min(c.line), a.line.max(c.line)),
+        None => (from.line, to.line),
+    };
+    (first..=last)
+        .filter_map(|line| doc.line_raw_len(line).ok().flatten())
+        .find(|&bytes| bytes >= limit)
+}
+
+/// The rows of the selection as HTML: `None` without a selection, and an error when the HTML is at
+/// the limit of the builder after a row or with its closing tags.
+fn html_rows(source: &Source<'_>, limit: usize) -> Option<Result<String, OutputFull>> {
     let (doc, layout, rules) = (source.doc, source.layout, source.rules);
     let (from, to) = source.cursor.selection()?;
     let is_box = source.cursor.is_box();
@@ -265,10 +311,11 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
             None,
         )
     };
-    // One row more than the selection: whether the line goes on after the last row.
-    let rows = layout.rows(doc, top, bottom - top + 2).ok()?;
+    // Only the rows of the selection: whether the line goes on after a row is known from the row
+    // (`RowInfo::wrapped`), so the line after the selection is not laid out, searched or colored.
+    // `line_over` checks the lines of these rows and no others.
+    let rows = layout.rows(doc, top, bottom - top + 1).ok()?;
     let last = rows.iter().position(|r| r.row == bottom)?;
-
     // The width of the line numbers (`nLineNumberMax`).
     let width = number_width(if source.line_num_is_crlf {
         rows[last].line
@@ -278,7 +325,7 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
     let blank_number = format!("{:width$}:", "");
 
     let back = rgb_of(rules.entry(ColorKind::Text).back);
-    let mut html = Html::new(back);
+    let mut html = Html::with_limit(back, limit);
     let mut colors = Colors::new(source);
     let found = source.found.as_ref();
     // The matches on the rows, by column, found a line at a time like the screen does.
@@ -354,9 +401,8 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
         });
         if source.line_numbers {
             // The tags close at the end of a line, so that the number of the next one is outside.
-            let next = rows.get(index + 1).filter(|r| !r.is_eof_row);
-            let line_ends =
-                next.is_none_or(|next| source.line_num_is_crlf || is_box || next.row_in_line == 0);
+            // (`wrapped`: the row ends because the line goes on in the next row)
+            let line_ends = source.line_num_is_crlf || is_box || !info.wrapped;
             if line_ends {
                 html.close_tags();
             }
@@ -365,6 +411,14 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
             // `bLineNumLayout`: a row of a box ends with CR LF.
             html.raw("\r\n");
         }
+        if html.is_full() {
+            return Some(Err(OutputFull(html.len())));
+        }
     }
-    Some(html.finish())
+    let html = html.finish();
+    // the closing tags count too
+    if html.len() >= limit {
+        return Some(Err(OutputFull(html.len())));
+    }
+    Some(Ok(html))
 }

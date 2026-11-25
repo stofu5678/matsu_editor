@@ -34,6 +34,7 @@
 //! last from one call to the next); a host that keeps a [`HostEnv`] for the run calls
 //! [`handle_message_with`].
 
+use matsu_commands::clipboard::{copy_limit, mib};
 use matsu_commands::command::{Arg, CommandError};
 use matsu_commands::context::CommandContext;
 use matsu_commands::macro_names;
@@ -141,11 +142,6 @@ pub fn call_with(
     ))
 }
 
-/// The most bytes of text `GetSelectedString` returns: the limit that ADR-0020 (chapter 5, the
-/// copy of a selection) sets for a text handed out whole. A bigger selection is an error, not a
-/// string of that size in the macro's memory.
-pub const MAX_SELECTED_TEXT: usize = 256 * 1024 * 1024;
-
 /// The functions that read the document and cannot answer for a huge file (ADR-0020), or `None`.
 ///
 /// * While the scan of the line endings of a file read by ranges is running, the document has
@@ -153,41 +149,81 @@ pub const MAX_SELECTED_TEXT: usize = 256 * 1024 * 1024;
 ///   would give an empty string past the scanned part, as if the file ended there. They fail
 ///   instead (ADR-0018, type C; Sakura has no such state). Lines inside the scanned part are
 ///   exact. The calls that open the file make the macro wait until the scan is done.
-/// * `GetSelectedString` of a selection of [`MAX_SELECTED_TEXT`] bytes or more (after `SelectAll`
-///   in a huge file) fails, without reading the text.
+/// * `GetSelectedString` of a selection of [`copy_limit`] bytes (256 MiB, ADR-0020 chapter 5: the
+///   limit of the copy of a selection) or more (after `SelectAll` in a huge file) fails, without
+///   reading the text. A box selection counts the text of its rows.
+/// * `GetLineStr` of a line of [`copy_limit`] bytes or more fails the same way (the line is not
+///   decoded to be told too big).
 fn huge_read_error(cx: &CommandContext<'_>, name: &str, params: &[Value]) -> Option<RpcError> {
     let doc = cx.doc();
     let scanning = doc.is_ranged() && doc.is_read_only();
     match name {
         "GetLineCount" if scanning => Some(still_scanning(name)),
-        "GetLineStr" if scanning => {
-            // 0 is the line of the cursor, which is in the scanned part. The last line of the
-            // scanned part may be cut in the middle, so only a line with its ending is exact.
+        "GetLineStr" => {
+            // 0 is the line of the cursor, which is in the scanned part.
             let line = usize::try_from(params.first().and_then(Value::as_i64)?).ok()?;
-            (line > doc.row_count() - 1).then(|| still_scanning(name))
+            // The last line of the scanned part may be cut in the middle, so only a line with its
+            // ending is exact.
+            if scanning && line > doc.row_count() - 1 {
+                return Some(still_scanning(name));
+            }
+            line_too_big(cx, line, copy_limit())
         }
-        "GetSelectedString" => selection_too_big(cx, MAX_SELECTED_TEXT),
+        "GetSelectedString" => selection_too_big(cx, copy_limit()),
         _ => None,
     }
 }
 
+/// `GetLineStr` fails when line `number` (as the macro counts: 0 is the line of the cursor, 1 the
+/// first line) has `limit` bytes or more.
+fn line_too_big(cx: &CommandContext<'_>, number: usize, limit: usize) -> Option<RpcError> {
+    let line = if number == 0 {
+        cx.caret().line
+    } else {
+        number - 1
+    };
+    let bytes = match cx.doc().line_raw_len(line) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return None,
+        Err(e) => return Some(size_unknown("GetLineStr", &e)),
+    };
+    (bytes >= limit).then(|| {
+        RpcError::new(
+            UNAVAILABLE,
+            format!(
+                "GetLineStr: the line is too big ({} MB; the limit is {} MB)",
+                mib(bytes),
+                mib(limit)
+            ),
+        )
+    })
+}
+
 /// `GetSelectedString` fails when the selection has `limit` bytes or more.
 fn selection_too_big(cx: &CommandContext<'_>, limit: usize) -> Option<RpcError> {
-    let (from, to) = cx.selection()?;
-    if cx.cursor().box_corners().is_some() {
-        return None;
-    }
-    let bytes = cx.doc().raw_len_between(from, to).ok()?;
+    cx.selection()?;
+    // A size that cannot be told is a refusal, not a small selection.
+    let bytes = match cx.selection_bytes(limit) {
+        Ok(bytes) => bytes,
+        Err(e) => return Some(size_unknown("GetSelectedString", &e)),
+    };
     (bytes >= limit).then(|| {
         RpcError::new(
             UNAVAILABLE,
             format!(
                 "GetSelectedString: the selection is too big ({} MB; the limit is {} MB)",
-                bytes.div_ceil(1024 * 1024),
-                limit.div_ceil(1024 * 1024)
+                mib(bytes),
+                mib(limit)
             ),
         )
     })
+}
+
+fn size_unknown(name: &str, error: &dyn std::fmt::Display) -> RpcError {
+    RpcError::new(
+        UNAVAILABLE,
+        format!("{name}: the size of the text could not be told: {error}"),
+    )
 }
 
 fn still_scanning(name: &str) -> RpcError {

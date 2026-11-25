@@ -720,6 +720,13 @@ impl EditorView {
         true
     }
 
+    /// Queues a message box for the next paint, as one that a command asked for
+    /// (`Changes::message_box`). The view stays the only writer of the queue.
+    pub(crate) fn queue_message_box(&mut self, text: String, cx: &mut Context<Self>) {
+        self.pending_message_boxes.push(text);
+        cx.notify();
+    }
+
     /// Shows the message boxes that commands asked for: the caption, the text and an OK button.
     /// A box does not make a macro wait, as for `StatusMsg`.
     fn show_pending_message_boxes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1032,12 +1039,13 @@ impl EditorView {
         };
         let mut ctx = crate::file_names::title::context(&subject, &crate::file_names::current(cx));
         // `$x` counts UTF-16 units from the start of the line (`GetCaretLogicPos().x + 1`), not
-        // the bytes of UTF-8 that a position holds.
+        // the bytes of UTF-8 that a position holds. A very long line (1 MiB or more, ADR-0020) is
+        // not decoded for it: the byte column stands for the units, as in the status bar.
         if wants("$x") {
             let caret = self.cursor.caret();
-            if let Ok(Some(line)) = shared.doc().line(caret.line) {
-                let upto = line.text.get(..caret.col).unwrap_or(&line.text);
-                ctx.caret_x = upto.encode_utf16().count() + 1;
+            let doc = shared.doc();
+            if matches!(doc.line_raw_len(caret.line), Ok(Some(_))) {
+                ctx.caret_x = doc.utf16_col(caret.line, caret.col) + 1;
             }
         }
         if wants("$C") {

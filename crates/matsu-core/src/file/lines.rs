@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use super::source::OffsetSource;
 use super::{FileError, OpenOptions, RangedFile, Result};
-use crate::buffer::{Codec, EncodingCodec, Line, Source, find_eol};
+use crate::buffer::{Codec, EncodingCodec, Eol, Line, Source, find_eol};
 use crate::encoding::{DETECT_SAMPLE_LEN, Encoding, detect};
 
 /// The bytes one read of a [`LineReader`] asks the source for, by default.
@@ -44,6 +44,22 @@ pub struct LineReader {
     /// The offset in the source of the end of `buf`.
     pos: u64,
     peak: usize,
+    /// The bytes of the line being read that were dropped from `buf` because the line is longer
+    /// than the limit of [`next_line_limited`](LineReader::next_line_limited). Not 0 means this
+    /// line is being dropped, whatever limit the next call has: its start is gone, so the line
+    /// can only be reported as too long.
+    dropped: u64,
+}
+
+/// What [`LineReader::next_line_limited`] gives: a line, or the news that a line is too long to be
+/// given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Limited {
+    /// A line of at most the limit.
+    Line(Line),
+    /// A line of more than the limit: `bytes` is its length in the source (without its ending),
+    /// and `eol` its ending. Its text was not decoded and is not held.
+    TooLong { bytes: u64, eol: Option<Eol> },
 }
 
 impl std::fmt::Debug for LineReader {
@@ -81,6 +97,7 @@ impl LineReader {
             scan_from: 0,
             pos: 0,
             peak: 0,
+            dropped: 0,
         }
     }
 
@@ -113,7 +130,45 @@ impl LineReader {
     /// of any length needs many reads, and a caller that can be stopped must be able to stop
     /// inside one. When `stop` says so, the error has the kind [`io::ErrorKind::Interrupted`]
     /// and nothing is lost: the next call goes on with the same line.
+    ///
+    /// A line that [`next_line_limited`](Self::next_line_limited) began to drop is not given as its
+    /// rest: the call fails with [`io::ErrorKind::InvalidData`] when it reaches the end of that line,
+    /// and the next call gives the next line.
     pub fn next_line_until(&mut self, stop: &mut dyn FnMut() -> bool) -> io::Result<Option<Line>> {
+        match self.next_limited(None, stop)? {
+            None => Ok(None),
+            Some(Limited::Line(line)) => Ok(Some(line)),
+            // Only a line that `next_line_limited` has begun to drop gets here: its start is gone,
+            // so the rest is not given as a line. The line is over, and the next call goes on.
+            Some(Limited::TooLong { .. }) => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "a line that next_line_limited began to drop is not a line",
+            )),
+        }
+    }
+
+    /// Like [`next_line_until`](Self::next_line_until), but a line of more than `max_bytes` bytes
+    /// in the source (its text, without the ending) is not decoded and not held: the reader goes
+    /// on to its ending, dropping what it has read of it, and gives [`Limited::TooLong`] with the
+    /// length. A caller that can say no to a line of any length asks for memory for `max_bytes`
+    /// and a chunk at most, whatever the line is.
+    ///
+    /// # Errors
+    ///
+    /// As [`next_line_until`](Self::next_line_until).
+    pub fn next_line_limited(
+        &mut self,
+        max_bytes: usize,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> io::Result<Option<Limited>> {
+        self.next_limited(Some(max_bytes), stop)
+    }
+
+    fn next_limited(
+        &mut self,
+        limit: Option<usize>,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> io::Result<Option<Limited>> {
         loop {
             let at_eof = self.pos >= self.source.len();
             if let Some((off, kind)) =
@@ -121,27 +176,44 @@ impl LineReader {
             {
                 let eol_len = self.codec.eol_bytes(kind).map_or(1, <[u8]>::len);
                 if at_eof || self.buf.len() - off >= LOOKAHEAD.max(eol_len) {
-                    let mut text = String::new();
-                    self.codec.decode(&self.buf[self.start..off], &mut text);
+                    let bytes = self.dropped + (off - self.start) as u64;
+                    let next = if self.dropped > 0 || limit.is_some_and(|max| bytes > max as u64) {
+                        Limited::TooLong {
+                            bytes,
+                            eol: Some(kind),
+                        }
+                    } else {
+                        let mut text = String::new();
+                        self.codec.decode(&self.buf[self.start..off], &mut text);
+                        Limited::Line(Line {
+                            text,
+                            eol: Some(kind),
+                        })
+                    };
+                    self.dropped = 0;
                     self.start = (off + eol_len).min(self.buf.len());
                     self.scan_from = self.start;
-                    return Ok(Some(Line {
-                        text,
-                        eol: Some(kind),
-                    }));
+                    return Ok(Some(next));
                 }
                 // The ending is too near the edge to be sure of it: read on, and look again from
                 // its start.
                 self.scan_from = off;
             } else if at_eof {
-                if self.start >= self.buf.len() {
+                if self.start >= self.buf.len() && self.dropped == 0 {
                     return Ok(None);
                 }
-                let mut text = String::new();
-                self.codec.decode(&self.buf[self.start..], &mut text);
+                let bytes = self.dropped + (self.buf.len() - self.start) as u64;
+                let next = if self.dropped > 0 || limit.is_some_and(|max| bytes > max as u64) {
+                    Limited::TooLong { bytes, eol: None }
+                } else {
+                    let mut text = String::new();
+                    self.codec.decode(&self.buf[self.start..], &mut text);
+                    Limited::Line(Line { text, eol: None })
+                };
+                self.dropped = 0;
                 self.start = self.buf.len();
                 self.scan_from = self.start;
-                return Ok(Some(Line { text, eol: None }));
+                return Ok(Some(next));
             } else {
                 // No ending in what is held: the next search starts a little before the end (an
                 // ending may begin there), at a character boundary.
@@ -150,6 +222,17 @@ impl LineReader {
                     self.scan_from =
                         self.codec
                             .boundary_at_or_after(&self.buf, self.scan_from, target);
+                }
+                // A line that is over the limit already is not kept. Only what is before the place
+                // where the search goes on counts: it is part of the line for certain, and a
+                // character boundary. The bytes after it may be the start of a line ending (a
+                // multibyte one, or the CR of CR LF), which are not part of the line.
+                let known = self.dropped + (self.scan_from - self.start) as u64;
+                if self.dropped > 0 || limit.is_some_and(|max| known > max as u64) {
+                    self.dropped += (self.scan_from - self.start) as u64;
+                    self.buf.drain(..self.scan_from);
+                    self.start = 0;
+                    self.scan_from = 0;
                 }
             }
             if stop() {

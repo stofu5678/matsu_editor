@@ -9,6 +9,59 @@
 //! and `CClipboard::SetText` in `sakura_core/_os/CClipboard.cpp`): a line copy
 //! (`MSDEVLineSelect`) and a box copy (`MSDEVColumnSelect`). [`ClipKind`] is that mark.
 
+/// The most bytes of the document that one copy or cut takes (ADR-0020, chapter 5 and 9-8): the
+/// selection of a huge file is a range, but the clipboard and the string that carries it into it
+/// are not, so a bigger selection is refused with [`too_big_message`] and nothing is deleted. The
+/// macro functions `GetSelectedString` and `GetLineStr` have the same limit. The bytes are those
+/// the document holds, in the file's own encoding.
+pub const MAX_COPY_BYTES: usize = 256 * 1024 * 1024;
+
+thread_local! {
+    static COPY_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_COPY_BYTES) };
+}
+
+/// The limit that is in force: [`MAX_COPY_BYTES`], or a smaller one that a test asked for on this
+/// thread (`with_copy_limit`, for tests).
+pub fn copy_limit() -> usize {
+    COPY_LIMIT.with(std::cell::Cell::get)
+}
+
+/// Runs `f` with `limit` bytes as the limit of a copy on this thread, so that a test does not need
+/// a selection of 256 MiB. The old limit comes back when `f` ends, also by a panic.
+#[cfg(any(test, feature = "test-util"))]
+#[doc(hidden)]
+pub fn with_copy_limit<R>(limit: usize, f: impl FnOnce() -> R) -> R {
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            COPY_LIMIT.with(|l| l.set(self.0));
+        }
+    }
+    let _restore = Restore(COPY_LIMIT.with(|l| l.replace(limit)));
+    f()
+}
+
+/// `bytes` in the megabytes that the messages about big texts show (MiB, rounded up, at least 1).
+pub fn mib(bytes: usize) -> usize {
+    bytes.div_ceil(1024 * 1024).max(1)
+}
+
+/// What the editor says when a copy or a cut of `bytes` bytes is refused (Sakura has no limit and
+/// no text for it, ADR-0018 type F; the ADR asks for a refusal that tells the way out).
+pub fn too_big_message(bytes: usize, cut: bool) -> String {
+    format!(
+        "選択範囲が大きすぎる（{} MB。上限は {} MB）ので、{}できません。{}範囲を小さくしてやり直してください。",
+        mib(bytes),
+        mib(copy_limit()),
+        if cut { "切り取り" } else { "コピー" },
+        if cut {
+            "文字は削除していません。"
+        } else {
+            ""
+        },
+    )
+}
+
 /// How the text on the clipboard was copied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ClipKind {

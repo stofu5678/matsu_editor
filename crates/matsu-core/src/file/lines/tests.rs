@@ -372,3 +372,236 @@ fn a_read_can_be_stopped_inside_a_long_line_and_goes_on_afterwards() {
     assert_eq!(lines[0].text.len(), 1024 * 1024);
     assert_eq!(lines[1].text, "end");
 }
+
+// ---- a line over a limit is dropped as it is read (ADR-0020, chapter 5) ----
+
+/// What `next_line_limited` gives for every line of the source.
+fn read_limited(r: &mut LineReader, max: usize) -> Vec<Limited> {
+    let mut out = Vec::new();
+    while let Some(next) = r.next_line_limited(max, &mut || false).unwrap() {
+        out.push(next);
+    }
+    out
+}
+
+fn whole(text: &str, eol: Option<Eol>) -> Limited {
+    Limited::Line(Line {
+        text: text.into(),
+        eol,
+    })
+}
+
+#[test]
+fn a_line_over_the_limit_is_told_by_its_length_and_the_lines_around_it_are_whole() {
+    // the lengths are those of the bytes of the file, so SJIS counts two a char
+    let text = format!("short\r\n{}\nあい\n{}", "x".repeat(300), "y".repeat(50));
+    for enc in [Encoding::Utf8, Encoding::ShiftJis] {
+        let bytes = encode(enc, &text);
+        for chunk in [4, 8, 20, 64, 1000] {
+            let mut r = reader(Counting::new(&bytes), enc, false, chunk);
+            let got = read_limited(&mut r, 100);
+            assert_eq!(
+                got,
+                vec![
+                    whole("short", Some(Eol::CrLf)),
+                    Limited::TooLong {
+                        bytes: 300,
+                        eol: Some(Eol::Lf)
+                    },
+                    whole("あい", Some(Eol::Lf)),
+                    whole(&"y".repeat(50), None),
+                ],
+                "{enc:?} chunk {chunk}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_line_of_exactly_the_limit_is_given_and_one_byte_more_is_not() {
+    let bytes = format!("{}\n{}", "a".repeat(100), "b".repeat(101)).into_bytes();
+    let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, 16);
+    let got = read_limited(&mut r, 100);
+    assert_eq!(got.len(), 2);
+    assert!(matches!(&got[0], Limited::Line(l) if l.text.len() == 100));
+    // the last line has no ending
+    assert_eq!(
+        got[1],
+        Limited::TooLong {
+            bytes: 101,
+            eol: None
+        }
+    );
+}
+
+#[test]
+fn a_very_long_line_is_not_held_while_it_is_dropped() {
+    // 3 MiB in one line and a line after it, read 4096 bytes at a time, with a limit of 10 000
+    let mut bytes = vec![b'z'; 3 * 1024 * 1024];
+    bytes.extend_from_slice(b"\r\nend\n");
+    let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, 4096);
+    let got = read_limited(&mut r, 10_000);
+    assert_eq!(
+        got,
+        vec![
+            Limited::TooLong {
+                bytes: 3 * 1024 * 1024,
+                eol: Some(Eol::CrLf)
+            },
+            whole("end", Some(Eol::Lf)),
+        ]
+    );
+    // the limit and a chunk, not the line
+    assert!(
+        r.peak_buffered() <= 10_000 + 2 * 4096 + LOOKAHEAD,
+        "held {} bytes",
+        r.peak_buffered()
+    );
+}
+
+#[test]
+fn a_dropped_line_that_ends_with_a_cr_at_the_edge_of_a_chunk_has_the_whole_ending() {
+    // the CR of CR LF can be the last byte of a chunk: the ending is still one
+    let mut bytes = vec![b'q'; 60];
+    bytes.extend_from_slice(b"\r\nnext");
+    for chunk in 4..=72 {
+        let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, chunk);
+        let got = read_limited(&mut r, 20);
+        assert_eq!(
+            got,
+            vec![
+                Limited::TooLong {
+                    bytes: 60,
+                    eol: Some(Eol::CrLf)
+                },
+                whole("next", None),
+            ],
+            "chunk {chunk}"
+        );
+    }
+}
+
+#[test]
+fn a_stop_inside_a_dropped_line_goes_on_with_the_same_line() {
+    let mut bytes = vec![b'x'; 200_000];
+    bytes.extend_from_slice(b"\nend");
+    let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, 4096);
+    let mut asked = 0;
+    let error = r
+        .next_line_limited(1000, &mut || {
+            asked += 1;
+            asked > 20
+        })
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    let got = read_limited(&mut r, 1000);
+    assert_eq!(
+        got,
+        vec![
+            Limited::TooLong {
+                bytes: 200_000,
+                eol: Some(Eol::Lf)
+            },
+            whole("end", None),
+        ]
+    );
+}
+
+#[test]
+fn a_line_within_the_limit_is_not_cut_by_the_start_of_a_multibyte_ending() {
+    // U+2028 is 3 bytes in UTF-8; with the extended endings on it ends the line. The line has 100
+    // bytes, exactly the limit, and the reader must not drop any of them early.
+    let bytes = format!("xxxxxxxxxx\n{}\u{2028}end", "a".repeat(100)).into_bytes();
+    for chunk in 4..=128 {
+        let mut r = reader(Counting::new(&bytes), Encoding::Utf8, true, chunk);
+        let got = read_limited(&mut r, 100);
+        assert_eq!(
+            got,
+            vec![
+                whole("xxxxxxxxxx", Some(Eol::Lf)),
+                whole(&"a".repeat(100), Some(Eol::Ls)),
+                whole("end", None),
+            ],
+            "chunk {chunk}"
+        );
+    }
+}
+
+#[test]
+fn a_line_within_the_limit_is_whole_when_its_crlf_is_split_by_a_chunk() {
+    let bytes = format!("{}\r\nnext", "b".repeat(40)).into_bytes();
+    for chunk in 4..=64 {
+        let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, chunk);
+        let got = read_limited(&mut r, 40);
+        assert_eq!(
+            got,
+            vec![whole(&"b".repeat(40), Some(Eol::CrLf)), whole("next", None)],
+            "chunk {chunk}"
+        );
+    }
+}
+
+/// A reader whose limited read of a line of 200 000 bytes was stopped after it began to drop it.
+fn stopped_in_a_drop(tail: &str) -> LineReader {
+    let mut bytes = vec![b'x'; 200_000];
+    bytes.extend_from_slice(tail.as_bytes());
+    let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, 4096);
+    let mut asked = 0;
+    let error = r
+        .next_line_limited(1000, &mut || {
+            asked += 1;
+            asked > 20
+        })
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert!(r.peak_buffered() < 20_000, "the line is being dropped");
+    r
+}
+
+#[test]
+fn a_line_that_is_being_dropped_stays_refused_when_the_read_goes_on_with_a_larger_limit() {
+    for (tail, eol, rest) in [
+        ("\nend", Some(Eol::Lf), whole("end", None)),
+        ("", None, whole("", None)),
+    ] {
+        let mut r = stopped_in_a_drop(tail);
+        let next = r.next_line_limited(usize::MAX, &mut || false).unwrap();
+        assert_eq!(
+            next,
+            Some(Limited::TooLong {
+                bytes: 200_000,
+                eol
+            }),
+            "{tail:?}"
+        );
+        // the next line is a line again
+        let next = r.next_line_limited(usize::MAX, &mut || false).unwrap();
+        if tail.is_empty() {
+            assert_eq!(next, None);
+        } else {
+            assert_eq!(next, Some(rest));
+        }
+    }
+}
+
+#[test]
+fn a_line_that_is_being_dropped_is_never_given_as_its_suffix_by_the_read_without_a_limit() {
+    for tail in ["\nend", ""] {
+        let mut r = stopped_in_a_drop(tail);
+        let error = r.next_line_until(&mut || false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{tail:?}");
+        // the line is over; the reader goes on with the next one
+        let next = r.next_line().unwrap();
+        if tail.is_empty() {
+            assert_eq!(next, None);
+        } else {
+            assert_eq!(
+                next,
+                Some(Line {
+                    text: "end".into(),
+                    eol: None
+                })
+            );
+        }
+    }
+}

@@ -1095,3 +1095,96 @@ fn a_selection_over_the_limit_is_not_read() {
     f.cursor.move_to(Pos::new(0, 0), false);
     assert!(selection_too_big(&f.cx(), 0).is_none(), "no selection");
 }
+
+#[test]
+fn a_line_over_the_limit_is_not_read() {
+    use matsu_commands::clipboard::with_copy_limit;
+
+    let mut f = Fixture::new("0123456789\nabcdefghij\nxyz");
+    // line 2 (as the macro counts) has 10 bytes: under a limit of 11, over a limit of 10
+    assert!(line_too_big(&f.cx(), 2, 11).is_none());
+    let error = line_too_big(&f.cx(), 2, 10).unwrap();
+    assert_eq!(error.code, UNAVAILABLE);
+    assert!(error.message.contains("GetLineStr"), "{}", error.message);
+    assert!(error.message.contains("too big"), "{}", error.message);
+    // a line that is not there is the empty string, as before
+    assert!(line_too_big(&f.cx(), 9, 1).is_none());
+    with_copy_limit(10, || {
+        let error = f.call("GetLineStr", json!([2])).unwrap_err();
+        assert_eq!(error.code, UNAVAILABLE);
+        // 0 is the line of the cursor, the first one: 10 bytes too
+        assert!(f.call("GetLineStr", json!([0])).is_err());
+        // a shorter line is given
+        assert_eq!(f.call("GetLineStr", json!([3])).unwrap(), json!("xyz"));
+        assert_eq!(f.call("GetLineStr", json!([4])).unwrap(), json!(""));
+    });
+    // the real limit is far above this text
+    assert_eq!(
+        f.call("GetLineStr", json!([2])).unwrap(),
+        json!("abcdefghij\n")
+    );
+}
+
+/// Not a test: the peak memory of `GetLineStr` over a file with a very long line, for the PR. Run it
+/// in a release build, with the file in `MATSU_GUARD_FILE` and the step in `MATSU_GUARD_STEP`
+/// (`before` turns the limit off, `after` has it):
+/// `cargo test -p matsu-plugin --release --lib measure_get_line_str -- --ignored --nocapture`.
+#[test]
+#[ignore = "measures the file in MATSU_GUARD_FILE; run in a release build"]
+fn measure_get_line_str() {
+    use matsu_commands::clipboard::with_copy_limit;
+
+    let Ok(path) = std::env::var("MATSU_GUARD_FILE") else {
+        return;
+    };
+    let step = std::env::var("MATSU_GUARD_STEP").unwrap_or_default();
+    let peak_mb = || {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| {
+                status
+                    .lines()
+                    .find_map(|l| l.strip_prefix("VmHWM:"))
+                    .and_then(|l| l.split_whitespace().next()?.parse::<u64>().ok())
+            })
+            .map_or(0, |kb| kb / 1024)
+    };
+    let options = matsu_core::file::OpenOptions {
+        huge_file_len: Some(1),
+        ..Default::default()
+    };
+    let mut opened = matsu_core::file::open_file(&path, &options).unwrap();
+    let doc = match opened.take_scan() {
+        Some(job) => job.finish().unwrap(),
+        None => opened.document.clone(),
+    };
+    println!(
+        "step {step}: {} lines, memory after the open {} MB",
+        doc.line_count(),
+        peak_mb()
+    );
+    // `with_new_line`, as the app does: `DocumentModel::new` would decode the first line
+    let mut f = Fixture {
+        model: DocumentModel::with_new_line(doc, matsu_core::buffer::Eol::Lf),
+        cursor: Cursor::default(),
+        layout: PlainLayout::default(),
+        path: None,
+    };
+    println!("memory after the fixture {} MB", peak_mb());
+    let limit = if step == "before" {
+        usize::MAX
+    } else {
+        matsu_commands::clipboard::MAX_COPY_BYTES
+    };
+    let started = std::time::Instant::now();
+    let result = with_copy_limit(limit, || f.call("GetLineStr", json!([1])));
+    println!(
+        "GetLineStr: {} in {:.2} s, peak memory {} MB",
+        match &result {
+            Ok(value) => format!("{} bytes", value.as_str().map_or(0, str::len)),
+            Err(error) => format!("error: {}", error.message),
+        },
+        started.elapsed().as_secs_f64(),
+        peak_mb()
+    );
+}

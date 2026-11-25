@@ -385,3 +385,107 @@ fn blank_lines_use_the_ending_the_line_has() {
     // A plain `str` takes CR and LF to be the ending.
     assert!(hunks_with("a\r\n", "a\r\n\r\n", blank).is_empty());
 }
+
+// ---- a very long line is compared a part at a time (ADR-0020) ----
+
+/// A document over `text` as the scan of a huge file makes it: a line of `long` bytes or more is
+/// a very long line, read by parts.
+fn ranged_doc(text: &str, long: usize) -> Document {
+    use crate::buffer::{EncodingCodec, MemorySource, ScanOptions, scan_blocks};
+    use crate::encoding::Encoding;
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+
+    let index = scan_blocks(
+        Arc::new(MemorySource::new(text.as_bytes().to_vec())),
+        Arc::new(EncodingCodec(Encoding::Utf8)),
+        ScanOptions {
+            block_size: 64,
+            window_blocks: 3,
+            long_line: long,
+            ..ScanOptions::default()
+        },
+        |_| ControlFlow::Continue(()),
+    )
+    .unwrap();
+    Document::from_block_index(index).unwrap()
+}
+
+fn places(found: Option<(Pos, Pos)>) -> Option<(Place, Place)> {
+    found.map(|(x, y)| ((x.line, x.col), (y.line, y.col)))
+}
+
+#[test]
+fn a_very_long_line_is_compared_as_a_short_one_is() {
+    // a line of 3 * COMPARE_PART bytes with Japanese in it, so that a part ends in a char
+    let line: String = "日本語abc".repeat(COMPARE_PART * 3 / 12);
+    let base = format!("head\r\n{line}\r\ntail\n");
+    let mut variants = vec![base.clone(), format!("head\r\n{line}\ntail\n")];
+    // a char changed near the start, in the middle, at the end of a part and at the end
+    for at in [
+        0,
+        5,
+        COMPARE_PART - 1,
+        COMPARE_PART,
+        COMPARE_PART * 2 + 7,
+        line.len() - 3,
+    ] {
+        let at = (0..=at).rev().find(|&i| line.is_char_boundary(i)).unwrap();
+        let mut changed = line.clone();
+        changed.replace_range(at..at + line[at..].chars().next().unwrap().len_utf8(), "X");
+        variants.push(format!("head\r\n{changed}\r\ntail\n"));
+    }
+    // shorter, longer, and ended
+    variants.push(format!("head\r\n{}\r\ntail\n", &line[..line.len() - 6]));
+    variants.push(format!("head\r\n{line}ab\r\ntail\n"));
+    variants.push(format!("head\r\n{line}"));
+    variants.push("head\r\n".to_owned());
+    for other in &variants {
+        for (from_a, from_b) in [
+            (Pos::new(0, 0), Pos::new(0, 0)),
+            (Pos::new(1, 0), Pos::new(1, 0)),
+            (Pos::new(1, 3), Pos::new(1, 3)),
+            (Pos::new(1, COMPARE_PART + 4), Pos::new(1, COMPARE_PART + 4)),
+        ] {
+            let want = first_difference(&doc(&base), from_a, &doc(other), from_b).unwrap();
+            let (long_a, long_b) = (ranged_doc(&base, 1000), ranged_doc(other, 1000));
+            assert!(long_a.is_long_line(1));
+            for (a, b) in [
+                (&long_a, &long_b),
+                (&long_a, &doc(other)),
+                (&doc(&base), &long_b),
+            ] {
+                assert_eq!(
+                    places(first_difference(a, from_a, b, from_b).unwrap()),
+                    places(want),
+                    "from {from_a:?} {from_b:?} against {:?}",
+                    &other[..other.len().min(20)]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn comparing_very_long_lines_reads_only_as_far_as_the_difference() {
+    use crate::buffer::{largest_decode, reset_largest_decode};
+
+    let line = "0123456789abcdef".repeat(400_000 / 16);
+    let a = ranged_doc(&format!("{line}\nz"), 1000);
+    let mut changed = line;
+    changed.replace_range(300_000..300_001, "X");
+    let b = ranged_doc(&format!("{changed}\nz"), 1000);
+    reset_largest_decode();
+    let found = first_difference(&a, Pos::new(0, 0), &b, Pos::new(0, 0)).unwrap();
+    assert_eq!(places(found), Some(((0, 300_000), (0, 300_000))));
+    assert!(
+        largest_decode() <= 2 * COMPARE_PART,
+        "decoded {} bytes at once",
+        largest_decode()
+    );
+    // equal lines are read to their end, still a part at a time
+    reset_largest_decode();
+    let same = first_difference(&a, Pos::new(0, 0), &a.clone(), Pos::new(0, 0)).unwrap();
+    assert_eq!(same, None);
+    assert!(largest_decode() <= 2 * COMPARE_PART);
+}

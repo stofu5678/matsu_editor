@@ -72,11 +72,11 @@ use std::time::{Duration, Instant};
 
 use matsu_config::Profile;
 use matsu_config::settings::DocumentTypes;
-use matsu_core::buffer::{BlockIndex, Document, Line};
+use matsu_core::buffer::{BlockIndex, Document};
 use matsu_core::encoding::{DETECT_SAMPLE_LEN, DetectOptions, Encoding, detect};
 use matsu_core::file::{
-    DEFAULT_STREAM_CHUNK, FileError, LineReader, LineStream, OpenOptions, TextFile, open_file_with,
-    open_line_stream,
+    DEFAULT_STREAM_CHUNK, FileError, Limited, LineReader, LineStream, OpenOptions, TextFile,
+    open_file_with, open_line_stream,
 };
 use matsu_core::model::eol_text;
 use matsu_core::search::ReplaceTarget;
@@ -348,6 +348,20 @@ enum ReadStop {
     Cancelled,
 }
 
+/// The longest line, in bytes of the file, that a search of a file read by ranges looks at
+/// (ADR-0020, chapter 5; type C). Matching needs the whole line as one string, and the hit writes it
+/// (cut at `nMaxOutStr`, [`format`]), so a line is held about four times: as it was read, decoded,
+/// with its ending, and in the text of the result. A longer line is not read: the result says
+/// so, and the search goes on with the next line.
+pub(super) const LONG_LINE_LIMIT: usize = 64 * 1024 * 1024;
+
+fn line_limit() -> usize {
+    #[cfg(test)]
+    return stream_probe::line_limit();
+    #[cfg(not(test))]
+    LONG_LINE_LIMIT
+}
+
 /// The bytes one read of a file that is read in order asks for.
 fn stream_chunk() -> usize {
     #[cfg(test)]
@@ -362,7 +376,7 @@ fn stream_chunk() -> usize {
 pub(super) mod stream_probe {
     use std::cell::Cell;
 
-    use super::DEFAULT_STREAM_CHUNK;
+    use super::{DEFAULT_STREAM_CHUNK, LONG_LINE_LIMIT};
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct Seen {
@@ -376,6 +390,7 @@ pub(super) mod stream_probe {
 
     thread_local! {
         static CHUNK: Cell<usize> = const { Cell::new(DEFAULT_STREAM_CHUNK) };
+        static LINE_LIMIT: Cell<usize> = const { Cell::new(LONG_LINE_LIMIT) };
         static SEEN: Cell<Seen> = const { Cell::new(Seen { files: 0, peak: 0, bytes: 0 }) };
     }
 
@@ -404,6 +419,23 @@ pub(super) mod stream_probe {
 
     pub fn chunk() -> usize {
         CHUNK.with(Cell::get)
+    }
+
+    pub fn line_limit() -> usize {
+        LINE_LIMIT.with(Cell::get)
+    }
+
+    /// Runs `f` with `limit` as the longest line that is looked at.
+    pub fn with_line_limit<R>(limit: usize, f: impl FnOnce() -> R) -> R {
+        // The old limit comes back also when `f` panics.
+        struct Restore(usize);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                LINE_LIMIT.with(|l| l.set(self.0));
+            }
+        }
+        let _restore = Restore(LINE_LIMIT.with(|l| l.replace(limit)));
+        f()
     }
 
     /// Runs `f` with reads of `chunk` bytes, and tells what the streams saw.
@@ -810,7 +842,8 @@ impl Runner<'_> {
     }
 
     /// The lines of a document, one after another (`DoGrepFile`'s loop over `ReadLine`). A
-    /// document of a huge file finds each line in its block index; the text is not read whole.
+    /// document of a huge file finds each line in its block index; the text is not read whole,
+    /// and a line over [`LONG_LINE_LIMIT`] is not read at all.
     fn search_document(
         &mut self,
         doc: &Document,
@@ -819,18 +852,34 @@ impl Runner<'_> {
         state: &mut PathInfoState,
     ) -> Result<(), Stopped> {
         let count = doc.line_count();
+        let limit = doc.is_ranged().then(line_limit);
         let mut index = 0;
         self.search_lines(paths, code_name, state, &mut || {
             if index >= count {
                 return Ok(None);
             }
             index += 1;
-            doc.line(index - 1).map_err(|_| ReadStop::Failed)
+            let too_long = limit
+                .and_then(|max| {
+                    let bytes = doc.line_raw_len(index - 1).ok().flatten()?;
+                    (bytes > max).then_some(bytes as u64)
+                })
+                .map(|bytes| Limited::TooLong {
+                    bytes,
+                    eol: doc.line_eol(index - 1).ok().flatten(),
+                });
+            if too_long.is_some() {
+                return Ok(too_long);
+            }
+            doc.line(index - 1)
+                .map(|line| line.map(Limited::Line))
+                .map_err(|_| ReadStop::Failed)
         })
     }
 
     /// The lines of a file that is read in order. The stop is looked at before each read, so that
-    /// a line of any length can be stopped inside.
+    /// a line of any length can be stopped inside, and a line over [`LONG_LINE_LIMIT`] is
+    /// dropped as it is read, not held.
     fn search_stream(
         &mut self,
         mut reader: LineReader,
@@ -839,9 +888,10 @@ impl Runner<'_> {
         state: &mut PathInfoState,
     ) -> Result<(), Stopped> {
         let cancel = self.cancel;
+        let limit = line_limit();
         let result = self.search_lines(paths, code_name, state, &mut || {
             reader
-                .next_line_until(&mut || cancel.load(Ordering::Relaxed))
+                .next_line_limited(limit, &mut || cancel.load(Ordering::Relaxed))
                 .map_err(|e| {
                     if e.kind() == std::io::ErrorKind::Interrupted {
                         ReadStop::Cancelled
@@ -862,7 +912,7 @@ impl Runner<'_> {
         paths: &FilePaths<'_>,
         code_name: &str,
         state: &mut PathInfoState,
-        next: &mut dyn FnMut() -> Result<Option<Line>, ReadStop>,
+        next: &mut dyn FnMut() -> Result<Option<Limited>, ReadStop>,
     ) -> Result<(), Stopped> {
         let mut file_hits = 0usize;
         let mut index = 0usize;
@@ -871,7 +921,19 @@ impl Runner<'_> {
                 self.check_cancel()?;
             }
             let line = match next() {
-                Ok(Some(line)) => line,
+                Ok(Some(Limited::Line(line))) => line,
+                Ok(Some(Limited::TooLong { bytes, .. })) => {
+                    // Not searched, and not a hit: the result tells it, as it tells a file that
+                    // cannot be read.
+                    self.buffer.push_str(&format::line_too_long(
+                        paths.full,
+                        index as u64 + 1,
+                        bytes,
+                        line_limit() as u64,
+                    ));
+                    index += 1;
+                    continue;
+                }
                 Ok(None) => break,
                 Err(ReadStop::Cancelled) => return Err(Stopped),
                 Err(ReadStop::Failed) => {

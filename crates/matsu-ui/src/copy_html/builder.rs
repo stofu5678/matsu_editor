@@ -85,6 +85,8 @@ pub(super) struct Html {
     last: Attr,
     /// The style of the tags that are open (`sColorAttrLast2`, `sFontAttrLast2`).
     open: Attr,
+    /// The size at which nothing more is written (the characters are not escaped past it).
+    limit: usize,
 }
 
 impl Html {
@@ -94,10 +96,31 @@ impl Html {
             out: format!("<pre style=\"background-color:#{back:06x}\">"),
             last: Attr::NONE,
             open: Attr::NONE,
+            limit: usize::MAX,
+        }
+    }
+
+    /// Like [`new`](Self::new), but the characters of a text are written only while the HTML has
+    /// fewer than `limit` bytes, so that a text that grows when it is escaped (`&` is 5 bytes)
+    /// does not go far past it. The caller sees it in [`len`](Self::len).
+    pub(super) fn with_limit(back: Rgb, limit: usize) -> Self {
+        Self {
+            limit,
+            ..Self::new(back)
         }
     }
 
     /// Writes `text` that needs no tags and no escaping (a line number).
+    /// The bytes of HTML written so far.
+    pub(super) fn len(&self) -> usize {
+        self.out.len()
+    }
+
+    /// Whether the HTML has reached its limit: nothing more is written.
+    pub(super) fn is_full(&self) -> bool {
+        self.out.len() >= self.limit
+    }
+
     pub(super) fn raw(&mut self, text: &str) {
         self.out.push_str(text);
     }
@@ -133,6 +156,12 @@ impl Html {
     /// the change from the style before it needs. Returns whether `text` ends with a line
     /// delimiter.
     fn append(&mut self, text: &[char]) -> bool {
+        // Nothing is written once the limit is reached, not even the tags of a change of style: a
+        // row whose style changes at every char would write a tag for each one. The most that is
+        // written past the limit is the tags of one change and one char (about 120 bytes).
+        if self.is_full() {
+            return false;
+        }
         let (last, open) = (self.last, self.open);
         let font_changed = last.bold != open.bold || last.underline != open.underline;
         let color_changed = last.color != open.color;
@@ -162,6 +191,9 @@ impl Html {
             self.open = last;
         }
         for &c in text {
+            if self.is_full() {
+                break;
+            }
             match c {
                 '&' => self.out.push_str("&amp;"),
                 '<' => self.out.push_str("&lt;"),
@@ -187,6 +219,9 @@ impl Html {
         // The style of the character before, to see where the style changes.
         let mut before = row.attrs.first().copied().unwrap_or(Attr::NONE);
         for (i, &next) in row.attrs.iter().enumerate() {
+            if self.is_full() {
+                break;
+            }
             if from <= i && i <= to {
                 if from == i {
                     self.last = next;

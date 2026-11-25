@@ -13,7 +13,7 @@ use matsu_core::buffer::{Eol, Pos};
 use matsu_core::model::eol_text;
 
 use super::CommandContext;
-use crate::clipboard::{ClipData, ClipKind};
+use crate::clipboard::{ClipData, ClipKind, copy_limit, too_big_message};
 use crate::command::{CommandError, Result};
 
 /// `bEnableNoSelectCopy`: copy and cut without a selection take the row. Default on.
@@ -144,9 +144,37 @@ impl CommandContext<'_> {
         Ok(done)
     }
 
+    /// The bytes that the selection takes in the document (for a box, those of the text of its
+    /// rows), as the document holds them, counted from the positions and the line index without
+    /// reading the text. The count of a box stops at `limit`. 0 without a selection.
+    pub fn selection_bytes(&self, limit: usize) -> Result<usize> {
+        let Some((from, to)) = self.selection() else {
+            return Ok(0);
+        };
+        if self.cursor().is_box() {
+            self.box_bytes(limit)
+        } else {
+            Ok(self.doc().raw_len_between(from, to)?)
+        }
+    }
+
+    /// Refuses a copy or a cut that takes `bytes` bytes of the document or more
+    /// ([`MAX_COPY_BYTES`](crate::clipboard::MAX_COPY_BYTES), ADR-0020): beeps, says so in a message box and fails with
+    /// [`CommandError::Refused`], so that nothing is read, put on the clipboard or deleted.
+    fn refuse_big_copy(&mut self, bytes: usize, cut: bool) -> Result<()> {
+        if bytes < copy_limit() {
+            return Ok(());
+        }
+        self.beep();
+        self.changes.message_box = Some(too_big_message(bytes, cut));
+        Err(CommandError::Refused("a selection that is too big to copy"))
+    }
+
     /// The text of the row that has the caret, with its line ending, or `None` if there is no row
-    /// (the caret is on the empty line after a final line ending; Sakura: no layout there).
-    fn caret_row_text(&self) -> Result<Option<(Pos, Pos, String)>> {
+    /// (the caret is on the empty line after a final line ending; Sakura: no layout there). A row
+    /// of [`copy_limit`] bytes or more (a line that does not wrap) is refused
+    /// ([`refuse_big_copy`](Self::refuse_big_copy)).
+    fn caret_row_text(&mut self, cut: bool) -> Result<Option<(Pos, Pos, String)>> {
         let caret = self.caret();
         if caret.line >= self.doc().line_count() {
             return Ok(None);
@@ -158,6 +186,7 @@ impl CommandContext<'_> {
             Some(next) => next,
             None => self.layout().row_end(self.doc(), row)?,
         };
+        self.refuse_big_copy(self.doc().raw_len_between(start, end)?, cut)?;
         let text = self.doc().text_between(start, end)?;
         Ok(Some((start, end, text)))
     }
@@ -172,10 +201,13 @@ impl CommandContext<'_> {
         &mut self,
         eol: Option<Eol>,
         add_eol: bool,
+        cut: bool,
     ) -> Result<Option<(String, ClipKind)>> {
         let Some((from, to)) = self.selection() else {
             return Ok(None);
         };
+        // Before any text is read: a selection of a huge file is a range, the string is not.
+        self.refuse_big_copy(self.selection_bytes(copy_limit())?, cut)?;
         if self.cursor().is_box() {
             // Sakura: CRLF whatever `neweol` is. LF and CR copies (MATSU-only) use their ending.
             let eol = match eol {
@@ -260,7 +292,7 @@ impl CommandContext<'_> {
                 return Ok(false); // Sakura: nothing, not even a beep
             }
             // `CopyCurLine`: no row, no copy and no beep.
-            if let Some((start, end, mut text)) = self.caret_row_text()? {
+            if let Some((start, end, mut text)) = self.caret_row_text(false)? {
                 if let Some(eol) = eol {
                     text = self.text_with_eol(start, end, eol_text(eol))?;
                 }
@@ -278,7 +310,7 @@ impl CommandContext<'_> {
             }
             return Ok(true);
         }
-        match self.selected_text(eol, add_eol)? {
+        match self.selected_text(eol, add_eol, false)? {
             Some((text, kind)) => self.copy_text(text, kind),
             None => Ok(false),
         }
@@ -296,7 +328,7 @@ impl CommandContext<'_> {
         }
         // `Command_CUT` passes `bAddCRLFWhenCopy` to `GetSelectedData` too.
         let add_eol = crate::edit_options::get().add_crlf_when_copy;
-        let Some((text, kind)) = self.selected_text(None, add_eol)? else {
+        let Some((text, kind)) = self.selected_text(None, add_eol, true)? else {
             return Ok(());
         };
         if self.copy_text(text, kind)? {
@@ -309,7 +341,7 @@ impl CommandContext<'_> {
     /// and when there is no row.
     pub fn cut_row(&mut self) -> Result<()> {
         self.refuse_in_view_mode()?;
-        let Some((start, end, mut text)) = self.caret_row_text()? else {
+        let Some((start, end, mut text)) = self.caret_row_text(true)? else {
             self.beep();
             return Ok(());
         };
@@ -351,6 +383,9 @@ impl CommandContext<'_> {
             self.beep();
             return Ok(());
         }
+        // Before the selection is made: a refused cut leaves the caret and the selection as they
+        // were.
+        self.refuse_big_copy(self.doc().raw_len_between(start, caret)?, true)?;
         self.select_range(start, caret)?;
         self.cut()
     }
@@ -362,15 +397,17 @@ impl CommandContext<'_> {
             return self.cut();
         }
         let caret = self.caret();
-        let Some(line) = self.doc().line(caret.line)? else {
+        // The length from the line index: a very long line is not decoded to find its end.
+        let Some(len) = self.doc().line_len(caret.line)? else {
             self.beep();
             return Ok(());
         };
-        let end = Pos::new(caret.line, line.text.len());
+        let end = Pos::new(caret.line, len);
         if caret.col >= end.col {
             self.beep();
             return Ok(());
         }
+        self.refuse_big_copy(self.doc().raw_len_between(caret, end)?, true)?;
         self.select_range(caret, end)?;
         self.cut()
     }
@@ -396,6 +433,9 @@ impl CommandContext<'_> {
         } else {
             to
         };
+        // Refused before the selection changes: the copy of rows takes the text between the
+        // widened ends.
+        self.refuse_big_copy(self.doc().raw_len_between(from, to)?, false)?;
         self.select_range(from, to)?;
 
         // The width of the line numbers: `DetectWidthOfLineNumberArea_calculate(layoutMgr, true)`

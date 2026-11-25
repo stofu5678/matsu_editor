@@ -25,4 +25,6 @@ pub mod pastebox;
 #[cfg(test)]
 mod copy_eol_tests;
 #[cfg(test)]
+mod limit_tests;
+#[cfg(test)]
 mod tests;

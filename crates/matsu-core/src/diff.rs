@@ -49,7 +49,7 @@ use std::ops::Range;
 use similar::{Algorithm, DiffTag, capture_diff_slices};
 
 use crate::bookmarks::LineDelta;
-use crate::buffer::{Document, Pos, Result};
+use crate::buffer::{Document, LineSlice, Pos, Result};
 use crate::model::eol_text;
 
 /// The options of Sakura's DIFF dialog, the bits of the flags of the macro `Diff`
@@ -459,17 +459,6 @@ impl DiffMarks {
     }
 }
 
-/// The line as the comparison of two documents sees it: the text and its line ending.
-fn with_eol(doc: &Document, line: usize) -> Result<Option<String>> {
-    Ok(doc.line(line)?.map(|l| {
-        let mut text = l.text;
-        if let Some(eol) = l.eol {
-            text.push_str(eol_text(eol));
-        }
-        text
-    }))
-}
-
 /// `col` rounded down to a char boundary of `text`.
 fn floor_boundary(text: &str, col: usize) -> usize {
     let mut col = col.min(text.len());
@@ -479,6 +468,110 @@ fn floor_boundary(text: &str, col: usize) -> usize {
     col
 }
 
+/// The bytes of the text of a very long line that [`first_difference`] decodes at a time (1 MiB; the
+/// tests make it small).
+const COMPARE_PART: usize = if cfg!(test) { 4096 } else { 1024 * 1024 };
+
+/// The chars of one line of a document with its line ending, from a column on: what the comparison
+/// of two documents walks along. A line is decoded whole, except a very long one
+/// ([`Document::is_long_line`], 1 MiB or more of a file read by ranges), which is read
+/// [`COMPARE_PART`] bytes at a time, so that a comparison that stops at the first difference reads
+/// no more than it looks at.
+struct LineChars<'a> {
+    doc: &'a Document,
+    line: usize,
+    /// Whether the line is read in parts.
+    long: bool,
+    /// The decoded text read last, and the column of its first byte in the line.
+    part: String,
+    base: usize,
+    /// Where in `part` the next char is.
+    at: usize,
+    /// The text of the line has been read to its end.
+    done: bool,
+    /// The line ending, and how far it has been taken.
+    eol: &'static str,
+    eol_at: usize,
+}
+
+impl<'a> LineChars<'a> {
+    /// The chars of line `line` from the char that holds column `col`, or `None` if there is no
+    /// such line.
+    fn open(doc: &'a Document, line: usize, col: usize) -> Result<Option<Self>> {
+        if doc.line_raw_len(line)?.is_none() {
+            return Ok(None);
+        }
+        let mut chars = Self {
+            doc,
+            line,
+            long: doc.is_long_line(line),
+            part: String::new(),
+            base: 0,
+            at: 0,
+            done: false,
+            eol: doc.line_eol(line)?.map_or("", eol_text),
+            eol_at: 0,
+        };
+        if chars.long {
+            // a place in the middle of a char is moved to its start by the slice
+            chars.read_from(col)?;
+        } else if let Some(line) = doc.line(line)? {
+            // a place in the middle of a char (the other document's byte column) is moved to its
+            // start
+            let from = floor_boundary(&line.text, col);
+            chars.base = from;
+            // the text is moved, and only what is before the place is cut off
+            let mut text = line.text;
+            text.drain(..from);
+            chars.part = text;
+            chars.done = true;
+        }
+        Ok(Some(chars))
+    }
+
+    /// Reads the next part of the text of a very long line, from column `col` of the line.
+    fn read_from(&mut self, col: usize) -> Result<()> {
+        let slice = self
+            .doc
+            .line_slice(self.line, col, col.saturating_add(COMPARE_PART))?
+            .unwrap_or(LineSlice {
+                start_col: col,
+                text: String::new(),
+            });
+        self.done = slice.text.is_empty();
+        self.base = slice.start_col;
+        self.part = slice.text;
+        self.at = 0;
+        Ok(())
+    }
+
+    /// The next char, the line ending's after the text, or `None` at the end of the line.
+    fn peek(&mut self) -> Result<Option<char>> {
+        if self.at >= self.part.len() && !self.done {
+            self.read_from(self.base + self.part.len())?;
+        }
+        if let Some(c) = self.part[self.at..].chars().next() {
+            return Ok(Some(c));
+        }
+        Ok(self.eol[self.eol_at..].chars().next())
+    }
+
+    /// Takes the char that [`peek`](Self::peek) gave.
+    fn bump(&mut self, c: char) {
+        if self.at < self.part.len() {
+            self.at += c.len_utf8();
+        } else {
+            self.eol_at += c.len_utf8();
+        }
+    }
+
+    /// The column of the next char in the text of the line; the end of the text while the line
+    /// ending is read.
+    fn col(&self) -> usize {
+        self.base + self.at.min(self.part.len())
+    }
+}
+
 /// The first place where two documents differ, comparing from `from_a` in `a` and from `from_b` in
 /// `b` (Sakura's ファイル内容比較, `Commander_COMPARE_core` in
 /// `sakura_core/cmd/CViewCommander_Diff.cpp`): char by char, the line endings included. `None`
@@ -486,7 +579,8 @@ fn floor_boundary(text: &str, col: usize) -> usize {
 /// row after its last line.
 ///
 /// The places are caret positions: a place that falls inside a line ending (the lines end
-/// differently) is the end of the text of the line.
+/// differently) is the end of the text of the line. A very long line is read a part at a time
+/// (`LineChars`), never decoded whole.
 pub fn first_difference(
     a: &Document,
     from_a: Pos,
@@ -496,30 +590,25 @@ pub fn first_difference(
     let (mut line_a, mut col_a) = (from_a.line, from_a.col);
     let (mut line_b, mut col_b) = (from_b.line, from_b.col);
     loop {
-        let (text_a, text_b) = match (with_eol(a, line_a)?, with_eol(b, line_b)?) {
+        let (mut chars_a, mut chars_b) = match (
+            LineChars::open(a, line_a, col_a)?,
+            LineChars::open(b, line_b, col_b)?,
+        ) {
             (None, None) => return Ok(None),
             (Some(x), Some(y)) => (x, y),
             _ => return Ok(Some((Pos::new(line_a, 0), Pos::new(line_b, 0)))),
         };
-        // a place in the middle of a char (the other document's byte column) is moved to its start
-        col_a = floor_boundary(&text_a, col_a);
-        col_b = floor_boundary(&text_b, col_b);
-        let (mut rest_a, mut rest_b) = (text_a[col_a..].chars(), text_b[col_b..].chars());
         loop {
-            match (rest_a.clone().next(), rest_b.clone().next()) {
+            match (chars_a.peek()?, chars_b.peek()?) {
                 (Some(x), Some(y)) if x == y => {
-                    col_a += x.len_utf8();
-                    col_b += y.len_utf8();
-                    rest_a.next();
-                    rest_b.next();
+                    chars_a.bump(x);
+                    chars_b.bump(y);
                 }
                 (None, None) => break,
                 _ => {
-                    let end_a = a.line(line_a)?.map_or(0, |l| l.text.len());
-                    let end_b = b.line(line_b)?.map_or(0, |l| l.text.len());
                     return Ok(Some((
-                        Pos::new(line_a, col_a.min(end_a)),
-                        Pos::new(line_b, col_b.min(end_b)),
+                        Pos::new(line_a, chars_a.col()),
+                        Pos::new(line_b, chars_b.col()),
                     )));
                 }
             }

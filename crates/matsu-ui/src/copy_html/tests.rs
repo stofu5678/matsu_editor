@@ -553,3 +553,299 @@ fn a_match_after_a_tab_is_colored_by_its_characters_with_a_proportional_font() {
         )
     );
 }
+
+#[test]
+fn the_html_is_not_built_past_its_limit() {
+    use super::collect::{OutputFull, color_html_within};
+
+    let text = "int main(void) { return 0; }\r\n".repeat(200);
+    let mut f = Fixture::new(&text, "a.c");
+    f.select((0, 0), (199, 0));
+    let source = Source {
+        doc: &f.doc,
+        layout: &f.layout,
+        rules: &f.rules,
+        states: &f.states,
+        cursor: &f.cursor,
+        line_num_is_crlf: true,
+        line_numbers: false,
+        found: None,
+    };
+    let whole = color_html_within(&source, usize::MAX).unwrap().unwrap();
+    assert!(whole.len() > 2000);
+    // under the limit: the same HTML; over it: the size so far, which is a row past the limit at
+    // most, not the whole HTML
+    assert_eq!(
+        color_html_within(&source, whole.len() + 1)
+            .unwrap()
+            .unwrap(),
+        whole
+    );
+    let OutputFull(written) = color_html_within(&source, 1000).unwrap_err();
+    assert!((1000..2000).contains(&written), "{written}");
+}
+
+#[test]
+fn a_row_that_grows_when_escaped_stops_near_the_limit_inside_the_row() {
+    use super::collect::{OutputFull, color_html_within};
+
+    // 400 000 chars are 2 000 000 bytes of `&amp;`; the limit is 100 000
+    for ch in ['&', '<'] {
+        let text = format!("{}\r\nx", ch.to_string().repeat(400_000));
+        let mut f = Fixture::new(&text, "a.txt");
+        f.select((0, 0), (1, 0));
+        let source = Source {
+            doc: &f.doc,
+            layout: &f.layout,
+            rules: &f.rules,
+            states: &f.states,
+            cursor: &f.cursor,
+            line_num_is_crlf: true,
+            line_numbers: false,
+            found: None,
+        };
+        let OutputFull(written) = color_html_within(&source, 100_000).unwrap_err();
+        // within a few bytes of the limit, not a whole row of 2 MB
+        assert!((100_000..100_100).contains(&written), "{ch}: {written}");
+        // with room enough the whole row is written, and the closing tags count in the size
+        let whole = color_html_within(&source, usize::MAX).unwrap().unwrap();
+        assert!(whole.len() > 1_000_000, "{}", whole.len());
+        assert!(color_html_within(&source, whole.len()).is_err());
+        assert!(color_html_within(&source, whole.len() + 1).is_ok());
+    }
+}
+
+#[test]
+fn a_selection_with_a_very_long_line_is_refused_before_it_is_laid_out() {
+    use super::LINE_LIMIT;
+    use super::collect::line_over;
+
+    // one line of LINE_LIMIT + 100 bytes, between two short ones
+    let long = "x".repeat(LINE_LIMIT + 100);
+    let text = format!("short\r\n{long}\r\nshort\r\n");
+    let mut f = Fixture::new(&text, "a.txt");
+    let over = |f: &Fixture, limit: usize| line_over(&f.doc, &f.cursor, limit);
+    // a selection that touches the long line, as a part of it or with the lines around it
+    for (from, to) in [((0, 0), (3, 0)), ((1, 10), (1, 20)), ((1, 0), (2, 0))] {
+        f.select(from, to);
+        assert_eq!(
+            over(&f, LINE_LIMIT),
+            Some(LINE_LIMIT + 100),
+            "{from:?} {to:?}"
+        );
+    }
+    // a selection that ends at the head of the long line is refused too: its row is laid out
+    f.select((0, 0), (1, 0));
+    assert_eq!(over(&f, LINE_LIMIT), Some(LINE_LIMIT + 100));
+    // short lines are not
+    for (from, to) in [((2, 0), (3, 0)), ((0, 0), (0, 3))] {
+        f.select(from, to);
+        assert_eq!(over(&f, LINE_LIMIT), None, "{from:?} {to:?}");
+    }
+    // a line of exactly the limit is refused, one byte less is not
+    f.select((1, 0), (2, 0));
+    assert_eq!(over(&f, LINE_LIMIT + 100), Some(LINE_LIMIT + 100));
+    assert_eq!(over(&f, LINE_LIMIT + 101), None);
+    // a box takes the lines of its rows
+    f.select_box((0, 0), (1, 2));
+    assert_eq!(over(&f, LINE_LIMIT), Some(LINE_LIMIT + 100));
+    // no selection, nothing to refuse
+    f.cursor.clear_selection();
+    assert_eq!(over(&f, LINE_LIMIT), None);
+}
+
+#[test]
+fn a_document_read_by_ranges_has_no_line_limit_for_the_html() {
+    use super::collect::line_over;
+    use matsu_core::buffer::{EncodingCodec, MemorySource, ScanOptions, scan_blocks};
+    use matsu_core::encoding::Encoding;
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+
+    let text = format!("{}\nend\n", "x".repeat(5000));
+    let index = scan_blocks(
+        Arc::new(MemorySource::new(text.into_bytes())),
+        Arc::new(EncodingCodec(Encoding::Utf8)),
+        ScanOptions {
+            block_size: 64,
+            window_blocks: 3,
+            long_line: 1000,
+            ..ScanOptions::default()
+        },
+        |_| ControlFlow::Continue(()),
+    )
+    .unwrap();
+    let doc = Document::from_block_index(index).unwrap();
+    assert!(doc.is_long_line(0));
+    let mut cursor = Cursor::default();
+    cursor.move_to(Pos::new(0, 0), false);
+    cursor.move_to(Pos::new(1, 0), true);
+    assert_eq!(line_over(&doc, &cursor, 1000), None);
+}
+
+#[test]
+fn the_message_of_a_long_line_says_the_size_and_the_limit() {
+    let message = super::long_line_message(3 * 1024 * 1024 + 1);
+    assert!(
+        message.contains("4 MB") && message.contains("上限は 1 MB"),
+        "{message}"
+    );
+}
+
+/// Not a test: the peak memory of the colored HTML copy of one long line, for the PR. Run it in a
+/// release build, one step at a time: `MATSU_HTML_LINE_MB=100 MATSU_HTML_STEP=before|after cargo test
+/// -p matsu-ui --release --lib measure_the_html_of_a_long_line -- --ignored --nocapture`.
+/// "before" turns the refusal of a long line off (the arrays of the whole row are built; the
+/// output stops at 256 MiB as in the app).
+#[test]
+#[ignore = "measures a row of MATSU_HTML_LINE_MB megabytes; run in a release build"]
+fn measure_the_html_of_a_long_line() {
+    use super::collect::{color_html_within, line_over};
+
+    let Ok(mb) = std::env::var("MATSU_HTML_LINE_MB") else {
+        return;
+    };
+    let mb: usize = mb.parse().unwrap();
+    let step = std::env::var("MATSU_HTML_STEP").unwrap_or_default();
+    let peak = || {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("VmHWM:"))
+                    .and_then(|l| l.split_whitespace().next()?.parse::<u64>().ok())
+            })
+            .map_or(0, |kb| kb / 1024)
+    };
+    let text = format!(
+        "{}\r\nend",
+        "int x = 1; /* a */ ".repeat(mb * 1024 * 1024 / 19)
+    );
+    let mut f = Fixture::new(&text, "a.c");
+    f.select((0, 0), (1, 0));
+    let source = Source {
+        doc: &f.doc,
+        layout: &f.layout,
+        rules: &f.rules,
+        states: &f.states,
+        cursor: &f.cursor,
+        line_num_is_crlf: true,
+        line_numbers: false,
+        found: None,
+    };
+    println!(
+        "{mb} MB line, step {step}: memory before the copy {} MB",
+        peak()
+    );
+    let started = std::time::Instant::now();
+    // "before": no refusal of a long line (the check comes before the layout, in the command);
+    // "after": the check of the command
+    let refused = (step != "before")
+        .then(|| line_over(&f.doc, &f.cursor, super::LINE_LIMIT))
+        .flatten();
+    let result = match refused {
+        Some(bytes) => Err(format!("a line of {bytes} bytes is refused")),
+        None => color_html_within(&source, 256 * 1024 * 1024)
+            .map_err(|full| format!("the output is full at {} bytes", full.0)),
+    };
+    println!(
+        "{}: {:.2} s, peak memory {} MB",
+        match &result {
+            Ok(Some(html)) => format!("{} bytes of HTML", html.len()),
+            Ok(None) => "nothing".to_owned(),
+            Err(why) => format!("refused: {why}"),
+        },
+        started.elapsed().as_secs_f64(),
+        peak()
+    );
+}
+
+#[test]
+fn a_long_line_after_the_selection_is_not_laid_out_searched_or_colored() {
+    use super::collect::color_html_within;
+    use super::{LINE_LIMIT, lay_out_through};
+    use matsu_core::buffer::{largest_decode, reset_largest_decode};
+
+    // the selection is the whole first line; the line after it is over the limit
+    let text = format!(
+        "one two\r\n{}\r\nend\r\n",
+        "xyz ".repeat(LINE_LIMIT / 4 + 10)
+    );
+    let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+    // a layout that is made as the app makes it: the lines that the copy asks for, no more
+    let mut layout = DocumentLayout::new(&doc, LayoutConfig::default()).unwrap();
+    let rules = UserSettings::none().view_settings(Some("a.txt")).coloring;
+    let states = ColorStates::default();
+    let mut cursor = Cursor::default();
+    cursor.move_to(Pos::new(0, 0), false);
+    cursor.move_to(Pos::new(0, 7), true);
+    reset_largest_decode();
+    lay_out_through(&mut layout, &doc, 0);
+    let matcher = PlainMatcher::new("xyz", PlainOptions::default());
+    let colors = [found_entry(0x0000ff, 0x00ffff, false)];
+    let html = color_html_within(
+        &Source {
+            doc: &doc,
+            layout: &layout,
+            rules: &rules,
+            states: &states,
+            cursor: &cursor,
+            line_num_is_crlf: true,
+            line_numbers: true,
+            found: Some(Found {
+                matcher: &matcher,
+                colors: FoundColors::new(colors.iter().copied()),
+                words: None,
+            }),
+        },
+        usize::MAX,
+    )
+    .unwrap()
+    .expect("the first line is copied");
+    assert!(html.contains("one two"), "{html}");
+    assert!(
+        !html.contains("xyz"),
+        "the line after the selection is not in the copy"
+    );
+    // nothing of the long line was decoded: the layout, the search and the colors did not reach it
+    assert!(
+        largest_decode() < LINE_LIMIT / 2,
+        "decoded {} bytes at once",
+        largest_decode()
+    );
+}
+
+#[test]
+fn a_row_whose_style_changes_at_every_char_stops_at_the_limit_with_its_tags() {
+    // 200 000 chars, the color alternating red and blue: a change of style (about 100 bytes of
+    // tags) for every char, 20 MB in all. The limit is 10 000.
+    let red = Attr {
+        color: Some((0xff0000, 0xffffff)),
+        bold: true,
+        underline: true,
+    };
+    let blue = Attr {
+        color: Some((0x0000ff, 0xffffff)),
+        bold: false,
+        underline: false,
+    };
+    let len = 200_000;
+    let mut html = Html::with_limit(0xffffff, 10_000);
+    html.row(&Row {
+        chars: vec!['a'; len],
+        attrs: (0..len)
+            .map(|i| if i % 2 == 0 { red } else { blue })
+            .collect(),
+        from: Some(0),
+        to: len,
+    });
+    assert!(html.is_full());
+    // past the limit by the tags of one change and one char at most, here under 300 bytes
+    assert!(
+        (10_000..10_300).contains(&html.len()),
+        "{} bytes for a limit of 10 000",
+        html.len()
+    );
+    // with the closing tags, still near the limit
+    assert!(html.finish().len() < 10_400);
+}
