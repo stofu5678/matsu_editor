@@ -265,7 +265,7 @@ impl CommandContext<'_> {
     /// the gap after a wrapped row, the last char of that row; otherwise the corner's position),
     /// for what counts the rows of the corners. `None` when no box covers anything. (In the order
     /// of the corners, which the plugin functions need; the bounds are
-    /// [`box_bounds`](Self::box_bounds).)
+    /// `box_bounds`.)
     pub fn box_corner_rows(&self) -> Result<Option<(Pos, Pos)>> {
         Ok(self.box_corners()?.map(|(a, c)| (a.row_pos(), c.row_pos())))
     }
