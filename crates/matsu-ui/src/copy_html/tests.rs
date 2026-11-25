@@ -661,7 +661,7 @@ fn a_document_read_by_ranges_has_no_line_limit_for_the_html() {
 
     let text = format!("{}\nend\n", "x".repeat(5000));
     let index = scan_blocks(
-        Arc::new(MemorySource::new(text.clone().into_bytes())),
+        Arc::new(MemorySource::new(text.into_bytes())),
         Arc::new(EncodingCodec(Encoding::Utf8)),
         ScanOptions {
             block_size: 64,
