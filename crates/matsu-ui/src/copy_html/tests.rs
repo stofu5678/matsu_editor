@@ -634,8 +634,11 @@ fn a_selection_with_a_very_long_line_is_refused_before_it_is_laid_out() {
             "{from:?} {to:?}"
         );
     }
-    // a selection that ends at the head of the long line does not take it, nor do short lines
-    for (from, to) in [((0, 0), (1, 0)), ((2, 0), (3, 0)), ((0, 0), (0, 3))] {
+    // a selection that ends at the head of the long line is refused too: its row is laid out
+    f.select((0, 0), (1, 0));
+    assert_eq!(over(&f, LINE_LIMIT), Some(LINE_LIMIT + 100));
+    // short lines are not
+    for (from, to) in [((2, 0), (3, 0)), ((0, 0), (0, 3))] {
         f.select(from, to);
         assert_eq!(over(&f, LINE_LIMIT), None, "{from:?} {to:?}");
     }

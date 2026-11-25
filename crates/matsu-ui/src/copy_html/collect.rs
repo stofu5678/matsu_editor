@@ -268,8 +268,13 @@ pub(crate) fn color_html_within(
 /// there, before anything is laid out or colored: the colors of a line are worked out for the
 /// whole line at once, and the colors of a part need the state of the whole line before it
 /// (ADR-0018 type C/E; the way out is to select less). A document read by ranges colors no line of
-/// 64 KiB or more and gives its rows from the blocks, so it has no such limit. A selection that
-/// ends at the head of a line does not take that line; a box takes the lines of its rows.
+/// 64 KiB or more and gives its rows from the blocks, so it has no such limit.
+///
+/// The lines are all the lines from the one of `from` to the one of `to`, also when the selection
+/// ends at column 0: the copy has to find the row of `to`, which lays out that whole line, and it
+/// looks at the row after the last one too. (The rule "a selection that ends at column 0 does not
+/// take that line" is about what is copied, not about what is laid out, so it is not this
+/// check's.) A box takes the lines between its corners.
 pub(crate) fn line_over(doc: &Document, cursor: &Cursor, limit: usize) -> Option<usize> {
     if doc.is_ranged() {
         return None;
@@ -277,7 +282,6 @@ pub(crate) fn line_over(doc: &Document, cursor: &Cursor, limit: usize) -> Option
     let (from, to) = cursor.selection()?;
     let (first, last) = match cursor.box_corners() {
         Some(((a, _), (c, _))) => (a.line.min(c.line), a.line.max(c.line)),
-        None if to.col == 0 && to.line > from.line => (from.line, to.line - 1),
         None => (from.line, to.line),
     };
     (first..=last)
