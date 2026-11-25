@@ -28,6 +28,7 @@ use std::rc::Rc;
 mod kind_combo;
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
+use crate::drop_down::DropDown;
 use crate::input_select::{focus_selecting, input_field};
 use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
@@ -149,11 +150,9 @@ pub(crate) struct WinSizeDialog {
     /// the first of each has `WS_GROUP`).
     pos_ring: Ring,
     size_ring: Ring,
-    /// The combo box of the kind of window: its focus (it holds the button's), whether its list is
-    /// open and the row the keys are on in the open list (`kind_combo`).
-    kind_focus: FocusHandle,
-    kind_open: bool,
-    kind_cursor: usize,
+    /// The combo box of the kind of window: its focus, whether its list is open and the row the
+    /// keys are on in it (`kind_combo`, `crate::drop_down`). `size_type` is the choice.
+    kind: DropDown,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -193,9 +192,7 @@ impl WinSizeDialog {
             on_done: Some(on_done),
             pos_ring: Ring::default(),
             size_ring: Ring::default(),
-            kind_focus: cx.focus_handle(),
-            kind_open: false,
-            kind_cursor: 0,
+            kind: DropDown::new(cx),
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -205,7 +202,7 @@ impl WinSizeDialog {
     pub(crate) fn set_size_mode(&mut self, mode: i32, cx: &mut Context<Self>) {
         self.size_mode = mode;
         if !self.kind_usable() {
-            self.close_kind_list(cx);
+            self.kind.close();
         }
         cx.notify();
     }
@@ -362,9 +359,7 @@ impl Render for WinSizeDialog {
         let size_set = self.size_mode == MODE_SET;
         // a list that is open while the focus has left the box is closed, as a combo box does
         // (the print settings' lists do the same): Shift+Tab and a click elsewhere come here
-        if self.kind_open && !self.kind_focus.contains_focused(window, cx) {
-            self.close_kind_list(cx);
-        }
+        self.kind.settle(window, cx, self.kind_usable());
 
         // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
         let modes = |group: &'static str,

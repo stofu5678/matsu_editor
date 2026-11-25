@@ -16,10 +16,21 @@ const TYPE_FILE: &str = "; タイプ別設定 Ver1\r\n\r\n\
     [Types]\r\nid=7\r\nnInts=9,90,0,2,-1,-1,0,0,0,0,0,0\r\nszTypeName=日本語タイプ\r\nszTypeExts=jp\r\n";
 
 /// Opens the question and gives its ring and the list that shows it.
-fn question(
+pub(super) fn question(
     cx: &mut TestAppContext,
 ) -> (VisualTestContext, gpui::Entity<super::list::TypeList>, Ring) {
+    question_with_color_files(cx, 0)
+}
+
+/// The same, with `count` color files (`*.col`) next to the type file.
+pub(super) fn question_with_color_files(
+    cx: &mut TestAppContext,
+    count: usize,
+) -> (VisualTestContext, gpui::Entity<super::list::TypeList>, Ring) {
     let (ini, handle) = setup(cx, "");
+    for n in 0..count {
+        std::fs::write(ini.folder().join(format!("c{n:02}.col")), b"").unwrap();
+    }
     let mut cx = VisualTestContext::from_window(handle, cx);
     let view = view_of(&mut cx);
     let list = open_list(&view, &mut cx);
@@ -37,7 +48,10 @@ fn question(
     (cx, list, ring)
 }
 
-fn adding(list: &gpui::Entity<super::list::TypeList>, cx: &mut VisualTestContext) -> bool {
+pub(super) fn adding(
+    list: &gpui::Entity<super::list::TypeList>,
+    cx: &mut VisualTestContext,
+) -> bool {
     list.read_with(cx, |l, _| l.ascertain.as_ref().unwrap().add)
 }
 
@@ -62,11 +76,11 @@ fn tab_stops_on_the_group_once_at_the_checked_button(cx: &mut TestAppContext) {
 fn the_arrow_keys_choose_the_other_button_and_go_round(cx: &mut TestAppContext) {
     let (mut cx, list, ring) = question(cx);
     let cx = &mut cx;
-    // before the group has the focus, the arrow keys are the colors' (they move the list)
+    // before the colors have the focus, the arrow keys are not theirs
     cx.simulate_keystrokes("down");
     assert_eq!(
         list.read_with(cx, |l, _| l.ascertain.as_ref().unwrap().color),
-        1
+        0
     );
     assert!(adding(&list, cx));
     assert_eq!(tab_to(cx, &[&ring], 0, 12), 0);
@@ -85,7 +99,7 @@ fn the_arrow_keys_choose_the_other_button_and_go_round(cx: &mut TestAppContext) 
     // with the focus on the group, the arrow keys do not move the colors
     assert_eq!(
         list.read_with(cx, |l, _| l.ascertain.as_ref().unwrap().color),
-        1
+        0
     );
     // Tab goes on to 色選択 (`IDC_COMBO_COLORS` has `WS_TABSTOP`), and Shift+Tab comes back to
     // the button that is chosen now
@@ -96,14 +110,20 @@ fn the_arrow_keys_choose_the_other_button_and_go_round(cx: &mut TestAppContext) 
     assert_eq!(at(cx, &[&ring]), Some((0, 1)));
 }
 
-fn colors_focused(list: &gpui::Entity<super::list::TypeList>, cx: &mut VisualTestContext) -> bool {
+pub(super) fn colors_focused(
+    list: &gpui::Entity<super::list::TypeList>,
+    cx: &mut VisualTestContext,
+) -> bool {
     let focus = list.read_with(cx, |l, _| {
-        l.ascertain.as_ref().unwrap().colors_focus.clone()
+        l.ascertain.as_ref().unwrap().colors.focus().clone()
     });
-    cx.update(|window, _| focus.is_focused(window))
+    cx.update(|window, cx| focus.contains_focused(window, cx))
 }
 
-fn color(list: &gpui::Entity<super::list::TypeList>, cx: &mut VisualTestContext) -> usize {
+pub(super) fn color(
+    list: &gpui::Entity<super::list::TypeList>,
+    cx: &mut VisualTestContext,
+) -> usize {
     list.read_with(cx, |l, _| l.ascertain.as_ref().unwrap().color)
 }
 
@@ -141,7 +161,10 @@ fn alt_a_chooses_the_new_type(cx: &mut TestAppContext) {
     assert!(list.read_with(cx, |l, _| l.ascertain.is_some()));
 }
 
-fn list_focused(list: &gpui::Entity<super::list::TypeList>, cx: &mut VisualTestContext) -> bool {
+pub(super) fn list_focused(
+    list: &gpui::Entity<super::list::TypeList>,
+    cx: &mut VisualTestContext,
+) -> bool {
     let focus = list.read_with(cx, |l, _| l.focus.clone());
     cx.update(|window, _| focus.is_focused(window))
 }
