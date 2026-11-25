@@ -22,9 +22,10 @@ use crate::layout::X;
 type Shifts = Vec<(usize, isize)>;
 
 impl CommandContext<'_> {
-    /// Drops the selection and keeps the caret.
-    pub(crate) fn clear_selection(&mut self) {
-        self.cursor.clear_selection();
+    /// Drops the selection and keeps the caret (and its place in the gap after a wrapped row, for
+    /// a box: [`end_box_in_place`](Self::end_box_in_place)).
+    pub(crate) fn clear_selection(&mut self) -> Result<()> {
+        self.end_box_in_place()
     }
 
     /// The rows that indent and unindent look at, and the first position after them (`None`: to

@@ -26,7 +26,7 @@ impl Command for DuplicateLine {
     const SAKURA: &'static str = "F_DUPLICATELINE";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.clear_selection();
+        cx.clear_selection()?;
         let caret = cx.caret();
         let Some(line) = cx.doc().line(caret.line)? else {
             cx.beep();

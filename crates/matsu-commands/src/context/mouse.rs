@@ -160,11 +160,9 @@ impl CommandContext<'_> {
         if self.cursor.is_box() && !self.cursor.has_selection() {
             let caret = self.caret();
             // A box that began in the gap after a wrapped row leaves the caret there.
-            let in_gap = self.caret_wrapped_gap()?.map(|(x, _)| x);
+            let mark = self.box_gap_mark()?;
             self.move_caret(caret, false)?;
-            if let Some(x) = in_gap {
-                self.set_gap_free_x(x)?;
-            }
+            self.keep_gap_mark(mark)?;
             return Ok(true);
         }
         Ok(false)

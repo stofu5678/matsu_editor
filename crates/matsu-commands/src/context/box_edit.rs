@@ -267,10 +267,8 @@ impl CommandContext<'_> {
     /// spaces, trimming, ...) end here.
     fn end_box_edit_at(&mut self, caret: Pos, top_left: Corner) -> Result<()> {
         self.cursor.move_to(caret, false);
-        if top_left.in_gap() && caret == top_left.pos {
-            self.set_gap_free_x(top_left.x)?;
-        }
-        Ok(())
+        let mark = (top_left.in_gap() && caret == top_left.pos).then_some(top_left.x);
+        self.keep_gap_mark(mark)
     }
 
     /// `Command_INDENT` with `m_bOverWriteBoxDelete` in overwrite mode: deletes the text of the

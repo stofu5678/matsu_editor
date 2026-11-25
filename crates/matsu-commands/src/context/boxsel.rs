@@ -154,6 +154,37 @@ impl CommandContext<'_> {
         )))
     }
 
+    /// The column of the caret of a box selection that stands in the gap after a wrapped row, to
+    /// be given back with [`keep_gap_mark`](Self::keep_gap_mark) after the box has ended. `None`
+    /// for any other caret.
+    pub(super) fn box_gap_mark(&self) -> Result<Option<X>> {
+        if !self.cursor.is_box() {
+            return Ok(None);
+        }
+        Ok(self.caret_wrapped_gap()?.map(|(x, _)| x))
+    }
+
+    /// Puts the caret back in the gap that [`box_gap_mark`](Self::box_gap_mark) saw, after a move
+    /// that ended the box dropped the mark. Without the free cursor mode the column is brought
+    /// back to the end of the text.
+    pub(super) fn keep_gap_mark(&mut self, mark: Option<X>) -> Result<()> {
+        match mark {
+            Some(x) => self.set_gap_free_x(x),
+            None => Ok(()),
+        }
+    }
+
+    /// Ends the box selection (and any other selection) where the caret is: the caret does not
+    /// move, and one in the gap after a wrapped row stays on that row. The one place that every
+    /// command that drops a box in place goes through (`F_CANCEL_MODE`, a copy that disables the
+    /// selection, an empty box that the mouse ends, the commands that drop the selection and work
+    /// on the caret's row). A command that moves the caret anyway does not need it.
+    pub fn end_box_in_place(&mut self) -> Result<()> {
+        let mark = self.box_gap_mark()?;
+        self.cursor.clear_selection();
+        self.keep_gap_mark(mark)
+    }
+
     /// A position on the row of each corner of the box selection, anchor first (for a corner in
     /// the gap after a wrapped row, the last char of that row; otherwise the corner's position),
     /// for what counts the rows of the corners. `None` when no box covers anything.

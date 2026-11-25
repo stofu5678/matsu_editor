@@ -959,6 +959,75 @@ mod box_corners_in_the_gap {
         assert_eq!((r.caret(), r.col()), (Pos::new(0, 2), None));
     }
 
+    /// A 100-character line wrapped (here after 3 columns): End, begin a box, Down, and then what
+    /// ends the box where the caret is. The caret stays on the second row (in its gap).
+    fn boxed_in_the_gap() -> Rig {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        r
+    }
+
+    #[test]
+    fn escape_ends_a_box_in_the_gap_on_its_row() {
+        let mut r = boxed_in_the_gap();
+        r.run("cancel_mode");
+        assert!(!r.cursor.is_box());
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 5));
+        // a box that covers nothing (Down not pressed) ends the same way
+        let mut r = at_end();
+        r.run("begin_box").run("cancel_mode");
+        assert!(!r.cursor.is_box());
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        // a column right of the text, without the free cursor mode, is brought back to its end
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_right");
+        r.run("cancel_mode");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        // with the mode the column stays
+        with_options(free(), || {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_down").run("cursor_right");
+            r.run("cancel_mode");
+            assert_eq!((r.caret(), r.col()), (P2, Some(4)));
+        });
+    }
+
+    #[test]
+    fn a_copy_that_disables_the_selection_ends_a_box_in_the_gap_on_its_row() {
+        let mut o = EditOptions::DEFAULT;
+        o.copy_and_disable_selection = true;
+        with_options(o, || {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_down").run("cursor_right");
+            r.run("cursor_left").run("cursor_left");
+            r.run("copy");
+            assert!(!r.cursor.is_box());
+            // on the last char of the second row (the lefts went through the gap)
+            assert_eq!((r.caret(), r.col()), (Pos::new(0, 5), None));
+        });
+        // and with a column right of the text, the mode off
+        let mut o = EditOptions::DEFAULT;
+        o.copy_and_disable_selection = true;
+        with_options(o, || {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_right").run("cursor_down");
+            r.run("copy");
+            assert!(!r.cursor.is_box());
+            assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        });
+    }
+
+    #[test]
+    fn dropping_the_selection_for_a_row_command_keeps_the_row_of_the_gap() {
+        // `duplicate_line` drops the selection first and works on the row of the caret
+        let mut r = boxed_in_the_gap();
+        r.run("duplicate_line");
+        assert_eq!(r.text(), "abcdefdefgh");
+        assert!(!r.cursor.is_box());
+    }
+
     #[test]
     fn the_rest_of_the_moves_work_from_the_gap() {
         // up from the gap of the second row, onto the gap of the first
