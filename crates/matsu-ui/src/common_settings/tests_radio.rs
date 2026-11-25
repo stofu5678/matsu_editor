@@ -77,3 +77,46 @@ fn the_access_key_of_a_radio_button_still_chooses_it(cx: &mut TestAppContext) {
     visual(cx, window).simulate_keystrokes("alt-m");
     assert_eq!(value(cx), 1);
 }
+
+#[gpui::test]
+fn the_access_key_of_a_radio_button_takes_the_focus_and_the_arrow_keys_go_on_from_it(
+    cx: &mut TestAppContext,
+) {
+    // Sakura: an access key checks the radio button and focuses it (also when it is checked), and
+    // the arrow keys then move within its group
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_EDIT");
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    let ring = ring(cx);
+    assert_eq!(at(visual(cx, window), &[&ring]), None);
+    visual(cx, window).simulate_keystrokes("alt-m");
+    assert_eq!(value(cx), 1);
+    assert_eq!(at(visual(cx, window), &[&ring]), Some((0, 1)));
+    visual(cx, window).simulate_keystrokes("down");
+    assert_eq!(value(cx), 2);
+    assert_eq!(at(visual(cx, window), &[&ring]), Some((0, 2)));
+    // the key of the checked button focuses it again after the focus left the group
+    visual(cx, window).simulate_keystrokes("tab");
+    assert_eq!(at(visual(cx, window), &[&ring]), None);
+    visual(cx, window).simulate_keystrokes("alt-m");
+    assert_eq!(value(cx), 1);
+    visual(cx, window).simulate_keystrokes("tab");
+    visual(cx, window).simulate_keystrokes("alt-m");
+    assert_eq!(value(cx), 1);
+    assert_eq!(at(visual(cx, window), &[&ring]), Some((0, 1)));
+}
+
+#[gpui::test]
+fn a_click_on_a_radio_button_checks_it_and_takes_the_focus(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_EDIT");
+    let window = cx.update(|app| dialog_window(app)).unwrap();
+    let ring = ring(cx);
+    // `cs-{GROUP}-2`
+    let bounds = visual(cx, window)
+        .debug_bounds("cs-open_dialog_dir-2")
+        .expect("the radio button");
+    visual(cx, window).simulate_click(bounds.center(), gpui::Modifiers::none());
+    assert_eq!(value(cx), 2);
+    assert_eq!(at(visual(cx, window), &[&ring]), Some((0, 2)));
+}

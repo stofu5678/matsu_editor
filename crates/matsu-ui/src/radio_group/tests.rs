@@ -36,9 +36,12 @@ impl Render for Toy {
             .child(div().id("before").track_focus(&self.before).size_4())
             .child(div().flex().flex_col().children((0..4).map(|index| {
                 let on = self.selected.clone();
-                group.radio(index, ("radio", index), index != 2, move |radio| {
-                    radio.label("radio").checked(on.get() == Some(index))
-                })
+                let id = ("radio", index);
+                div()
+                    .debug_selector(move || format!("radio-{index}"))
+                    .child(group.radio(index, id, index != 2, move |radio| {
+                        radio.label("radio").checked(on.get() == Some(index))
+                    }))
             })))
             .child(div().id("after").track_focus(&self.after).size_4())
     }
@@ -161,4 +164,67 @@ fn an_arrow_key_with_a_modifier_does_nothing(cx: &mut TestAppContext) {
             "{key}"
         );
     }
+}
+
+/// What an access key does to a group: chooses the button (the host's one writer, here the
+/// group's `select` run by a click) and moves the focus with `Ring::focus`.
+fn focus_by_key(toy: &gpui::Entity<Toy>, keys: &mut VisualTestContext, index: usize) {
+    let ring = toy.read_with(keys, |t, _| t.ring.clone());
+    keys.update(|window, cx| ring.focus(index, window, cx));
+}
+
+#[gpui::test]
+fn focus_takes_the_focus_to_a_button_also_when_it_is_checked(cx: &mut TestAppContext) {
+    let (toy, keys) = toy(cx, Some(1));
+    focus_before(&toy, keys);
+    // the checked button, reached from outside the group
+    focus_by_key(&toy, keys, 1);
+    assert_eq!(at(&toy, keys), Some(2));
+    // another one
+    focus_by_key(&toy, keys, 3);
+    assert_eq!(at(&toy, keys), Some(4));
+    // then the arrow keys move in the group from there (the fourth: forward goes round)
+    keys.simulate_keystrokes("down");
+    assert_eq!((at(&toy, keys), selected(&toy, keys)), (Some(1), Some(0)));
+}
+
+#[gpui::test]
+#[should_panic(expected = "cannot take the focus")]
+fn focus_stops_a_debug_build_for_a_button_that_cannot_be_used(cx: &mut TestAppContext) {
+    let (toy, keys) = toy(cx, Some(0));
+    // the third button (index 2) is disabled: an access key must not get here
+    focus_by_key(&toy, keys, 2);
+}
+
+#[gpui::test]
+#[should_panic(expected = "cannot take the focus")]
+fn focus_stops_a_debug_build_for_a_button_that_is_not_drawn(cx: &mut TestAppContext) {
+    let (toy, keys) = toy(cx, Some(0));
+    focus_by_key(&toy, keys, 9);
+}
+
+#[gpui::test]
+fn a_click_on_a_button_that_cannot_be_used_moves_nothing(cx: &mut TestAppContext) {
+    let (toy, keys) = toy(cx, Some(0));
+    focus_before(&toy, keys);
+    let third = keys
+        .debug_bounds("radio-2")
+        .expect("the third radio button");
+    keys.simulate_click(third.center(), gpui::Modifiers::none());
+    assert_eq!((at(&toy, keys), selected(&toy, keys)), (Some(0), Some(0)));
+}
+
+#[gpui::test]
+fn a_click_chooses_the_button_and_takes_the_focus(cx: &mut TestAppContext) {
+    let (toy, keys) = toy(cx, Some(0));
+    focus_before(&toy, keys);
+    let second = keys
+        .debug_bounds("radio-1")
+        .expect("the second radio button");
+    keys.simulate_click(second.center(), gpui::Modifiers::none());
+    assert_eq!((at(&toy, keys), selected(&toy, keys)), (Some(2), Some(1)));
+    // a click on the checked button takes the focus too
+    focus_before(&toy, keys);
+    keys.simulate_click(second.center(), gpui::Modifiers::none());
+    assert_eq!((at(&toy, keys), selected(&toy, keys)), (Some(2), Some(1)));
 }

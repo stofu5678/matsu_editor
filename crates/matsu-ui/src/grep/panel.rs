@@ -1040,8 +1040,18 @@ impl GrepPanel {
                 focus_selecting(&input, window, cx);
             }
             Use::Toggle(toggle) => self.change(toggle, cx),
-            Use::LineType(line_type) => self.set_line_type(line_type, cx),
-            Use::Style(style) => self.set_style(style, cx),
+            Use::LineType(line_type) => {
+                self.set_line_type(line_type, cx);
+                if let Some(index) = LINE_TYPES.iter().position(|(_, _, t)| *t == line_type) {
+                    self.line_type_ring.focus(index, window, cx);
+                }
+            }
+            Use::Style(style) => {
+                self.set_style(style, cx);
+                if let Some(index) = STYLES.iter().position(|(_, _, t)| *t == style) {
+                    self.style_ring.focus(index, window, cx);
+                }
+            }
             Use::ThisText => {
                 self.set_from_this_text(!self.settings.from_this_text, window, cx);
             }

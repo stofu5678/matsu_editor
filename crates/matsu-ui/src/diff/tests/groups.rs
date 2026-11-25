@@ -89,10 +89,15 @@ fn the_arrow_keys_choose_the_new_or_the_old_file_and_go_round(cx: &mut TestAppCo
         assert_eq!(at(w.cx(cx), &[&dst, &own]), Some((1, now)), "{key}");
     }
     // the access keys of the two buttons choose them
+    // and they take the focus to the button too
+    w.cx(cx).simulate_keystrokes("tab");
+    assert_ne!(at(w.cx(cx), &[&dst, &own]).map(|stop| stop.0), Some(1));
     w.cx(cx).simulate_keystrokes("alt-n");
     assert_eq!(side(&panel, cx), 0);
+    assert_eq!(at(w.cx(cx), &[&dst, &own]), Some((1, 0)));
     w.cx(cx).simulate_keystrokes("alt-d");
     assert_eq!(side(&panel, cx), 1);
+    assert_eq!(at(w.cx(cx), &[&dst, &own]), Some((1, 1)));
 }
 
 #[gpui::test]

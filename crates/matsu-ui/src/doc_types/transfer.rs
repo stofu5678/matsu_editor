@@ -102,6 +102,12 @@ fn color_files(dir: &Path) -> Vec<String> {
     names
 }
 
+/// The buttons of 読込先: 新規追加 is the first, the selected type the second. The one place that
+/// maps the choice to a button, for the drawing, the `select` closure and the access key.
+fn location_index(add: bool) -> usize {
+    usize::from(!add)
+}
+
 impl TypeList {
     /// インポート: asks for a file.
     pub(super) fn import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -490,6 +496,7 @@ impl TypeList {
         };
         let has_room = self.has_room();
         let this = cx.entity();
+        let access_ring = q.location_ring.clone();
         // `IDD_TYPE_ASCERTAIN`: `IDC_RADIO_TYPE_ADD` and `IDC_RADIO_TYPE_TO` are two
         // `BS_AUTORADIOBUTTON` that follow each other. Neither has `WS_TABSTOP` in the resource
         // file, so Tab never reaches them in Sakura; here they are one Tab stop, like the other
@@ -498,8 +505,10 @@ impl TypeList {
         let locations = Group::new(
             &q.location_ring,
             2,
-            Some(usize::from(!q.add)),
-            Rc::new(cx.listener(|this, index: &usize, _, cx| this.set_location(*index == 0, cx))),
+            Some(location_index(q.add)),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_location(*index == location_index(true), cx)
+            })),
         );
         let colors = q.colors.view(
             &Look {
@@ -554,6 +563,7 @@ impl TypeList {
                 // `IDC_RADIO_TYPE_ADD` is `新規追加(&A)`; a button that is grey is not an access key
                 'a' if has_room => {
                     this.update(cx, |list, cx| list.set_location(true, cx));
+                    access_ring.focus(location_index(true), window, cx);
                     true
                 }
                 // `色選択(&C)` is the label before `IDC_COMBO_COLORS`: the access key of a label
@@ -599,16 +609,30 @@ impl TypeList {
                     .flex()
                     .items_center()
                     .child("読込先:")
-                    .child(locations.radio(0, "type-ascertain-add", has_room, |radio| {
-                        radio.labelled("新規追加(A)").checked(q.add)
-                    }))
-                    .child(locations.radio(1, "type-ascertain-to", true, |radio| {
-                        // the name of a type is no label with an access key, whatever it ends with
-                        radio
-                            .label(q.to_name.clone())
-                            .accessibility_label(q.to_name.clone())
-                            .checked(!q.add)
-                    })),
+                    .child(locations.radio(
+                        location_index(true),
+                        "type-ascertain-add",
+                        has_room,
+                        |radio| radio.labelled("新規追加(A)").checked(q.add),
+                    ))
+                    .child(
+                        // the place of the button, for the tests that click it
+                        div()
+                            .debug_selector(|| "type-ascertain-to".to_owned())
+                            .child(locations.radio(
+                                location_index(false),
+                                "type-ascertain-to",
+                                true,
+                                |radio| {
+                                    // the name of a type is no label with an access key, whatever it
+                                    // ends with
+                                    radio
+                                        .label(q.to_name.clone())
+                                        .accessibility_label(q.to_name.clone())
+                                        .checked(!q.add)
+                                },
+                            )),
+                    ),
             )
             .child(div().child(format!("新タイプ名: {}", q.file.type_name())))
             .child(div().child("色選択(C):"))

@@ -383,3 +383,33 @@ fn the_two_units_are_one_group_of_radio_buttons(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert_eq!(f.caret(cx), Pos::new(0, 15));
 }
+
+#[gpui::test]
+fn an_access_key_or_a_click_checks_the_unit_and_takes_the_focus(cx: &mut TestAppContext) {
+    // Sakura 2.4.2 `IDD_JUMP`, measured in the Windows Sandbox (2026-11-25): Alt+R checks and
+    // focuses 折り返し単位, the arrow key then moves in the group; Alt+W on the checked 改行単位
+    // focuses it; a click on a radio button checks and focuses it, also when it is checked
+    let (f, cx) = wrapped(cx);
+    cx.simulate_keystrokes("ctrl-j");
+    cx.simulate_keystrokes("alt-r");
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Rows, Some(0)));
+    cx.simulate_keystrokes("down");
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Lines, Some(1)));
+    // the focus goes back to the line box (Alt+N), then the key of the checked button
+    cx.simulate_keystrokes("alt-n");
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Lines, None));
+    cx.simulate_keystrokes("alt-w");
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Lines, Some(1)));
+    cx.simulate_keystrokes("up");
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Rows, Some(0)));
+    // a click, on the other button and on the checked one from outside the group
+    let lines = cx
+        .debug_bounds("jump-unit-lines")
+        .expect("the radio button");
+    cx.simulate_click(lines.center(), gpui::Modifiers::none());
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Lines, Some(1)));
+    cx.simulate_keystrokes("alt-n");
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Lines, None));
+    cx.simulate_click(lines.center(), gpui::Modifiers::none());
+    assert_eq!(unit_state(&f, cx), (JumpUnit::Lines, Some(1)));
+}

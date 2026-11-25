@@ -240,7 +240,12 @@ impl OneLinerDialog {
             Found::One(Use::Run) => self.ok(window, cx),
             Found::One(Use::Register) => self.start_registering(window, cx),
             Found::One(Use::Cancel) => self.cancel(window, cx),
-            Found::One(Use::Place(output)) => self.choose_place(output, cx),
+            Found::One(Use::Place(output)) => {
+                self.choose_place(output, cx);
+                if let Some(index) = PLACES.iter().position(|to| *to == output) {
+                    self.places_ring.focus(index, window, cx);
+                }
+            }
         }
         true
     }

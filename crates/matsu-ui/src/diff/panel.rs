@@ -94,6 +94,19 @@ pub struct DiffPanel {
     _subscriptions: Vec<Subscription>,
 }
 
+/// The buttons of 比較するファイル: 外部ファイルを指定 is the first, 他の編集中のファイル the second.
+/// The one place that maps the choice to a button, for the drawing, the `select` closure and the
+/// access keys.
+fn destination_index(use_file: bool) -> usize {
+    usize::from(!use_file)
+}
+
+/// The buttons of 編集中ファイルが...: 新ファイル is the first, 旧ファイル the second (see
+/// [`destination_index`]).
+fn side_index(own_is_old: bool) -> usize {
+    usize::from(own_is_old)
+}
+
 impl DiffPanel {
     fn new(
         editor: WeakEntity<EditorView>,
@@ -170,7 +183,10 @@ impl DiffPanel {
                 self.options.ignore_blank_lines = !self.options.ignore_blank_lines;
             }
             Found::One(Use::TabSpace) => self.options.expand_tabs = !self.options.expand_tabs,
-            Found::One(Use::OwnIsOld(old)) => self.set_side(old, cx),
+            Found::One(Use::OwnIsOld(old)) => {
+                self.set_side(old, cx);
+                self.side_ring.focus(side_index(old), window, cx);
+            }
             Found::One(Use::Notify) => self.notify_not_found = !self.notify_not_found,
             Found::One(Use::Wrap) => self.wrap = !self.wrap,
             Found::One(Use::Ok) => {
@@ -386,16 +402,18 @@ impl Render for DiffPanel {
         let destinations = Group::new(
             &self.destination_ring,
             2,
-            Some(usize::from(!self.use_file)),
-            Rc::new(
-                cx.listener(|this, index: &usize, _, cx| this.set_destination(*index == 0, cx)),
-            ),
+            Some(destination_index(self.use_file)),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_destination(*index == destination_index(true), cx)
+            })),
         );
         let sides = Group::new(
             &self.side_ring,
             2,
-            Some(usize::from(o.own_is_old)),
-            Rc::new(cx.listener(|this, index: &usize, _, cx| this.set_side(*index == 1, cx))),
+            Some(side_index(o.own_is_old)),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_side(*index == side_index(true), cx)
+            })),
         );
         let destination = v_flex()
             .gap_1()
@@ -403,9 +421,11 @@ impl Render for DiffPanel {
             .border_1()
             .border_color(rgb(0xb0b0b0))
             .child("比較するファイル")
-            .child(destinations.radio(0, "diff-use-file", true, |radio| {
-                radio.labelled("外部ファイルを指定").checked(self.use_file)
-            }))
+            .child(
+                destinations.radio(destination_index(true), "diff-use-file", true, |radio| {
+                    radio.labelled("外部ファイルを指定").checked(self.use_file)
+                }),
+            )
             .child(
                 h_flex()
                     .gap_2()
@@ -418,13 +438,16 @@ impl Render for DiffPanel {
             )
             // without another file the button is greyed out and 外部ファイルを指定 is checked
             // (`CDlgDiff::SetData`: `count == 0`)
-            .child(
-                destinations.radio(1, "diff-use-window", has_candidates, |radio| {
+            .child(destinations.radio(
+                destination_index(false),
+                "diff-use-window",
+                has_candidates,
+                |radio| {
                     radio
                         .labelled("他の編集中のファイル")
                         .checked(!self.use_file)
-                }),
-            )
+                },
+            ))
             .child(
                 crate::a11y::list_box(div().id("diff-windows"), "他の編集中のファイル")
                     .min_h(px(66.))
@@ -478,10 +501,10 @@ impl Render for DiffPanel {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(sides.radio(0, "diff-new", true, |radio| {
+                    .child(sides.radio(side_index(false), "diff-new", true, |radio| {
                         radio.labelled(labels::NEW).checked(!o.own_is_old)
                     }))
-                    .child(sides.radio(1, "diff-old", true, |radio| {
+                    .child(sides.radio(side_index(true), "diff-old", true, |radio| {
                         radio.labelled(labels::OLD).checked(o.own_is_old)
                     })),
             )

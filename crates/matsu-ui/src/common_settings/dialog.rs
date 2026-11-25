@@ -992,7 +992,18 @@ impl CommonSettingsDialog {
                 let on = self.values.bool(control.id);
                 self.set_bool(control.id, !on, cx);
             }
-            Kind::Radio { value } => self.set_int(control.id, value, cx),
+            Kind::Radio { value } => {
+                self.set_int(control.id, value, cx);
+                // the button takes the focus as well (a radio button of a group; the arrow keys
+                // then move in its group)
+                let place = self
+                    .radio_groups
+                    .get(control.id)
+                    .and_then(|set| Some((set.ring.clone(), set.index_of(value)?)));
+                if let Some((ring, index)) = place {
+                    ring.focus(index, window, cx);
+                }
+            }
             // The label of a drop-down list: the focus goes to the list and the choice stays
             // (`IsDialogMessage` moves the focus to the next control; the list is not opened).
             // MATSU's lists are rows of buttons: the focus goes to the chosen one. A choice that a
@@ -1181,8 +1192,8 @@ impl CommonSettingsDialog {
         let Kind::Radio { value } = control.kind else {
             return None;
         };
-        let here = set.values.iter().position(|v| *v == value)?;
-        let selected = set.values.iter().position(|v| *v == self.values.int(id));
+        let here = set.index_of(value)?;
+        let selected = set.index_of(self.values.int(id));
         let values = set.values;
         let group = Group::new(
             &set.ring,
@@ -1234,7 +1245,6 @@ impl CommonSettingsDialog {
                                 .label(label)
                                 .accessibility_label(name)
                                 .checked(checked)
-                                .aria_disabled(!usable)
                         })
                         .into_any_element(),
                     // no group to move in: the button chooses itself, as a plain radio button
@@ -1252,7 +1262,12 @@ impl CommonSettingsDialog {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(button)
+                    // the place of the button, for the tests that click it
+                    .child(
+                        div()
+                            .debug_selector(move || format!("cs-{id}-{value}"))
+                            .child(button),
+                    )
                     .children(note)
                     .into_any_element()
             }
@@ -1688,6 +1703,14 @@ impl Focusable for CommonSettingsDialog {
 pub(super) struct RadioSet {
     pub(super) ring: Ring,
     values: Rc<[i32]>,
+}
+
+impl RadioSet {
+    /// The position of the button of `value` in the group: the one place that maps a value to
+    /// a button, for the drawing and the access keys alike.
+    fn index_of(&self, value: i32) -> Option<usize> {
+        self.values.iter().position(|v| *v == value)
+    }
 }
 
 impl Render for CommonSettingsDialog {

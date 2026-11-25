@@ -161,6 +161,39 @@ fn alt_a_chooses_the_new_type(cx: &mut TestAppContext) {
     assert!(list.read_with(cx, |l, _| l.ascertain.is_some()));
 }
 
+#[gpui::test]
+fn alt_a_takes_the_focus_to_the_button_and_the_arrow_keys_go_on_from_it(cx: &mut TestAppContext) {
+    let (mut cx, list, ring) = question(cx);
+    let cx = &mut cx;
+    list.update(cx, |l, cx| l.set_location(false, cx));
+    // the focus is not in the group
+    assert_ne!(at(cx, &[&ring]).map(|stop| stop.0), Some(0));
+    cx.simulate_keystrokes("alt-a");
+    assert!(adding(&list, cx));
+    assert_eq!(at(cx, &[&ring]), Some((0, 0)));
+    cx.simulate_keystrokes("down");
+    assert!(!adding(&list, cx));
+    assert_eq!(at(cx, &[&ring]), Some((0, 1)));
+    // the key of the checked button focuses it too
+    cx.simulate_keystrokes("up");
+    assert!(adding(&list, cx));
+    cx.simulate_keystrokes("tab");
+    assert_ne!(at(cx, &[&ring]).map(|stop| stop.0), Some(0));
+    cx.simulate_keystrokes("alt-a");
+    assert!(adding(&list, cx));
+    assert_eq!(at(cx, &[&ring]), Some((0, 0)));
+}
+
+#[gpui::test]
+fn a_click_on_a_button_chooses_it_and_takes_the_focus(cx: &mut TestAppContext) {
+    let (mut cx, list, ring) = question(cx);
+    let cx = &mut cx;
+    let to = cx.debug_bounds("type-ascertain-to").expect("the button");
+    cx.simulate_click(to.center(), gpui::Modifiers::none());
+    assert!(!adding(&list, cx));
+    assert_eq!(at(cx, &[&ring]), Some((0, 1)));
+}
+
 pub(super) fn list_focused(
     list: &gpui::Entity<super::list::TypeList>,
     cx: &mut VisualTestContext,
