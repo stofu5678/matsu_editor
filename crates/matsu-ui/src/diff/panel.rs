@@ -187,19 +187,29 @@ impl DiffPanel {
         true
     }
 
-    /// 比較するファイル: the file named in the box (true) or a window of the list. The one writer of
-    /// the choice: the click, the arrow keys and the focus all come here.
-    fn set_destination(&mut self, use_file: bool, cx: &mut Context<Self>) {
-        if use_file {
-            self.use_file = true;
-        } else {
-            // "ListBoxが選択されていなかったら，先頭のファイルを選択する"
-            if self.selected.is_none() {
-                self.selected = candidates(cx, self.owner).first().map(|c| c.doc);
-            }
-            self.use_file = self.selected.is_none();
+    /// 比較するファイル: the one writer of the choice, which `set_file`, `select_window` and the
+    /// group's select all call. `use_file` is the file named in the box; otherwise the window
+    /// `selected` of the list (kept as it is when `None`).
+    fn choose(&mut self, use_file: bool, selected: Option<DocRef>, cx: &mut Context<Self>) {
+        if selected.is_some() {
+            self.selected = selected;
         }
+        debug_assert!(
+            use_file || self.selected.is_some(),
+            "a window is chosen without any window"
+        );
+        self.use_file = use_file || self.selected.is_none();
         cx.notify();
+    }
+
+    /// The group's select: 外部ファイルを指定 (index 0) or 他の編集中のファイル (index 1, which
+    /// is enabled only while there is another file: `CDlgDiff::SetData`).
+    fn set_destination(&mut self, use_file: bool, cx: &mut Context<Self>) {
+        // "ListBoxが選択されていなかったら，先頭のファイルを選択する"
+        let first = (!use_file && self.selected.is_none())
+            .then(|| candidates(cx, self.owner).first().map(|c| c.doc))
+            .flatten();
+        self.choose(use_file, first, cx);
     }
 
     /// 編集中ファイルが...: the new file (false) or the old file (true). The one writer of the
@@ -240,14 +250,11 @@ impl DiffPanel {
         let path = path.to_owned();
         self.file
             .update(cx, |state, cx| state.set_value(path, window, cx));
-        self.use_file = true;
-        cx.notify();
+        self.choose(true, None, cx);
     }
 
     pub(crate) fn select_window(&mut self, doc: DocRef, cx: &mut Context<Self>) {
-        self.selected = Some(doc);
-        self.use_file = false;
-        cx.notify();
+        self.choose(false, Some(doc), cx);
     }
 
     pub fn focus_file(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -372,6 +379,7 @@ impl Render for DiffPanel {
             item
         });
         let o = self.options;
+        let has_candidates = !rows.is_empty();
         // `IDD_DIFF`: the first radio button of each group has `WS_GROUP | WS_TABSTOP`
         // (`sakura_rc.rc`). The two radio buttons of 比較するファイル are the two ends of the
         // group, with the box, 参照 and the list drawn between them.
@@ -408,11 +416,15 @@ impl Render for DiffPanel {
                             .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
                     ),
             )
-            .child(destinations.radio(1, "diff-use-window", true, |radio| {
-                radio
-                    .labelled("他の編集中のファイル")
-                    .checked(!self.use_file)
-            }))
+            // without another file the button is greyed out and 外部ファイルを指定 is checked
+            // (`CDlgDiff::SetData`: `count == 0`)
+            .child(
+                destinations.radio(1, "diff-use-window", has_candidates, |radio| {
+                    radio
+                        .labelled("他の編集中のファイル")
+                        .checked(!self.use_file)
+                }),
+            )
             .child(
                 crate::a11y::list_box(div().id("diff-windows"), "他の編集中のファイル")
                     .min_h(px(66.))

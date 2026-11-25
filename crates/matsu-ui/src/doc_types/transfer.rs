@@ -195,9 +195,8 @@ impl TypeList {
     /// 読込先: a new type (true, while there is room) or the selected one. The one writer of the
     /// choice: the click, the arrow keys and the access key all come here.
     pub(super) fn set_location(&mut self, add: bool, cx: &mut Context<Self>) {
-        if add && !self.has_room() {
-            return;
-        }
+        // the button is greyed out without room, and its access key is gated the same way
+        debug_assert!(!add || self.has_room(), "a new type is chosen without room");
         if let Some(q) = self.ascertain.as_mut() {
             q.add = add;
         }

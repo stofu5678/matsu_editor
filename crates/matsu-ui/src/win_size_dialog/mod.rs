@@ -31,7 +31,6 @@ use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
 use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Role,
@@ -205,6 +204,9 @@ impl WinSizeDialog {
     /// The radio buttons 大きさ (`SetData`: a value that is none of the three is 指定しない).
     pub(crate) fn set_size_mode(&mut self, mode: i32, cx: &mut Context<Self>) {
         self.size_mode = mode;
+        if !self.kind_usable() {
+            self.close_kind_list();
+        }
         cx.notify();
     }
 
@@ -258,7 +260,8 @@ impl WinSizeDialog {
         // A box that cannot be used (the mode is not 直接指定) is read as well (`GetData`).
         WinSize {
             size_mode: self.size_mode,
-            size_type: self.size_type,
+            // what the box shows, as `GetData` reads the entry (`kind_row`)
+            size_type: KINDS[self.kind_row()].1,
             width: number(Field::Width, SIZE_RANGE, self.start.width),
             height: number(Field::Height, SIZE_RANGE, self.start.height),
             pos_mode: self.pos_mode,
@@ -357,8 +360,11 @@ impl Render for WinSizeDialog {
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let pos_set = self.pos_mode == MODE_SET;
         let size_set = self.size_mode == MODE_SET;
-        // a combo box that cannot be used has no list open
-        self.kind_open &= size_set;
+        // a list that is open while the focus has left the box is closed, as a combo box does
+        // (the print settings' lists do the same): Shift+Tab and a click elsewhere come here
+        if self.kind_open && !self.kind_focus.contains_focused(window, cx) {
+            self.close_kind_list();
+        }
 
         // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
         let modes = |group: &'static str,
@@ -501,8 +507,7 @@ impl Render for WinSizeDialog {
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(self.kind_combo(size_set, cx))
-                                .when(self.kind_open, |column| column.child(self.kind_list(cx)))
+                                .child(self.kind_combo(cx))
                                 .child(number(
                                     WIDTH_LABEL,
                                     &self.width,

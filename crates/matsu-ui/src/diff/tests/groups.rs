@@ -94,3 +94,20 @@ fn the_arrow_keys_choose_the_new_or_the_old_file_and_go_round(cx: &mut TestAppCo
     w.cx(cx).simulate_keystrokes("alt-d");
     assert_eq!(side(&panel, cx), 1);
 }
+
+#[gpui::test]
+fn without_another_file_the_window_button_cannot_be_reached(cx: &mut TestAppContext) {
+    // `CDlgDiff::SetData` with `count == 0`: 外部ファイルを指定 is checked and the other one is
+    // greyed out
+    remember_options(cx, 0, false);
+    let w = window(cx, "a\nb\n", None);
+    assert!(w.run(cx, "F_DIFF_DIALOG"));
+    let panel = w.view.read_with(cx, |v, _| v.diff.panel.clone()).unwrap();
+    let (dst, own) = panel.read_with(cx, |p, _| (p.destination_ring.clone(), p.side_ring.clone()));
+    assert_eq!(tab_to(w.cx(cx), &[&dst, &own], 0, 40), 0);
+    for key in ["down", "right", "up"] {
+        w.cx(cx).simulate_keystrokes(key);
+        assert_eq!(at(w.cx(cx), &[&dst, &own]), Some((0, 0)), "{key}");
+        assert_eq!(destination(&panel, cx), 0, "{key}");
+    }
+}

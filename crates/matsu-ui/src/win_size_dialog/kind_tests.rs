@@ -129,3 +129,58 @@ fn the_combo_box_cannot_be_used_without_a_direct_size(cx: &mut TestAppContext) {
     // the kind that was set is kept while it cannot be used
     assert_eq!(kind(cx), SIZE_RESTORED);
 }
+
+#[gpui::test]
+fn shift_tab_closes_the_open_list(cx: &mut TestAppContext) {
+    let _got = open_dialog(cx, SET);
+    for _ in 0..24 {
+        if combo_has_focus(cx) {
+            break;
+        }
+        keys(cx, "tab");
+    }
+    keys(cx, "f4");
+    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    keys(cx, "shift-tab");
+    assert!(!combo_has_focus(cx));
+    assert!(
+        !with_dialog(cx, |d, _, _| d.kind_open),
+        "the focus left the box"
+    );
+}
+
+#[gpui::test]
+fn the_keys_change_nothing_once_the_size_leaves_a_direct_size(cx: &mut TestAppContext) {
+    let _got = open_dialog(cx, SET);
+    for _ in 0..24 {
+        if combo_has_focus(cx) {
+            break;
+        }
+        keys(cx, "tab");
+    }
+    keys(cx, "f4");
+    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    with_dialog(cx, |d, _, dcx| d.set_size_mode(MODE_DEFAULT, dcx));
+    assert!(
+        !with_dialog(cx, |d, _, _| d.kind_open),
+        "the list is closed"
+    );
+    // the focus may still be in the box: the keys do not reach the choice
+    keys(cx, "down");
+    keys(cx, "f4");
+    assert_eq!(kind(cx), SIZE_RESTORED);
+    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+}
+
+#[gpui::test]
+fn a_kind_that_is_none_of_the_three_is_shown_and_saved_as_the_first(cx: &mut TestAppContext) {
+    // `CDlgWinSize::SetData` shows entry 0 and `GetData` writes what entry 0 says
+    let _got = open_dialog(
+        cx,
+        WinSize {
+            size_type: 7,
+            ..SET
+        },
+    );
+    assert_eq!(kind(cx), SIZE_RESTORED);
+}
