@@ -50,8 +50,15 @@ impl WinSizeDialog {
         self.kind_open = false;
     }
 
-    fn toggle_kind_list(&mut self, cx: &mut Context<Self>) {
+    fn toggle_kind_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.kind_open = !self.kind_open;
+        if self.kind_open {
+            // A click on the button does not move the focus (the button does not take it on
+            // mouse down), and a list opened while the focus is elsewhere would be closed again
+            // by `render` as a list that lost the focus: the focus goes into the box, as the
+            // print settings' `open_list` takes it.
+            window.focus(&self.kind_focus, cx);
+        }
         self.kind_cursor = self.kind_row();
         cx.notify();
     }
@@ -70,14 +77,19 @@ impl WinSizeDialog {
     }
 
     /// A key on the combo box with its list closed.
-    pub(super) fn on_kind_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    pub(super) fn on_kind_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.kind_open || !self.kind_usable() {
             return;
         }
         let modifiers = event.keystroke.modifiers;
         let key = event.keystroke.key.as_str();
         if key == "f4" && !modifiers.modified() || key == "down" && modifiers.alt {
-            self.toggle_kind_list(cx);
+            self.toggle_kind_list(window, cx);
             cx.stop_propagation();
             return;
         }
@@ -141,15 +153,16 @@ impl WinSizeDialog {
         let (text, _) = KINDS[self.kind_row()];
         div()
             .id("win-kinds")
+            .debug_selector(|| "win-kinds".to_owned())
             .track_focus(&self.kind_focus)
-            .on_key_down(cx.listener(|this, event, _, cx| this.on_kind_key(event, cx)))
+            .on_key_down(cx.listener(|this, event, window, cx| this.on_kind_key(event, window, cx)))
             .w(px(110.))
             .child(
                 Button::new("win-kind")
                     .label(format!("{text}  v"))
                     .w_full()
                     .disabled(!self.kind_usable())
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_kind_list(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_kind_list(window, cx))),
             )
             .when(self.kind_open, |combo| combo.child(self.kind_list(cx)))
     }

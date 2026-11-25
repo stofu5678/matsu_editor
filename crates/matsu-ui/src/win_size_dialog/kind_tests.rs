@@ -4,7 +4,7 @@
 
 use gpui::TestAppContext;
 
-use super::tests::{START, keys, open_dialog, with_dialog};
+use super::tests::{START, keys, open_dialog, visual, with_dialog};
 use super::{
     MODE_DEFAULT, MODE_SET, SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, WinSize, current,
 };
@@ -183,4 +183,19 @@ fn a_kind_that_is_none_of_the_three_is_shown_and_saved_as_the_first(cx: &mut Tes
         },
     );
     assert_eq!(kind(cx), SIZE_RESTORED);
+}
+
+#[gpui::test]
+fn a_click_on_the_box_opens_the_list_while_the_focus_is_elsewhere(cx: &mut TestAppContext) {
+    let _got = open_dialog(cx, SET);
+    assert!(!combo_has_focus(cx));
+    let bounds = visual(cx).debug_bounds("win-kinds").expect("the combo box");
+    visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(with_dialog(cx, |d, _, _| d.kind_open), "the list is open");
+    assert!(combo_has_focus(cx), "the focus is in the box");
+    // a second click closes it
+    visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
 }

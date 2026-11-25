@@ -87,12 +87,46 @@ fn the_arrow_keys_choose_the_other_button_and_go_round(cx: &mut TestAppContext) 
         list.read_with(cx, |l, _| l.ascertain.as_ref().unwrap().color),
         1
     );
-    // The group is the only Tab stop of the question (the colors and the buttons are not), so
-    // Tab and Shift+Tab stay at the button that is chosen now, and never on the other one
+    // Tab goes on to 色選択 (`IDC_COMBO_COLORS` has `WS_TABSTOP`), and Shift+Tab comes back to
+    // the button that is chosen now
     cx.simulate_keystrokes("tab");
-    assert_eq!(at(cx, &[&ring]), Some((0, 1)));
+    assert_eq!(at(cx, &[&ring]), None);
+    assert!(colors_focused(&list, cx));
     cx.simulate_keystrokes("shift-tab");
     assert_eq!(at(cx, &[&ring]), Some((0, 1)));
+}
+
+fn colors_focused(list: &gpui::Entity<super::list::TypeList>, cx: &mut VisualTestContext) -> bool {
+    let focus = list.read_with(cx, |l, _| {
+        l.ascertain.as_ref().unwrap().colors_focus.clone()
+    });
+    cx.update(|window, _| focus.is_focused(window))
+}
+
+fn color(list: &gpui::Entity<super::list::TypeList>, cx: &mut VisualTestContext) -> usize {
+    list.read_with(cx, |l, _| l.ascertain.as_ref().unwrap().color)
+}
+
+#[gpui::test]
+fn the_colors_are_a_tab_stop_after_the_group_and_the_arrow_keys_move_them(cx: &mut TestAppContext) {
+    let (mut cx, list, ring) = question(cx);
+    let cx = &mut cx;
+    assert_eq!(tab_to(cx, &[&ring], 0, 12), 0);
+    // Tab from the group reaches the colors, where Up and Down move the color and not the group
+    cx.simulate_keystrokes("tab");
+    assert!(colors_focused(&list, cx));
+    assert_eq!(color(&list, cx), 0);
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("down");
+    assert_eq!(color(&list, cx), 2);
+    cx.simulate_keystrokes("up");
+    assert_eq!(color(&list, cx), 1);
+    assert!(adding(&list, cx), "the arrow keys did not touch 読込先");
+    assert!(colors_focused(&list, cx));
+    // Shift+Tab returns to the group
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(at(cx, &[&ring]), Some((0, 0)));
+    assert_eq!(color(&list, cx), 1);
 }
 
 #[gpui::test]

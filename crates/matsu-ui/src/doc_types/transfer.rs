@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui::{
-    ClickEvent, Context, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Role,
-    ScrollHandle, StatefulInteractiveElement, Styled, Window, div, px, rgb, rgba,
+    ClickEvent, Context, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
+    Role, ScrollHandle, StatefulInteractiveElement, Styled, Window, div, px, rgb, rgba,
 };
 use matsu_config::settings::DocumentTypes;
 use matsu_config::settings::type_file::{
@@ -67,6 +67,9 @@ pub(crate) struct Ascertain {
     scroll: ScrollHandle,
     /// The focus of the two radio buttons of 読込先 (one group).
     pub(super) location_ring: Ring,
+    /// The focus of the list of 色選択 (`IDC_COMBO_COLORS` has `WS_TABSTOP`): it is the Tab stop
+    /// after the group, and ↑↓ move the color while it has the focus (`on_ascertain_key`).
+    pub(super) colors_focus: FocusHandle,
 }
 
 impl Ascertain {
@@ -188,6 +191,7 @@ impl TypeList {
             color: 0,
             scroll: ScrollHandle::new(),
             location_ring: Ring::default(),
+            colors_focus: cx.focus_handle().tab_stop(true),
         });
         cx.notify();
     }
@@ -511,6 +515,7 @@ impl TypeList {
             .child(
                 div()
                     .id("type-ascertain-colors")
+                    .track_focus(&q.colors_focus)
                     .role(Role::ListBox)
                     .aria_label("色選択")
                     .max_h(px(160.))
