@@ -472,7 +472,7 @@ fn comparing_very_long_lines_reads_only_as_far_as_the_difference() {
 
     let line = "0123456789abcdef".repeat(400_000 / 16);
     let a = ranged_doc(&format!("{line}\nz"), 1000);
-    let mut changed = line.clone();
+    let mut changed = line;
     changed.replace_range(300_000..300_001, "X");
     let b = ranged_doc(&format!("{changed}\nz"), 1000);
     reset_largest_decode();
