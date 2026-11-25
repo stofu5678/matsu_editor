@@ -206,6 +206,35 @@ impl CommandContext<'_> {
         self.keep_gap_mark(mark)
     }
 
+    /// `Command_LEFT` and `Command_RIGHT` without Shift with a box that covers something: the box
+    /// ends and the caret goes to the top left corner of the rectangle (`to_bottom_right` false)
+    /// or to its bottom right corner (true), and that is the whole move
+    /// (`Command_CANCEL_MODE( 1 )` and `( 2 )` in `cmd/CViewCommander_ModeChange.cpp`: `ptTo` is
+    /// `rcSel.GetFrom()` or `GetTo()` of `TwoPointToRange`, the corners of the rectangle; called
+    /// from `Command_LEFT` and `Command_RIGHT` in `cmd/CViewCommander_Cursor.cpp`, `continue`).
+    /// Without the free cursor mode the column is brought back to the end of the text of the row
+    /// (`ptTo.x = t_min( ptTo.x, CalcLayoutWidth )`), which on a wrapped row is its gap. A corner
+    /// in the gap of a wrapped row stays on that row (the caret carries the mark).
+    pub(super) fn collapse_box(&mut self, to_bottom_right: bool) -> Result<()> {
+        let Some(rect) = self.box_rect()? else {
+            return Ok(());
+        };
+        let (row, x) = match (to_bottom_right, rect.rows.last()) {
+            (true, Some(&last)) => (last, rect.right),
+            _ => (rect.rows[0], rect.left),
+        };
+        let target = self.box_corner_pos(row, x)?;
+        self.cursor.clear_selection();
+        self.move_caret(target.pos, false)?;
+        if target.in_gap() {
+            self.set_gap_free_x(target.x)?;
+        } else {
+            // right of the text of a row that is not wrapped: the free cursor mode keeps the column
+            self.stand_free(target.x)?;
+        }
+        Ok(())
+    }
+
     /// A position on the row of each corner of the box selection, anchor first (for a corner in
     /// the gap after a wrapped row, the last char of that row; otherwise the corner's position),
     /// for what counts the rows of the corners. `None` when no box covers anything.
@@ -234,6 +263,11 @@ impl CommandContext<'_> {
     }
 
     /// Whether the caret of a box selection is to the right of the end of the text of its row.
+    /// The gap after a wrapped row is not that empty space: there the caret is at a place of the
+    /// text, which continues in the next row. Typing there pads the gap and, in overwrite mode,
+    /// replaces the next char, as `DelCharForOverwrite` does (`nIdxTo >= GetLengthWithoutEOL`, then
+    /// `Command_DELETE`, "行終端が折り返し": pad with spaces, delete the next char;
+    /// `cmd/CViewCommander_Edit.cpp`), the same as for a free caret there.
     pub(super) fn caret_is_in_empty_space(&self) -> Result<bool> {
         // The row of the caret: at the end of a wrapped row (or right of it) it is that row.
         let row = self.caret_row_pos()?;

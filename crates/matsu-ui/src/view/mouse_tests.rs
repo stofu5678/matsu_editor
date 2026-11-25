@@ -1696,3 +1696,62 @@ fn an_alt_press_inside_the_last_char_of_a_wrapped_row_is_not_in_the_gap(cx: &mut
         up_at(&f, cx, 1, 1, alt());
     }
 }
+
+#[gpui::test]
+fn right_after_an_alt_drag_to_the_gap_of_a_wrapped_row_stays_on_that_row(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    // from column 10 of row 0 to the gap after row 1 (right of its text), then Right: the box
+    // ends and the caret goes to the bottom right corner of the rectangle, on row 1
+    // (`Command_RIGHT`: `Command_CANCEL_MODE( 2 )`)
+    down_at(&f, cx, 0, 10, 1, alt());
+    drag_at(&f, cx, 1, 40, alt());
+    up_at(&f, cx, 1, 40, alt());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 80));
+        assert_eq!(v.cursor.free_col(), Some(40 * 64));
+    });
+    run_keys(&f, cx, &["cursor_right"]);
+    f.view.read_with(cx, |v, app| {
+        assert!(!v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(0, 80));
+        assert_eq!(v.cursor.free_col(), Some(40 * 64));
+        assert_eq!(v.caret_row(app).row, 1);
+    });
+    // Left from the same kind of box: the top left corner, column 10 of row 0
+    down_at(&f, cx, 0, 10, 1, alt());
+    drag_at(&f, cx, 1, 40, alt());
+    up_at(&f, cx, 1, 40, alt());
+    run_keys(&f, cx, &["cursor_left"]);
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        assert_eq!(v.caret_row(app).row, 0);
+    });
+}
+
+#[gpui::test]
+fn a_plain_click_ends_a_box_in_the_gap_and_goes_where_it_is_clicked(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    run_keys(
+        &f,
+        cx,
+        &["go_line_end", "cursor_down_box", "cursor_left_box"],
+    );
+    down_at(&f, cx, 2, 5, 1, Modifiers::default());
+    up_at(&f, cx, 2, 5, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert!(!v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(0, 85));
+        assert_eq!(v.cursor.free_col(), None);
+    });
+    // and a click right of row 0 puts the caret at the end of that row
+    run_keys(&f, cx, &["go_line_end", "cursor_down_box"]);
+    down_at(&f, cx, 0, 41, 1, Modifiers::default());
+    up_at(&f, cx, 0, 41, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert!(!v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(0, 40));
+        assert_eq!(v.caret_row(app).row, 0);
+    });
+}
