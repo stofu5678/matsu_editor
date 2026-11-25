@@ -759,3 +759,58 @@ fn measure_the_html_of_a_long_line() {
         peak()
     );
 }
+
+#[test]
+fn a_long_line_after_the_selection_is_not_laid_out_searched_or_colored() {
+    use super::collect::color_html_within;
+    use super::{LINE_LIMIT, lay_out_through};
+    use matsu_core::buffer::{largest_decode, reset_largest_decode};
+
+    // the selection is the whole first line; the line after it is over the limit
+    let text = format!(
+        "one two\r\n{}\r\nend\r\n",
+        "xyz ".repeat(LINE_LIMIT / 4 + 10)
+    );
+    let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+    // a layout that is made as the app makes it: the lines that the copy asks for, no more
+    let mut layout = DocumentLayout::new(&doc, LayoutConfig::default()).unwrap();
+    let rules = UserSettings::none().view_settings(Some("a.txt")).coloring;
+    let states = ColorStates::default();
+    let mut cursor = Cursor::default();
+    cursor.move_to(Pos::new(0, 0), false);
+    cursor.move_to(Pos::new(0, 7), true);
+    reset_largest_decode();
+    lay_out_through(&mut layout, &doc, 0);
+    let matcher = PlainMatcher::new("xyz", PlainOptions::default());
+    let colors = [found_entry(0x0000ff, 0x00ffff, false)];
+    let html = color_html_within(
+        &Source {
+            doc: &doc,
+            layout: &layout,
+            rules: &rules,
+            states: &states,
+            cursor: &cursor,
+            line_num_is_crlf: true,
+            line_numbers: true,
+            found: Some(Found {
+                matcher: &matcher,
+                colors: FoundColors::new(colors.iter().copied()),
+                words: None,
+            }),
+        },
+        usize::MAX,
+    )
+    .unwrap()
+    .expect("the first line is copied");
+    assert!(html.contains("one two"), "{html}");
+    assert!(
+        !html.contains("xyz"),
+        "the line after the selection is not in the copy"
+    );
+    // nothing of the long line was decoded: the layout, the search and the colors did not reach it
+    assert!(
+        largest_decode() < LINE_LIMIT / 2,
+        "decoded {} bytes at once",
+        largest_decode()
+    );
+}

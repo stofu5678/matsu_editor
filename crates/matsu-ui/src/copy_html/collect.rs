@@ -312,8 +312,10 @@ fn html_rows(source: &Source<'_>, limit: usize) -> Option<Result<String, OutputF
             None,
         )
     };
-    // One row more than the selection: whether the line goes on after the last row.
-    let rows = layout.rows(doc, top, bottom - top + 2).ok()?;
+    // Only the rows of the selection: whether the line goes on after a row is known from the row
+    // (`RowInfo::wrapped`), so the line after the selection is not laid out, searched or colored.
+    // `line_over` checks the lines of these rows and no others.
+    let rows = layout.rows(doc, top, bottom - top + 1).ok()?;
     let last = rows.iter().position(|r| r.row == bottom)?;
     // The width of the line numbers (`nLineNumberMax`).
     let width = number_width(if source.line_num_is_crlf {
@@ -400,9 +402,8 @@ fn html_rows(source: &Source<'_>, limit: usize) -> Option<Result<String, OutputF
         });
         if source.line_numbers {
             // The tags close at the end of a line, so that the number of the next one is outside.
-            let next = rows.get(index + 1).filter(|r| !r.is_eof_row);
-            let line_ends =
-                next.is_none_or(|next| source.line_num_is_crlf || is_box || next.row_in_line == 0);
+            // (`wrapped`: the row ends because the line goes on in the next row)
+            let line_ends = source.line_num_is_crlf || is_box || !info.wrapped;
             if line_ends {
                 html.close_tags();
             }

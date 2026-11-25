@@ -38,8 +38,8 @@ pub(crate) fn long_line_message(bytes: usize) -> String {
     )
 }
 
-/// Lays out the lines up to the one after `last_line` (the copy looks at the row that follows the
-/// last row of the selection), so that the row numbers up to there are exact. The rows of a large
+/// Lays out the lines up to `last_line`, and no more (the copy looks at the rows of the selection
+/// only, see `collect`), so that the row numbers up to there are exact. The rows of a large
 /// document are only counted until the background layout reaches them; the rest of the
 /// document stays for the background.
 fn lay_out_through(
@@ -47,7 +47,7 @@ fn lay_out_through(
     doc: &matsu_core::buffer::Document,
     last_line: usize,
 ) {
-    let wanted = last_line.saturating_add(2).min(layout.line_count());
+    let wanted = last_line.saturating_add(1).min(layout.line_count());
     let todo = wanted.saturating_sub(layout.progress().done);
     if todo > 0 {
         let _ = layout.layout_chunk(doc, todo);
@@ -149,13 +149,13 @@ mod layout_tests {
         assert_eq!(layout.progress().done, 0);
         lay_out_through(&mut layout, &doc, 3);
         let progress = layout.progress();
-        // through the line after the one that is next to the selection, and no further
-        assert_eq!(progress.done, 5);
+        // through the last line of the selection, and no further
+        assert_eq!(progress.done, 4);
         assert!(!progress.is_complete());
         // what is laid out already is not done again, and a later line is laid out as far as it is
         lay_out_through(&mut layout, &doc, 1);
-        assert_eq!(layout.progress().done, 5);
+        assert_eq!(layout.progress().done, 4);
         lay_out_through(&mut layout, &doc, 99);
-        assert_eq!(layout.progress().done, 101);
+        assert_eq!(layout.progress().done, 100);
     }
 }
