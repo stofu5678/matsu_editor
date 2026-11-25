@@ -204,6 +204,24 @@ fn a_click_on_the_box_opens_the_list_while_the_focus_is_elsewhere(cx: &mut TestA
 }
 
 #[gpui::test]
+fn after_a_mouse_open_the_combo_box_is_still_one_tab_stop(cx: &mut TestAppContext) {
+    let _got = open_dialog(cx, SET);
+    let bounds = visual(cx)
+        .debug_bounds("win-kind-box")
+        .expect("the combo box");
+    visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    keys(cx, "escape");
+    assert!(combo_has_focus(cx));
+    keys(cx, "tab");
+    assert!(!combo_has_focus(cx), "one Tab leaves the box");
+    keys(cx, "shift-tab");
+    assert!(combo_has_focus(cx), "Shift+Tab comes back to it");
+    keys(cx, "shift-tab");
+    assert!(!combo_has_focus(cx), "and one more leaves it again");
+}
+
+#[gpui::test]
 fn space_opens_the_list_again_after_a_click_opened_it_and_escape_closed_it(
     cx: &mut TestAppContext,
 ) {
@@ -220,10 +238,12 @@ fn space_opens_the_list_again_after_a_click_opened_it_and_escape_closed_it(
         cx.update(|app| current(app)).is_some(),
         "Escape closed the list only"
     );
-    keys(cx, "space");
+    // the focus is on the button inside the box now (the Tab stop), which opens the list with
+    // Space itself when the key is released; here F4 opens it
+    keys(cx, "f4");
     assert!(
         with_dialog(cx, |d, _, _| d.kind.is_open()),
-        "Space opens the list"
+        "F4 opens the list"
     );
     // in the open list Space takes the row, and Alt+Up closes the list without choosing
     keys(cx, "down");

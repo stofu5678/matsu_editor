@@ -219,10 +219,40 @@ fn a_click_opens_the_list_while_the_focus_is_elsewhere_and_a_click_on_a_row_take
     assert_eq!(color(&list, cx), 1);
     assert!(!is_open(&list, cx));
     assert!(question_is_open(&list, cx));
-    // Space opens the list again with the focus in the box, and takes the row
-    cx.simulate_keystrokes("space down space");
+    // F4 opens the list again, and Space takes the row
+    cx.simulate_keystrokes("f4 down space");
     assert_eq!(color(&list, cx), 2);
     assert!(!is_open(&list, cx));
+}
+
+#[gpui::test]
+fn after_a_mouse_open_the_box_is_still_one_tab_stop(cx: &mut TestAppContext) {
+    let (mut cx, list, ring) = question(cx);
+    let cx = &mut cx;
+    let closed = cx
+        .debug_bounds("type-ascertain-color-box")
+        .expect("the box");
+    cx.simulate_click(closed.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(is_open(&list, cx));
+    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(stop(&list, &ring, cx), Stop::Ok, "Tab goes straight on");
+    cx.simulate_keystrokes("shift-tab shift-tab");
+    assert_eq!(stop(&list, &ring, cx), Stop::Group);
+    // a row taken with the mouse leaves the same
+    cx.simulate_click(closed.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    let row = cx
+        .debug_bounds("type-ascertain-color-row-1")
+        .expect("the second row");
+    cx.simulate_click(row.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(color(&list, cx), 1);
+    cx.simulate_keystrokes("tab");
+    assert_eq!(stop(&list, &ring, cx), Stop::Ok);
+    cx.simulate_keystrokes("shift-tab shift-tab");
+    assert_eq!(stop(&list, &ring, cx), Stop::Group);
 }
 
 #[gpui::test]

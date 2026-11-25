@@ -91,6 +91,15 @@ impl DropDown {
         window.focus_next(cx);
     }
 
+    /// A mouse press focuses the box that tracks the focus, and not the button inside it that is
+    /// the Tab stop: the next Tab would only go from the box to its own button. Moves the focus
+    /// on to the button then, so the drop-down stays one Tab stop whichever way it got the focus.
+    pub(crate) fn onto_button(&self, window: &mut Window, cx: &mut App) {
+        if self.focus.is_focused(window) {
+            window.focus_next(cx);
+        }
+    }
+
     /// Closes the list that is open: the one place that does it.
     pub(crate) fn close(&mut self) {
         self.open = false;
@@ -120,6 +129,7 @@ impl DropDown {
         if !self.has_focus(window, cx) {
             window.focus(&self.focus, cx);
         }
+        self.onto_button(window, cx);
         self.cursor = selected;
         self.scroll.scroll_to_item(selected);
     }
@@ -336,9 +346,10 @@ impl DropDown {
                 .cursor_pointer()
                 .when(at, |item| item.bg(rgb(0xc8dcf5)))
                 .hover(|style| style.bg(rgb(0xdde8f5)))
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_click(cx.listener(move |this, _, window, cx| {
                     if let Some(open) = drop_down(this) {
                         open.close();
+                        open.onto_button(window, cx);
                     }
                     pick(this, row, cx);
                 }))
