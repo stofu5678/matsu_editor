@@ -672,3 +672,31 @@ fn the_two_orientations_are_one_group_of_radio_buttons(cx: &mut TestAppContext) 
     cx.simulate_keystrokes("shift-tab");
     assert_eq!(orientation_state(&dialog, cx).1, Some(0));
 }
+
+#[gpui::test]
+fn the_access_key_of_an_orientation_chooses_it_and_takes_the_focus(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    cx.run_until_parked();
+    assert_eq!(orientation_state(&dialog, cx).1, None);
+    // 横(A)
+    cx.simulate_keystrokes("alt-a");
+    assert_eq!(
+        orientation_state(&dialog, cx),
+        (Orientation::Landscape, Some(1))
+    );
+    // the arrow key moves in the group from there
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        orientation_state(&dialog, cx),
+        (Orientation::Portrait, Some(0))
+    );
+    // 縦(I) while it is checked: the focus comes back to it after it left the group
+    cx.simulate_keystrokes("tab");
+    assert_eq!(orientation_state(&dialog, cx).1, None);
+    cx.simulate_keystrokes("alt-i");
+    assert_eq!(
+        orientation_state(&dialog, cx),
+        (Orientation::Portrait, Some(0))
+    );
+}

@@ -108,6 +108,13 @@ pub(crate) struct ExecDialog {
     _subscriptions: Vec<Subscription>,
 }
 
+/// The buttons of 標準出力リダイレクト先: the output window is the first, the editing window the
+/// second. The one place that maps the choice to a button, for the drawing, the `select` closure and
+/// the access keys.
+fn redirect_index(to_window: bool) -> usize {
+    usize::from(to_window)
+}
+
 impl ExecDialog {
     pub(crate) fn new(
         view: WeakEntity<EditorView>,
@@ -280,8 +287,14 @@ impl ExecDialog {
                 self.get_stdout = !self.get_stdout;
                 cx.notify();
             }
-            Found::One(Use::ToOutput) => self.choose_redirect(false, cx),
-            Found::One(Use::ToWindow) => self.choose_redirect(true, cx),
+            Found::One(Use::ToOutput) => {
+                self.choose_redirect(false, cx);
+                self.redirect_ring.focus(redirect_index(false), window, cx);
+            }
+            Found::One(Use::ToWindow) => {
+                self.choose_redirect(true, cx);
+                self.redirect_ring.focus(redirect_index(true), window, cx);
+            }
             Found::One(Use::SendStdin) => {
                 self.send_stdin = !self.send_stdin;
                 cx.notify();
@@ -536,9 +549,9 @@ impl Render for ExecDialog {
         let redirect = Group::new(
             &self.redirect_ring,
             2,
-            Some(usize::from(self.to_window)),
+            Some(redirect_index(self.to_window)),
             Rc::new(cx.listener(|this, index: &usize, _, cx| {
-                this.choose_redirect(*index == 1, cx);
+                this.choose_redirect(*index == redirect_index(true), cx);
             })),
         );
         let command_row = h_flex()
@@ -633,15 +646,23 @@ impl Render for ExecDialog {
                     .child(
                         h_flex()
                             .gap_3()
-                            .child(redirect.radio(0, "exec-to-output", stdout, |radio| {
-                                radio.labelled(TO_OUTPUT).checked(!self.to_window)
-                            }))
                             .child(redirect.radio(
-                                1,
-                                "exec-to-window",
-                                stdout && self.editable,
-                                |radio| radio.labelled(TO_WINDOW).checked(self.to_window),
-                            )),
+                                redirect_index(false),
+                                "exec-to-output",
+                                stdout,
+                                |radio| radio.labelled(TO_OUTPUT).checked(!self.to_window),
+                            ))
+                            .child(
+                                // the place of the button, for the tests that click it
+                                div().debug_selector(|| "exec-to-window".to_owned()).child(
+                                    redirect.radio(
+                                        redirect_index(true),
+                                        "exec-to-window",
+                                        stdout && self.editable,
+                                        |radio| radio.labelled(TO_WINDOW).checked(self.to_window),
+                                    ),
+                                ),
+                            ),
                     ),
             )
             .child(

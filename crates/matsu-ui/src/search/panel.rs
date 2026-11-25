@@ -667,8 +667,18 @@ impl SearchPanel {
         match used {
             Use::Option(opt) => self.set_option(|o| opt.switch(o), cx),
             Use::Consecutive => self.set_consecutive(!consecutive_all, cx),
-            Use::Target(target) => self.set_target(target, cx),
-            Use::Area(in_selection) => self.set_area(in_selection, cx),
+            Use::Target(target) => {
+                self.set_target(target, cx);
+                if let Some(index) = TARGETS.iter().position(|(_, _, t)| *t == target) {
+                    self.target_ring.focus(index, window, cx);
+                }
+            }
+            Use::Area(in_selection) => {
+                self.set_area(in_selection, cx);
+                if let Some(index) = AREAS.iter().position(|(_, _, s)| *s == in_selection) {
+                    self.area_ring.focus(index, window, cx);
+                }
+            }
             Use::Find(direction) => self.find(direction, window, cx),
             Use::Mark => self.mark_lines(window, cx),
             Use::ReplaceOne => self.replace_one(window, cx),
@@ -678,7 +688,12 @@ impl SearchPanel {
             Use::FocusSearch => focus_selecting(&self.text, window, cx),
             Use::FocusReplacement => focus_selecting(&self.replacement, window, cx),
             Use::FocusLine => focus_selecting(&self.line, window, cx),
-            Use::Unit(unit) => self.set_unit(unit, cx),
+            Use::Unit(unit) => {
+                self.set_unit(unit, cx);
+                if let Some(index) = UNITS.iter().position(|u| *u == unit) {
+                    self.unit_ring.focus(index, window, cx);
+                }
+            }
         }
         true
     }

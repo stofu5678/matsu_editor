@@ -278,16 +278,10 @@ impl WinSizeDialog {
     ) -> bool {
         let (pos_set, size_set) = (self.pos_mode == MODE_SET, self.size_mode == MODE_SET);
         let mut entries = Vec::new();
-        for (label, mode) in POS_LABELS
-            .into_iter()
-            .zip([MODE_DEFAULT, MODE_SAVE, MODE_SET])
-        {
+        for (label, mode) in POS_LABELS.into_iter().zip(MODES) {
             entries.extend(mark_of(label).map(|key| Entry::keyed(key, true, Use::PosMode(mode))));
         }
-        for (label, mode) in SIZE_LABELS
-            .into_iter()
-            .zip([MODE_DEFAULT, MODE_SAVE, MODE_SET])
-        {
+        for (label, mode) in SIZE_LABELS.into_iter().zip(MODES) {
             entries.extend(mark_of(label).map(|key| Entry::keyed(key, true, Use::SizeMode(mode))));
         }
         for (label, field, usable) in [
@@ -303,8 +297,18 @@ impl WinSizeDialog {
         match pick(letter, &entries) {
             Found::Nothing => return false,
             Found::Several => {}
-            Found::One(Use::PosMode(mode)) => self.set_pos_mode(mode, cx),
-            Found::One(Use::SizeMode(mode)) => self.set_size_mode(mode, cx),
+            Found::One(Use::PosMode(mode)) => {
+                self.set_pos_mode(mode, cx);
+                if let Some(index) = mode_index(mode) {
+                    self.pos_ring.focus(index, window, cx);
+                }
+            }
+            Found::One(Use::SizeMode(mode)) => {
+                self.set_size_mode(mode, cx);
+                if let Some(index) = mode_index(mode) {
+                    self.size_ring.focus(index, window, cx);
+                }
+            }
             Found::One(Use::Field(field)) => focus_selecting(self.input(field), window, cx),
             Found::One(Use::Close) => self.close(window, cx),
             Found::One(Use::Help) => open_help(cx),
@@ -361,7 +365,6 @@ impl Render for WinSizeDialog {
         // (the print settings' lists do the same): Shift+Tab and a click elsewhere come here
         self.kind.settle(window, cx);
 
-        // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
         let modes = |group: &'static str,
                      labels: [&'static str; 3],
                      current: i32,
@@ -374,9 +377,11 @@ impl Render for WinSizeDialog {
             let choose = Group::new(
                 ring,
                 labels.len(),
-                usize::try_from(current).ok(),
+                mode_index(current),
                 Rc::new(cx.listener(move |this, index: &usize, _, cx| {
-                    let mode = i32::try_from(*index).unwrap_or(MODE_DEFAULT);
+                    let Some(mode) = mode_at(*index) else {
+                        return;
+                    };
                     if group == "win-pos" {
                         this.set_pos_mode(mode, cx);
                     } else {
@@ -384,19 +389,16 @@ impl Render for WinSizeDialog {
                     }
                 })),
             );
-            let radios = labels
-                .into_iter()
-                .zip([MODE_DEFAULT, MODE_SAVE, MODE_SET])
-                .map(|(label, mode)| {
-                    let (shown, name) = radio_texts(label);
-                    let index = usize::try_from(mode).unwrap_or_default();
-                    choose.radio(index, (group, index), true, |radio| {
-                        radio
-                            .label(shown)
-                            .accessibility_label(name)
-                            .checked(current == mode)
-                    })
-                });
+            let radios = labels.into_iter().zip(MODES).map(|(label, mode)| {
+                let (shown, name) = radio_texts(label);
+                let index = mode_index(mode).unwrap_or_default();
+                choose.radio(index, (group, index), true, |radio| {
+                    radio
+                        .label(shown)
+                        .accessibility_label(name)
+                        .checked(current == mode)
+                })
+            });
             div()
                 .id(group)
                 .role(Role::RadioGroup)
@@ -564,6 +566,19 @@ impl Render for WinSizeDialog {
                     ),
             )
     }
+}
+
+/// The modes in the order of the buttons of both groups (the order of `POS_LABELS` and
+/// `SIZE_LABELS`): the one place that maps a mode to a button and back, for the drawing, the
+/// `select` closure and the access keys.
+const MODES: [i32; 3] = [MODE_DEFAULT, MODE_SAVE, MODE_SET];
+
+fn mode_index(mode: i32) -> Option<usize> {
+    MODES.iter().position(|m| *m == mode)
+}
+
+fn mode_at(index: usize) -> Option<i32> {
+    MODES.get(index).copied()
 }
 
 /// What a radio button shows and what a screen reader says for a label with an access key mark,

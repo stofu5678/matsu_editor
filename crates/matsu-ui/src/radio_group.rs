@@ -29,10 +29,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    App, ElementId, FocusHandle, InteractiveElement as _, IntoElement, KeyDownEvent, RenderOnce,
-    Window,
+    App, ElementId, FocusHandle, InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton,
+    RenderOnce, Window,
 };
 use gpui_component::radio::Radio;
+
+use crate::a11y::AriaDisabled as _;
 
 /// What a group does to choose the button with this index: the arrow keys and a click on a button
 /// both call it. Made with `cx.listener` of the dialog; it is the one place that writes the choice.
@@ -44,8 +46,8 @@ pub(crate) type Select = Rc<dyn Fn(&usize, &mut Window, &mut App)>;
 /// the handles of the other buttons, and no `Entity` is at hand there. Every button writes its
 /// own slot each time it is drawn, so a handle is as old as the last drawing of its button; the
 /// handle itself stays the same while the button exists (it is GPUI's keyed state of the
-/// button's id), and a button that is gone is not read (the group's size says how many there
-/// are).
+/// button's id). A button that is gone is not read: `step` is bounded by the group's size, and
+/// the slots beyond the size are dropped whenever a button is drawn (`register`).
 #[derive(Clone, Default)]
 pub(crate) struct Ring(Rc<RefCell<Vec<Slot>>>);
 
@@ -56,8 +58,10 @@ struct Slot {
 }
 
 impl Ring {
-    fn register(&self, index: usize, focus: FocusHandle, enabled: bool) {
+    fn register(&self, index: usize, size: usize, focus: FocusHandle, enabled: bool) {
         let mut slots = self.0.borrow_mut();
+        // the buttons that the group no longer has (a page that shows fewer) are forgotten
+        slots.truncate(size);
         if slots.len() <= index {
             slots.resize(index + 1, Slot::default());
         }
@@ -87,6 +91,39 @@ impl Ring {
             })
             .find(|&index| usable(index))
             .unwrap_or(from)
+    }
+
+    /// Moves the keyboard focus to the button at `index`, as Windows does when an access key
+    /// chooses a radio button (also one that is already checked). The caller chooses the button
+    /// first, through the group's one writer (`select`); this only moves the focus. An access key
+    /// is used only for a button that can be used, so a button that cannot be used, or that
+    /// is not drawn, is a mistake of the caller: a debug build stops, a release build does not
+    /// move the focus.
+    pub(crate) fn focus(&self, index: usize, window: &mut Window, cx: &mut App) {
+        let focus = self.usable_focus(index);
+        debug_assert!(
+            focus.is_some(),
+            "radio_group: the access key chose button {index}, which cannot take the focus"
+        );
+        if let Some(focus) = focus {
+            window.focus(&focus, cx);
+        }
+    }
+
+    /// The same for a mouse down, which also reaches a button that cannot be used: it does
+    /// nothing there.
+    fn focus_if_usable(&self, index: usize, window: &mut Window, cx: &mut App) {
+        if let Some(focus) = self.usable_focus(index) {
+            window.focus(&focus, cx);
+        }
+    }
+
+    /// The focus handle of the button at `index`, when the group drew it as it is now (the slots
+    /// beyond the group's size are dropped whenever a button is drawn) and it can be used.
+    fn usable_focus(&self, index: usize) -> Option<FocusHandle> {
+        let slots = self.0.borrow();
+        let slot = slots.get(index)?;
+        slot.enabled.then(|| slot.focus.clone()).flatten()
     }
 
     fn focus_of(&self, index: usize) -> Option<FocusHandle> {
@@ -180,7 +217,7 @@ impl RenderOnce for GroupRadio {
             selected,
             select,
         } = self.group;
-        ring.register(self.index, focus, self.enabled);
+        ring.register(self.index, size, focus, self.enabled);
         // Tab enters the group at the checked button, or at the first one when none is checked.
         let tab_stop = match selected {
             Some(selected) => selected == self.index,
@@ -188,12 +225,21 @@ impl RenderOnce for GroupRadio {
         };
         let index = self.index;
         let clicked = select.clone();
+        let pressed_ring = ring.clone();
         self.radio
             .disabled(!self.enabled)
+            // UI Automation says it is disabled too (as the gray check boxes, #528)
+            .aria_disabled(!self.enabled)
             .tab_stop(tab_stop)
             // A click, Space or Enter chooses the button by the same function as the arrow keys,
             // so that no dialog can write the two out of step.
             .on_click(move |_, window, cx| clicked(&index, window, cx))
+            // The button takes the focus when the mouse goes down on it, also when it is already
+            // checked (Windows focuses a radio button that is clicked; gpui-component's `Radio`
+            // calls `prevent_default` on a mouse down, which stops GPUI's own focusing).
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                pressed_ring.focus_if_usable(index, window, cx);
+            })
             .on_key_down(move |event: &KeyDownEvent, window, cx| {
                 let Some(forward) = direction(event) else {
                     return;

@@ -177,6 +177,17 @@ pub(crate) struct PrintSettingDialog {
     _subscriptions: Vec<Subscription>,
 }
 
+/// The buttons of 用紙の向き in the order they are drawn: the one place that maps an orientation to
+/// a button, for the drawing, the `select` closure and the access keys.
+const ORIENTATIONS: [Orientation; 2] = [Orientation::Portrait, Orientation::Landscape];
+
+fn orientation_index(orientation: Orientation) -> usize {
+    ORIENTATIONS
+        .iter()
+        .position(|o| *o == orientation)
+        .unwrap_or_default()
+}
+
 impl PrintSettingDialog {
     pub(crate) fn new(
         settings: PrintSettings,
@@ -652,7 +663,11 @@ impl PrintSettingDialog {
             }
             Use::Form(Part::Header) => focus_selecting(&self.header[0], window, cx),
             Use::Form(Part::Footer) => focus_selecting(&self.footer[0], window, cx),
-            Use::Orientation(orientation) => self.choose_orientation(orientation, cx),
+            Use::Orientation(orientation) => {
+                self.choose_orientation(orientation, cx);
+                self.orientation_ring
+                    .focus(orientation_index(orientation), window, cx);
+            }
             Use::LineNumber => {
                 let on = &mut self.shown_mut().print_line_number;
                 *on = !*on;
@@ -1023,18 +1038,11 @@ impl Render for PrintSettingDialog {
         let orientations = Group::new(
             &self.orientation_ring,
             2,
-            Some(usize::from(
-                self.shown().print_paper_orientation == Orientation::Landscape,
-            )),
+            Some(orientation_index(self.shown().print_paper_orientation)),
             Rc::new(cx.listener(|this, index: &usize, _, cx| {
-                this.choose_orientation(
-                    if *index == 0 {
-                        Orientation::Portrait
-                    } else {
-                        Orientation::Landscape
-                    },
-                    cx,
-                );
+                if let Some(orientation) = ORIENTATIONS.get(*index) {
+                    this.choose_orientation(*orientation, cx);
+                }
             })),
         );
         let now = self.collect(cx);
@@ -1122,16 +1130,26 @@ impl Render for PrintSettingDialog {
                     .gap_3()
                     .items_center()
                     .child(div().w(px(104.)).text_right().child("用紙の向き"))
-                    .child(orientations.radio(0, "ps-portrait", true, |radio| {
-                        radio
-                            .label(labels::PORTRAIT)
-                            .checked(self.shown().print_paper_orientation == Orientation::Portrait)
-                    }))
-                    .child(orientations.radio(1, "ps-landscape", true, |radio| {
-                        radio
-                            .label(labels::LANDSCAPE)
-                            .checked(self.shown().print_paper_orientation == Orientation::Landscape)
-                    })),
+                    .child(orientations.radio(
+                        orientation_index(Orientation::Portrait),
+                        "ps-portrait",
+                        true,
+                        |radio| {
+                            radio.label(labels::PORTRAIT).checked(
+                                self.shown().print_paper_orientation == Orientation::Portrait,
+                            )
+                        },
+                    ))
+                    .child(orientations.radio(
+                        orientation_index(Orientation::Landscape),
+                        "ps-landscape",
+                        true,
+                        |radio| {
+                            radio.label(labels::LANDSCAPE).checked(
+                                self.shown().print_paper_orientation == Orientation::Landscape,
+                            )
+                        },
+                    )),
             )
             .child(self.number_row(labels::MARGIN_TOP, Number::MarginTop, "(mm)", window, cx))
             .child(self.number_row(

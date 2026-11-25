@@ -117,7 +117,6 @@
 | ダイアログがモーダルでない（GPUI にモーダルの子ウィンドウがない） | － | 自前のダイアログはモーダルではない（#150） | B | L | GPUI |
 | Windows の旧式のファイルダイアログ（`bVistaStyleFileDialog` が 0）、ダイアログの下の欄（文字コード・改行の選択、MRU コンボ） | `CDlgOpenFile_*.cpp` | 新式だけ。保存ダイアログの文字コード・改行は #162 で入った。開くダイアログの「文字コード」「読み取り専用で開く」の欄は未確認 | B/C | M | OS ごとのダイアログ |
 | UNC への接続（`NetConnect`）、フォルダー履歴 | `CDlgOpenFile.cpp` | していない（#105） | B | S | なし |
-| ラジオボタンのアクセスキー: サクラ（Windows のダイアログ）は、アクセスキーでラジオボタンにチェックを付け、フォーカスもそのボタンに移す。続く矢印キーは、そのグループの中を動く。MATSU はチェックだけを付け、フォーカスは元の部品に残る（`radio_group.rs` を使う全部のグループ） | `sakura_rc.rc` の `BS_AUTORADIOBUTTON`。2026-11-25 にサクラ 2.4.2 の `IDD_JUMP` で測った（`BM_GETCHECK` と `GetGUIThreadInfo`）: Alt+R で「折り返し単位の行番号」にチェックとフォーカスが移り、続く ↓ で「改行単位の行番号」に移った。チェック済みの方の Alt+W も、フォーカスを移した | グループの矢印キーと Tab は入った（#577・#580）。アクセスキーは選ぶだけ | C | S | なし |
 
 ### プラグイン
 
@@ -183,7 +182,7 @@
 |---|---|---|---|---|---|
 | エディタの本文の読み上げ（可視行の TextRun、キャレット、選択） | － | 入れた（`view/a11y_text.rs`）: 画面に出ている行を TextRun に、キャレットと選択を TextSelection にして、Div の `a11y_synthetic_children` で出す。文字の位置と幅、単語の始まりつき。Windows（UI Automation の TextPattern）と Mac（AX）での確認は調整役。画面の外の行（余白）とキャレットが画面外のときの選択は出さない。残り: キーボードのフォーカスが本文の要素に移らない（UI Automation の `HasKeyboardFocus` が偽。ウィンドウを切り替えて戻ると正しくなる。GPUI の側で、#290 で調べた。報告の下書きは `.claude/handoff/drafts/`。ユーザーが再現してから投稿） | C | S | GPUI |
 | ポップアップメニューの入れ物と区切り線に名前がない、項目のチェック・灰色・位置 | － | gpui-component の限界（#177、#204）。報告の下書きは `.claude/handoff/drafts/`。ユーザーが再現してから投稿 | ユーザーの判断が要る: ほかの OSS への投稿 | － | gpui-component |
-| 無効なボタン・入力欄の disabled | － | 表（一覧）の名前は入れた: 設定・履歴・タグジャンプ・ウィンドウ一覧などは前から、検索・Grep・DIFF・ファイル内容比較・外部コマンド・ワンライナーの履歴の一覧とダイアログに、役割と名前を付けた（`a11y.rs` の `list_box`・`dialog`）。灰色のチェックボックス・ラジオボタンと自前のボタンは `aria_disabled`（#528）で出す。ただし、#577・#580 のラジオボタンのグループ（`radio_group.rs`）は、使えないボタンに `aria_disabled` を付けていない（2026-11-25 に Sandbox で、DIFF の「他の編集中のファイル」が灰色なのに、UI オートメーションの `IsEnabled` が真だった）。残り: gpui-component の `Button` と `Input` の `disabled` は見た目だけで、AccessKit の `disabled` を書かない（GPUI にも書く所がない）。MATSU の側からは付けられない。報告の下書きは `.claude/handoff/drafts/`。ユーザーが再現してから投稿 | B | S | gpui-component |
+| 無効なボタン・入力欄の disabled | － | 表（一覧）の名前は入れた: 設定・履歴・タグジャンプ・ウィンドウ一覧などは前から、検索・Grep・DIFF・ファイル内容比較・外部コマンド・ワンライナーの履歴の一覧とダイアログに、役割と名前を付けた（`a11y.rs` の `list_box`・`dialog`）。灰色のチェックボックス・ラジオボタンと自前のボタンは `aria_disabled`（#528）で出す。ラジオボタンのグループ（`radio_group.rs`）の使えないボタンにも、グループの側で付ける（2026-11-25 に Sandbox で、DIFF の「他の編集中のファイル」が灰色なのに `IsEnabled` が真だったのを直した）。残り: gpui-component の `Button` と `Input` の `disabled` は見た目だけで、AccessKit の `disabled` を書かない（GPUI にも書く所がない）。MATSU の側からは付けられない。報告の下書きは `.claude/handoff/drafts/`。ユーザーが再現してから投稿 | B | S | gpui-component |
 
 ### そのほか
 

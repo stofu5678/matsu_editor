@@ -45,6 +45,15 @@ impl FileTreeDialog {
         cx.notify();
     }
 
+    /// The access key of a radio button of 種類: chooses it (`set_kind` is the one writer) and takes
+    /// the focus to it.
+    fn choose_kind(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_kind(kind, cx);
+        if let Some(index) = Kind::ALL.iter().position(|k| *k == kind) {
+            self.kind_ring.focus(index, window, cx);
+        }
+    }
+
     /// `IDC_CHECK_LOADINI`.
     pub(crate) fn set_project(&mut self, on: bool, cx: &mut Context<Self>) {
         self.project = on;
@@ -595,9 +604,9 @@ impl FileTreeDialog {
             'j' => focus(&self.default_ini.clone(), window, cx),
             '1' => self.browse_default_ini(window, cx),
             'v' => self.load_default_ini(window, cx),
-            'g' => self.set_kind(Kind::Grep, cx),
-            'f' => self.set_kind(Kind::File, cx),
-            '2' => self.set_kind(Kind::Folder, cx),
+            'g' => self.choose_kind(Kind::Grep, window, cx),
+            'f' => self.choose_kind(Kind::File, window, cx),
+            '2' => self.choose_kind(Kind::Folder, window, cx),
             't' if self.path_enabled() => focus(&self.path.clone(), window, cx),
             '.' => self.browse_path(window, cx),
             '3' => self.toggle_path_menu(cx),

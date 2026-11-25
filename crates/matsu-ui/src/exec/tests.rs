@@ -1208,3 +1208,43 @@ fn the_two_radio_buttons_of_the_redirect_are_one_group(cx: &mut TestAppContext) 
     w.cx(cx).simulate_keystrokes("tab");
     assert_eq!(redirect_state(&w, cx, &dialog).1, None);
 }
+
+#[gpui::test]
+fn an_access_key_or_a_click_chooses_a_redirect_button_and_takes_the_focus(cx: &mut TestAppContext) {
+    let (_dir, w, dialog) = dialog_with_history(cx);
+    dialog.update(cx, |d, cx| {
+        d.get_stdout = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    // Alt+C (編集中のウィンドウ): chosen and focused, then the arrow key moves in the group
+    press(&w, cx, "alt-c");
+    assert_eq!(redirect_state(&w, cx, &dialog), (true, Some(1)));
+    press(&w, cx, "down");
+    assert_eq!(redirect_state(&w, cx, &dialog), (false, Some(0)));
+    // Alt+O on the checked button focuses it again after the focus left the group
+    press(&w, cx, "tab");
+    assert_eq!(redirect_state(&w, cx, &dialog).1, None);
+    press(&w, cx, "alt-o");
+    assert_eq!(redirect_state(&w, cx, &dialog), (false, Some(0)));
+    // a click on the other button
+    let bounds = w
+        .cx(cx)
+        .debug_bounds("exec-to-window")
+        .expect("the radio button");
+    w.cx(cx)
+        .simulate_click(bounds.center(), gpui::Modifiers::none());
+    assert_eq!(redirect_state(&w, cx, &dialog), (true, Some(1)));
+    // 標準出力を得る off: the buttons cannot be used and the access key does nothing
+    press(&w, cx, "tab");
+    assert_eq!(redirect_state(&w, cx, &dialog).1, None);
+    dialog.update(cx, |d, cx| {
+        d.get_stdout = false;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let before = redirect_state(&w, cx, &dialog);
+    assert_eq!(before.1, None);
+    press(&w, cx, "alt-o");
+    assert_eq!(redirect_state(&w, cx, &dialog), before);
+}
