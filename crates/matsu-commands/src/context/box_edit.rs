@@ -100,12 +100,12 @@ impl CommandContext<'_> {
     /// Without a box it is 0. The rows are not listed, as a box can cover the whole document
     /// ([`box_rect`](Self::box_rect) lists them).
     pub(super) fn box_bytes(&self, limit: usize) -> Result<usize> {
-        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
+        let Some(bounds) = self.box_bounds()? else {
             return Ok(0);
         };
-        let (left, right) = (a_x.min(c_x), a_x.max(c_x));
-        let last = self.layout.row_start(self.doc(), a.max(c))?;
-        let mut row = self.layout.row_start(self.doc(), a.min(c))?;
+        let (left, right) = (bounds.left, bounds.right);
+        let last = self.layout.row_start(self.doc(), bounds.bottom)?;
+        let mut row = self.layout.row_start(self.doc(), bounds.top)?;
         let mut bytes = 0usize;
         loop {
             let (from, to) = self.box_row_range(row, left, right)?;

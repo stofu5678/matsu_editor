@@ -1238,6 +1238,21 @@ mod box_corners_in_the_gap {
     }
 
     #[test]
+    fn the_size_of_a_box_counts_the_rows_of_its_corners() {
+        // End, Begin Box, Down, Left selects `c` and `f`: the anchor is in the gap after row 0
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        assert_eq!(r.cx(|cx| cx.selection_bytes(usize::MAX).unwrap()), 2);
+        // the bottom corner in the gap after row 1: the rows 0 and 1 only, not the next row
+        // (`bc`, `ef`; counting the row of the position of that corner would add the `h` of row 2)
+        let mut r = dragged_into_the_gap();
+        assert_eq!(r.cx(|cx| cx.selection_bytes(usize::MAX).unwrap()), 4);
+        // a copy that is allowed by the size copies the same text
+        r.run("copy");
+        assert_eq!(r.clip.data().expect("a copy").text, "bc\r\nef\r\n");
+    }
+
+    #[test]
     fn the_rest_of_the_moves_work_from_the_gap() {
         // up from the gap of the second row, onto the gap of the first
         let mut r = Rig::new("abcdefgh");

@@ -280,6 +280,8 @@ pub(crate) fn line_over(doc: &Document, cursor: &Cursor, limit: usize) -> Option
     }
     let (from, to) = cursor.selection()?;
     let (first, last) = match cursor.box_corners() {
+        // (a corner in the gap after a wrapped row has the position of the start of the next row,
+        // which is a row of the same line: the lines are those of the positions)
         Some(((a, _), (c, _))) => (a.line.min(c.line), a.line.max(c.line)),
         None => (from.line, to.line),
     };
