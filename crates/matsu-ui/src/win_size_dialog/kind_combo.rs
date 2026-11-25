@@ -27,10 +27,10 @@ impl WinSizeDialog {
         self.size_mode == super::MODE_SET
     }
 
-    /// Chooses the entry at `row` (one of `KINDS`) and closes the list (`CBN_SELCHANGE`).
+    /// Chooses the entry at `row` (one of `KINDS`; `CBN_SELCHANGE`). The list is closed by the
+    /// drop-down.
     fn pick_kind(&mut self, row: usize, cx: &mut Context<Self>) {
         self.set_size_type(KINDS[row].1, cx);
-        self.kind.close();
         cx.notify();
     }
 
@@ -66,10 +66,7 @@ impl WinSizeDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let usable = self.kind_usable();
-        let keyed = self
-            .kind
-            .on_capture_key(event, window, cx, KINDS.len(), usable);
+        let keyed = self.kind.on_capture_key(event, window, cx, KINDS.len());
         self.kind_keyed(keyed, cx);
     }
 
@@ -86,6 +83,7 @@ impl WinSizeDialog {
                 this.kind.toggle(selected, window, cx);
                 cx.notify();
             },
+            drop_down: |this| Some(&mut this.kind),
             pick: Self::pick_kind,
             key: Self::on_kind_key,
         };

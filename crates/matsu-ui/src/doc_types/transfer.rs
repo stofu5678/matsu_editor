@@ -223,14 +223,6 @@ impl TypeList {
         cx.notify();
     }
 
-    /// A row of the open list was clicked: chooses it and closes the list.
-    fn pick_color(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.set_color(index, cx);
-        if let Some(q) = self.ascertain.as_mut() {
-            q.colors.close();
-        }
-    }
-
     /// What a key of the 色選択 box did, as the drop-down tells it.
     fn colors_keyed(&mut self, keyed: Keyed, cx: &mut Context<Self>) {
         match keyed {
@@ -241,7 +233,7 @@ impl TypeList {
                 cx.stop_propagation();
             }
             Keyed::Choose(row) => {
-                self.pick_color(row, cx);
+                self.set_color(row, cx);
                 cx.stop_propagation();
             }
         }
@@ -269,9 +261,7 @@ impl TypeList {
         let Some(q) = self.ascertain.as_mut() else {
             return;
         };
-        let keyed = q
-            .colors
-            .on_capture_key(event, window, cx, q.choices.len(), true);
+        let keyed = q.colors.on_capture_key(event, window, cx, q.choices.len());
         self.colors_keyed(keyed, cx);
     }
 
@@ -493,7 +483,7 @@ impl TypeList {
     ) -> impl IntoElement {
         // a list that is open while the focus has left the box is closed, as a combo box does
         if let Some(q) = self.ascertain.as_mut() {
-            q.colors.settle(window, cx, true);
+            q.colors.settle(window, cx);
         }
         let Some(q) = self.ascertain.as_ref() else {
             return div().into_any_element();
@@ -527,7 +517,8 @@ impl TypeList {
                     }
                     cx.notify();
                 },
-                pick: Self::pick_color,
+                drop_down: |this| this.ascertain.as_mut().map(|q| &mut q.colors),
+                pick: Self::set_color,
                 key: Self::on_colors_key,
             },
             cx,

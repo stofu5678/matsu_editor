@@ -359,7 +359,7 @@ impl Render for WinSizeDialog {
         let size_set = self.size_mode == MODE_SET;
         // a list that is open while the focus has left the box is closed, as a combo box does
         // (the print settings' lists do the same): Shift+Tab and a click elsewhere come here
-        self.kind.settle(window, cx, self.kind_usable());
+        self.kind.settle(window, cx);
 
         // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
         let modes = |group: &'static str,

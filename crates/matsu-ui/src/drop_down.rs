@@ -15,8 +15,10 @@
 //! open, the row the keys are on in the open list, the scroll of the list and the focus of the box.
 //! It tells the dialog what a key did ([`Keyed`]) and the dialog writes the choice. The list is
 //! closed in one place, [`DropDown::close`]: a row was taken, Escape, F4, a key that leaves the
-//! box, the focus left the box ([`DropDown::settle`], called from `render`), or the box was
-//! disabled. The keys do nothing while the box is disabled (`usable` is false).
+//! box, or the focus left the box ([`DropDown::settle`], called from `render`). A row is taken the
+//! same way from the keys and from a click: the part closes, then the dialog writes the choice.
+//! The dialog closes the list when it disables the box. The keys do nothing while the box is
+//! disabled (`usable` is false).
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -94,11 +96,10 @@ impl DropDown {
         self.open = false;
     }
 
-    /// Closes the list when the box cannot be used any more or the focus has left it (Shift+Tab
-    /// and a click elsewhere come here from `render`), as a combo box does. Returns whether it
-    /// closed.
-    pub(crate) fn settle(&mut self, window: &Window, cx: &App, usable: bool) -> bool {
-        let closes = self.open && (!usable || !self.has_focus(window, cx));
+    /// Closes the list when the focus has left the box (Shift+Tab and a click elsewhere come here
+    /// from `render`), as a combo box does. Returns whether it closed.
+    pub(crate) fn settle(&mut self, window: &Window, cx: &App) -> bool {
+        let closes = self.open && !self.has_focus(window, cx);
         if closes {
             self.close();
         }
@@ -177,12 +178,11 @@ impl DropDown {
         window: &mut Window,
         cx: &mut App,
         rows: usize,
-        usable: bool,
     ) -> Keyed {
         if !self.open {
             return Keyed::Ignored;
         }
-        if !usable || !self.has_focus(window, cx) {
+        if !self.has_focus(window, cx) {
             self.close();
             return Keyed::Redraw;
         }
@@ -235,7 +235,11 @@ pub(crate) struct Look {
 pub(crate) struct Hooks<T> {
     /// The button was clicked: open or close the list ([`DropDown::toggle`]).
     pub(crate) toggle: fn(&mut T, &mut Window, &mut Context<T>),
-    /// A row of the open list was clicked: choose it and close the list.
+    /// The drop-down of the dialog (none while the dialog has none): a click on a row closes it
+    /// here, as the key that takes a row does inside the part.
+    pub(crate) drop_down: fn(&mut T) -> Option<&mut DropDown>,
+    /// A row was taken (a click, Enter or Space): the dialog writes the choice. The list is
+    /// already closed.
     pub(crate) pick: fn(&mut T, usize, &mut Context<T>),
     /// A key on the box ([`DropDown::on_key`]).
     pub(crate) key: fn(&mut T, &KeyDownEvent, &mut Window, &mut Context<T>),
@@ -253,13 +257,19 @@ impl DropDown {
         hooks: &Hooks<T>,
         cx: &mut Context<T>,
     ) -> gpui::AnyElement {
-        let Hooks { toggle, pick, key } = *hooks;
+        let Hooks { toggle, key, .. } = *hooks;
         let id = look.id;
         let rows: Vec<&str> = rows.into_iter().collect();
         let text = rows.get(selected).copied().unwrap_or_default();
         div()
             .id(ElementId::from(format!("{id}-box")))
             .debug_selector(move || format!("{id}-box"))
+            // the closed box is a combo box named after its label, with the chosen entry as its
+            // value; the list has the name too
+            .role(gpui::Role::ComboBox)
+            .aria_label(look.name)
+            .aria_value(text.to_owned())
+            .aria_expanded(self.open)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(key))
             .relative()
@@ -274,7 +284,7 @@ impl DropDown {
             .when(self.open, |combo| {
                 // drawn over what is under the box (deferred, so that nothing after it covers
                 // it), so that opening the list moves nothing
-                combo.child(deferred(self.list(look, &rows, pick, cx)).with_priority(1))
+                combo.child(deferred(self.list(look, &rows, hooks, cx)).with_priority(1))
             })
             .into_any_element()
     }
@@ -284,10 +294,13 @@ impl DropDown {
         &self,
         look: &Look,
         rows: &[&str],
-        pick: fn(&mut T, usize, &mut Context<T>),
+        hooks: &Hooks<T>,
         cx: &mut Context<T>,
     ) -> impl IntoElement {
         let id = look.id;
+        let Hooks {
+            drop_down, pick, ..
+        } = *hooks;
         let mut list = div()
             .id(ElementId::from(format!("{id}-list")))
             .debug_selector(move || format!("{id}-list"))
@@ -323,7 +336,12 @@ impl DropDown {
                 .cursor_pointer()
                 .when(at, |item| item.bg(rgb(0xc8dcf5)))
                 .hover(|style| style.bg(rgb(0xdde8f5)))
-                .on_click(cx.listener(move |this, _, _, cx| pick(this, row, cx)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(open) = drop_down(this) {
+                        open.close();
+                    }
+                    pick(this, row, cx);
+                }))
                 .child((*text).to_owned()),
             );
         }
