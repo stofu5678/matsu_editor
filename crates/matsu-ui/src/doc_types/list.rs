@@ -226,7 +226,7 @@ impl Render for TypeList {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
         if self.ascertain.is_some() {
-            return self.render_ascertain(cx).into_any_element();
+            return self.render_ascertain(window, cx).into_any_element();
         }
         let items: Vec<_> = self
             .labels

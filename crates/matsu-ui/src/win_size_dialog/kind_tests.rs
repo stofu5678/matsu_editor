@@ -15,9 +15,7 @@ const SET: WinSize = WinSize {
 };
 
 fn combo_has_focus(cx: &mut TestAppContext) -> bool {
-    with_dialog(cx, |d, window, dcx| {
-        d.kind_focus.contains_focused(window, dcx)
-    })
+    with_dialog(cx, |d, window, dcx| d.kind.has_focus(window, dcx))
 }
 
 fn kind(cx: &mut TestAppContext) -> i32 {
@@ -88,13 +86,13 @@ fn the_open_list_takes_the_row_with_enter_and_closes_with_escape(cx: &mut TestAp
         keys(cx, "tab");
     }
     keys(cx, "f4");
-    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(with_dialog(cx, |d, _, _| d.kind.is_open()));
     keys(cx, "down");
     keys(cx, "down");
     // the row is only under the keys until Enter takes it
     assert_eq!(kind(cx), SIZE_RESTORED);
     keys(cx, "enter");
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
     assert_eq!(kind(cx), SIZE_MINIMIZED);
     assert!(
         cx.update(|app| current(app)).is_some(),
@@ -104,7 +102,7 @@ fn the_open_list_takes_the_row_with_enter_and_closes_with_escape(cx: &mut TestAp
     keys(cx, "f4");
     keys(cx, "up");
     keys(cx, "escape");
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
     assert_eq!(kind(cx), SIZE_MINIMIZED);
     assert!(
         cx.update(|app| current(app)).is_some(),
@@ -140,11 +138,11 @@ fn shift_tab_closes_the_open_list(cx: &mut TestAppContext) {
         keys(cx, "tab");
     }
     keys(cx, "f4");
-    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(with_dialog(cx, |d, _, _| d.kind.is_open()));
     keys(cx, "shift-tab");
     assert!(!combo_has_focus(cx));
     assert!(
-        !with_dialog(cx, |d, _, _| d.kind_open),
+        !with_dialog(cx, |d, _, _| d.kind.is_open()),
         "the focus left the box"
     );
 }
@@ -159,17 +157,17 @@ fn the_keys_change_nothing_once_the_size_leaves_a_direct_size(cx: &mut TestAppCo
         keys(cx, "tab");
     }
     keys(cx, "f4");
-    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(with_dialog(cx, |d, _, _| d.kind.is_open()));
     with_dialog(cx, |d, _, dcx| d.set_size_mode(MODE_DEFAULT, dcx));
     assert!(
-        !with_dialog(cx, |d, _, _| d.kind_open),
+        !with_dialog(cx, |d, _, _| d.kind.is_open()),
         "the list is closed"
     );
     // the focus may still be in the box: the keys do not reach the choice
     keys(cx, "down");
     keys(cx, "f4");
     assert_eq!(kind(cx), SIZE_RESTORED);
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
 }
 
 #[gpui::test]
@@ -189,15 +187,38 @@ fn a_kind_that_is_none_of_the_three_is_shown_and_saved_as_the_first(cx: &mut Tes
 fn a_click_on_the_box_opens_the_list_while_the_focus_is_elsewhere(cx: &mut TestAppContext) {
     let _got = open_dialog(cx, SET);
     assert!(!combo_has_focus(cx));
-    let bounds = visual(cx).debug_bounds("win-kinds").expect("the combo box");
+    let bounds = visual(cx)
+        .debug_bounds("win-kind-box")
+        .expect("the combo box");
     visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
     cx.run_until_parked();
-    assert!(with_dialog(cx, |d, _, _| d.kind_open), "the list is open");
+    assert!(
+        with_dialog(cx, |d, _, _| d.kind.is_open()),
+        "the list is open"
+    );
     assert!(combo_has_focus(cx), "the focus is in the box");
     // a second click closes it
     visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
     cx.run_until_parked();
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
+}
+
+#[gpui::test]
+fn after_a_mouse_open_the_combo_box_is_still_one_tab_stop(cx: &mut TestAppContext) {
+    let _got = open_dialog(cx, SET);
+    let bounds = visual(cx)
+        .debug_bounds("win-kind-box")
+        .expect("the combo box");
+    visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    keys(cx, "escape");
+    assert!(combo_has_focus(cx));
+    keys(cx, "tab");
+    assert!(!combo_has_focus(cx), "one Tab leaves the box");
+    keys(cx, "shift-tab");
+    assert!(combo_has_focus(cx), "Shift+Tab comes back to it");
+    keys(cx, "shift-tab");
+    assert!(!combo_has_focus(cx), "and one more leaves it again");
 }
 
 #[gpui::test]
@@ -205,45 +226,51 @@ fn space_opens_the_list_again_after_a_click_opened_it_and_escape_closed_it(
     cx: &mut TestAppContext,
 ) {
     let _got = open_dialog(cx, SET);
-    let bounds = visual(cx).debug_bounds("win-kinds").expect("the combo box");
+    let bounds = visual(cx)
+        .debug_bounds("win-kind-box")
+        .expect("the combo box");
     visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
     cx.run_until_parked();
-    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(with_dialog(cx, |d, _, _| d.kind.is_open()));
     keys(cx, "escape");
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
     assert!(
         cx.update(|app| current(app)).is_some(),
         "Escape closed the list only"
     );
-    keys(cx, "space");
+    // the focus is on the button inside the box now (the Tab stop), which opens the list with
+    // Space itself when the key is released; here F4 opens it
+    keys(cx, "f4");
     assert!(
-        with_dialog(cx, |d, _, _| d.kind_open),
-        "Space opens the list"
+        with_dialog(cx, |d, _, _| d.kind.is_open()),
+        "F4 opens the list"
     );
     // in the open list Space takes the row, and Alt+Up closes the list without choosing
     keys(cx, "down");
     keys(cx, "space");
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
     assert_eq!(kind(cx), SIZE_MAXIMIZED);
     keys(cx, "alt-down");
-    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(with_dialog(cx, |d, _, _| d.kind.is_open()));
     keys(cx, "alt-up");
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
     assert_eq!(kind(cx), SIZE_MAXIMIZED);
 }
 
 #[gpui::test]
 fn the_open_list_is_drawn_over_the_dialog_and_moves_nothing(cx: &mut TestAppContext) {
     let _got = open_dialog(cx, SET);
-    let closed = visual(cx).debug_bounds("win-kinds").expect("the combo box");
+    let closed = visual(cx)
+        .debug_bounds("win-kind-box")
+        .expect("the combo box");
     // the height box is under the combo box, and the close button at the bottom
     let spin_closed = visual(cx)
         .debug_bounds("win-size-close")
         .expect("the close button");
     visual(cx).simulate_click(closed.center(), gpui::Modifiers::none());
     cx.run_until_parked();
-    assert!(with_dialog(cx, |d, _, _| d.kind_open));
-    assert_eq!(visual(cx).debug_bounds("win-kinds"), Some(closed));
+    assert!(with_dialog(cx, |d, _, _| d.kind.is_open()));
+    assert_eq!(visual(cx).debug_bounds("win-kind-box"), Some(closed));
     assert_eq!(visual(cx).debug_bounds("win-size-close"), Some(spin_closed));
     // a click on a row takes it, while the focus stays in the box
     let row = visual(cx)
@@ -253,5 +280,5 @@ fn the_open_list_is_drawn_over_the_dialog_and_moves_nothing(cx: &mut TestAppCont
     visual(cx).simulate_click(row.center(), gpui::Modifiers::none());
     cx.run_until_parked();
     assert_eq!(kind(cx), SIZE_MAXIMIZED);
-    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(!with_dialog(cx, |d, _, _| d.kind.is_open()));
 }

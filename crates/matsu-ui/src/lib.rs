@@ -46,6 +46,7 @@ mod diff;
 mod doc_types;
 mod doc_window;
 pub mod document;
+mod drop_down;
 mod exec;
 mod file_dialog;
 mod file_names;

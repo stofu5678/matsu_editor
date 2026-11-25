@@ -189,6 +189,8 @@ mod shared_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod transfer_dropdown_tests;
+#[cfg(test)]
 mod transfer_group_tests;
 #[cfg(test)]
 mod transfer_tests;

@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use gpui::{
     ClickEvent, Context, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
-    Role, ScrollHandle, StatefulInteractiveElement, Styled, Window, div, px, rgb, rgba,
+    StatefulInteractiveElement, Styled, Window, div, px, rgb, rgba,
 };
 use matsu_config::settings::DocumentTypes;
 use matsu_config::settings::type_file::{
@@ -31,6 +31,7 @@ use crate::a11y::Labelled as _;
 use crate::access_keys::OnAccessKey as _;
 use crate::common_settings::transfer::{cannot_export, cannot_open, exported};
 use crate::dialog_focus::KeepTabInside as _;
+use crate::drop_down::{DropDown, Hooks, Keyed, Look};
 use crate::file_dialog::{self, Ask, import_folder};
 use crate::radio_group::{Group, Ring};
 use crate::support::help::OnHelpKey as _;
@@ -63,13 +64,17 @@ pub(crate) struct Ascertain {
     to_id: Option<i32>,
     /// The choices of 色選択 with their text.
     choices: Vec<(ColorChoice, String)>,
+    /// The choice of 色選択: the one writer is `set_color`.
     pub(super) color: usize,
-    scroll: ScrollHandle,
     /// The focus of the two radio buttons of 読込先 (one group).
     pub(super) location_ring: Ring,
-    /// The focus of the list of 色選択 (`IDC_COMBO_COLORS` has `WS_TABSTOP`): it is the Tab stop
-    /// after the group, and ↑↓ move the color while it has the focus (`on_ascertain_key`).
-    pub(super) colors_focus: FocusHandle,
+    /// 色選択 as a closed drop-down list (`IDC_COMBO_COLORS` is `CBS_DROPDOWNLIST | WS_VSCROLL |
+    /// WS_TABSTOP`): the Tab stop after the group (`crate::drop_down`).
+    pub(super) colors: DropDown,
+    /// OK, キャンセル and ヘルプ: push buttons are Tab stops, in this order after the colors.
+    pub(super) ok_focus: FocusHandle,
+    pub(super) cancel_focus: FocusHandle,
+    pub(super) help_focus: FocusHandle,
 }
 
 impl Ascertain {
@@ -189,9 +194,11 @@ impl TypeList {
             to_id,
             choices,
             color: 0,
-            scroll: ScrollHandle::new(),
             location_ring: Ring::default(),
-            colors_focus: cx.focus_handle().tab_stop(true),
+            colors: DropDown::new(cx),
+            ok_focus: cx.focus_handle().tab_stop(true),
+            cancel_focus: cx.focus_handle().tab_stop(true),
+            help_focus: cx.focus_handle().tab_stop(true),
         });
         cx.notify();
     }
@@ -205,6 +212,57 @@ impl TypeList {
             q.add = add;
         }
         cx.notify();
+    }
+
+    /// 色選択: chooses the entry `index` (`CBN_SELCHANGE`). The one writer of the choice: the
+    /// keys of the closed box, the open list and a click on a row all come here.
+    fn set_color(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(q) = self.ascertain.as_mut() {
+            q.color = index.min(q.choices.len().saturating_sub(1));
+        }
+        cx.notify();
+    }
+
+    /// What a key of the 色選択 box did, as the drop-down tells it.
+    fn colors_keyed(&mut self, keyed: Keyed, cx: &mut Context<Self>) {
+        match keyed {
+            Keyed::Ignored => {}
+            Keyed::Redraw => cx.notify(),
+            Keyed::Handled => {
+                cx.notify();
+                cx.stop_propagation();
+            }
+            Keyed::Choose(row) => {
+                self.set_color(row, cx);
+                cx.stop_propagation();
+            }
+        }
+    }
+
+    /// A key on the 色選択 box with its list closed.
+    fn on_colors_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(q) = self.ascertain.as_mut() else {
+            return;
+        };
+        let keyed = q
+            .colors
+            .on_key(event, window, cx, q.color, q.choices.len(), true);
+        self.colors_keyed(keyed, cx);
+    }
+
+    /// The keys of the open list, before the control that has the focus sees them (Enter would
+    /// press OK, Escape would cancel the question).
+    pub(super) fn on_ascertain_capture_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(q) = self.ascertain.as_mut() else {
+            return;
+        };
+        let keyed = q.colors.on_capture_key(event, window, cx, q.choices.len());
+        self.colors_keyed(keyed, cx);
     }
 
     /// Closes the question (the one place: キャンセル, Escape and OK all come here) and gives the
@@ -317,27 +375,27 @@ impl TypeList {
         }
     }
 
-    /// Keys of the question: Enter is OK, Escape キャンセル, and the arrows choose the colors.
+    /// Keys of the question: Escape is キャンセル; Enter presses the button that has the focus, and OK
+    /// (the default button, `DEFPUSHBUTTON`) anywhere else; Space presses a button that has the
+    /// focus. The keys of 色選択 are its own (`on_colors_key`).
     pub(super) fn on_ascertain_key(
         &mut self,
         event: &KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match event.keystroke.key.as_str() {
+        let Some(q) = self.ascertain.as_ref() else {
+            return;
+        };
+        let key = event.keystroke.key.as_str();
+        let on = |focus: &FocusHandle| focus.is_focused(window);
+        let (on_cancel, on_help, on_ok) = (on(&q.cancel_focus), on(&q.help_focus), on(&q.ok_focus));
+        match key {
             "escape" => self.ascertain_cancel(window, cx),
+            "enter" | "space" if on_cancel => self.ascertain_cancel(window, cx),
+            "enter" | "space" if on_help => super::list::open_help(cx),
             "enter" => self.ascertain_ok(window, cx),
-            key @ ("up" | "down") => {
-                if let Some(q) = self.ascertain.as_mut() {
-                    q.color = if key == "up" {
-                        q.color.saturating_sub(1)
-                    } else {
-                        (q.color + 1).min(q.choices.len().saturating_sub(1))
-                    };
-                    q.scroll.scroll_to_item(q.color);
-                }
-                cx.notify();
-            }
+            "space" if on_ok => self.ascertain_ok(window, cx),
             _ => return,
         }
         cx.stop_propagation();
@@ -418,7 +476,15 @@ impl TypeList {
     }
 
     /// The question of the import (`IDD_TYPE_ASCERTAIN`).
-    pub(super) fn render_ascertain(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_ascertain(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        // a list that is open while the focus has left the box is closed, as a combo box does
+        if let Some(q) = self.ascertain.as_mut() {
+            q.colors.settle(window, cx);
+        }
         let Some(q) = self.ascertain.as_ref() else {
             return div().into_any_element();
         };
@@ -435,42 +501,44 @@ impl TypeList {
             Some(usize::from(!q.add)),
             Rc::new(cx.listener(|this, index: &usize, _, cx| this.set_location(*index == 0, cx))),
         );
-        let rows: Vec<_> = q
-            .choices
-            .iter()
-            .enumerate()
-            .map(|(i, (_, text))| {
-                let mut item = crate::a11y::list_row(
-                    div().id(("type-ascertain-color", i)),
-                    text,
-                    i == q.color,
-                )
-                .px_2()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .cursor_pointer();
-                if i == q.color {
-                    item = item.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
-                }
-                item.child(text.clone()).on_click(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        if let Some(q) = this.ascertain.as_mut() {
-                            q.color = i;
-                        }
-                        cx.notify();
-                    },
-                ))
-            })
-            .collect();
-        let button = |id: &'static str, text: &'static str| {
+        let colors = q.colors.view(
+            &Look {
+                id: "type-ascertain-color",
+                name: "色選択",
+                width: px(300.),
+            },
+            q.color,
+            q.choices.iter().map(|(_, text)| text.as_str()),
+            true,
+            &Hooks {
+                toggle: |this: &mut Self, window, cx| {
+                    if let Some(q) = this.ascertain.as_mut() {
+                        q.colors.toggle(q.color, window, cx);
+                    }
+                    cx.notify();
+                },
+                drop_down: |this| this.ascertain.as_mut().map(|q| &mut q.colors),
+                pick: Self::set_color,
+                key: Self::on_colors_key,
+            },
+            cx,
+        );
+        // push buttons are Tab stops; the one that has the focus gets a ring
+        let button = |id: &'static str, text: &'static str, focus: &FocusHandle| {
+            let ring = if focus.is_focused(window) {
+                SELECTED_BG
+            } else {
+                0xaaaaaa
+            };
             crate::a11y::button(div().id(id), text)
+                .debug_selector(move || id.to_owned())
+                .track_focus(focus)
                 .px_4()
                 .h(px(28.))
                 .flex()
                 .items_center()
                 .border_1()
-                .border_color(rgb(0xaaaaaa))
+                .border_color(rgb(ring))
                 .bg(rgb(0xf4f4f4))
                 .cursor_pointer()
                 .child(text)
@@ -478,7 +546,7 @@ impl TypeList {
         let panel = crate::a11y::dialog(div().id("type-ascertain"), "インポート確認")
             // F1 and Alt+H: the page of the type list (`HLP000338` is a topic of it)
             .on_help_key("F_TYPE_LIST")
-            .on_access_key(move |letter, _, cx| match letter {
+            .on_access_key(move |letter, window, cx| match letter {
                 'h' => {
                     super::list::open_help(cx);
                     true
@@ -488,10 +556,31 @@ impl TypeList {
                     this.update(cx, |list, cx| list.set_location(true, cx));
                     true
                 }
+                // `色選択(&C)` is the label before `IDC_COMBO_COLORS`: the access key of a label
+                // moves the focus to the next control
+                'c' => {
+                    this.update(cx, |list, cx| {
+                        if let Some(q) = list.ascertain.as_ref() {
+                            q.colors.focus_box(window, cx);
+                        }
+                    });
+                    true
+                }
+                // `&OK` and `キャンセル(&X)`
+                'o' => {
+                    this.update(cx, |list, cx| list.ascertain_ok(window, cx));
+                    true
+                }
+                'x' => {
+                    this.update(cx, |list, cx| list.ascertain_cancel(window, cx));
+                    true
+                }
                 _ => false,
             })
             .key_context("TypeList")
             .track_focus(&self.focus)
+            // before the handler of Tab: the open list sees its keys first, and Tab closes it
+            .capture_key_down(cx.listener(Self::on_ascertain_capture_key))
             .keep_tab_inside(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
             .w(px(460.))
@@ -523,37 +612,32 @@ impl TypeList {
             )
             .child(div().child(format!("新タイプ名: {}", q.file.type_name())))
             .child(div().child("色選択(C):"))
-            .child(
-                div()
-                    .id("type-ascertain-colors")
-                    .track_focus(&q.colors_focus)
-                    .role(Role::ListBox)
-                    .aria_label("色選択")
-                    .max_h(px(160.))
-                    .overflow_y_scroll()
-                    .track_scroll(&q.scroll)
-                    .bg(rgb(0xffffff))
-                    .border_1()
-                    .border_color(rgb(0xaaaaaa))
-                    .children(rows),
-            )
+            .child(colors)
             .child(div().child("上記条件でインポートします。よろしいですか？"))
             .child(
                 div()
                     .flex()
                     .justify_end()
                     .gap_2()
-                    .child(button("type-ascertain-ok", "OK").on_click(cx.listener(
-                        |this, _: &ClickEvent, window, cx| this.ascertain_ok(window, cx),
-                    )))
                     .child(
-                        button("type-ascertain-cancel", "キャンセル(X)").on_click(cx.listener(
-                            |this, _: &ClickEvent, window, cx| this.ascertain_cancel(window, cx),
+                        button("type-ascertain-ok", "OK", &q.ok_focus).on_click(cx.listener(
+                            |this, _: &ClickEvent, window, cx| this.ascertain_ok(window, cx),
                         )),
                     )
                     .child(
-                        button("type-ascertain-help", crate::support::help::BUTTON_LABEL)
-                            .on_click(|_: &ClickEvent, _, cx| super::list::open_help(cx)),
+                        button("type-ascertain-cancel", "キャンセル(X)", &q.cancel_focus).on_click(
+                            cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.ascertain_cancel(window, cx)
+                            }),
+                        ),
+                    )
+                    .child(
+                        button(
+                            "type-ascertain-help",
+                            crate::support::help::BUTTON_LABEL,
+                            &q.help_focus,
+                        )
+                        .on_click(|_: &ClickEvent, _, cx| super::list::open_help(cx)),
                     ),
             );
         div()
