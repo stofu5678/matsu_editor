@@ -62,10 +62,10 @@ impl CommandContext<'_> {
         if self.cursor.has_selection() {
             let caret = self.caret();
             // a box whose caret is in the gap after a wrapped row ends on that row
-            let mark = self.box_gap_mark()?;
-            self.cursor.clear_selection();
-            self.move_caret(caret, false)?;
-            self.keep_gap_mark(mark)
+            self.end_box_with(|cx| {
+                cx.cursor.clear_selection();
+                cx.move_caret(caret, false)
+            })
         } else {
             // a lock or a box that covers nothing still has to go (`IsTextSelecting`)
             if self.cursor.selecting_lock() || self.cursor.is_box() {

@@ -180,8 +180,21 @@ impl CommandContext<'_> {
     /// selection, an empty box that the mouse ends, the commands that drop the selection and work
     /// on the caret's row). A command that moves the caret anyway does not need it.
     pub fn end_box_in_place(&mut self) -> Result<()> {
+        self.end_box_with(|cx| {
+            cx.cursor.clear_selection();
+            Ok(())
+        })
+    }
+
+    /// [`end_box_in_place`](Self::end_box_in_place) with the step that ends the box left to the
+    /// caller (`cancel_mode` and the mouse end the box with `move_caret`, which reports a move):
+    /// the mark is taken before the step and put back after it, in this one order.
+    pub(super) fn end_box_with(
+        &mut self,
+        step: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<()> {
         let mark = self.box_gap_mark()?;
-        self.cursor.clear_selection();
+        step(self)?;
         self.keep_gap_mark(mark)
     }
 

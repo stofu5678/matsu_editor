@@ -1029,6 +1029,39 @@ mod box_corners_in_the_gap {
     }
 
     #[test]
+    fn a_mark_is_stored_only_where_a_wrapped_row_ends() {
+        // after an edit the caret may not be at the end of a wrapped row any more: no mark then
+        let mut r = Rig::new("abcdefgh\nxy");
+        for (at, expected) in [
+            (Pos::new(0, 1), None), // inside the text
+            (Pos::new(1, 2), None), // the end of the last row of a line
+            (Pos::new(0, 4), None), // inside the text of the second row
+            (P1, Some(5)),          // the end of a wrapped row
+        ] {
+            r.cursor.move_to(at, false);
+            r.cx(|cx| cx.keep_gap_mark(Some(X::from_raw(5))).unwrap());
+            // (the mode is off: the end of the text is the only column of the gap)
+            let expected = expected.map(|_| 3);
+            assert_eq!(r.col(), expected, "{at:?}");
+            assert_eq!(
+                r.cx(|cx| cx.caret_row_x().unwrap()),
+                X::from_raw(if expected.is_some() {
+                    3
+                } else {
+                    at.col as u32 % 3
+                }),
+                "{at:?}"
+            );
+        }
+        // a conversion that changes the row ends without a stale mark: the box is over the rows
+        // 0 and 1 and `rtrim` takes the spaces out, so the row no longer wraps at that place
+        let mut r = Rig::new("ab \ncd");
+        r.cursor.move_to(Pos::new(0, 3), false);
+        r.cx(|cx| cx.keep_gap_mark(Some(X::from_raw(3))).unwrap());
+        assert_eq!(r.col(), None);
+    }
+
+    #[test]
     fn the_rest_of_the_moves_work_from_the_gap() {
         // up from the gap of the second row, onto the gap of the first
         let mut r = Rig::new("abcdefgh");

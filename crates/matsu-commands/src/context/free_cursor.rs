@@ -190,15 +190,20 @@ impl CommandContext<'_> {
         Ok(())
     }
 
-    /// Puts the mark of a caret that stands in the gap of a wrapped row, at `x`. Without the free
-    /// cursor mode only the end of the text is a column of the gap (`WrappedGap::takes`), so a
-    /// column right of it is brought back to the end. Call it after the caret is at its position.
+    /// Puts the mark of a caret that stands in the gap of a wrapped row, at `x`: only if the caret
+    /// position is the end of a wrapped row now (an edit may have changed the row, so that it no
+    /// longer wraps there); otherwise nothing is stored. Without the free cursor mode only the end
+    /// of the text is a column of the gap (`WrappedGap::takes`), so a column right of it is
+    /// brought back to the end. Call it after the caret is at its position.
     pub(super) fn set_gap_free_x(&mut self, x: X) -> Result<()> {
-        let x = match self.gap_at(self.caret())? {
-            Some(Gap::Wrapped(gap)) if !self.is_free_cursor() => x.min(gap.text_end),
-            _ => x,
-        };
-        self.set_free_x(Some(x));
+        if let Some(Gap::Wrapped(gap)) = self.gap_at(self.caret())? {
+            let x = if self.is_free_cursor() {
+                x.max(gap.text_end)
+            } else {
+                gap.text_end
+            };
+            self.set_free_x(Some(x));
+        }
         Ok(())
     }
 
