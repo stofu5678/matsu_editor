@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.3](https://github.com/stofu5678/matsu_editor/compare/v0.27.2...v0.27.3) (2026-11-25)
+
+
+### Bug Fixes
+
+* **huge:** limit the copy of a selection to 256 MiB and stop decoding very long lines whole ([#590](https://github.com/stofu5678/matsu_editor/issues/590)) ([20c80a0](https://github.com/stofu5678/matsu_editor/commit/20c80a07f255f561a48d6225f108941bdc333e7d))
+* **view:** let a box corner stand in the gap of a wrapped row ([#589](https://github.com/stofu5678/matsu_editor/issues/589)) ([8b908fe](https://github.com/stofu5678/matsu_editor/commit/8b908fe3c4595e868d12fa7f1ad4125a56b931fe))
+
 ## [0.27.2](https://github.com/stofu5678/matsu_editor/compare/v0.27.1...v0.27.2) (2026-11-25)
 
 
