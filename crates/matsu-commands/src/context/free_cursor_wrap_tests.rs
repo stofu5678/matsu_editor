@@ -1190,12 +1190,13 @@ mod box_corners_in_the_gap {
     }
 
     #[test]
-    fn typing_in_a_box_in_the_gap_pads_it_and_overwrites_the_next_char_as_a_free_caret_does() {
-        // `Command_WCHAR` with nothing selected, overwrite mode: `DelCharForOverwrite` finds the
-        // caret past the end of the row (`nIdxTo >= GetLengthWithoutEOL`) and runs `Command_DELETE`,
-        // which at the end of a wrapped row fills the gap with spaces and deletes the next char
-        // (`cmd/CViewCommander_Edit.cpp`); the typed char goes in after that. A box with nothing
-        // in it is not a selection, so it is the same as a free caret in the gap.
+    fn typing_in_an_empty_box_in_the_gap_is_what_matsu_does_today() {
+        // MATSU treats an empty box like a free caret in the gap: it pads the gap, and in
+        // overwrite mode replaces the next char. For a plain caret that is what Sakura does too
+        // (`DelCharForOverwrite` and `Command_DELETE`, `cmd/CViewCommander_Edit.cpp`). Sakura
+        // inserts instead when the empty box was just begun with Shift+F6 (measured on
+        // 2026-11-26); that general difference is not part of the gap corners, and this test pins
+        // MATSU's present result, not Sakura's.
         let mut r = at_end();
         r.run("begin_box").run("cursor_right").run("begin_box");
         assert_eq!((r.caret(), r.col()), (P1, Some(4)));
@@ -1223,7 +1224,7 @@ mod box_corners_in_the_gap {
     }
 
     #[test]
-    fn delete_and_backspace_with_an_empty_box_in_the_gap_act_as_for_a_free_caret() {
+    fn delete_and_backspace_with_an_empty_box_in_the_gap_are_what_matsu_does_today() {
         let mut r = at_end();
         r.run("begin_box").run("cursor_right").run("begin_box");
         r.run("delete");

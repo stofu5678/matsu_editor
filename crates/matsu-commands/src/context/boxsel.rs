@@ -216,13 +216,23 @@ impl CommandContext<'_> {
     /// (`ptTo.x = t_min( ptTo.x, CalcLayoutWidth )`), which on a wrapped row is its gap. A corner
     /// in the gap of a wrapped row stays on that row (the caret carries the mark).
     pub(super) fn collapse_box(&mut self, to_bottom_right: bool) -> Result<()> {
-        let Some(rect) = self.box_rect()? else {
+        // The two corners are enough: the rows between them are not listed (a box can be as high
+        // as the document, and an arrow key must not cost that).
+        let Some((a, c)) = self.box_corners()? else {
             return Ok(());
         };
-        let (row, x) = match (to_bottom_right, rect.rows.last()) {
-            (true, Some(&last)) => (last, rect.right),
-            _ => (rect.rows[0], rect.left),
+        let (a_row, c_row) = (a.row_pos(), c.row_pos());
+        let row_pos = if to_bottom_right {
+            a_row.max(c_row)
+        } else {
+            a_row.min(c_row)
         };
+        let x = if to_bottom_right {
+            a.x.max(c.x)
+        } else {
+            a.x.min(c.x)
+        };
+        let row = self.layout.row_start(self.doc(), row_pos)?;
         let target = self.box_corner_pos(row, x)?;
         self.cursor.clear_selection();
         self.move_caret(target.pos, false)?;
@@ -265,9 +275,12 @@ impl CommandContext<'_> {
     /// Whether the caret of a box selection is to the right of the end of the text of its row.
     /// The gap after a wrapped row is not that empty space: there the caret is at a place of the
     /// text, which continues in the next row. Typing there pads the gap and, in overwrite mode,
-    /// replaces the next char, as `DelCharForOverwrite` does (`nIdxTo >= GetLengthWithoutEOL`, then
-    /// `Command_DELETE`, "行終端が折り返し": pad with spaces, delete the next char;
-    /// `cmd/CViewCommander_Edit.cpp`), the same as for a free caret there.
+    /// replaces the next char. For a plain caret in the gap that is what Sakura does
+    /// (`DelCharForOverwrite`: `nIdxTo >= GetLengthWithoutEOL`, then `Command_DELETE`, "行終端が
+    /// 折り返し": pad with spaces, delete the next char; `cmd/CViewCommander_Edit.cpp`; measured
+    /// on 2026-11-26). Typing into a box that was just begun there differs from Sakura, which
+    /// inserts: MATSU overwrites, as it does for such a box anywhere (a difference that is older
+    /// than the gap corners, left for another change).
     pub(super) fn caret_is_in_empty_space(&self) -> Result<bool> {
         // The row of the caret: at the end of a wrapped row (or right of it) it is that row.
         let row = self.caret_row_pos()?;
