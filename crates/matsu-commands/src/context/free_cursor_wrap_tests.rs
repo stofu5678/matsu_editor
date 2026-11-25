@@ -931,6 +931,35 @@ mod box_corners_in_the_gap {
     }
 
     #[test]
+    fn conversions_of_a_box_in_the_gap_leave_the_caret_in_the_gap() {
+        // a box of no width over the gaps of the rows 0 and 1 changes no text, and the caret
+        // goes to its top left corner, which is the gap after row 0
+        for id in [
+            "to_upper",
+            "to_lower",
+            "tab_to_space",
+            "space_to_tab",
+            "ltrim",
+            "rtrim",
+        ] {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_down");
+            let before = r.text();
+            r.run(id);
+            assert_eq!(r.text(), before, "{id}");
+            assert_eq!((r.caret(), r.col()), (P1, Some(3)), "{id}");
+            assert_eq!(r.row_pos(), Pos::new(0, 2), "{id}");
+            assert!(!r.cursor.is_box(), "{id}");
+        }
+        // a box that has text still ends at its top left corner on the text
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        r.run("to_upper");
+        assert_eq!(r.text(), "abCdeFgh");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 2), None));
+    }
+
+    #[test]
     fn the_rest_of_the_moves_work_from_the_gap() {
         // up from the gap of the second row, onto the gap of the first
         let mut r = Rig::new("abcdefgh");

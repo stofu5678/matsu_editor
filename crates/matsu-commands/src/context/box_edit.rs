@@ -257,6 +257,15 @@ impl CommandContext<'_> {
                 self.replace(from, to, "")?;
             }
         }
+        self.end_box_edit_at(caret, top_left)
+    }
+
+    /// Ends a box edit that leaves the caret at the top left corner of the box (`caret`, the
+    /// position of the corner's column on its row): the selection is gone, and a corner that was in
+    /// the gap after a wrapped row keeps the caret in that gap (without the free cursor mode the
+    /// column is brought back to the end of the text). Delete and the conversions (case, tabs and
+    /// spaces, trimming, ...) end here.
+    fn end_box_edit_at(&mut self, caret: Pos, top_left: Corner) -> Result<()> {
         self.cursor.move_to(caret, false);
         if top_left.in_gap() && caret == top_left.pos {
             self.set_gap_free_x(top_left.x)?;
@@ -582,6 +591,7 @@ impl CommandContext<'_> {
         for &row in &rect.rows {
             ranges.push(self.box_row_range(row, rect.left, rect.right)?);
         }
+        let top_left = self.box_corner_pos(rect.rows[0], rect.left)?;
         let caret = ranges[0].0;
         self.cursor.clear_selection();
         for &(from, to) in ranges.iter().rev() {
@@ -595,7 +605,6 @@ impl CommandContext<'_> {
                 self.replace(from, to, &new)?;
             }
         }
-        self.cursor.move_to(caret, false);
-        Ok(())
+        self.end_box_edit_at(caret, top_left)
     }
 }
