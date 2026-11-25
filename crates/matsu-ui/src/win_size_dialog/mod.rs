@@ -25,6 +25,8 @@
 
 use std::rc::Rc;
 
+mod kind_combo;
+
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::input_select::{focus_selecting, input_field};
 use crate::radio_group::{Group, Ring};
@@ -35,8 +37,8 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, WindowBounds, WindowOptions, div, px,
     rgb, size,
 };
+use gpui_component::Root;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{Disableable as _, Root, Selectable as _};
 
 use crate::common_settings::parse_signed_number;
 
@@ -147,6 +149,11 @@ pub(crate) struct WinSizeDialog {
     /// the first of each has `WS_GROUP`).
     pos_ring: Ring,
     size_ring: Ring,
+    /// The combo box of the kind of window: its focus (it holds the button's), whether its list is
+    /// open and the row the keys are on in the open list (`kind_combo`).
+    kind_focus: FocusHandle,
+    kind_open: bool,
+    kind_cursor: usize,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -186,6 +193,9 @@ impl WinSizeDialog {
             on_done: Some(on_done),
             pos_ring: Ring::default(),
             size_ring: Ring::default(),
+            kind_focus: cx.focus_handle(),
+            kind_open: false,
+            kind_cursor: 0,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -194,6 +204,9 @@ impl WinSizeDialog {
     /// The radio buttons 大きさ (`SetData`: a value that is none of the three is 指定しない).
     pub(crate) fn set_size_mode(&mut self, mode: i32, cx: &mut Context<Self>) {
         self.size_mode = mode;
+        if !self.kind_usable() {
+            self.close_kind_list(cx);
+        }
         cx.notify();
     }
 
@@ -247,7 +260,8 @@ impl WinSizeDialog {
         // A box that cannot be used (the mode is not 直接指定) is read as well (`GetData`).
         WinSize {
             size_mode: self.size_mode,
-            size_type: self.size_type,
+            // what the box shows, as `GetData` reads the entry (`kind_row`)
+            size_type: KINDS[self.kind_row()].1,
             width: number(Field::Width, SIZE_RANGE, self.start.width),
             height: number(Field::Height, SIZE_RANGE, self.start.height),
             pos_mode: self.pos_mode,
@@ -346,6 +360,11 @@ impl Render for WinSizeDialog {
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let pos_set = self.pos_mode == MODE_SET;
         let size_set = self.size_mode == MODE_SET;
+        // a list that is open while the focus has left the box is closed, as a combo box does
+        // (the print settings' lists do the same): Shift+Tab and a click elsewhere come here
+        if self.kind_open && !self.kind_focus.contains_focused(window, cx) {
+            self.close_kind_list(cx);
+        }
 
         // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
         let modes = |group: &'static str,
@@ -417,18 +436,6 @@ impl Render for WinSizeDialog {
                     cx,
                 ))
         };
-        let kinds = KINDS
-            .into_iter()
-            .map(|(label, kind)| {
-                gpui_component::button::Button::new(("win-kind", kind as usize))
-                    .label(label)
-                    .selected(self.size_type == kind)
-                    .role(Role::RadioButton)
-                    .toggled(self.size_type == kind)
-                    .disabled(!size_set)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_size_type(kind, cx)))
-            })
-            .collect::<Vec<_>>();
         let group = |title: &'static str| {
             div()
                 .flex()
@@ -449,6 +456,7 @@ impl Render for WinSizeDialog {
                 this.update(cx, |dialog, cx| dialog.use_access_key(letter, window, cx))
             })
             .on_key_down(cx.listener(Self::on_key_down))
+            .capture_key_down(cx.listener(Self::on_kind_capture_key))
             .size_full()
             .p_3()
             .flex()
@@ -499,15 +507,7 @@ impl Render for WinSizeDialog {
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(
-                                    div()
-                                        .id("win-kinds")
-                                        .role(Role::RadioGroup)
-                                        .aria_label("起動時の大きさ")
-                                        .flex()
-                                        .gap_1()
-                                        .children(kinds),
-                                )
+                                .child(self.kind_combo(cx))
                                 .child(number(
                                     WIDTH_LABEL,
                                     &self.width,
@@ -533,19 +533,26 @@ impl Render for WinSizeDialog {
                     .justify_end()
                     .gap_2()
                     .child(
-                        crate::a11y::button(div().id("win-size-close"), CLOSE_LABEL)
-                            .px_4()
-                            .h(px(28.))
-                            .flex()
-                            .items_center()
-                            .border_1()
-                            .border_color(rgb(BORDER))
-                            .bg(rgb(0xf4f4f4))
-                            .cursor_pointer()
-                            .child("閉じる(C)")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        crate::a11y::button(
+                            div()
+                                .id("win-size-close")
+                                .debug_selector(|| "win-size-close".to_owned()),
+                            CLOSE_LABEL,
+                        )
+                        .px_4()
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .bg(rgb(0xf4f4f4))
+                        .cursor_pointer()
+                        .child("閉じる(C)")
+                        .on_click(cx.listener(
+                            |this, _: &ClickEvent, window, cx| {
                                 this.close(window, cx);
-                            })),
+                            },
+                        )),
                     )
                     .child(
                         crate::a11y::button(div().id("win-size-help"), HELP_LABEL)
@@ -663,5 +670,7 @@ pub(crate) fn open(cx: &mut App, start: WinSize, on_done: Done) -> Option<Entity
     Some(dialog)
 }
 
+#[cfg(test)]
+mod kind_tests;
 #[cfg(test)]
 mod tests;

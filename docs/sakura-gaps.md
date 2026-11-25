@@ -115,7 +115,6 @@
 | ダイアログがモーダルでない（GPUI にモーダルの子ウィンドウがない） | － | 自前のダイアログはモーダルではない（#150） | B | L | GPUI |
 | Windows の旧式のファイルダイアログ（`bVistaStyleFileDialog` が 0）、ダイアログの下の欄（文字コード・改行の選択、MRU コンボ） | `CDlgOpenFile_*.cpp` | 新式だけ。保存ダイアログの文字コード・改行は #162 で入った。開くダイアログの「文字コード」「読み取り専用で開く」の欄は未確認 | B/C | M | OS ごとのダイアログ |
 | UNC への接続（`NetConnect`）、フォルダー履歴 | `CDlgOpenFile.cpp` | していない（#105） | B | S | なし |
-| ラジオボタンのグループの残り: `Radio` の部品を使うグループ（ジャンプのパネル、ウィンドウの位置と大きさの 2 つ、共通設定、印刷設定、ファイルツリー、外部コマンド実行、ワンライナー）は 1 つのグループとして動く（`radio_group.rs`。矢印キーで前後に移して選び、端で回る。Tab と Shift+Tab はグループに 1 回止まり、選ばれているボタンに入る）。ボタン（`Button` の `selected`）や自前の行でラジオボタンの代わりをしているものは、まだ 1 つずつ Tab に止まり、矢印キーでは動かない: 検索と置換のパネルの置換対象と範囲（`search/panel.rs`）、DIFF のパネル（`diff/panel.rs`）、Grep のパネル（`grep/panel.rs`）、ウィンドウの位置と大きさの「ウィンドウの種類」（`win_size_dialog`）、タイプ別設定の取り込みの問い（`doc_types/transfer.rs`、`IDD_TYPE_ASCERTAIN`） | `sakura_rc.rc` の `BS_AUTORADIOBUTTON` と `WS_GROUP`（例: `IDD_JUMP` 93・94 行） | `Radio` の部品を使うグループは入った。残りは、`radio_group.rs` の `Group` を使うには、ボタンを `Radio` に作り替えるか、`Group` を `Button` にも使えるようにする必要がある | C | S | なし |
 
 ### プラグイン
 

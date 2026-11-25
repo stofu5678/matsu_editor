@@ -269,6 +269,25 @@ pub(crate) mod testing {
             .collect()
     }
 
+    /// Presses Tab (at most `limit` times, so that a failure ends the test) until the focus is on
+    /// a button of the group `group` of `rings`, and says which button it is on.
+    pub(crate) fn tab_to(
+        keys: &mut VisualTestContext,
+        rings: &[&Ring],
+        group: usize,
+        limit: usize,
+    ) -> usize {
+        for _ in 0..limit {
+            if let Some((found, button)) = at(keys, rings)
+                && found == group
+            {
+                return button;
+            }
+            keys.simulate_keystrokes("tab");
+        }
+        panic!("Tab did not reach group {group} in {limit} presses");
+    }
+
     /// Tab stops on every group of `checked` (the checked button of each, in the order of the
     /// rings), and only at the checked button: no stop of the trail is on another button.
     pub(crate) fn assert_stops_at_checked(trail: &[Option<(usize, usize)>], checked: &[usize]) {

@@ -30,7 +30,7 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 use matsu_core::buffer::Pos;
 use matsu_core::search::{Direction, ReplaceTarget};
 
@@ -76,6 +76,19 @@ const UNIT_ROWS: &str = "折り返し単位の行番号(R)";
 const UNIT_LINES: &str = "改行単位の行番号(W)";
 /// The units in the order the radio buttons are drawn in (the group of `IDD_JUMP`).
 const UNITS: [JumpUnit; 2] = [JumpUnit::Rows, JumpUnit::Lines];
+
+/// The buttons of 置換対象 in the order they are drawn in: the id, the label and the target.
+const TARGETS: [(&str, &str, ReplaceTarget); 4] = [
+    ("target-match", TARGET_MATCH, ReplaceTarget::Match),
+    ("target-before", TARGET_BEFORE, ReplaceTarget::InsertBefore),
+    ("target-after", TARGET_AFTER, ReplaceTarget::InsertAfter),
+    ("target-line", TARGET_LINE, ReplaceTarget::DeleteLine),
+];
+/// The buttons of 範囲: the id, the label and whether it is the selection.
+const AREAS: [(&str, &str, bool); 2] = [
+    ("area-selection", AREA_SELECTION, true),
+    ("area-all", AREA_ALL, false),
+];
 
 /// A check box of the options.
 #[derive(Clone, Copy, Debug)]
@@ -181,6 +194,9 @@ pub struct SearchPanel {
     /// The focus of the two radio buttons of the unit (`IDC_RADIO_LINENUM_LAYOUT` and
     /// `IDC_RADIO_LINENUM_CRLF`, one group in `IDD_JUMP`).
     pub(super) unit_ring: Ring,
+    /// The focus of the buttons of 置換対象 and of 範囲 (`IDD_REPLACE`, one group each).
+    pub(super) target_ring: Ring,
+    pub(super) area_ring: Ring,
     /// Where the caret was when the panel opened: the search start position that
     /// `F_JUMP_SRCHSTARTPOS` returns to, registered with the first search (`m_bSearch`,
     /// `m_ptEscCaretPos_PHY` in `CDlgFind.cpp`).
@@ -262,6 +278,8 @@ impl SearchPanel {
             line,
             chosen: None,
             unit_ring: Ring::default(),
+            target_ring: Ring::default(),
+            area_ring: Ring::default(),
             pending_start: Some(pending_start),
             _subscriptions: subscriptions,
         }
@@ -895,60 +913,42 @@ impl SearchPanel {
         in_selection: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let choice = |id: &'static str,
-                      label: &'static str,
-                      this_target: ReplaceTarget,
-                      cx: &mut Context<Self>| {
-            Button::new(id)
-                .labelled(label)
-                .selected(target == this_target)
-                .on_click(cx.listener(move |this, _, _, cx| this.set_target(this_target, cx)))
-        };
-        let range =
-            |id: &'static str, label: &'static str, selection: bool, cx: &mut Context<Self>| {
-                Button::new(id)
-                    .labelled(label)
-                    .selected(in_selection == selection)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_area(selection, cx)))
-            };
+        // `IDC_RADIO_REPLACE` .. `IDC_RADIO_LINEDELETE` and `IDC_RADIO_SELECTEDAREA`,
+        // `IDC_RADIO_ALLAREA` (`IDD_REPLACE`): two groups of `BS_AUTORADIOBUTTON`, the first of
+        // each with `WS_GROUP | WS_TABSTOP` (`sakura_rc.rc`). The one writer of each choice is
+        // `set_target` / `set_area`; the click, the arrow keys and the access keys all call it.
+        let targets = Group::new(
+            &self.target_ring,
+            TARGETS.len(),
+            TARGETS.iter().position(|(_, _, t)| *t == target),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_target(TARGETS[*index].2, cx);
+            })),
+        );
+        let areas = Group::new(
+            &self.area_ring,
+            AREAS.len(),
+            AREAS.iter().position(|(_, _, s)| *s == in_selection),
+            Rc::new(cx.listener(|this, index: &usize, _, cx| {
+                this.set_area(AREAS[*index].2, cx);
+            })),
+        );
         h_flex()
             .gap_4()
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child("置換対象")
-                    .child(choice(
-                        "target-match",
-                        TARGET_MATCH,
-                        ReplaceTarget::Match,
-                        cx,
-                    ))
-                    .child(choice(
-                        "target-before",
-                        TARGET_BEFORE,
-                        ReplaceTarget::InsertBefore,
-                        cx,
-                    ))
-                    .child(choice(
-                        "target-after",
-                        TARGET_AFTER,
-                        ReplaceTarget::InsertAfter,
-                        cx,
-                    ))
-                    .child(choice(
-                        "target-line",
-                        TARGET_LINE,
-                        ReplaceTarget::DeleteLine,
-                        cx,
-                    )),
-            )
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child("範囲")
-                    .child(range("area-selection", AREA_SELECTION, true, cx))
-                    .child(range("area-all", AREA_ALL, false, cx)),
-            )
+            .child(v_flex().gap_1().items_start().child("置換対象").children(
+                TARGETS.iter().enumerate().map(|(index, (id, label, t))| {
+                    targets.radio(index, *id, true, |radio| {
+                        radio.labelled(*label).checked(target == *t)
+                    })
+                }),
+            ))
+            .child(v_flex().gap_1().items_start().child("範囲").children(
+                AREAS.iter().enumerate().map(|(index, (id, label, s))| {
+                    areas.radio(index, *id, true, |radio| {
+                        radio.labelled(*label).checked(in_selection == *s)
+                    })
+                }),
+            ))
     }
 }
 

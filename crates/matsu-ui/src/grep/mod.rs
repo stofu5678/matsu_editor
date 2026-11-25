@@ -41,6 +41,8 @@ mod access_key_tests;
 #[cfg(test)]
 mod engine_tests;
 #[cfg(test)]
+mod group_tests;
+#[cfg(test)]
 mod history_tests;
 #[cfg(test)]
 mod huge_tests;

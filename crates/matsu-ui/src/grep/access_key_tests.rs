@@ -14,7 +14,7 @@ use super::panel::GrepPanel;
 use crate::document::SharedDocument;
 use crate::view::EditorView;
 
-fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext) {
+pub(super) fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext) {
     cx.update(gpui_component::init);
     let doc = Document::from_utf8(Vec::new()).unwrap();
     let shared = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
@@ -27,7 +27,7 @@ fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext
     (view, vcx)
 }
 
-fn open(
+pub(super) fn open(
     view: &Entity<EditorView>,
     cx: &mut VisualTestContext,
     function: &str,
@@ -56,7 +56,7 @@ fn set_key(cx: &mut VisualTestContext, panel: &Entity<GrepPanel>, text: &str) {
     });
 }
 
-fn press(cx: &mut VisualTestContext, keys: &str) {
+pub(super) fn press(cx: &mut VisualTestContext, keys: &str) {
     cx.simulate_keystrokes(keys);
     cx.run_until_parked();
 }
