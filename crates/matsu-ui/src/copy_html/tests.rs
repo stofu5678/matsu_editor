@@ -584,3 +584,33 @@ fn the_html_is_not_built_past_its_limit() {
     let written = color_html_within(&source, 1000).unwrap_err();
     assert!((1000..2000).contains(&written), "{written}");
 }
+
+#[test]
+fn a_row_that_grows_when_escaped_stops_near_the_limit_inside_the_row() {
+    use super::collect::color_html_within;
+
+    // 400 000 chars are 2 000 000 bytes of `&amp;`; the limit is 100 000
+    for ch in ['&', '<'] {
+        let text = format!("{}\r\nx", ch.to_string().repeat(400_000));
+        let mut f = Fixture::new(&text, "a.txt");
+        f.select((0, 0), (1, 0));
+        let source = Source {
+            doc: &f.doc,
+            layout: &f.layout,
+            rules: &f.rules,
+            states: &f.states,
+            cursor: &f.cursor,
+            line_num_is_crlf: true,
+            line_numbers: false,
+            found: None,
+        };
+        let written = color_html_within(&source, 100_000).unwrap_err();
+        // within a few bytes of the limit, not a whole row of 2 MB
+        assert!((100_000..100_100).contains(&written), "{ch}: {written}");
+        // with room enough the whole row is written, and the closing tags count in the size
+        let whole = color_html_within(&source, usize::MAX).unwrap().unwrap();
+        assert!(whole.len() > 1_000_000, "{}", whole.len());
+        assert!(color_html_within(&source, whole.len()).is_err());
+        assert!(color_html_within(&source, whole.len() + 1).is_ok());
+    }
+}

@@ -257,7 +257,7 @@ pub(crate) fn color_html_within(
     limit: usize,
 ) -> Result<Option<String>, usize> {
     let mut too_big = None;
-    let html = html_rows(source, &mut |len| {
+    let html = html_rows(source, limit, &mut |len| {
         if len >= limit {
             too_big = Some(len);
             true
@@ -271,7 +271,14 @@ pub(crate) fn color_html_within(
     }
 }
 
-fn html_rows(source: &Source<'_>, stop: &mut dyn FnMut(usize) -> bool) -> Option<String> {
+/// The rows of the selection as HTML. `stop` is asked with the size after each row, and with the
+/// size of the whole HTML with its closing tags; when it says so, the result is `None`. The
+/// builder itself stops writing at `limit` bytes, inside a row.
+fn html_rows(
+    source: &Source<'_>,
+    limit: usize,
+    stop: &mut dyn FnMut(usize) -> bool,
+) -> Option<String> {
     let (doc, layout, rules) = (source.doc, source.layout, source.rules);
     let (from, to) = source.cursor.selection()?;
     let is_box = source.cursor.is_box();
@@ -305,7 +312,7 @@ fn html_rows(source: &Source<'_>, stop: &mut dyn FnMut(usize) -> bool) -> Option
     let blank_number = format!("{:width$}:", "");
 
     let back = rgb_of(rules.entry(ColorKind::Text).back);
-    let mut html = Html::new(back);
+    let mut html = Html::with_limit(back, limit);
     let mut colors = Colors::new(source);
     let found = source.found.as_ref();
     // The matches on the rows, by column, found a line at a time like the screen does.
@@ -396,5 +403,10 @@ fn html_rows(source: &Source<'_>, stop: &mut dyn FnMut(usize) -> bool) -> Option
             return None;
         }
     }
-    Some(html.finish())
+    let html = html.finish();
+    // the closing tags count too
+    if stop(html.len()) {
+        return None;
+    }
+    Some(html)
 }

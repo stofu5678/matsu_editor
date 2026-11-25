@@ -85,6 +85,8 @@ pub(super) struct Html {
     last: Attr,
     /// The style of the tags that are open (`sColorAttrLast2`, `sFontAttrLast2`).
     open: Attr,
+    /// The size at which nothing more is written (the characters are not escaped past it).
+    limit: usize,
 }
 
 impl Html {
@@ -94,6 +96,17 @@ impl Html {
             out: format!("<pre style=\"background-color:#{back:06x}\">"),
             last: Attr::NONE,
             open: Attr::NONE,
+            limit: usize::MAX,
+        }
+    }
+
+    /// Like [`new`](Self::new), but the characters of a text are written only while the HTML has
+    /// fewer than `limit` bytes, so that a text that grows when it is escaped (`&` is 5 bytes)
+    /// does not go far past it. The caller sees it in [`len`](Self::len).
+    pub(super) fn with_limit(back: Rgb, limit: usize) -> Self {
+        Self {
+            limit,
+            ..Self::new(back)
         }
     }
 
@@ -167,6 +180,9 @@ impl Html {
             self.open = last;
         }
         for &c in text {
+            if self.out.len() >= self.limit {
+                break;
+            }
             match c {
                 '&' => self.out.push_str("&amp;"),
                 '<' => self.out.push_str("&lt;"),
