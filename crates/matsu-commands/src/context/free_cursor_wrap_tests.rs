@@ -870,7 +870,7 @@ mod box_corners_in_the_gap {
     }
 
     #[test]
-    fn the_column_of_a_gap_corner_is_the_boxs_not_the_marks() {
+    fn the_column_of_a_gap_corner_is_the_box_column_not_the_mark() {
         // the mark only says "on the upper row": a different number in it changes nothing
         let mut r = at_end();
         r.run("begin_box");
