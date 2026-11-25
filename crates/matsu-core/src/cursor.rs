@@ -154,8 +154,24 @@ impl Cursor {
     /// Moves the caret of a box selection to `pos` at display column `col` (`pos` is the end of
     /// the row when `col` is past the text). The anchor stays; a caret on the anchor corner leaves
     /// nothing selected. Call [`begin_box`](Self::begin_box) first: without a box, one starts at
-    /// the old caret and its anchor column is `col`. Clears the goal column.
+    /// the old caret and its anchor column is `col`. Clears the goal column. The corner is on its
+    /// row; for one in the gap at the end of a wrapped row use
+    /// [`move_box_to_gap`](Self::move_box_to_gap).
     pub fn move_box_to(&mut self, pos: Pos, col: usize) {
+        self.move_box_corner(pos, col, false);
+    }
+
+    /// As [`move_box_to`](Self::move_box_to), for a corner in the gap at the end of a wrapped row
+    /// (`pos` is the start of the next row, which is where a position at the end of the row is).
+    /// The corner carries the mark of the caret, [`free_col`](Self::free_col), set to `col`: the
+    /// same mark that says it for a free caret. The caller has checked the rest (`pos` starts a
+    /// row that continues a line, `col` is not left of the end of the text before it); whoever
+    /// reads the mark checks it again.
+    pub fn move_box_to_gap(&mut self, pos: Pos, col: usize) {
+        self.move_box_corner(pos, col, true);
+    }
+
+    fn move_box_corner(&mut self, pos: Pos, col: usize, in_gap: bool) {
         if !self.is_box() {
             self.begin_box(col, false);
         }
@@ -163,19 +179,22 @@ impl Cursor {
             anchor: col,
             caret: col,
         });
-        let anchor_pos = self.anchor.unwrap_or(self.caret);
-        let same = anchor_pos == pos && cols.anchor == col;
+        // The anchor stays where it is with its mark; a box that has no anchor yet starts at the
+        // caret, and the caret's mark goes with it (`BeginSelectArea` copies the caret's point).
+        let (anchor_pos, anchor_mark) = match self.anchor {
+            Some(anchor) => (anchor, self.anchor_free_col),
+            None => (self.caret, self.free_col),
+        };
+        let same = anchor_pos == pos && cols.anchor == col && anchor_mark.is_some() == in_gap;
         self.caret = pos;
         self.anchor = (!same).then_some(anchor_pos);
-        // A corner of a box is never at the end of a wrapped row (the box moves keep it on the
-        // last char), so the anchor has no mark.
-        self.anchor_free_col = None;
+        self.anchor_free_col = anchor_mark.filter(|_| self.anchor.is_some());
         self.box_cols = Some(BoxCols {
             anchor: cols.anchor,
             caret: col,
         });
         self.goal_col = None;
-        self.free_col = None;
+        self.free_col = in_gap.then_some(col);
     }
 
     /// The corners of a box selection as `(position, display column)`: the anchor and the caret.
@@ -581,6 +600,39 @@ mod tests {
             c.box_corners(),
             Some(((Pos::new(0, 2), 2), (Pos::new(0, 2), 3)))
         );
+    }
+
+    #[test]
+    fn a_box_corner_in_a_gap_carries_the_marks() {
+        let mut c = Cursor::new(Pos::new(0, 4));
+        c.begin_box(4, true);
+        // a box starts without marks; the caller sets the caret's, which goes with the anchor
+        assert_eq!((c.free_col(), c.anchor_free_col()), (None, None));
+        c.set_free_col(Some(4));
+        c.move_box_to_gap(Pos::new(0, 8), 4);
+        assert_eq!(
+            c.box_corners(),
+            Some(((Pos::new(0, 4), 4), (Pos::new(0, 8), 4)))
+        );
+        assert_eq!((c.anchor_free_col(), c.free_col()), (Some(4), Some(4)));
+        // a move onto the text drops the caret's mark and keeps the anchor's
+        c.move_box_to(Pos::new(0, 7), 3);
+        assert_eq!((c.anchor_free_col(), c.free_col()), (Some(4), None));
+        // the same position and column, but the anchor has the mark and the caret does not: two
+        // corners
+        c.move_box_to(Pos::new(0, 4), 4);
+        assert!(c.has_selection());
+        // back to the anchor corner, mark and all: nothing is selected
+        c.move_box_to_gap(Pos::new(0, 4), 4);
+        assert!(c.is_box() && !c.has_selection());
+        assert_eq!((c.anchor_free_col(), c.free_col()), (None, Some(4)));
+        // leaving the box ends its marks with the move
+        let mut c = Cursor::new(Pos::new(0, 4));
+        c.begin_box(4, true);
+        c.set_free_col(Some(4));
+        c.move_box_to_gap(Pos::new(0, 8), 5);
+        c.move_to(Pos::new(0, 9), false);
+        assert_eq!((c.anchor_free_col(), c.free_col()), (None, None));
     }
 
     #[test]

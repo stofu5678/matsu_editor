@@ -298,11 +298,13 @@ fn html_rows(source: &Source<'_>, limit: usize) -> Option<Result<String, OutputF
     // The rows of the selection (`rcSel`) and, for a box, its columns.
     let (top, bottom, area) = if is_box {
         let area = BoxArea::of_cursor(layout, doc, source.cursor)?;
-        let ((a, _), (c, _)) = source.cursor.box_corners()?;
-        let (row_a, row_c) = (
-            layout.pos_to_row(doc, a).ok()?.row,
-            layout.pos_to_row(doc, c).ok()?.row,
-        );
+        // the rows of the corners (one in the gap after a wrapped row is on that row)
+        let row_a = crate::hit::anchor_row_pos(layout, doc, source.cursor, true)
+            .ok()??
+            .row;
+        let row_c = crate::hit::caret_row_pos(layout, doc, source.cursor, true)
+            .ok()?
+            .row;
         (row_a.min(row_c), row_a.max(row_c), Some(area))
     } else {
         (

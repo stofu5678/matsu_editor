@@ -174,24 +174,6 @@ impl EditorView {
         }
     }
 
-    /// Where an Alt press at `pos` begins a box. A click to the right of a wrapped row gives the
-    /// start of the next row for a position, and the corner is on the row that was clicked (the
-    /// last char of the row, where a corner on a wrapped row stands at most).
-    fn box_begin_for_click(&self, p: Point<Pixels>, pos: Pos, cx: &gpui::App) -> Pos {
-        let doc = self.document.read(cx).doc();
-        let Some((row_start, _)) = self.box_corner_for_point(p, cx) else {
-            return pos;
-        };
-        let row_of = |p: Pos| self.layout.pos_to_row(doc, p).map(|at| at.row);
-        match (row_of(row_start), row_of(pos)) {
-            (Ok(clicked), Ok(at)) if clicked < at => matsu_core::cursor::char_left(doc, pos)
-                .ok()
-                .flatten()
-                .unwrap_or(pos),
-            _ => pos,
-        }
-    }
-
     /// The function the key map has for a click of the mouse with the keys held (the rows
     /// ダブルクリック, トリプルクリック, ... of the key assignment); 0 for none.
     pub(crate) fn mouse_function(&self, action: MouseAction, m: gpui::Modifiers) -> u16 {
@@ -437,7 +419,14 @@ impl EditorView {
                 self.box_corner_for_point(event.position, cx)
                     .map_or(pos, |(start, _)| start)
             } else {
-                self.box_begin_for_click(event.position, pos, cx)
+                pos
+            };
+            // A press right of a wrapped row begins the box in the gap after that row, at the
+            // column of the pointer (`mouse_begin_box_at`).
+            let pointer = if in_gutter {
+                None
+            } else {
+                self.box_corner_for_point(event.position, cx)
             };
             // The row below the one pressed, taken before the begin scrolls the view (it brings a
             // partly visible row into view, which would move a second hit test by a row).
@@ -446,8 +435,11 @@ impl EditorView {
             } else {
                 None
             };
-            self.run_with(cx, |command_cx| command_cx.mouse_begin_box(begin))
-                .ok();
+            self.run_with(cx, |command_cx| match pointer {
+                Some((row_start, x)) => command_cx.mouse_begin_box_at(begin, row_start, x),
+                None => command_cx.mouse_begin_box(begin),
+            })
+            .ok();
             self.set_drag(Drag::Box);
             if let Some(row_start) = below {
                 // Alt and the line number column also move the caret one row down, growing the

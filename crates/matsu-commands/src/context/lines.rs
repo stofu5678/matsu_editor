@@ -9,6 +9,7 @@ use matsu_core::buffer::Pos;
 use matsu_core::model::eol_text;
 
 use super::CommandContext;
+use super::boxsel::Corner;
 use crate::command::Result;
 use crate::layout::X;
 
@@ -127,13 +128,14 @@ impl CommandContext<'_> {
     /// their rows of the screen and their columns, as Sakura restores `sRangeA`, so a box that
     /// was drawn over the later rows of a line stays there.
     fn sort_box_lines(&mut self, ascending: bool) -> Result<()> {
-        let Some(((a, a_col), (c, c_col))) = self.box_corner_xs() else {
+        let Some((a_corner, c_corner)) = self.box_corners()? else {
             return Ok(());
         };
         // `IsTextSelected` is false when both corners are the same.
-        if (a, a_col) == (c, c_col) {
+        if a_corner == c_corner {
             return Ok(());
         }
+        let ((a, a_col), (c, c_col)) = ((a_corner.pos, a_corner.x), (c_corner.pos, c_corner.x));
         let (left, right) = if a_col == c_col {
             (a_col, self.max_box_x())
         } else {
@@ -159,8 +161,15 @@ impl CommandContext<'_> {
             self.layout.make_exact(self.model.doc(), line);
         }
         let base = self.layout.row_index(self.doc(), Pos::new(first, 0))?;
-        let a_off = self.layout.row_index(self.doc(), a)?.saturating_sub(base);
-        let c_off = self.layout.row_index(self.doc(), c)?.saturating_sub(base);
+        // (a corner in the gap after a wrapped row is on that row)
+        let a_off = self
+            .layout
+            .row_index(self.doc(), a_corner.row_pos())?
+            .saturating_sub(base);
+        let c_off = self
+            .layout
+            .row_index(self.doc(), c_corner.row_pos())?
+            .saturating_sub(base);
         // the key, the line with its ending, and the length of the ending
         let mut keyed: Vec<(Vec<u16>, String, usize)> = Vec::with_capacity(end - first);
         let mut lacked_eol = false;
@@ -218,7 +227,7 @@ impl CommandContext<'_> {
             // the saved bytes are the same.)
             let anchor = self.box_corner_below(first, a_off, a_col)?;
             let caret = self.box_corner_below(first, c_off, c_col)?;
-            self.set_box((anchor, a_col), (caret, c_col), lock);
+            self.set_box(anchor, caret, lock);
         }
         Ok(())
     }
@@ -228,7 +237,7 @@ impl CommandContext<'_> {
     /// the rows of the new lines (one row each): each line is made exact as the walk enters it, so
     /// the work is proportional to the offset. The line above `first` is made exact too, as an
     /// edit makes it inexact (its ending can change).
-    fn box_corner_below(&mut self, first: usize, offset: usize, x: X) -> Result<Pos> {
+    fn box_corner_below(&mut self, first: usize, offset: usize, x: X) -> Result<Corner> {
         let line = first.min(self.doc().end_pos()?.line);
         if line > 0 {
             self.layout.make_exact(self.model.doc(), line - 1);

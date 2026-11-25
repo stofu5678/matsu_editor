@@ -381,9 +381,9 @@ fn an_end_at_the_start_of_a_row_is_not_counted_and_a_stale_mark_is_ignored(
 }
 
 #[gpui::test]
-fn a_box_that_starts_at_the_end_of_a_wrapped_row_starts_on_that_row(cx: &mut TestAppContext) {
+fn a_box_that_starts_at_the_end_of_a_wrapped_row_starts_in_its_gap(cx: &mut TestAppContext) {
     let (v, cx) = wrapped(cx);
-    // End on row 1, then a box two rows down: the corner is on the last char of the row, and the
+    // End on row 1, then a box two rows down: the corner is in the gap after the row, and the
     // box covers rows 1 to 3
     put_caret(&v, cx, 0, 15);
     run(
@@ -398,8 +398,9 @@ fn a_box_that_starts_at_the_end_of_a_wrapped_row_starts_on_that_row(cx: &mut Tes
         ],
     );
     v.read_with(cx, |v, _| {
+        // the corner begins in the gap after row 1; Left goes onto the last char of the row
         let ((a, _), (c, _)) = v.cursor.box_corners().expect("a box");
-        assert_eq!((a, c), (Pos::new(0, 19), Pos::new(0, 38)));
+        assert_eq!((a, c), (Pos::new(0, 20), Pos::new(0, 39)));
     });
     let text = message(&v, cx, false).expect("a box");
     assert!(text.ends_with("* 3 lines selected."), "{text}");

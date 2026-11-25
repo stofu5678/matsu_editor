@@ -43,8 +43,8 @@
 //! starts from a caret with the mark takes it (`BeginSelectArea` copies the caret's layout point
 //! into `m_sSelectBgn`), and it goes with the anchor. The window finds the row of each end with
 //! the same rule (`matsu_ui::hit::caret_row_pos` and `anchor_row_pos`) for the line count of the
-//! status bar (`PrintSelectionInfoMsg`). A box that begins from a caret with the mark begins on
-//! the last char of that row (`land_on_caret_row`).
+//! status bar (`PrintSelectionInfoMsg`). A box that begins from a caret with the mark begins in the
+//! gap of that row, and its corners carry the same marks (`boxsel`: needs no free cursor mode).
 //!
 //! # The end of a wrapped row, with the mode off
 //!
@@ -132,11 +132,39 @@ impl CommandContext<'_> {
         let Some(x) = self.stored_free_x() else {
             return Ok(None);
         };
-        let free = self.is_free_cursor();
+        // A box caret may stand right of the text in every mode (`Command_RIGHT` in a box).
+        let free = self.is_free_cursor() || self.cursor.is_box();
         Ok(self
             .gap_at(self.caret())?
             .filter(|gap| gap.takes(x, free))
             .map(|gap| (x, gap)))
+    }
+
+    /// The wrapped row whose gap the caret stands in, with the column it stands at: the caret is
+    /// at the end of that row, or (a free caret, or the caret of a box) right of it. Its position
+    /// is the start of the next row.
+    pub(super) fn caret_wrapped_gap(&self) -> Result<Option<(X, WrappedGap)>> {
+        Ok(self.standing()?.and_then(|(x, gap)| match gap {
+            Gap::Wrapped(gap) => Some((x, gap)),
+            Gap::Last { .. } => None,
+        }))
+    }
+
+    /// The same for the anchor of a box selection, from its mark
+    /// ([`Cursor::anchor_free_col`](matsu_core::cursor::Cursor::anchor_free_col)): the wrapped row
+    /// whose gap the anchor stands in. `None` for an anchor without a good mark, which is where its
+    /// position puts it.
+    pub(super) fn anchor_wrapped_gap(&self) -> Result<Option<(X, WrappedGap)>> {
+        let (Some(anchor), Some(col)) = (self.cursor.anchor(), self.cursor.anchor_free_col())
+        else {
+            return Ok(None);
+        };
+        let x = super::units::x_of(col);
+        Ok(
+            crate::layout::wrapped_gap_before(&*self.layout, self.doc(), anchor)?
+                .filter(|gap| gap.takes(x, self.cursor.is_box() || self.is_free_cursor()))
+                .map(|gap| (x, gap)),
+        )
     }
 
     /// Puts the mark on the end of the wrapped row that the caret position ends, if it is one: the

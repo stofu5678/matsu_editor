@@ -60,13 +60,15 @@ pub fn free_x_at(
 /// of the next row. The stored free column (`Cursor::free_col`) is the mark that it is on the row
 /// before, at that column (`matsu_commands::context`, the free cursor mode). `free_cursor` is
 /// whether the mode is on: with it off, only the end of the text of the row is a place of the
-/// caret (`End`, a click right of the row), not the space right of it.
+/// caret (`End`, a click right of the row), not the space right of it. The caret of a box
+/// selection goes right of the text in every mode.
 pub fn caret_row_pos(
     layout: &DocumentLayout,
     doc: &Document,
     cursor: &Cursor,
     free_cursor: bool,
 ) -> Result<RowPos> {
+    let free_cursor = free_cursor || cursor.is_box();
     marked_row_pos(layout, doc, cursor.caret(), cursor.free_col(), free_cursor)
 }
 
@@ -83,6 +85,7 @@ pub fn anchor_row_pos(
     let Some(anchor) = cursor.anchor() else {
         return Ok(None);
     };
+    let free_cursor = free_cursor || cursor.is_box();
     marked_row_pos(layout, doc, anchor, cursor.anchor_free_col(), free_cursor).map(Some)
 }
 
@@ -115,7 +118,13 @@ fn marked_row_pos(
 /// right of the text that the caret keeps when the free cursor mode is off (the view drops every
 /// other column then, so that it does not come back when the mode is turned on).
 pub fn is_wrapped_row_end_mark(layout: &DocumentLayout, doc: &Document, cursor: &Cursor) -> bool {
-    is_wrapped_end_mark_at(layout, doc, cursor.caret(), cursor.free_col())
+    is_wrapped_end_mark_at(
+        layout,
+        doc,
+        cursor.caret(),
+        cursor.free_col(),
+        cursor.is_box(),
+    )
 }
 
 /// As [`is_wrapped_row_end_mark`], for the anchor of the selection.
@@ -124,16 +133,25 @@ pub fn is_anchor_wrapped_row_end_mark(
     doc: &Document,
     cursor: &Cursor,
 ) -> bool {
-    cursor
-        .anchor()
-        .is_some_and(|anchor| is_wrapped_end_mark_at(layout, doc, anchor, cursor.anchor_free_col()))
+    cursor.anchor().is_some_and(|anchor| {
+        is_wrapped_end_mark_at(
+            layout,
+            doc,
+            anchor,
+            cursor.anchor_free_col(),
+            cursor.is_box(),
+        )
+    })
 }
 
+/// Whether `col` is the mark of the end of a wrapped row at `pos`. `beyond`: a column right of the
+/// end of the text counts too (the corner of a box selection, which needs no free cursor mode).
 fn is_wrapped_end_mark_at(
     layout: &DocumentLayout,
     doc: &Document,
     pos: Pos,
     col: Option<usize>,
+    beyond: bool,
 ) -> bool {
     let Some(col) = col else {
         return false;
@@ -141,7 +159,7 @@ fn is_wrapped_end_mark_at(
     let rows = RowRead(layout);
     matches!(
         wrapped_gap_before(&rows, doc, pos),
-        Ok(Some(gap)) if gap.takes(cursor_x(col), false)
+        Ok(Some(gap)) if gap.takes(cursor_x(col), beyond)
     )
 }
 
@@ -248,12 +266,12 @@ impl BoxArea {
         doc: &Document,
         cursor: &matsu_core::cursor::Cursor,
     ) -> Option<Self> {
-        let ((anchor, anchor_x), (caret, caret_x)) = cursor.box_corners()?;
-        let corner = |pos, stored: usize| -> Option<(usize, X)> {
-            let at = layout.pos_to_row(doc, pos).ok()?;
-            Some((at.row, cursor_x(stored).max(at.x)))
-        };
-        Self::between(corner(anchor, anchor_x)?, corner(caret, caret_x)?)
+        let ((_, anchor_x), (_, caret_x)) = cursor.box_corners()?;
+        // A corner in the gap after a wrapped row is on that row (its mark, see `caret_row_pos`).
+        let corner = |at: RowPos, stored: usize| (at.row, cursor_x(stored).max(at.x));
+        let anchor = anchor_row_pos(layout, doc, cursor, true).ok()??;
+        let caret = caret_row_pos(layout, doc, cursor, true).ok()?;
+        Self::between(corner(anchor, anchor_x), corner(caret, caret_x))
     }
 
     /// The top row of the box and the span `from..to` it covers there.
@@ -511,6 +529,37 @@ mod tests {
             assert_eq!(area.range_on(3), None);
             let none = BoxArea::of_cursor(&l, &d, &Cursor::new(Pos::new(0, 0)));
             assert_eq!(none, None);
+        }
+    }
+
+    /// A box with a corner in the gap after a wrapped row covers the rows of its corners: the
+    /// corner is on that row though its position is the start of the next one, and the mark is
+    /// read where it is used (a mark that does not fit is ignored).
+    #[test]
+    fn a_box_corner_in_the_gap_of_a_wrapped_row_is_on_that_row() {
+        for per in PER_COLUMN {
+            let cfg = LayoutConfig {
+                wrap: Wrap::Columns(4),
+                ..config(per)
+            };
+            // rows: "abcd" "efg" "ij"
+            let (d, l, _) = setup("abcdefg\nij", cfg);
+            let mut c = Cursor::new(Pos::new(0, 4));
+            c.begin_box((4 * per) as usize, true);
+            c.set_free_col(Some((4 * per) as usize));
+            c.move_box_to(Pos::new(0, 5), (2 * per) as usize);
+            // the anchor is in the gap after row 0 (its mark moved with it)
+            assert_eq!(c.anchor_free_col(), Some((4 * per) as usize));
+            let area = BoxArea::of_cursor(&l, &d, &c).unwrap();
+            assert_eq!(area.range_on(0), Some((col(per, 2), col(per, 4))));
+            assert_eq!(area.range_on(1), Some((col(per, 2), col(per, 4))));
+            assert_eq!(area.range_on(2), None);
+            assert_eq!(area.top_row().0, 0);
+            // without the mark the same corner is the start of row 1
+            c.set_anchor_free_col(None);
+            let area = BoxArea::of_cursor(&l, &d, &c).unwrap();
+            assert_eq!(area.range_on(0), None);
+            assert!(area.range_on(1).is_some());
         }
     }
 

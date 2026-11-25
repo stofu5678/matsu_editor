@@ -129,6 +129,24 @@ impl CommandContext<'_> {
         Ok(())
     }
 
+    /// Alt and a press at `pos`, when the pointer is on the row that starts at `row_pos`, at `x`.
+    /// As [`mouse_begin_box`](Self::mouse_begin_box), except that a press right of the end of a
+    /// wrapped row (`pos` is the start of the next row) begins the box in the gap after that row,
+    /// on that row, at the column of the pointer: from the end of the text up to the width of a
+    /// row (Sakura's caret is a layout point there, as in a box drag, `MoveCursorToClientPoint`).
+    pub fn mouse_begin_box_at(&mut self, pos: Pos, row_pos: Pos, x: X) -> Result<()> {
+        let ends_here = self.layout.row_end(self.doc(), row_pos)? == pos;
+        if !(ends_here && self.row_is_wrapped(row_pos)?) {
+            return self.mouse_begin_box(pos);
+        }
+        self.move_caret(pos, false)?;
+        let text_end = self.row_text_end_x(row_pos)?;
+        let x = x.clamp(text_end, self.max_box_x().max(text_end));
+        self.begin_box_at(x, false);
+        self.set_free_x(Some(x));
+        Ok(())
+    }
+
     /// The pointer of a box drag is on the row that contains `row_pos`, at `x`: moves the corner
     /// there. Past the end of the text the corner is in the empty space
     /// (`MoveCursorToClientPoint` in `OnMOUSEMOVE`).
@@ -141,7 +159,12 @@ impl CommandContext<'_> {
     pub fn mouse_end_empty_box(&mut self) -> Result<bool> {
         if self.cursor.is_box() && !self.cursor.has_selection() {
             let caret = self.caret();
+            // A box that began in the gap after a wrapped row leaves the caret there.
+            let in_gap = self.caret_wrapped_gap()?.map(|(x, _)| x);
             self.move_caret(caret, false)?;
+            if let Some(x) = in_gap {
+                self.set_free_x(Some(x));
+            }
             return Ok(true);
         }
         Ok(false)
