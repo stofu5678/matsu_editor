@@ -1163,7 +1163,14 @@ fn measure_get_line_str() {
         doc.line_count(),
         peak_mb()
     );
-    let mut f = fixture_over(doc);
+    // `with_new_line`, as the app does: `DocumentModel::new` would decode the first line
+    let mut f = Fixture {
+        model: DocumentModel::with_new_line(doc, matsu_core::buffer::Eol::Lf),
+        cursor: Cursor::default(),
+        layout: PlainLayout::default(),
+        path: None,
+    };
+    println!("memory after the fixture {} MB", peak_mb());
     let limit = if step == "before" {
         usize::MAX
     } else {

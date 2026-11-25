@@ -468,8 +468,9 @@ fn floor_boundary(text: &str, col: usize) -> usize {
     col
 }
 
-/// The bytes of the text of a very long line that [`first_difference`] decodes at a time.
-const COMPARE_PART: usize = 64 * 1024;
+/// The bytes of the text of a very long line that [`first_difference`] decodes at a time (1 MiB; the
+/// tests make it small).
+const COMPARE_PART: usize = if cfg!(test) { 4096 } else { 1024 * 1024 };
 
 /// The chars of one line of a document with its line ending, from a column on: what the comparison
 /// of two documents walks along. A line is decoded whole, except a very long one
