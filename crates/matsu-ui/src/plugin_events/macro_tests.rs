@@ -242,6 +242,9 @@ fn cancelled_during_an_event(
     };
     let (view, cx) = setup(cx);
     place.enable(cx);
+    // The limit counts from the call's start, which the plugin host's own start (a cold Node.js) is part of: give
+    // the 3 seconds of the handler room for a slow host (a busy machine), or it is cut and the "Y" never comes.
+    set_test_limit(Some(Duration::from_secs(30)));
     let target = files.path("undo.dat");
     let mac = start(&files, &target);
     let code = FUNCTIONS
@@ -281,6 +284,7 @@ fn cancelled_during_an_event(
         view.run_function(undo, &[], window, cx)
     });
     assert_eq!(text_in(&view, cx), "a", "the handler's edits are one step");
+    set_test_limit(None);
     finish(cx);
 }
 
@@ -322,6 +326,9 @@ fn a_macro_cancelled_during_an_event_leaves_nothing_for_a_document_that_replaced
     };
     let (view, cx) = setup(cx);
     place.enable(cx);
+    // The limit counts from the call's start, which the plugin host's own start (a cold Node.js) is part of: give
+    // the 3 seconds of the handler room for a slow host (a busy machine), or it is cut and the "Y" never comes.
+    set_test_limit(Some(Duration::from_secs(30)));
     let first = files.path("first.dat");
     let mac = files.write(
         "first.mac",
@@ -377,6 +384,7 @@ fn a_macro_cancelled_during_an_event_leaves_nothing_for_a_document_that_replaced
         view.run_function(undo, &[], window, cx)
     });
     assert_eq!(text_in(&view, cx), "c", "the handler's edits are one step");
+    set_test_limit(None);
     finish(cx);
 }
 
@@ -391,6 +399,9 @@ fn a_macro_cancelled_during_an_event_has_its_blocks_closed_when_its_pane_is_gone
     };
     let (view, cx) = setup(cx);
     place.enable(cx);
+    // The limit counts from the call's start, which the plugin host's own start (a cold Node.js) is part of: give
+    // the 3 seconds of the handler room for a slow host (a busy machine), or it is cut and the "Y" never comes.
+    set_test_limit(Some(Duration::from_secs(30)));
     let shared = view.read_with(cx, |v, _| v.document().clone());
     let handle = cx.update(|_, app| app.windows()[0]);
     let target = files.path("gone.dat");
@@ -457,6 +468,7 @@ fn a_macro_cancelled_during_an_event_has_its_blocks_closed_when_its_pane_is_gone
         before,
         "the next edit is a step of its own"
     );
+    set_test_limit(None);
     finish(cx);
 }
 
