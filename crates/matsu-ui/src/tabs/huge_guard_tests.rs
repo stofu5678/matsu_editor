@@ -22,13 +22,23 @@ fn open_file_of(
     name: &str,
     text: &str,
 ) -> (AnyWindowHandle, Entity<EditorView>, std::path::PathBuf) {
+    open_file_of_with(cx, name, text, 1)
+}
+
+/// Like `open_file_of`, with the size from which a file is read by ranges given (MB).
+fn open_file_of_with(
+    cx: &mut TestAppContext,
+    name: &str,
+    text: &str,
+    huge_file_size_mb: i32,
+) -> (AnyWindowHandle, Entity<EditorView>, std::path::PathBuf) {
     let dir = temp_dir(name);
     let path = dir.join("one.txt");
     std::fs::write(&path, text).unwrap();
     let handle = window(cx, true);
     cx.update(|app| {
         app.set_global(FilePrefs {
-            huge_file_size_mb: 1,
+            huge_file_size_mb,
             ..FilePrefs::default()
         });
     });
@@ -218,6 +228,28 @@ fn a_narrow_box_over_a_lot_of_text_is_copied_as_html_by_the_text_of_its_rows(
         assert!(shown_box(cx, handle).is_none());
         assert_ne!(clipboard_text(cx).as_deref(), Some("old"));
     });
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn the_html_copy_of_a_very_long_line_of_a_document_read_whole_is_refused(cx: &mut TestAppContext) {
+    // 1.2 MiB in one line, under the size of a file that is read by ranges: a whole document
+    let text = "0123456789abcdef".repeat(1_200_000 / 16 + 1);
+    let (handle, view, dir) = open_file_of_with(cx, "huge-guard-html-line", &text, 100);
+    assert!(!view.read_with(cx, |v, app| v.document().read(app).doc().is_ranged()));
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("old".to_owned()));
+    run(cx, handle, "F_SELECTALL");
+    run(cx, handle, "F_COPY_COLOR_HTML");
+    assert_eq!(clipboard_text(cx).as_deref(), Some("old"));
+    let text = shown_box(cx, handle).expect("a message");
+    assert!(text.contains("長すぎる行"), "{text}");
+    assert!(text.contains("上限は 1 MB"), "{text}");
+    // the plain copy is not refused
+    run(cx, handle, "F_COPY");
+    assert_eq!(
+        clipboard_text(cx).map(|t| t.len()),
+        Some(1_200_000 / 16 * 16 + 16)
+    );
     std::fs::remove_dir_all(dir).ok();
 }
 

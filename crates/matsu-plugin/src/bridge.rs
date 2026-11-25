@@ -34,7 +34,7 @@
 //! last from one call to the next); a host that keeps a [`HostEnv`] for the run calls
 //! [`handle_message_with`].
 
-use matsu_commands::clipboard::copy_limit;
+use matsu_commands::clipboard::{copy_limit, mib};
 use matsu_commands::command::{Arg, CommandError};
 use matsu_commands::context::CommandContext;
 use matsu_commands::macro_names;
@@ -192,8 +192,8 @@ fn line_too_big(cx: &CommandContext<'_>, number: usize, limit: usize) -> Option<
             UNAVAILABLE,
             format!(
                 "GetLineStr: the line is too big ({} MB; the limit is {} MB)",
-                bytes.div_ceil(1024 * 1024),
-                limit.div_ceil(1024 * 1024)
+                mib(bytes),
+                mib(limit)
             ),
         )
     })
@@ -212,8 +212,8 @@ fn selection_too_big(cx: &CommandContext<'_>, limit: usize) -> Option<RpcError> 
             UNAVAILABLE,
             format!(
                 "GetSelectedString: the selection is too big ({} MB; the limit is {} MB)",
-                bytes.div_ceil(1024 * 1024),
-                limit.div_ceil(1024 * 1024)
+                mib(bytes),
+                mib(limit)
             ),
         )
     })

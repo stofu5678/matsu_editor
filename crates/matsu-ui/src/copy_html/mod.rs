@@ -14,20 +14,27 @@ mod builder;
 mod collect;
 
 use gpui::Context;
-use matsu_commands::clipboard::{ClipData, ClipKind, Clipboard as _, copy_limit, too_big_message};
+use matsu_commands::clipboard::{
+    ClipData, ClipKind, Clipboard as _, copy_limit, mib, too_big_message,
+};
+use matsu_core::buffer::DEFAULT_LONG_LINE;
 
 use crate::clipboard::GpuiClipboard;
 use crate::view::EditorView;
 
-pub(crate) use collect::{Found, Refusal, Source, color_html_within};
+pub(crate) use collect::{Found, OutputFull, Source, color_html_within, line_over};
+
+/// The bytes of a line from which the colored HTML copy is refused: a very long line of the core
+/// (1 MiB), see [`line_over`].
+pub(crate) const LINE_LIMIT: usize = DEFAULT_LONG_LINE;
 
 /// What the editor says when a line of the selection is too long for the colored HTML copy (Sakura
 /// has no such limit, ADR-0018 type F).
 pub(crate) fn long_line_message(bytes: usize) -> String {
     format!(
         "選択範囲に長すぎる行（{} MB。上限は {} MB）があるので、色付きHTMLをコピーできません。範囲を小さくしてやり直してください。",
-        bytes.div_ceil(1024 * 1024),
-        collect::LINE_LIMIT / (1024 * 1024)
+        mib(bytes),
+        mib(LINE_LIMIT)
     )
 }
 
@@ -63,6 +70,11 @@ impl EditorView {
             .unwrap_or(usize::MAX);
         if bytes >= limit {
             self.queue_message_box(too_big_message(bytes, false), cx);
+            return;
+        }
+        // Before anything is laid out or colored: a long line is not taken in parts.
+        if let Some(bytes) = line_over(self.document.read(cx).doc(), &self.cursor, LINE_LIMIT) {
+            self.queue_message_box(long_line_message(bytes), cx);
             return;
         }
         let shared = self.document.read(cx);
@@ -107,12 +119,8 @@ impl EditorView {
         let html = match html {
             Ok(Some(html)) => html,
             Ok(None) => return,
-            Err(Refusal::Output(written)) => {
+            Err(OutputFull(written)) => {
                 self.queue_message_box(too_big_message(written, false), cx);
-                return;
-            }
-            Err(Refusal::Line(bytes)) => {
-                self.queue_message_box(long_line_message(bytes), cx);
                 return;
             }
         };

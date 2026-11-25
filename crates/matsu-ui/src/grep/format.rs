@@ -37,6 +37,7 @@
 //! this, so that the tag jump (`matsu_core::tag_jump`) reads the result as it reads Sakura's.
 //! Nothing here touches a file or a window.
 
+use matsu_commands::clipboard::mib;
 use matsu_core::encoding::Encoding;
 
 use super::keys::GrepKeys;
@@ -517,8 +518,8 @@ pub fn file_open_error(path: &str) -> String {
 pub fn line_too_long(path: &str, line: u64, bytes: u64, limit: u64) -> String {
     format!(
         "{line}行目が長すぎる（{} MB。上限は {} MB）ので検索しませんでした。 [{path}]{EOL}",
-        bytes.div_ceil(1024 * 1024),
-        limit.div_ceil(1024 * 1024)
+        mib(usize::try_from(bytes).unwrap_or(usize::MAX)),
+        mib(usize::try_from(limit).unwrap_or(usize::MAX))
     )
 }
 

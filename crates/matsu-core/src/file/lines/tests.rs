@@ -540,3 +540,68 @@ fn a_line_within_the_limit_is_whole_when_its_crlf_is_split_by_a_chunk() {
         );
     }
 }
+
+/// A reader whose limited read of a line of 200 000 bytes was stopped after it began to drop it.
+fn stopped_in_a_drop(tail: &str) -> LineReader {
+    let mut bytes = vec![b'x'; 200_000];
+    bytes.extend_from_slice(tail.as_bytes());
+    let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, 4096);
+    let mut asked = 0;
+    let error = r
+        .next_line_limited(1000, &mut || {
+            asked += 1;
+            asked > 20
+        })
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert!(r.peak_buffered() < 20_000, "the line is being dropped");
+    r
+}
+
+#[test]
+fn a_line_that_is_being_dropped_stays_refused_when_the_read_goes_on_with_a_larger_limit() {
+    for (tail, eol, rest) in [
+        ("\nend", Some(Eol::Lf), whole("end", None)),
+        ("", None, whole("", None)),
+    ] {
+        let mut r = stopped_in_a_drop(tail);
+        let next = r.next_line_limited(usize::MAX, &mut || false).unwrap();
+        assert_eq!(
+            next,
+            Some(Limited::TooLong {
+                bytes: 200_000,
+                eol
+            }),
+            "{tail:?}"
+        );
+        // the next line is a line again
+        let next = r.next_line_limited(usize::MAX, &mut || false).unwrap();
+        if tail.is_empty() {
+            assert_eq!(next, None);
+        } else {
+            assert_eq!(next, Some(rest));
+        }
+    }
+}
+
+#[test]
+fn a_line_that_is_being_dropped_is_never_given_as_its_suffix_by_the_read_without_a_limit() {
+    for tail in ["\nend", ""] {
+        let mut r = stopped_in_a_drop(tail);
+        let error = r.next_line_until(&mut || false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{tail:?}");
+        // the line is over; the reader goes on with the next one
+        let next = r.next_line().unwrap();
+        if tail.is_empty() {
+            assert_eq!(next, None);
+        } else {
+            assert_eq!(
+                next,
+                Some(Line {
+                    text: "end".into(),
+                    eol: None
+                })
+            );
+        }
+    }
+}

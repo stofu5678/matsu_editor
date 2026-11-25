@@ -41,14 +41,18 @@ pub fn with_copy_limit<R>(limit: usize, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// `bytes` in the megabytes that the messages about big texts show (MiB, rounded up, at least 1).
+pub fn mib(bytes: usize) -> usize {
+    bytes.div_ceil(1024 * 1024).max(1)
+}
+
 /// What the editor says when a copy or a cut of `bytes` bytes is refused (Sakura has no limit and
 /// no text for it, ADR-0018 type F; the ADR asks for a refusal that tells the way out).
 pub fn too_big_message(bytes: usize, cut: bool) -> String {
-    let megabytes = |n: usize| n.div_ceil(1024 * 1024).max(1);
     format!(
         "選択範囲が大きすぎる（{} MB。上限は {} MB）ので、{}できません。{}範囲を小さくしてやり直してください。",
-        megabytes(bytes),
-        megabytes(copy_limit()),
+        mib(bytes),
+        mib(copy_limit()),
         if cut { "切り取り" } else { "コピー" },
         if cut {
             "文字は削除していません。"

@@ -116,6 +116,11 @@ impl Html {
         self.out.len()
     }
 
+    /// Whether the HTML has reached its limit: nothing more is written.
+    pub(super) fn is_full(&self) -> bool {
+        self.out.len() >= self.limit
+    }
+
     pub(super) fn raw(&mut self, text: &str) {
         self.out.push_str(text);
     }
@@ -180,7 +185,7 @@ impl Html {
             self.open = last;
         }
         for &c in text {
-            if self.out.len() >= self.limit {
+            if self.is_full() {
                 break;
             }
             match c {

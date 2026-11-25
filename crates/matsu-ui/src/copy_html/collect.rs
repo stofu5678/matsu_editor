@@ -249,59 +249,45 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
     color_html_within(source, usize::MAX).ok().flatten()
 }
 
-/// The bytes of one line from which the HTML copy is refused when the document is not read by
-/// ranges (ADR-0020, a very long line: 1 MiB, as for a file read by ranges). The layout keeps a
-/// row to `MAX_LINE_COLUMNS` (10240) columns, so the characters of a row
-/// are few; what grows with the line is the coloring (the runs of the whole line are worked out
-/// at once) and the text of the line itself. Such a line is not taken in pieces: the colors of a
-/// part need the state of the whole line before it (ADR-0018 type C/E; the way out is to select
-/// less). A document read by ranges colors no line of 64 KiB or more and gives its rows from the
-/// blocks, so it has no such limit.
-pub(crate) const LINE_LIMIT: usize = 1024 * 1024;
-
-/// Why the HTML copy is refused.
+/// The HTML has reached its limit while it was written: the bytes written so far.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Refusal {
-    /// The HTML has reached its limit: the bytes written so far.
-    Output(usize),
-    /// A line of the selection has [`LINE_LIMIT`] bytes or more: its bytes.
-    Line(usize),
-}
+pub(crate) struct OutputFull(pub usize);
 
 /// Like [`color_html`], but refuses (`Err`) when the HTML has `limit` bytes or more, so that a big
 /// selection does not use memory without a bound (the tags make the HTML several times the text;
-/// ADR-0020), and when a line of the selection has [`LINE_LIMIT`] bytes or more.
+/// ADR-0020). The builder stops writing at the limit, inside a row, and the closing tags count.
 pub(crate) fn color_html_within(
     source: &Source<'_>,
     limit: usize,
-) -> Result<Option<String>, Refusal> {
-    color_html_with_lines(source, limit, LINE_LIMIT)
+) -> Result<Option<String>, OutputFull> {
+    html_rows(source, limit).transpose()
 }
 
-/// [`color_html_within`] with the size of a line that is refused given (for the tests and the
-/// measurement).
-pub(crate) fn color_html_with_lines(
-    source: &Source<'_>,
-    limit: usize,
-    line_limit: usize,
-) -> Result<Option<String>, Refusal> {
-    let mut refusal = None;
-    let html = html_rows(source, limit, line_limit, &mut refusal);
-    match refusal {
-        Some(refusal) => Err(refusal),
-        None => Ok(html),
+/// The first line of the selection that has `limit` bytes or more, as its bytes, in a document
+/// that is not read by ranges (ADR-0020, a very long line). The colored HTML copy is refused
+/// there, before anything is laid out or colored: the colors of a line are worked out for the
+/// whole line at once, and the colors of a part need the state of the whole line before it
+/// (ADR-0018 type C/E; the way out is to select less). A document read by ranges colors no line of
+/// 64 KiB or more and gives its rows from the blocks, so it has no such limit. A selection that
+/// ends at the head of a line does not take that line; a box takes the lines of its rows.
+pub(crate) fn line_over(doc: &Document, cursor: &Cursor, limit: usize) -> Option<usize> {
+    if doc.is_ranged() {
+        return None;
     }
+    let (from, to) = cursor.selection()?;
+    let (first, last) = match cursor.box_corners() {
+        Some(((a, _), (c, _))) => (a.line.min(c.line), a.line.max(c.line)),
+        None if to.col == 0 && to.line > from.line => (from.line, to.line - 1),
+        None => (from.line, to.line),
+    };
+    (first..=last)
+        .filter_map(|line| doc.line_raw_len(line).ok().flatten())
+        .find(|&bytes| bytes >= limit)
 }
 
-/// The rows of the selection as HTML. `refusal` is set, and the result is `None`, when the HTML
-/// is at `limit` after a row or with its closing tags, or when a line is over `line_limit`. The
-/// builder itself stops writing at `limit` bytes, inside a row.
-fn html_rows(
-    source: &Source<'_>,
-    limit: usize,
-    line_limit: usize,
-    refusal: &mut Option<Refusal>,
-) -> Option<String> {
+/// The rows of the selection as HTML: `None` without a selection, and an error when the HTML is at
+/// the limit of the builder after a row or with its closing tags.
+fn html_rows(source: &Source<'_>, limit: usize) -> Option<Result<String, OutputFull>> {
     let (doc, layout, rules) = (source.doc, source.layout, source.rules);
     let (from, to) = source.cursor.selection()?;
     let is_box = source.cursor.is_box();
@@ -325,21 +311,6 @@ fn html_rows(
     // One row more than the selection: whether the line goes on after the last row.
     let rows = layout.rows(doc, top, bottom - top + 2).ok()?;
     let last = rows.iter().position(|r| r.row == bottom)?;
-    // Before anything is worked out for a line: its colors are made for the whole line.
-    if !doc.is_ranged()
-        && let Some(bytes) = rows
-            .iter()
-            .take(last + 1)
-            .filter(|r| !r.is_eof_row)
-            // a selection that ends at the start of a row does not take the row
-            .filter(|r| area.is_some() || r.row != bottom || to > r.start)
-            .filter_map(|r| doc.line_raw_len(r.line).ok().flatten())
-            .find(|&bytes| bytes >= line_limit)
-    {
-        *refusal = Some(Refusal::Line(bytes));
-        return None;
-    }
-
     // The width of the line numbers (`nLineNumberMax`).
     let width = number_width(if source.line_num_is_crlf {
         rows[last].line
@@ -436,16 +407,14 @@ fn html_rows(
             // `bLineNumLayout`: a row of a box ends with CR LF.
             html.raw("\r\n");
         }
-        if html.len() >= limit {
-            *refusal = Some(Refusal::Output(html.len()));
-            return None;
+        if html.is_full() {
+            return Some(Err(OutputFull(html.len())));
         }
     }
     let html = html.finish();
     // the closing tags count too
     if html.len() >= limit {
-        *refusal = Some(Refusal::Output(html.len()));
-        return None;
+        return Some(Err(OutputFull(html.len())));
     }
-    Some(html)
+    Some(Ok(html))
 }
