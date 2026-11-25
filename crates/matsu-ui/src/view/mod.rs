@@ -147,7 +147,8 @@ pub(crate) enum Drag {
     Select {
         bgn: (Pos, Pos),
         words: bool,
-        /// The mark of the click that began the drag ([`DragSelection::bgn_col`]).
+        /// A transient copy of the mark of the click that began the drag ([`DragSelection::bgn_col`]),
+        /// held while the button is down. Dropped with the cursor's marks ([`EditorView::drop_free_cols`]).
         bgn_col: Option<usize>,
     },
     /// Selecting rows (the line number column) or logical lines (a triple click) from `bgn`.
@@ -834,7 +835,7 @@ impl EditorView {
             let _ = self.cursor.clamp_if_outside(shared.doc());
         }
         // The text of the line may have grown under a caret that stood right of its end.
-        self.cursor.drop_free_cols();
+        self.drop_free_cols();
         self.layout_version = version;
         self.drop_composition(cx);
         // the candidates were made for the old text

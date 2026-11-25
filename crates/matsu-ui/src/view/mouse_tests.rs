@@ -1517,3 +1517,24 @@ fn an_alt_press_at_the_end_of_a_wrapped_row_begins_the_box_on_that_row(cx: &mut 
         assert_eq!((a, c), (Pos::new(0, 9), Pos::new(0, 13)));
     });
 }
+
+#[gpui::test]
+fn a_layout_change_during_a_drag_drops_the_mark_of_the_click(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 10, 1, Modifiers::default());
+    drag_at(&f, cx, 1, 3, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64))
+    });
+    // the layout changes while the button is down, and the next move must not bring the mark back
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    f.view.update(cx, |v, cx| v.set_wrap_columns(12, cx));
+    cx.run_until_parked();
+    drag_at(&f, cx, 0, 5, Modifiers::default());
+    f.view
+        .read_with(cx, |v, _| assert_eq!(v.cursor.anchor_free_col(), None));
+    up_at(&f, cx, 0, 5, Modifiers::default());
+}

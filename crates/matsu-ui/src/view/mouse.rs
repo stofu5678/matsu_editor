@@ -165,6 +165,15 @@ impl EditorView {
         Some((start, self.x_scale().nearest_column_edge(x)))
     }
 
+    /// Drops the marks of the caret and the anchor, and the copy of the click's mark that a drag
+    /// in progress holds (the layout or the text changed: the marks mean nothing in the new one).
+    pub(crate) fn drop_free_cols(&mut self) {
+        self.cursor.drop_free_cols();
+        if let Drag::Select { bgn_col, .. } = &mut self.drag {
+            *bgn_col = None;
+        }
+    }
+
     /// Where an Alt press at `pos` begins a box. A click to the right of a wrapped row gives the
     /// start of the next row for a position, and the corner is on the row that was clicked (the
     /// last char of the row, where a corner on a wrapped row stands at most).

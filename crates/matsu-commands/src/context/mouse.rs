@@ -23,7 +23,8 @@ pub struct DragSelection {
     pub bgn: (Pos, Pos),
     /// The ends of the selection snap to word boundaries (`m_bBeginWordSelect`).
     pub words: bool,
-    /// The mark of the press (`Cursor::free_col` of the caret that the press placed): when `bgn`
+    /// A transient copy of the mark of the press (`Cursor::free_col` of the caret that the press
+    /// placed), held by the caller while the button is down: when `bgn`
     /// is the empty range at the click, the anchor of the drag is that point, and a click at the
     /// end of a wrapped row keeps its row (`BeginSelectArea` copies the layout point of the caret
     /// into `m_sSelectBgn`). `None` for a range that a press selected.
