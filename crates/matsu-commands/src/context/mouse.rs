@@ -23,6 +23,12 @@ pub struct DragSelection {
     pub bgn: (Pos, Pos),
     /// The ends of the selection snap to word boundaries (`m_bBeginWordSelect`).
     pub words: bool,
+    /// A transient copy of the mark of the press (`Cursor::free_col` of the caret that the press
+    /// placed), held by the caller while the button is down: when `bgn`
+    /// is the empty range at the click, the anchor of the drag is that point, and a click at the
+    /// end of a wrapped row keeps its row (`BeginSelectArea` copies the layout point of the caret
+    /// into `m_sSelectBgn`). `None` for a range that a press selected.
+    pub bgn_col: Option<usize>,
 }
 
 impl CommandContext<'_> {
@@ -52,7 +58,11 @@ impl CommandContext<'_> {
                 caret = if caret == to { word_to } else { word_from };
             }
         }
-        self.select_range(anchor, caret)
+        self.select_range(anchor, caret)?;
+        if start == end && anchor == start {
+            self.cursor.set_anchor_free_col(drag.bgn_col);
+        }
+        Ok(())
     }
 
     // ---- a drag of rows or lines ----
@@ -147,8 +157,45 @@ mod tests {
     use crate::testing::Editor;
 
     fn drag(e: &mut Editor, bgn: (Pos, Pos), words: bool, at: Pos) {
-        e.with_context(|c| c.mouse_drag_to(DragSelection { bgn, words }, at))
+        e.with_context(|c| {
+            c.mouse_drag_to(
+                DragSelection {
+                    bgn,
+                    words,
+                    bgn_col: None,
+                },
+                at,
+            )
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn a_drag_from_a_click_with_a_mark_keeps_the_mark_on_its_anchor() {
+        let mut e = Editor::new("abcdef|");
+        let p = |col| Pos::new(0, col);
+        let from_click = DragSelection {
+            bgn: (p(3), p(3)),
+            words: false,
+            bgn_col: Some(3),
+        };
+        // after the click, and before it
+        e.with_context(|c| c.mouse_drag_to(from_click, p(5)))
             .unwrap();
+        assert_eq!(e.cursor().anchor_free_col(), Some(3));
+        e.with_context(|c| c.mouse_drag_to(from_click, p(1)))
+            .unwrap();
+        assert_eq!(e.cursor().anchor_free_col(), Some(3));
+        // back on the click: no selection, no mark
+        e.with_context(|c| c.mouse_drag_to(from_click, p(3)))
+            .unwrap();
+        assert_eq!(
+            (e.cursor().anchor(), e.cursor().anchor_free_col()),
+            (None, None)
+        );
+        // the range that a press selected (a word) has no mark of the click
+        drag(&mut e, (p(0), p(3)), false, p(5));
+        assert_eq!(e.cursor().anchor_free_col(), None);
     }
 
     #[test]

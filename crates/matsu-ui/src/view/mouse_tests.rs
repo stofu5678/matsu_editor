@@ -1410,3 +1410,131 @@ fn the_ime_and_the_screen_reader_follow_the_caret_in_the_gap_of_a_wrapped_row(
         assert_eq!(snapshot.as_ref().unwrap().focus.row, 1);
     });
 }
+
+// ---- the ends of a selection at the end of a wrapped row ----
+
+fn shift() -> Modifiers {
+    Modifiers {
+        shift: true,
+        ..Default::default()
+    }
+}
+
+fn selection_text(f: &Fixture, cx: &mut VisualTestContext) -> Option<String> {
+    f.view.update(cx, |v, cx| {
+        v.selection_message(crate::status_options::StatusbarOptions::default(), cx)
+    })
+}
+
+#[gpui::test]
+fn a_drag_from_a_click_at_the_end_of_a_wrapped_row_starts_on_that_row(cx: &mut TestAppContext) {
+    // The click puts the caret at the end of the first row (`CCaret::MoveCursorProperly`, #575).
+    // The anchor of the drag is that point: Sakura's `BeginSelectArea` copies the caret's layout
+    // point into `m_sSelectBgn`, so the selection from row 0 to row 1 is 2 lines.
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 10, 1, Modifiers::default());
+    drag_at(&f, cx, 1, 3, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(
+            v.cursor.selection(),
+            Some((Pos::new(0, 10), Pos::new(0, 13)))
+        );
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64));
+    });
+    assert_eq!(
+        selection_text(&f, cx).as_deref(),
+        Some("3 chars (2 lines) selected.")
+    );
+    // dragging back above the click: the anchor stays, the caret is on row 0
+    drag_at(&f, cx, 0, 4, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(
+            v.cursor.selection(),
+            Some((Pos::new(0, 4), Pos::new(0, 10)))
+        );
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64));
+    });
+    assert_eq!(
+        selection_text(&f, cx).as_deref(),
+        Some("6 chars (1 lines) selected.")
+    );
+    up_at(&f, cx, 0, 4, Modifiers::default());
+    // a click on the text drops the selection and its mark
+    down_at(&f, cx, 1, 1, 1, Modifiers::default());
+    up_at(&f, cx, 1, 1, Modifiers::default());
+    f.view
+        .read_with(cx, |v, _| assert_eq!(v.cursor.anchor_free_col(), None));
+}
+
+#[gpui::test]
+fn shift_click_from_a_click_at_the_end_of_a_wrapped_row_starts_on_that_row(
+    cx: &mut TestAppContext,
+) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 10, 1, Modifiers::default());
+    up_at(&f, cx, 0, 10, Modifiers::default());
+    down_at(&f, cx, 1, 3, 1, shift());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.anchor(), Some(Pos::new(0, 10)));
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64));
+    });
+    assert_eq!(
+        selection_text(&f, cx).as_deref(),
+        Some("3 chars (2 lines) selected.")
+    );
+    // the drag that follows keeps the anchor, with its mark
+    drag_at(&f, cx, 1, 5, shift());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64));
+    });
+    up_at(&f, cx, 1, 5, shift());
+    // a second Shift+click moves the caret and keeps the anchor and its mark
+    down_at(&f, cx, 1, 2, 1, shift());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.anchor(), Some(Pos::new(0, 10)));
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64));
+    });
+}
+
+#[gpui::test]
+fn an_alt_press_at_the_end_of_a_wrapped_row_begins_the_box_on_that_row(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 10, 1, alt());
+    drag_at(&f, cx, 1, 3, alt());
+    up_at(&f, cx, 1, 3, alt());
+    f.view.read_with(cx, |v, _| {
+        let ((a, _), (c, _)) = v.cursor.box_corners().expect("a box");
+        // the corner of the press is the last char of row 0, not the start of row 1
+        assert_eq!((a, c), (Pos::new(0, 9), Pos::new(0, 13)));
+    });
+}
+
+#[gpui::test]
+fn a_layout_change_during_a_drag_drops_the_mark_of_the_click(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    cx.run_until_parked();
+    down_at(&f, cx, 0, 10, 1, Modifiers::default());
+    drag_at(&f, cx, 1, 3, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64))
+    });
+    // the layout changes while the button is down, and the next move must not bring the mark back
+    f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
+    f.view.update(cx, |v, cx| v.set_wrap_columns(12, cx));
+    cx.run_until_parked();
+    drag_at(&f, cx, 0, 5, Modifiers::default());
+    f.view
+        .read_with(cx, |v, _| assert_eq!(v.cursor.anchor_free_col(), None));
+    up_at(&f, cx, 0, 5, Modifiers::default());
+}

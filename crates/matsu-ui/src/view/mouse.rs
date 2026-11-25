@@ -165,6 +165,33 @@ impl EditorView {
         Some((start, self.x_scale().nearest_column_edge(x)))
     }
 
+    /// Drops the marks of the caret and the anchor, and the copy of the click's mark that a drag
+    /// in progress holds (the layout or the text changed: the marks mean nothing in the new one).
+    pub(crate) fn drop_free_cols(&mut self) {
+        self.cursor.drop_free_cols();
+        if let Drag::Select { bgn_col, .. } = &mut self.drag {
+            *bgn_col = None;
+        }
+    }
+
+    /// Where an Alt press at `pos` begins a box. A click to the right of a wrapped row gives the
+    /// start of the next row for a position, and the corner is on the row that was clicked (the
+    /// last char of the row, where a corner on a wrapped row stands at most).
+    fn box_begin_for_click(&self, p: Point<Pixels>, pos: Pos, cx: &gpui::App) -> Pos {
+        let doc = self.document.read(cx).doc();
+        let Some((row_start, _)) = self.box_corner_for_point(p, cx) else {
+            return pos;
+        };
+        let row_of = |p: Pos| self.layout.pos_to_row(doc, p).map(|at| at.row);
+        match (row_of(row_start), row_of(pos)) {
+            (Ok(clicked), Ok(at)) if clicked < at => matsu_core::cursor::char_left(doc, pos)
+                .ok()
+                .flatten()
+                .unwrap_or(pos),
+            _ => pos,
+        }
+    }
+
     /// The function the key map has for a click of the mouse with the keys held (the rows
     /// ダブルクリック, トリプルクリック, ... of the key assignment); 0 for none.
     pub(crate) fn mouse_function(&self, action: MouseAction, m: gpui::Modifiers) -> u16 {
@@ -341,6 +368,7 @@ impl EditorView {
             Drag::Select {
                 bgn: self.cursor.selection().unwrap_or((caret, caret)),
                 words: true,
+                bgn_col: None,
             }
         } else {
             Drag::None
@@ -362,6 +390,7 @@ impl EditorView {
             None => Drag::Select {
                 bgn: (self.cursor.caret(), self.cursor.caret()),
                 words: false,
+                bgn_col: self.cursor.free_col(),
             },
         });
     }
@@ -408,7 +437,7 @@ impl EditorView {
                 self.box_corner_for_point(event.position, cx)
                     .map_or(pos, |(start, _)| start)
             } else {
-                pos
+                self.box_begin_for_click(event.position, pos, cx)
             };
             // The row below the one pressed, taken before the begin scrolls the view (it brings a
             // partly visible row into view, which would move a second hit test by a row).
@@ -446,12 +475,17 @@ impl EditorView {
                 None => Drag::Select {
                     bgn: (pos, pos),
                     words: false,
+                    bgn_col: None,
                 },
             });
             return;
         }
-        let (bgn, words) = self.press_selection(event, pos, cx);
-        self.set_drag(Drag::Select { bgn, words });
+        let (bgn, words, bgn_col) = self.press_selection(event, pos, cx);
+        self.set_drag(Drag::Select {
+            bgn,
+            words,
+            bgn_col,
+        });
         // A click on a URL selects it, if the setting says so (`m_bSelectClickedURL`).
         if !in_gutter
             && options.select_clicked_url
@@ -462,19 +496,21 @@ impl EditorView {
             self.set_drag(Drag::Select {
                 bgn: url,
                 words: false,
+                bgn_col: None,
             });
         }
     }
 
     /// The selection that a press makes by the keys held: Shift extends from the anchor, Ctrl
     /// selects the word (and the drag goes by words), and the caret moves to the click otherwise.
-    /// Returns the range the drag starts from and whether it goes by words.
+    /// Returns the range the drag starts from, whether it goes by words, and the mark of the click
+    /// when the range is the empty one at it ([`DragSelection::bgn_col`]).
     fn press_selection(
         &mut self,
         event: &MouseDownEvent,
         pos: Pos,
         cx: &mut Context<Self>,
-    ) -> ((Pos, Pos), bool) {
+    ) -> ((Pos, Pos), bool, Option<usize>) {
         let m = event.modifiers;
         // A click to the right of the text puts the caret there in the free cursor mode.
         let free = self
@@ -488,6 +524,11 @@ impl EditorView {
                     .ok();
             }
             let anchor = self.cursor.anchor().unwrap_or(self.cursor.caret());
+            // The anchor keeps the mark that it has, or that of the caret it starts from.
+            let anchor_col = match self.cursor.anchor() {
+                Some(_) => self.cursor.anchor_free_col(),
+                None => self.cursor.free_col(),
+            };
             self.run_with(cx, |command_cx| command_cx.move_caret_free(pos, free, true))
                 .ok();
             if m.control {
@@ -499,12 +540,19 @@ impl EditorView {
                     .unwrap_or((anchor, anchor));
                 let bgn = (word.0.min(anchor), word.1.max(anchor));
                 self.run_with(cx, |command_cx| {
-                    command_cx.mouse_drag_to(DragSelection { bgn, words: true }, pos)
+                    command_cx.mouse_drag_to(
+                        DragSelection {
+                            bgn,
+                            words: true,
+                            bgn_col: None,
+                        },
+                        pos,
+                    )
                 })
                 .ok();
-                return (bgn, true);
+                return (bgn, true, None);
             }
-            return ((anchor, anchor), false);
+            return ((anchor, anchor), false, anchor_col);
         }
         self.run_with(cx, |command_cx| {
             command_cx.move_caret_free(pos, free, false)
@@ -520,9 +568,9 @@ impl EditorView {
             } else {
                 (pos, pos)
             };
-            return (bgn, true);
+            return (bgn, true, None);
         }
-        ((pos, pos), false)
+        ((pos, pos), false, self.cursor.free_col())
     }
 
     /// The range of the URL at `pos` in its line, if the type shows URLs or has a regular
@@ -581,7 +629,11 @@ impl EditorView {
         }
         match self.drag {
             Drag::None => {}
-            Drag::Select { bgn, words } => {
+            Drag::Select {
+                bgn,
+                words,
+                bgn_col,
+            } => {
                 // Above or below the view the pointer maps to the first or last row, and
                 // moving the caret there scrolls.
                 if let Some(pos) = self.position_for_point(event.position, cx) {
@@ -589,7 +641,14 @@ impl EditorView {
                     // right of the text (`MoveCursorProperly`); the selected text is the same.
                     let free = self.free_x_for_point(event.position, cx);
                     self.run_with(cx, |command_cx| {
-                        command_cx.mouse_drag_to(DragSelection { bgn, words }, pos)?;
+                        command_cx.mouse_drag_to(
+                            DragSelection {
+                                bgn,
+                                words,
+                                bgn_col,
+                            },
+                            pos,
+                        )?;
                         match free {
                             // A drag by words may have moved the caret off the pointer.
                             Some(x) if command_cx.caret() == pos => command_cx.stand_free(x),
@@ -613,7 +672,14 @@ impl EditorView {
                     if logical || !in_text {
                         command_cx.mouse_drag_units_to(bgn, pos, logical)
                     } else {
-                        command_cx.mouse_drag_to(DragSelection { bgn, words: false }, pos)
+                        command_cx.mouse_drag_to(
+                            DragSelection {
+                                bgn,
+                                words: false,
+                                bgn_col: None,
+                            },
+                            pos,
+                        )
                     }
                 })
                 .ok();

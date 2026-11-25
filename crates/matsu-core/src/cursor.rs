@@ -78,6 +78,12 @@ pub struct Cursor {
     /// free cursor mode). `None` when the caret is on the text. The commands that set it check
     /// the rest (the caret is at the end of a row, the column is past the text).
     free_col: Option<usize>,
+    /// The mark of the anchor, as `free_col` is the mark of the caret: the display column that the
+    /// anchor stood at when it was a caret at the end of a wrapped row (Sakura copies the layout
+    /// point of the caret into `m_sSelectBgn` in `BeginSelectArea`, so the anchor stays on the
+    /// row). `None` exactly when there is no anchor or it carries no mark. It is checked where it
+    /// is read, by the same rule as the caret's mark.
+    anchor_free_col: Option<usize>,
 }
 
 impl Cursor {
@@ -135,6 +141,7 @@ impl Cursor {
     /// `Command_BEGIN_BOXSELECT`). With `lock` the plain moves extend the box.
     pub fn begin_box(&mut self, col: usize, lock: bool) {
         self.anchor = None;
+        self.anchor_free_col = None;
         self.free_col = None;
         self.mode = SelectionMode::Rectangular;
         self.box_cols = Some(BoxCols {
@@ -160,6 +167,9 @@ impl Cursor {
         let same = anchor_pos == pos && cols.anchor == col;
         self.caret = pos;
         self.anchor = (!same).then_some(anchor_pos);
+        // A corner of a box is never at the end of a wrapped row (the box moves keep it on the
+        // last char), so the anchor has no mark.
+        self.anchor_free_col = None;
         self.box_cols = Some(BoxCols {
             anchor: cols.anchor,
             caret: col,
@@ -190,6 +200,25 @@ impl Cursor {
         self.free_col = col;
     }
 
+    /// The mark of the anchor: the display column it stood at when the selection started from a
+    /// caret that had a [`free_col`](Self::free_col). Like the caret's mark it says, on the start
+    /// of a row that continues a wrapped line, that the anchor is at the end of the row before.
+    pub fn anchor_free_col(&self) -> Option<usize> {
+        self.anchor_free_col
+    }
+
+    /// Sets or clears the mark of the anchor. Without an anchor it stays `None`.
+    pub fn set_anchor_free_col(&mut self, col: Option<usize>) {
+        self.anchor_free_col = col.filter(|_| self.anchor.is_some());
+    }
+
+    /// Drops the marks of the caret and of the anchor: for a change that the cursor cannot see
+    /// (the layout of the view changed, the text changed under it).
+    pub fn drop_free_cols(&mut self) {
+        self.free_col = None;
+        self.anchor_free_col = None;
+    }
+
     /// The display column that vertical moves aim for, if a vertical move has set one.
     pub fn goal_col(&self) -> Option<usize> {
         self.goal_col
@@ -214,11 +243,17 @@ impl Cursor {
     /// box moves use [`move_box_to`](Self::move_box_to).
     pub fn move_to(&mut self, pos: Pos, extend: bool) {
         if extend {
-            let anchor = self.anchor.unwrap_or(self.caret);
+            // A selection that starts here starts at the caret with its mark (`BeginSelectArea`).
+            let (anchor, mark) = match self.anchor {
+                Some(anchor) => (anchor, self.anchor_free_col),
+                None => (self.caret, self.free_col),
+            };
             self.anchor = (anchor != pos).then_some(anchor);
+            self.anchor_free_col = mark.filter(|_| self.anchor.is_some());
             self.drop_box();
         } else {
             self.anchor = None;
+            self.anchor_free_col = None;
             self.drop_box();
             self.selecting_lock = false;
         }
@@ -242,14 +277,17 @@ impl Cursor {
             self.anchor = None;
         }
         self.free_col = None;
+        self.anchor_free_col = None;
     }
 
-    /// Selects from `anchor` to `caret` (the caret may come first).
+    /// Selects from `anchor` to `caret` (the caret may come first). The anchor has no mark; see
+    /// [`set_anchor_free_col`](Self::set_anchor_free_col).
     pub fn select(&mut self, anchor: Pos, caret: Pos) {
         self.drop_box();
         self.selecting_lock = false;
         self.caret = caret;
         self.anchor = (anchor != caret).then_some(anchor);
+        self.anchor_free_col = None;
         self.goal_col = None;
         self.free_col = None;
     }
@@ -257,6 +295,7 @@ impl Cursor {
     /// Drops the selection and keeps the caret.
     pub fn clear_selection(&mut self) {
         self.anchor = None;
+        self.anchor_free_col = None;
         self.drop_box();
         self.selecting_lock = false;
     }
@@ -305,6 +344,7 @@ impl Cursor {
     /// that was not the one that edited (another view of the same document).
     pub fn clamp(&mut self, doc: &Document) -> Result<()> {
         self.free_col = None;
+        self.anchor_free_col = None;
         self.caret = doc.clamp_pos(self.caret)?;
         if let Some(a) = self.anchor {
             let a = doc.clamp_pos(a)?;
@@ -367,6 +407,68 @@ mod tests {
 
     fn doc(s: &str) -> Document {
         Document::from_utf8(s.as_bytes().to_vec()).unwrap()
+    }
+
+    #[test]
+    fn a_selection_that_starts_at_a_marked_caret_gives_the_anchor_the_mark() {
+        // `BeginSelectArea` copies the caret's layout point into `m_sSelectBgn`
+        let mut c = Cursor::new(Pos::new(0, 3));
+        c.set_free_col(Some(3));
+        c.move_to(Pos::new(0, 6), true);
+        assert_eq!(c.anchor(), Some(Pos::new(0, 3)));
+        assert_eq!(c.anchor_free_col(), Some(3));
+        // the caret's own mark is gone, as every move clears it
+        assert_eq!(c.free_col(), None);
+        // growing the selection keeps the anchor and its mark, also when the caret has a mark
+        c.set_free_col(Some(3));
+        c.move_to(Pos::new(0, 9), true);
+        assert_eq!(c.anchor_free_col(), Some(3));
+        // the caret passes the anchor: the anchor stays
+        c.move_to(Pos::new(0, 0), true);
+        assert_eq!(c.anchor(), Some(Pos::new(0, 3)));
+        assert_eq!(c.anchor_free_col(), Some(3));
+    }
+
+    #[test]
+    fn the_mark_of_the_anchor_goes_with_the_anchor() {
+        let marked = || {
+            let mut c = Cursor::new(Pos::new(0, 3));
+            c.set_free_col(Some(3));
+            c.move_to(Pos::new(0, 6), true);
+            c
+        };
+        // no selection left: no mark
+        let mut c = marked();
+        c.move_to(Pos::new(0, 3), true);
+        assert_eq!((c.anchor(), c.anchor_free_col()), (None, None));
+        // the selection is dropped
+        let mut c = marked();
+        c.move_to(Pos::new(0, 9), false);
+        assert_eq!(c.anchor_free_col(), None);
+        let mut c = marked();
+        c.clear_selection();
+        assert_eq!(c.anchor_free_col(), None);
+        // a selection made by positions has no mark, unless it is given one
+        let mut c = marked();
+        c.select(Pos::new(0, 3), Pos::new(0, 8));
+        assert_eq!(c.anchor_free_col(), None);
+        c.set_anchor_free_col(Some(3));
+        assert_eq!(c.anchor_free_col(), Some(3));
+        // a text change under the cursor, and a layout change, drop it
+        let mut c = marked();
+        c.map_positions(|p| p);
+        assert_eq!(c.anchor_free_col(), None);
+        let mut c = marked();
+        c.drop_free_cols();
+        assert_eq!((c.free_col(), c.anchor_free_col()), (None, None));
+        // a box selection has no marked anchor
+        let mut c = marked();
+        c.begin_box(2, false);
+        assert_eq!(c.anchor_free_col(), None);
+        // no anchor, no mark
+        let mut c = Cursor::new(Pos::new(0, 3));
+        c.set_anchor_free_col(Some(3));
+        assert_eq!(c.anchor_free_col(), None);
     }
 
     #[test]

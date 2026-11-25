@@ -38,6 +38,14 @@
 //! column that is just the end of the text stays (below), so that a layout that changes and
 //! changes back does not bring the caret back into the gap.
 //!
+//! The anchor of a selection has the same mark
+//! ([`Cursor::anchor_free_col`](matsu_core::cursor::Cursor::anchor_free_col)): a selection that
+//! starts from a caret with the mark takes it (`BeginSelectArea` copies the caret's layout point
+//! into `m_sSelectBgn`), and it goes with the anchor. The window finds the row of each end with
+//! the same rule (`matsu_ui::hit::caret_row_pos` and `anchor_row_pos`) for the line count of the
+//! status bar (`PrintSelectionInfoMsg`). A box that begins from a caret with the mark begins on
+//! the last char of that row (`land_on_caret_row`).
+//!
 //! # The end of a wrapped row, with the mode off
 //!
 //! A column that is just the end of the text (not beyond it) is the end of the wrapped row, where

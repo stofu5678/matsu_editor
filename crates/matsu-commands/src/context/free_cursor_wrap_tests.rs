@@ -372,12 +372,54 @@ fn home_and_end_work_on_the_row_of_the_gap() {
 }
 
 #[test]
-fn a_box_does_not_start_in_the_gap_of_a_wrapped_row() {
+fn a_selection_that_starts_in_the_gap_keeps_the_row_of_its_anchor() {
+    with_options(free(), || {
+        let mut r = Rig::new("abcdefgh");
+        r.click(P1, 3);
+        r.run("cursor_down_sel");
+        // the caret is at the end of the row "def", the anchor at the end of "abc"
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(r.cursor.anchor(), Some(P1));
+        assert_eq!(r.cursor.anchor_free_col(), Some(3));
+        // the mark goes on while the selection grows ...
+        r.run("cursor_down_sel");
+        assert_eq!(r.cursor.anchor_free_col(), Some(3));
+        // ... and is gone with the selection
+        r.run("cursor_up");
+        assert_eq!(r.cursor.anchor_free_col(), None);
+        // a start at the start of the next row has no mark
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| cx.move_caret(P1, false).unwrap());
+        r.run("cursor_down_sel");
+        assert_eq!(r.cursor.anchor_free_col(), None);
+    });
+}
+
+#[test]
+fn pasting_a_box_in_the_gap_of_a_wrapped_row_starts_where_the_position_is() {
     with_options(free(), || {
         let mut r = Rig::new("abcdefgh");
         r.click(P1, 7);
         // the corner is where the position is: the start of the next row, column 0
         assert_eq!(r.cx(|cx| cx.box_caret_x().unwrap()), X::from_raw(0));
+    });
+}
+
+#[test]
+fn a_box_starts_on_the_row_of_the_gap_of_a_wrapped_row() {
+    with_options(free(), || {
+        let mut r = Rig::new("abcdefgh");
+        r.click(P1, 7);
+        r.run("begin_box");
+        // the box begins on the row "abc", at its last char (the most a box corner can stand at
+        // on a wrapped row); the next row is not the row of the corner
+        assert_eq!(r.caret(), Pos::new(0, 2));
+        assert_eq!(r.cx(|cx| cx.box_caret_x().unwrap()), X::from_raw(2));
+        r.run("cursor_down_box");
+        assert_eq!(
+            r.cursor.box_corners(),
+            Some(((Pos::new(0, 2), 2), (Pos::new(0, 5), 2)))
+        );
     });
 }
 
