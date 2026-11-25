@@ -870,6 +870,67 @@ mod box_corners_in_the_gap {
     }
 
     #[test]
+    fn the_column_of_a_gap_corner_is_the_boxs_not_the_marks() {
+        // the mark only says "on the upper row": a different number in it changes nothing
+        let mut r = at_end();
+        r.run("begin_box");
+        r.cursor.set_free_col(Some(99));
+        r.run("cursor_down").run("cursor_left");
+        r.cursor.set_anchor_free_col(Some(1));
+        assert_eq!(copied(&mut r), "c\r\nf\r\n");
+    }
+
+    #[test]
+    fn a_box_that_begins_again_keeps_the_column_of_its_corner() {
+        // in the empty space after the last row of a line
+        let mut r = Rig::new("ab");
+        r.cursor.move_to(Pos::new(0, 2), false);
+        r.run("begin_box").run("cursor_right");
+        assert_eq!(r.cursor.box_caret_col(), Some(3));
+        r.run("begin_box");
+        assert_eq!(r.cursor.box_corners(), None);
+        assert_eq!(r.cursor.box_caret_col(), Some(3));
+        // in the gap after a wrapped row
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_right").run("begin_box");
+        assert_eq!(
+            (r.caret(), r.cursor.box_caret_col(), r.col()),
+            (P1, Some(4), Some(4))
+        );
+    }
+
+    #[test]
+    fn a_column_right_of_the_text_is_brought_back_when_the_mode_is_off() {
+        // a box that ends empty in the gap, or a delete that leaves the caret there: without the
+        // free cursor mode the caret stays on the row at the end of its text
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(3))
+                .unwrap();
+            assert!(cx.mouse_end_empty_box().unwrap());
+        });
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(6))
+                .unwrap();
+            assert!(cx.mouse_end_empty_box().unwrap());
+        });
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+        // with the mode on the column stays
+        with_options(free(), || {
+            let mut r = Rig::new("abcdefgh");
+            r.cx(|cx| {
+                cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(6))
+                    .unwrap();
+                assert!(cx.mouse_end_empty_box().unwrap());
+            });
+            assert_eq!((r.caret(), r.col()), (P1, Some(6)));
+        });
+    }
+
+    #[test]
     fn the_rest_of_the_moves_work_from_the_gap() {
         // up from the gap of the second row, onto the gap of the first
         let mut r = Rig::new("abcdefgh");

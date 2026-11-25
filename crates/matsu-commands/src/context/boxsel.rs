@@ -116,7 +116,8 @@ impl CommandContext<'_> {
         // A caret in the gap at the end of a wrapped row begins the box there, on that row
         // (Sakura's caret is a layout point, and `BeginSelectArea` copies it).
         let in_gap = self.caret_wrapped_gap()?.is_some();
-        let x = self.caret_x_with_free()?;
+        // (a box that is going on keeps the column of its corner, also in the empty space)
+        let x = self.box_caret_x()?;
         self.begin_box_at(x, lock);
         if in_gap {
             self.set_free_x(Some(x));

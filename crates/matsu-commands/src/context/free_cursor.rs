@@ -129,8 +129,15 @@ impl CommandContext<'_> {
     /// The stored column of the caret and the gap it stands in, when the column is one that the
     /// gap takes in the current mode ([`Gap::takes`]).
     fn standing(&self) -> Result<Option<(X, Gap)>> {
-        let Some(x) = self.stored_free_x() else {
+        // In a box the column is the corner's (`box_cols`); the mark only says that the corner is
+        // on the upper row, so the column has one owner.
+        let Some(mark) = self.stored_free_x() else {
             return Ok(None);
+        };
+        let x = if self.cursor.is_box() {
+            self.stored_box_caret_x().unwrap_or(mark)
+        } else {
+            mark
         };
         // A box caret may stand right of the text in every mode (`Command_RIGHT` in a box).
         let free = self.is_free_cursor() || self.cursor.is_box();
@@ -155,11 +162,16 @@ impl CommandContext<'_> {
     /// whose gap the anchor stands in. `None` for an anchor without a good mark, which is where its
     /// position puts it.
     pub(super) fn anchor_wrapped_gap(&self) -> Result<Option<(X, WrappedGap)>> {
-        let (Some(anchor), Some(col)) = (self.cursor.anchor(), self.cursor.anchor_free_col())
+        let (Some(anchor), Some(mark)) = (self.cursor.anchor(), self.cursor.anchor_free_col())
         else {
             return Ok(None);
         };
-        let x = super::units::x_of(col);
+        // The column of a corner of a box is `box_cols`'s; the mark is only "on the upper row".
+        let col = self
+            .cursor
+            .box_anchor_col()
+            .filter(|_| self.cursor.is_box());
+        let x = super::units::x_of(col.unwrap_or(mark));
         Ok(
             crate::layout::wrapped_gap_before(&*self.layout, self.doc(), anchor)?
                 .filter(|gap| gap.takes(x, self.cursor.is_box() || self.is_free_cursor()))
@@ -175,6 +187,18 @@ impl CommandContext<'_> {
         if let Some(Gap::Wrapped(gap)) = self.gap_at(self.caret())? {
             self.set_free_x(Some(gap.text_end));
         }
+        Ok(())
+    }
+
+    /// Puts the mark of a caret that stands in the gap of a wrapped row, at `x`. Without the free
+    /// cursor mode only the end of the text is a column of the gap (`WrappedGap::takes`), so a
+    /// column right of it is brought back to the end. Call it after the caret is at its position.
+    pub(super) fn set_gap_free_x(&mut self, x: X) -> Result<()> {
+        let x = match self.gap_at(self.caret())? {
+            Some(Gap::Wrapped(gap)) if !self.is_free_cursor() => x.min(gap.text_end),
+            _ => x,
+        };
+        self.set_free_x(Some(x));
         Ok(())
     }
 

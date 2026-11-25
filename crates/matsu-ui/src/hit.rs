@@ -69,7 +69,7 @@ pub fn caret_row_pos(
     free_cursor: bool,
 ) -> Result<RowPos> {
     let free_cursor = free_cursor || cursor.is_box();
-    marked_row_pos(layout, doc, cursor.caret(), cursor.free_col(), free_cursor)
+    marked_row_pos(layout, doc, cursor.caret(), caret_mark(cursor), free_cursor)
 }
 
 /// The row and the `X` of the anchor of the selection of `cursor`, or `None` without an anchor.
@@ -86,7 +86,20 @@ pub fn anchor_row_pos(
         return Ok(None);
     };
     let free_cursor = free_cursor || cursor.is_box();
-    marked_row_pos(layout, doc, anchor, cursor.anchor_free_col(), free_cursor).map(Some)
+    marked_row_pos(layout, doc, anchor, anchor_mark(cursor), free_cursor).map(Some)
+}
+
+/// The column of the mark of the caret. In a box the column is the corner's (`box_caret_col`) and
+/// the mark only says that the corner is on the upper row; elsewhere the mark is the column.
+fn caret_mark(cursor: &Cursor) -> Option<usize> {
+    let mark = cursor.free_col()?;
+    Some(cursor.box_caret_col().unwrap_or(mark))
+}
+
+/// As [`caret_mark`], for the anchor.
+fn anchor_mark(cursor: &Cursor) -> Option<usize> {
+    let mark = cursor.anchor_free_col()?;
+    Some(cursor.box_anchor_col().unwrap_or(mark))
 }
 
 /// The row and `X` of `pos` with the mark `col` of a caret or an anchor (see [`caret_row_pos`]).
@@ -122,7 +135,7 @@ pub fn is_wrapped_row_end_mark(layout: &DocumentLayout, doc: &Document, cursor: 
         layout,
         doc,
         cursor.caret(),
-        cursor.free_col(),
+        caret_mark(cursor),
         cursor.is_box(),
     )
 }
@@ -134,13 +147,7 @@ pub fn is_anchor_wrapped_row_end_mark(
     cursor: &Cursor,
 ) -> bool {
     cursor.anchor().is_some_and(|anchor| {
-        is_wrapped_end_mark_at(
-            layout,
-            doc,
-            anchor,
-            cursor.anchor_free_col(),
-            cursor.is_box(),
-        )
+        is_wrapped_end_mark_at(layout, doc, anchor, anchor_mark(cursor), cursor.is_box())
     })
 }
 

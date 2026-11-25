@@ -259,7 +259,7 @@ impl CommandContext<'_> {
         }
         self.cursor.move_to(caret, false);
         if top_left.in_gap() && caret == top_left.pos {
-            self.set_free_x(Some(top_left.x));
+            self.set_gap_free_x(top_left.x)?;
         }
         Ok(())
     }
@@ -547,7 +547,7 @@ impl CommandContext<'_> {
         let caret = self.box_corner_pos(first_row, x)?;
         self.cursor.move_to(caret.pos, false);
         if caret.in_gap() {
-            self.set_free_x(Some(x));
+            self.set_gap_free_x(x)?;
         }
         Ok(())
     }

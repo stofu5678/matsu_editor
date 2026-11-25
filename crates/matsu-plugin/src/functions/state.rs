@@ -27,7 +27,9 @@ fn selection_corners(ed: &Editor) -> Result<Option<(Point, Point)>> {
     let b;
     if let Some(((_, ca), (_, cb))) = cx.cursor().box_corners() {
         // the rows of the corners: one in the gap after a wrapped row is on that row
-        let (pa, pb) = cx.box_corner_rows().map_err(command)?.unwrap_or_default();
+        let Some((pa, pb)) = cx.box_corner_rows().map_err(command)? else {
+            return Ok(None);
+        };
         a = (layout_point(cx, pa)?.0, ca);
         b = (layout_point(cx, pb)?.0, cb);
     } else if let Some((from, to)) = cx.selection() {

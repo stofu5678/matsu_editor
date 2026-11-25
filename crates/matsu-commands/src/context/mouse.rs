@@ -163,7 +163,7 @@ impl CommandContext<'_> {
             let in_gap = self.caret_wrapped_gap()?.map(|(x, _)| x);
             self.move_caret(caret, false)?;
             if let Some(x) = in_gap {
-                self.set_free_x(Some(x));
+                self.set_gap_free_x(x)?;
             }
             return Ok(true);
         }
