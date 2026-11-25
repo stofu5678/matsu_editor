@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.1](https://github.com/stofu5678/matsu_editor/compare/v0.27.0...v0.27.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **dialog:** make the button radio groups of five panels real radio groups, and the window kind a drop-down ([#580](https://github.com/stofu5678/matsu_editor/issues/580)) ([1c06bfb](https://github.com/stofu5678/matsu_editor/commit/1c06bfb82eb1c8f1d00f086b87e85dfef846393c))
+* **view:** keep the end of a wrapped row for the ends of a selection ([#581](https://github.com/stofu5678/matsu_editor/issues/581)) ([90b9dd0](https://github.com/stofu5678/matsu_editor/commit/90b9dd010d156959151d194c5acdecadc305a0ca))
+
 ## [0.27.0](https://github.com/stofu5678/matsu_editor/compare/v0.26.0...v0.27.0) (2026-11-24)
 
 
