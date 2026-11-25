@@ -16,5 +16,8 @@ matsu-commands = { path = "../matsu-commands" }
 matsu-core = { path = "../matsu-core" }
 matsu-print = { path = "../matsu-print" }
 
+[dev-dependencies]
+matsu-commands = { path = "../matsu-commands", features = ["test-util"] }
+
 [lints]
 workspace = true

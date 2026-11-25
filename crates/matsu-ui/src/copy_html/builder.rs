@@ -98,6 +98,11 @@ impl Html {
     }
 
     /// Writes `text` that needs no tags and no escaping (a line number).
+    /// The bytes of HTML written so far.
+    pub(super) fn len(&self) -> usize {
+        self.out.len()
+    }
+
     pub(super) fn raw(&mut self, text: &str) {
         self.out.push_str(text);
     }

@@ -260,7 +260,7 @@ pub struct EditorView {
     pub(crate) notice: Option<String>,
     /// Message boxes that commands asked for (`Changes::message_box`), shown by the next paint,
     /// which has the window.
-    pub(crate) pending_message_boxes: Vec<String>,
+    pending_message_boxes: Vec<String>,
     /// A jump to a place the scan of the file has not reached, held back until it is done
     /// (`view/scan.rs`).
     pub(crate) pending_scan_jump: Option<scan::PendingScanJump>,
@@ -718,6 +718,13 @@ impl EditorView {
         self.notice = Some("保存中は使えない（Esc で中止）".to_owned());
         cx.notify();
         true
+    }
+
+    /// Queues a message box for the next paint, as one that a command asked for
+    /// (`Changes::message_box`). The view stays the only writer of the queue.
+    pub(crate) fn queue_message_box(&mut self, text: String, cx: &mut Context<Self>) {
+        self.pending_message_boxes.push(text);
+        cx.notify();
     }
 
     /// Shows the message boxes that commands asked for: the caption, the text and an OK button.

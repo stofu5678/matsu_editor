@@ -192,6 +192,35 @@ fn a_file_that_was_read_by_ranges_wraps_after_its_scan(cx: &mut TestAppContext) 
     std::fs::remove_dir_all(dir).ok();
 }
 
+#[gpui::test]
+fn a_narrow_box_over_a_lot_of_text_is_copied_as_html_by_the_text_of_its_rows(
+    cx: &mut TestAppContext,
+) {
+    let (handle, view, dir) = open_file_of(cx, "huge-guard-box-html", &long_text());
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("old".to_owned()));
+    view.update(cx, |v, cx| v.go_to(Pos::new(0, 1_000_000), cx));
+    view.update(cx, |v, cx| v.run_command("begin_box", &[], cx));
+    for _ in 0..3 {
+        view.update(cx, |v, cx| v.run_command("cursor_right_box", &[], cx));
+    }
+    for _ in 0..20 {
+        view.update(cx, |v, cx| v.run_command("cursor_down_box", &[], cx));
+    }
+    // 21 rows of 4096 bytes lie between the corners, over the limit, but the box has 63 bytes
+    with_copy_limit(50_000, || {
+        run(cx, handle, "F_COPY_COLOR_HTML");
+        assert!(shown_box(cx, handle).is_none());
+        let html = clipboard_text(cx).expect("the clipboard has the HTML");
+        assert!(html.starts_with("<pre"), "{html}");
+        // the plain copy of the same box is not refused either
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("old".to_owned()));
+        run(cx, handle, "F_COPY");
+        assert!(shown_box(cx, handle).is_none());
+        assert_ne!(clipboard_text(cx).as_deref(), Some("old"));
+    });
+    std::fs::remove_dir_all(dir).ok();
+}
+
 // ---- the measurement of the PR ----
 
 /// The peak resident memory of this process so far, in MB (Linux), or 0.

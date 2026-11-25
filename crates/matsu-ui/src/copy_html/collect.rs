@@ -244,7 +244,34 @@ fn number_width(max: usize) -> usize {
 }
 
 /// The HTML for the selection of the cursor, or `None` when nothing is selected.
+#[cfg(test)]
 pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
+    color_html_within(source, usize::MAX).ok().flatten()
+}
+
+/// Like [`color_html`], but gives up with the number of bytes written so far (`Err`) when the HTML
+/// has `limit` bytes or more, so that a big selection does not use memory without a bound (the
+/// tags make the HTML several times the text; ADR-0020).
+pub(crate) fn color_html_within(
+    source: &Source<'_>,
+    limit: usize,
+) -> Result<Option<String>, usize> {
+    let mut too_big = None;
+    let html = html_rows(source, &mut |len| {
+        if len >= limit {
+            too_big = Some(len);
+            true
+        } else {
+            false
+        }
+    });
+    match too_big {
+        Some(len) => Err(len),
+        None => Ok(html),
+    }
+}
+
+fn html_rows(source: &Source<'_>, stop: &mut dyn FnMut(usize) -> bool) -> Option<String> {
     let (doc, layout, rules) = (source.doc, source.layout, source.rules);
     let (from, to) = source.cursor.selection()?;
     let is_box = source.cursor.is_box();
@@ -364,6 +391,9 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
         if is_box && !ends_with_delimiter {
             // `bLineNumLayout`: a row of a box ends with CR LF.
             html.raw("\r\n");
+        }
+        if stop(html.len()) {
+            return None;
         }
     }
     Some(html.finish())

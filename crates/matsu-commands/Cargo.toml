@@ -11,6 +11,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Hooks for the tests of other crates (`clipboard::with_copy_limit`); never on in a release.
+test-util = []
+
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 inventory = "0.3.25"

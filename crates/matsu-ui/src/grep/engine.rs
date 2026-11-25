@@ -427,10 +427,15 @@ pub(super) mod stream_probe {
 
     /// Runs `f` with `limit` as the longest line that is looked at.
     pub fn with_line_limit<R>(limit: usize, f: impl FnOnce() -> R) -> R {
-        let before = LINE_LIMIT.with(|l| l.replace(limit));
-        let result = f();
-        LINE_LIMIT.with(|l| l.set(before));
-        result
+        // The old limit comes back also when `f` panics.
+        struct Restore(usize);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                LINE_LIMIT.with(|l| l.set(self.0));
+            }
+        }
+        let _restore = Restore(LINE_LIMIT.with(|l| l.replace(limit)));
+        f()
     }
 
     /// Runs `f` with reads of `chunk` bytes, and tells what the streams saw.

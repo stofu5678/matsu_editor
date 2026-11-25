@@ -19,7 +19,7 @@ use matsu_commands::clipboard::{ClipData, ClipKind, Clipboard as _, copy_limit, 
 use crate::clipboard::GpuiClipboard;
 use crate::view::EditorView;
 
-pub(crate) use collect::{Found, Source, color_html};
+pub(crate) use collect::{Found, Source, color_html_within};
 
 /// Lays out the lines up to the one after `last_line` (the copy looks at the row that follows the
 /// last row of the selection), so that the row numbers up to there are exact. The rows of a large
@@ -45,18 +45,14 @@ impl EditorView {
         let Some((from, to)) = self.cursor.selection() else {
             return;
         };
-        // The same limit as the copy of the text (ADR-0020), asked before anything is read: the
-        // HTML is several times the size of the text it colors.
+        // The same limit as the copy of the text (ADR-0020), asked before anything is read, and
+        // box-aware. A size that cannot be told is a refusal, as for the copy of the text.
+        let limit = copy_limit();
         let bytes = self
-            .document
-            .read(cx)
-            .doc()
-            .raw_len_between(from, to)
-            .unwrap_or(0);
-        if bytes >= copy_limit() {
-            self.pending_message_boxes
-                .push(too_big_message(bytes, false));
-            cx.notify();
+            .run_with(cx, |c| c.selection_bytes(limit))
+            .unwrap_or(usize::MAX);
+        if bytes >= limit {
+            self.queue_message_box(too_big_message(bytes, false), cx);
             return;
         }
         let shared = self.document.read(cx);
@@ -84,17 +80,27 @@ impl EditorView {
                     .filter(|_| search.options().whole_word)
                     .map(|plain| &**plain),
             });
-        let Some(html) = color_html(&Source {
-            doc,
-            layout: &self.layout,
-            rules: &self.prefs.settings.coloring,
-            states: &self.color_states,
-            cursor: &self.cursor,
-            line_num_is_crlf: self.prefs.settings.outline.line_num_is_crlf,
-            line_numbers,
-            found,
-        }) else {
-            return;
+        let html = color_html_within(
+            &Source {
+                doc,
+                layout: &self.layout,
+                rules: &self.prefs.settings.coloring,
+                states: &self.color_states,
+                cursor: &self.cursor,
+                line_num_is_crlf: self.prefs.settings.outline.line_num_is_crlf,
+                line_numbers,
+                found,
+            },
+            limit,
+        );
+        // The HTML is several times the text it colors: it is not built past the limit either.
+        let html = match html {
+            Ok(Some(html)) => html,
+            Ok(None) => return,
+            Err(written) => {
+                self.queue_message_box(too_big_message(written, false), cx);
+                return;
+            }
         };
         if GpuiClipboard(cx).set(ClipData::new(html.clone(), ClipKind::Normal)) {
             // Not on every OS; the text is on the clipboard in any case.

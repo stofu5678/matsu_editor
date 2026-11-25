@@ -74,5 +74,6 @@ image = { version = "0.25.10", default-features = false, features = ["png", "bmp
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "runtime_shaders"] }
 
 [dev-dependencies]
+matsu-commands = { path = "../matsu-commands", features = ["test-util"] }
 tempfile = "3.27"
 gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }

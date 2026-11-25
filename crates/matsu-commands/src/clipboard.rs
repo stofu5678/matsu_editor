@@ -27,13 +27,18 @@ pub fn copy_limit() -> usize {
 }
 
 /// Runs `f` with `limit` bytes as the limit of a copy on this thread, so that a test does not need
-/// a selection of 256 MiB.
+/// a selection of 256 MiB. The old limit comes back when `f` ends, also by a panic.
+#[cfg(any(test, feature = "test-util"))]
 #[doc(hidden)]
 pub fn with_copy_limit<R>(limit: usize, f: impl FnOnce() -> R) -> R {
-    let before = COPY_LIMIT.with(|l| l.replace(limit));
-    let result = f();
-    COPY_LIMIT.with(|l| l.set(before));
-    result
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            COPY_LIMIT.with(|l| l.set(self.0));
+        }
+    }
+    let _restore = Restore(COPY_LIMIT.with(|l| l.replace(limit)));
+    f()
 }
 
 /// What the editor says when a copy or a cut of `bytes` bytes is refused (Sakura has no limit and

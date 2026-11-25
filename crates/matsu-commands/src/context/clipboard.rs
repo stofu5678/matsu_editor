@@ -383,6 +383,9 @@ impl CommandContext<'_> {
             self.beep();
             return Ok(());
         }
+        // Before the selection is made: a refused cut leaves the caret and the selection as they
+        // were.
+        self.refuse_big_copy(self.doc().raw_len_between(start, caret)?, true)?;
         self.select_range(start, caret)?;
         self.cut()
     }
@@ -394,15 +397,17 @@ impl CommandContext<'_> {
             return self.cut();
         }
         let caret = self.caret();
-        let Some(line) = self.doc().line(caret.line)? else {
+        // The length from the line index: a very long line is not decoded to find its end.
+        let Some(len) = self.doc().line_len(caret.line)? else {
             self.beep();
             return Ok(());
         };
-        let end = Pos::new(caret.line, line.text.len());
+        let end = Pos::new(caret.line, len);
         if caret.col >= end.col {
             self.beep();
             return Ok(());
         }
+        self.refuse_big_copy(self.doc().raw_len_between(caret, end)?, true)?;
         self.select_range(caret, end)?;
         self.cut()
     }

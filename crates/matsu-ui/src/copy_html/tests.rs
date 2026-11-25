@@ -553,3 +553,34 @@ fn a_match_after_a_tab_is_colored_by_its_characters_with_a_proportional_font() {
         )
     );
 }
+
+#[test]
+fn the_html_is_not_built_past_its_limit() {
+    use super::collect::color_html_within;
+
+    let text = "int main(void) { return 0; }\r\n".repeat(200);
+    let mut f = Fixture::new(&text, "a.c");
+    f.select((0, 0), (199, 0));
+    let source = Source {
+        doc: &f.doc,
+        layout: &f.layout,
+        rules: &f.rules,
+        states: &f.states,
+        cursor: &f.cursor,
+        line_num_is_crlf: true,
+        line_numbers: false,
+        found: None,
+    };
+    let whole = color_html_within(&source, usize::MAX).unwrap().unwrap();
+    assert!(whole.len() > 2000);
+    // under the limit: the same HTML; over it: the size so far, which is a row past the limit at
+    // most, not the whole HTML
+    assert_eq!(
+        color_html_within(&source, whole.len() + 1)
+            .unwrap()
+            .unwrap(),
+        whole
+    );
+    let written = color_html_within(&source, 1000).unwrap_err();
+    assert!((1000..2000).contains(&written), "{written}");
+}

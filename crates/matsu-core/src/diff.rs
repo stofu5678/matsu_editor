@@ -520,7 +520,10 @@ impl<'a> LineChars<'a> {
             // start
             let from = floor_boundary(&line.text, col);
             chars.base = from;
-            chars.part = line.text[from..].to_owned();
+            // the text is moved, and only what is before the place is cut off
+            let mut text = line.text;
+            text.drain(..from);
+            chars.part = text;
             chars.done = true;
         }
         Ok(Some(chars))

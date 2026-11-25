@@ -182,7 +182,11 @@ fn line_too_big(cx: &CommandContext<'_>, number: usize, limit: usize) -> Option<
     } else {
         number - 1
     };
-    let bytes = cx.doc().line_raw_len(line).ok().flatten()?;
+    let bytes = match cx.doc().line_raw_len(line) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return None,
+        Err(e) => return Some(size_unknown("GetLineStr", &e)),
+    };
     (bytes >= limit).then(|| {
         RpcError::new(
             UNAVAILABLE,
@@ -198,7 +202,11 @@ fn line_too_big(cx: &CommandContext<'_>, number: usize, limit: usize) -> Option<
 /// `GetSelectedString` fails when the selection has `limit` bytes or more.
 fn selection_too_big(cx: &CommandContext<'_>, limit: usize) -> Option<RpcError> {
     cx.selection()?;
-    let bytes = cx.selection_bytes(limit).ok()?;
+    // A size that cannot be told is a refusal, not a small selection.
+    let bytes = match cx.selection_bytes(limit) {
+        Ok(bytes) => bytes,
+        Err(e) => return Some(size_unknown("GetSelectedString", &e)),
+    };
     (bytes >= limit).then(|| {
         RpcError::new(
             UNAVAILABLE,
@@ -209,6 +217,13 @@ fn selection_too_big(cx: &CommandContext<'_>, limit: usize) -> Option<RpcError> 
             ),
         )
     })
+}
+
+fn size_unknown(name: &str, error: &dyn std::fmt::Display) -> RpcError {
+    RpcError::new(
+        UNAVAILABLE,
+        format!("{name}: the size of the text could not be told: {error}"),
+    )
 }
 
 fn still_scanning(name: &str) -> RpcError {

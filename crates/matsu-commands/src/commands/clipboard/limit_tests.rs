@@ -71,12 +71,20 @@ fn a_cut_over_the_limit_is_refused_and_deletes_nothing() {
 }
 
 #[test]
-fn a_cut_to_the_end_of_the_line_over_the_limit_deletes_nothing() {
+fn a_cut_to_the_end_or_the_start_of_the_line_over_the_limit_changes_nothing() {
     with_copy_limit(8, || {
-        let mut e = Editor::new("a|bcdefghij\nk");
-        e.run("line_cut_to_end");
-        assert!(refusal(&e).is_some());
-        assert_eq!(text(&e), "abcdefghij\nk");
+        for (id, before) in [
+            ("line_cut_to_end", "a|bcdefghij\nk"),
+            ("line_cut_to_start", "abcdefghi|j\nk"),
+        ] {
+            let mut e = Editor::new(before);
+            e.run(id);
+            assert!(refusal(&e).is_some(), "{id}");
+            // the text, the caret and the selection are as they were: no selection was made
+            e.assert_marked(before);
+            assert!(!e.changes().text_changed(), "{id}");
+            assert!(e.cursor().selection().is_none(), "{id}");
+        }
     });
 }
 
