@@ -580,7 +580,7 @@ impl<'a> LineChars<'a> {
 ///
 /// The places are caret positions: a place that falls inside a line ending (the lines end
 /// differently) is the end of the text of the line. A very long line is read a part at a time
-/// ([`LineChars`]), never decoded whole.
+/// (`LineChars`), never decoded whole.
 pub fn first_difference(
     a: &Document,
     from_a: Pos,
