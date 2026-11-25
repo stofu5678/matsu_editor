@@ -140,3 +140,53 @@ fn alt_a_chooses_the_new_type(cx: &mut TestAppContext) {
     // the question is still open
     assert!(list.read_with(cx, |l, _| l.ascertain.is_some()));
 }
+
+fn list_focused(list: &gpui::Entity<super::list::TypeList>, cx: &mut VisualTestContext) -> bool {
+    let focus = list.read_with(cx, |l, _| l.focus.clone());
+    cx.update(|window, _| focus.is_focused(window))
+}
+
+fn list_is_open(cx: &mut VisualTestContext) -> bool {
+    let view = view_of(cx);
+    view.read_with(cx, |v, _| v.doc_type.list.is_some())
+}
+
+#[gpui::test]
+fn escape_closes_the_question_and_the_list_keeps_its_keys(cx: &mut TestAppContext) {
+    // the focus on the group (one Tab), on the colors (two Tabs), or not moved
+    for tabs in [0, 1, 2] {
+        let (mut cx, list, _ring) = question(cx);
+        let cx = &mut cx;
+        for _ in 0..tabs {
+            cx.simulate_keystrokes("tab");
+        }
+        cx.simulate_keystrokes("escape");
+        assert!(list.read_with(cx, |l, _| l.ascertain.is_none()), "{tabs}");
+        assert!(list_focused(&list, cx), "after Escape, {tabs} Tabs");
+        assert!(list_is_open(cx), "{tabs}");
+        // the list has its keys: the second Escape closes it
+        cx.simulate_keystrokes("escape");
+        assert!(!list_is_open(cx), "second Escape, {tabs} Tabs");
+    }
+}
+
+#[gpui::test]
+fn ok_from_a_tab_stop_of_the_question_gives_the_focus_back_to_the_list(cx: &mut TestAppContext) {
+    for tabs in [1, 2] {
+        let (mut cx, list, _ring) = question(cx);
+        let cx = &mut cx;
+        for _ in 0..tabs {
+            cx.simulate_keystrokes("tab");
+        }
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        assert!(list.read_with(cx, |l, _| l.ascertain.is_none()), "{tabs}");
+        // a prompt may report the import: answer it if there is one
+        if cx.has_pending_prompt() {
+            cx.simulate_prompt_answer("OK");
+        }
+        assert!(list_focused(&list, cx), "after OK, {tabs} Tabs");
+        cx.simulate_keystrokes("escape");
+        assert!(!list_is_open(cx), "Escape reaches the list, {tabs} Tabs");
+    }
+}

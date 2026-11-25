@@ -269,7 +269,7 @@ fn another_version_of_the_structure_asks_whether_to_go_on(cx: &mut TestAppContex
     cx.run_until_parked();
     assert!(list.read_with(cx, |l, _| l.ascertain.is_some()));
     // キャンセル of the question changes nothing.
-    list.update(cx, |l, lcx| l.ascertain_cancel(lcx));
+    list.update_in(cx, |l, window, lcx| l.ascertain_cancel(window, lcx));
     assert_eq!(labels(&list, cx).len(), 36);
 }
 

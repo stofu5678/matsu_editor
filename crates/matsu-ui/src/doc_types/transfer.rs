@@ -207,18 +207,29 @@ impl TypeList {
         cx.notify();
     }
 
-    /// キャンセル of the question.
-    pub(super) fn ascertain_cancel(&mut self, cx: &mut Context<Self>) {
-        self.ascertain = None;
+    /// Closes the question (the one place: キャンセル, Escape and OK all come here) and gives the
+    /// focus back to the list before the question is dropped: its radio buttons and its colors
+    /// can hold the focus, and a focus on a handle that is gone leaves the list without keys.
+    fn close_ascertain(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Ascertain> {
+        window.focus(&self.focus, cx);
         cx.notify();
+        self.ascertain.take()
+    }
+
+    /// キャンセル of the question.
+    pub(super) fn ascertain_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_ascertain(window, cx);
     }
 
     /// OK of the question: `CImpExpType::Import` and the rest of `CDlgTypeList::Import`.
     pub(super) fn ascertain_ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(question) = self.ascertain.take() else {
+        let Some(question) = self.close_ascertain(window, cx) else {
             return;
         };
-        cx.notify();
         let Ascertain {
             file,
             path,
@@ -314,7 +325,7 @@ impl TypeList {
         cx: &mut Context<Self>,
     ) {
         match event.keystroke.key.as_str() {
-            "escape" => self.ascertain_cancel(cx),
+            "escape" => self.ascertain_cancel(window, cx),
             "enter" => self.ascertain_ok(window, cx),
             key @ ("up" | "down") => {
                 if let Some(q) = self.ascertain.as_mut() {
@@ -535,9 +546,11 @@ impl TypeList {
                     .child(button("type-ascertain-ok", "OK").on_click(cx.listener(
                         |this, _: &ClickEvent, window, cx| this.ascertain_ok(window, cx),
                     )))
-                    .child(button("type-ascertain-cancel", "キャンセル(X)").on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.ascertain_cancel(cx)),
-                    ))
+                    .child(
+                        button("type-ascertain-cancel", "キャンセル(X)").on_click(cx.listener(
+                            |this, _: &ClickEvent, window, cx| this.ascertain_cancel(window, cx),
+                        )),
+                    )
                     .child(
                         button("type-ascertain-help", crate::support::help::BUTTON_LABEL)
                             .on_click(|_: &ClickEvent, _, cx| super::list::open_help(cx)),
