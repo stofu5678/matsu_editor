@@ -54,6 +54,14 @@ impl Corner {
     }
 }
 
+/// The corner that [`CommandContext::wrapped_end_corner`] decides: in the gap after the wrapped row
+/// (its position is the start of the next row), or on a char.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RowCorner {
+    Gap { x: X },
+    Char { pos: Pos, x: X },
+}
+
 /// The lock option of a box move (the argument of `Sub_BoxSelectLock`, `CViewCommander.cpp`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoxLock {
@@ -234,28 +242,42 @@ impl CommandContext<'_> {
             && self.box_caret_x()? > self.caret_display_x()?)
     }
 
+    /// Where a corner goes when the pointer, or the column, is at `x` on the wrapped row of
+    /// `row_pos` and rounds to the end of the row. The one place that decides it, for a drag
+    /// ([`box_move_to_x`](Self::box_move_to_x)) and a press (`mouse_begin_box_at`): `x` at the end
+    /// of the text or right of it is the gap after the row, up to the width of a row; `x` inside
+    /// the last char (a wide char or a tab) is the left edge of that char.
+    pub(super) fn wrapped_end_corner(&self, row_pos: Pos, x: X) -> Result<RowCorner> {
+        let end = self.layout.row_end(self.doc(), row_pos)?;
+        let text_end = self.row_text_end_x(row_pos)?;
+        if x >= text_end {
+            return Ok(RowCorner::Gap {
+                x: x.min(self.max_box_x().max(text_end)),
+            });
+        }
+        let mut pos = end;
+        if let Some(last) = char_left(self.doc(), end)?
+            && last >= self.layout.row_start(self.doc(), row_pos)?
+        {
+            pos = last;
+        }
+        let at = self.layout.display_x(self.doc(), pos)?;
+        Ok(RowCorner::Char { pos, x: at })
+    }
+
     /// Moves the box caret to `x` on the row of `row_pos`: onto the char that covers it, or into
     /// the empty space after the text. On a wrapped row, `x` at the end of the text or right of it
     /// (up to the width of a row) is the gap after the row, where the corner is on the row and its
     /// position is the start of the next one.
     pub(super) fn box_move_to_x(&mut self, row_pos: Pos, x: X) -> Result<()> {
-        let mut pos = self.layout.pos_at_x(self.doc(), row_pos, x)?;
+        let pos = self.layout.pos_at_x(self.doc(), row_pos, x)?;
         let end = self.layout.row_end(self.doc(), row_pos)?;
         let wrapped = self.row_is_wrapped(row_pos)?;
         if wrapped && pos == end {
-            let text_end = self.row_text_end_x(row_pos)?;
-            if x >= text_end {
-                self.set_box_gap_caret(end, x.min(self.max_box_x().max(text_end)));
-                return Ok(());
+            match self.wrapped_end_corner(row_pos, x)? {
+                RowCorner::Gap { x } => self.set_box_gap_caret(end, x),
+                RowCorner::Char { pos, x } => self.set_box_caret(pos, x),
             }
-            // inside the last char: the corner is on its left edge
-            if let Some(last) = char_left(self.doc(), end)?
-                && last >= self.layout.row_start(self.doc(), row_pos)?
-            {
-                pos = last;
-            }
-            let at = self.layout.display_x(self.doc(), pos)?;
-            self.set_box_caret(pos, at);
             return Ok(());
         }
         let at = self.layout.display_x(self.doc(), pos)?;

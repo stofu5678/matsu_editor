@@ -11,6 +11,7 @@
 use matsu_core::buffer::Pos;
 
 use super::CommandContext;
+use super::boxsel::RowCorner;
 use crate::command::Result;
 use crate::layout::X;
 
@@ -139,21 +140,20 @@ impl CommandContext<'_> {
         if !(ends_here && self.row_is_wrapped(row_pos)?) {
             return self.mouse_begin_box(pos);
         }
-        let text_end = self.row_text_end_x(row_pos)?;
-        if x < text_end {
-            // The pointer is inside the last char (a wide char or a tab, which the click rounded
-            // to the end of the row): the corner is on its left edge, as `box_move_to_x` puts a
-            // corner of a drag.
-            let last = matsu_core::cursor::char_left(self.doc(), pos)?.unwrap_or(pos);
-            let at = self.layout.display_x(self.doc(), last)?;
-            self.move_caret(last, false)?;
-            self.begin_box_at(at, false);
-            return Ok(());
+        // The same decision as a drag makes (`wrapped_end_corner`): the gap, or, when the pointer
+        // is inside the last char (a wide char or a tab, which the click rounded to the end of the
+        // row), that char's left edge.
+        match self.wrapped_end_corner(row_pos, x)? {
+            RowCorner::Gap { x } => {
+                self.move_caret(pos, false)?;
+                self.begin_box_at(x, false);
+                self.set_free_x(Some(x));
+            }
+            RowCorner::Char { pos, x } => {
+                self.move_caret(pos, false)?;
+                self.begin_box_at(x, false);
+            }
         }
-        self.move_caret(pos, false)?;
-        let x = x.clamp(text_end, self.max_box_x().max(text_end));
-        self.begin_box_at(x, false);
-        self.set_free_x(Some(x));
         Ok(())
     }
 
