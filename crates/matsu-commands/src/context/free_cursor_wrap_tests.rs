@@ -1189,52 +1189,144 @@ mod box_corners_in_the_gap {
         }
     }
 
-    #[test]
-    fn typing_in_an_empty_box_in_the_gap_is_what_matsu_does_today() {
-        // MATSU treats an empty box like a free caret in the gap: it pads the gap, and in
-        // overwrite mode replaces the next char. For a plain caret that is what Sakura does too
-        // (`DelCharForOverwrite` and `Command_DELETE`, `cmd/CViewCommander_Edit.cpp`). Sakura
-        // inserts instead when the empty box was just begun with Shift+F6 (measured on
-        // 2026-11-26); that general difference is not part of the gap corners, and this test pins
-        // MATSU's present result, not Sakura's.
-        let mut r = at_end();
-        r.run("begin_box").run("cursor_right").run("begin_box");
-        assert_eq!((r.caret(), r.col()), (P1, Some(4)));
-        assert!(r.cursor.is_box() && !r.cursor.has_selection());
-        r.overwrite = true;
+    /// Types `X` after `keys` on "abcdefgh" (rows "abc", "def", "gh") with the caret at the end
+    /// of the first row, or at `(0, 1)` when `inside`, in the given mode.
+    fn typed_after(inside: bool, keys: &[&str], overwrite: bool) -> (String, Rig) {
+        let mut r = if inside {
+            let mut r = Rig::new("abcdefgh");
+            r.cursor.move_to(Pos::new(0, 1), false);
+            r
+        } else {
+            at_end()
+        };
+        for key in keys {
+            r.run(key);
+        }
+        r.overwrite = overwrite;
         r.run_with("input_char", &[Arg::Char('X')]);
-        assert_eq!(r.text(), "abc Xefgh");
-        // a box that is one column wide in the gap is a selection: the char goes in front of it
-        let mut r = at_end();
-        r.run("begin_box").run("cursor_right");
-        r.overwrite = true;
-        r.run_with("input_char", &[Arg::Char('X')]);
-        assert_eq!(r.text(), "abcXdefgh");
-        // the insert mode pads and inserts
-        let mut r = at_end();
-        r.run("begin_box").run("cursor_right").run("begin_box");
-        r.run_with("input_char", &[Arg::Char('X')]);
-        assert_eq!(r.text(), "abc Xdefgh");
-        // at the end of the text of the row, without a gap to fill, overwrite replaces the next char
-        let mut r = at_end();
-        r.run("begin_box");
-        r.overwrite = true;
-        r.run_with("input_char", &[Arg::Char('X')]);
-        assert_eq!(r.text(), "abcXefgh");
+        (r.text(), r)
     }
 
     #[test]
-    fn delete_and_backspace_with_an_empty_box_in_the_gap_are_what_matsu_does_today() {
-        let mut r = at_end();
-        r.run("begin_box").run("cursor_right").run("begin_box");
-        r.run("delete");
-        // `Command_DELETE`: fills the gap, then deletes the next char
-        assert_eq!(r.text(), "abc efgh");
-        let mut r = at_end();
+    fn typing_in_a_box_just_begun_inserts_in_both_modes() {
+        // `Command_WCHAR`: a box begun by `BeginSelectArea` is `IsTextSelected` and
+        // `IsBoxSelecting`, so the char goes to `Command_INDENT`, which inserts (measured on
+        // 2026-11-26 with Sakura 2.4.2 for each of these rows)
+        let cases: [(bool, &[&str], &str); 5] = [
+            // End, Shift+F6: an empty box begun at the gap
+            (false, &["begin_box"], "abcXdefgh"),
+            // End, Shift+F6, Right, Shift+F6: re-begun right of the gap
+            (
+                false,
+                &["begin_box", "cursor_right", "begin_box"],
+                "abc Xdefgh",
+            ),
+            // inside the text
+            (true, &["begin_box"], "aXbcdefgh"),
+            // Shift+F6, Right, Shift+F6: re-begun inside the text
+            (
+                true,
+                &["begin_box", "cursor_right", "begin_box"],
+                "abXcdefgh",
+            ),
+            // Shift+F6, Down, Shift+F6: re-begun on the next row
+            (
+                true,
+                &["begin_box", "cursor_down", "begin_box"],
+                "abcdXefgh",
+            ),
+        ];
+        for (inside, keys, want) in cases {
+            for overwrite in [false, true] {
+                let (text, r) = typed_after(inside, keys, overwrite);
+                assert_eq!(text, want, "{keys:?} overwrite={overwrite}");
+                // the box stays begun: the next char goes in the same way
+                assert!(r.cursor.is_box() && r.cursor.box_just_begun(), "{keys:?}");
+            }
+        }
+        // a second char inserts too, also in overwrite mode
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
         r.run("begin_box");
-        r.run("delete_back");
-        // `Command_DELETE_BACK` deletes the char before the caret: the last char of the row
-        assert_eq!(r.text(), "abdefgh");
+        r.overwrite = true;
+        r.run_with("input_char", &[Arg::Char('X')]);
+        r.run_with("input_char", &[Arg::Char('Y')]);
+        assert_eq!(r.text(), "aXYbcdefgh");
+    }
+
+    #[test]
+    fn typing_in_a_box_made_empty_by_moving_back_follows_the_mode() {
+        // Right, Left: `ChangeSelectAreaByCurrentCursorTEST` clears the range when the caret is
+        // back on its start, so nothing is selected any more
+        let keys = ["begin_box", "cursor_right", "cursor_left"];
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        for key in keys {
+            r.run(key);
+        }
+        assert!(r.cursor.is_box() && !r.cursor.has_selection() && !r.cursor.box_just_begun());
+        assert_eq!(typed_after(true, &keys, true).0, "aXcdefgh");
+        assert_eq!(typed_after(true, &keys, false).0, "aXbcdefgh");
+    }
+
+    #[test]
+    fn typing_in_a_box_of_one_column_or_no_box_keeps_what_it_did() {
+        // End, Shift+F6, Right: a box one column wide over the gap is a selection: the char goes
+        // in front of it, in both modes (as before)
+        for overwrite in [false, true] {
+            let keys = ["begin_box", "cursor_right"];
+            assert_eq!(typed_after(false, &keys, overwrite).0, "abcXdefgh");
+        }
+        // End, a plain caret at the gap: overwrite replaces the next char (measured), insert inserts
+        assert_eq!(typed_after(false, &[], true).0, "abcXefgh");
+        assert_eq!(typed_after(false, &[], false).0, "abcXdefgh");
+    }
+
+    #[test]
+    fn typing_in_a_box_just_begun_and_widened_to_no_width_goes_into_every_row() {
+        // Shift+F6, Down, Down: three rows, no width. The range has two different points, so it
+        // is selected; `Command_INDENT` inserts at the left column of each row
+        for overwrite in [false, true] {
+            let keys = ["begin_box", "cursor_down", "cursor_down"];
+            let (text, r) = typed_after(true, &keys, overwrite);
+            assert_eq!(text, "aXbcdXefgXh", "overwrite={overwrite}");
+            assert!(r.cursor.is_box());
+        }
+    }
+
+    #[test]
+    fn typing_in_a_box_just_begun_goes_by_ime_commit_too() {
+        // `Command_IME_CHAR` has the same rule, and `ime_char` shares the typing of `input_char`
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        r.run("begin_box");
+        r.overwrite = true;
+        r.run_with("ime_char", &[Arg::Int(0x3042)]);
+        assert_eq!(r.text(), "a\u{3042}bcdefgh");
+    }
+
+    #[test]
+    fn delete_and_backspace_in_a_box_just_begun_only_end_the_box() {
+        // `Command_DELETE` and `Command_DELETE_BACK` test `IsTextSelected` first, which is true for
+        // a box just begun, and `DeleteData` has nothing to delete in it
+        for id in ["delete", "delete_back"] {
+            let (mut r, at) = (at_end(), P1);
+            r.run("begin_box").run("cursor_right").run("begin_box");
+            r.run(id);
+            assert_eq!(r.text(), "abcdefgh", "{id}");
+            assert!(!r.cursor.is_box(), "{id}");
+            assert_eq!(r.caret(), at, "{id}");
+            let mut r = at_end();
+            r.run("begin_box").run(id);
+            assert_eq!(r.text(), "abcdefgh", "{id}");
+            assert!(!r.cursor.is_box(), "{id}");
+        }
+        // a box that a move made empty again is not selected: Delete deletes the next char
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        r.run("begin_box").run("cursor_right").run("cursor_left");
+        r.run("delete");
+        assert_eq!(r.text(), "acdefgh");
     }
 
     #[test]

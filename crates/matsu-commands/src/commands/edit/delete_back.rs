@@ -33,6 +33,12 @@ impl Command for DeleteBack {
         if cx.delete_selection()? {
             return Ok(());
         }
+        // A box just begun counts as selected text in Sakura, so the delete goes to `DeleteData`,
+        // which has nothing to delete in a box that covers nothing: it only ends the selection
+        // (`Command_DELETE` and `Command_DELETE_BACK` test `IsTextSelected` first).
+        if cx.cursor().box_just_begun() {
+            return cx.end_box_in_place();
+        }
         // `Command_LEFT` first: through the gap of the free cursor mode it moves one column and
         // nothing is deleted.
         if cx.caret_free_x()?.is_some() {

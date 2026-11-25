@@ -319,6 +319,40 @@ impl CommandContext<'_> {
         Ok(edit)
     }
 
+    /// `Command_WCHAR` with a box that was just begun (`F_BEGIN_BOX`, no corner moved since): it
+    /// covers nothing, but `BeginSelectArea` made a range that `IsTextSelected` counts, so the
+    /// char takes the box input, `Command_INDENT`, which inserts in both modes
+    /// (`cmd/CViewCommander_Edit.cpp`, `view/CViewSelect.cpp`). A box of one row and no width
+    /// inserts at its column, padding the row with spaces when the column is right of the text.
+    /// The box stays begun, at the end of the text, as `Command_INDENT` leaves it moved right.
+    pub(super) fn insert_in_begun_box(&mut self, text: &str) -> Result<Edit> {
+        self.refuse_in_view_mode()?;
+        let first = text.split(['\r', '\n']).next().unwrap_or_default();
+        let caret = self.caret();
+        if first.is_empty() {
+            return Ok(Edit {
+                start: caret,
+                end: caret,
+            });
+        }
+        let edit = if self.caret_is_in_empty_space()? {
+            self.insert_in_empty_space(first)?
+        } else {
+            // (the padding reads the mark of the caret, so it comes before the box ends)
+            self.pad_free_caret()?;
+            self.cursor.clear_selection();
+            let at = self.caret();
+            let edit = self.replace(at, at, first)?;
+            self.cursor.move_to(edit.end, false);
+            edit
+        };
+        // `Command_INDENT` ends the selection (`DisableSelectArea` also drops the lock of the
+        // plain moves) and selects the box again, moved right.
+        let x = self.caret_display_x()?;
+        self.begin_box_at(x, false);
+        Ok(edit)
+    }
+
     /// `Command_INSTEXT` and `Command_WCHAR` with a box selected: the first line of `text` (up to
     /// the first line ending) goes before the box in every row. An empty first line does
     /// nothing. The box moves right by the width of the text.

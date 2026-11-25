@@ -408,12 +408,12 @@ fn typing_in_a_box_that_covers_nothing_pads_the_row_to_the_caret() {
     // a box one row high from column 2 to 4 of "cd" is empty space only; type into it
     typed(&mut e, 'X');
     assert_eq!(text_of(&e), "ab\ncdX");
-    // a box of no width on text: the char goes at the caret and the box ends
+    // a box of no width on text: the char goes at the caret and the box stays begun
     let mut e = Editor::new("ab|cd");
     e.run("begin_box");
     typed(&mut e, 'X');
     e.assert_marked("abX|cd");
-    assert!(!e.cursor().is_box());
+    assert!(e.cursor().is_box() && e.cursor().box_just_begun());
 }
 
 #[test]

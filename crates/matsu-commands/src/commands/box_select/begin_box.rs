@@ -64,14 +64,19 @@ mod tests {
     }
 
     #[test]
-    fn typing_ends_a_box_that_covers_nothing() {
+    fn typing_in_a_box_that_covers_nothing_inserts_and_keeps_it_begun() {
+        // `Command_INDENT` leaves the box selected, moved right by the width of the char
         let mut e = Editor::new("ab|cd");
         e.run("begin_box");
         e.run_with("input_char", &[Arg::Char('x')]);
         e.assert_marked("abx|cd");
-        assert!(!e.cursor().is_box());
+        assert!(e.cursor().is_box() && e.cursor().box_just_begun());
+        // (`DisableSelectArea` drops the lock of the plain moves)
         assert!(!e.cursor().selecting_lock());
         assert!(!e.changes().beep);
+        // a move ends it
+        e.run("cursor_left");
+        assert!(!e.cursor().is_box());
     }
 
     #[test]
