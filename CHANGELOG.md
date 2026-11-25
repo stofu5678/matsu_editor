@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.2](https://github.com/stofu5678/matsu_editor/compare/v0.27.1...v0.27.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **dialog:** let an access key or a click on a radio button take the focus, and mark its disabled buttons ([#585](https://github.com/stofu5678/matsu_editor/issues/585)) ([da4d15e](https://github.com/stofu5678/matsu_editor/commit/da4d15e487cf6743775141362395180ded705a85))
+* **dialog:** make the buttons of the type import question tab stops and its colors a closed drop-down ([#586](https://github.com/stofu5678/matsu_editor/issues/586)) ([b230aed](https://github.com/stofu5678/matsu_editor/commit/b230aed321994060ba36472713e74e9fb7bf91df))
+
 ## [0.27.1](https://github.com/stofu5678/matsu_editor/compare/v0.27.0...v0.27.1) (2026-11-25)
 
 
