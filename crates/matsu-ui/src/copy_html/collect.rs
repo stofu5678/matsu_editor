@@ -271,8 +271,7 @@ pub(crate) fn color_html_within(
 /// 64 KiB or more and gives its rows from the blocks, so it has no such limit.
 ///
 /// The lines are all the lines from the one of `from` to the one of `to`, also when the selection
-/// ends at column 0: the copy has to find the row of `to`, which lays out that whole line, and it
-/// looks at the row after the last one too. (The rule "a selection that ends at column 0 does not
+/// ends at column 0: the copy has to find the row of `to`, which lays out that whole line. (The rule "a selection that ends at column 0 does not
 /// take that line" is about what is copied, not about what is laid out, so it is not this
 /// check's.) A box takes the lines between its corners.
 pub(crate) fn line_over(doc: &Document, cursor: &Cursor, limit: usize) -> Option<usize> {

@@ -814,3 +814,38 @@ fn a_long_line_after_the_selection_is_not_laid_out_searched_or_colored() {
         largest_decode()
     );
 }
+
+#[test]
+fn a_row_whose_style_changes_at_every_char_stops_at_the_limit_with_its_tags() {
+    // 200 000 chars, the color alternating red and blue: a change of style (about 100 bytes of
+    // tags) for every char, 20 MB in all. The limit is 10 000.
+    let red = Attr {
+        color: Some((0xff0000, 0xffffff)),
+        bold: true,
+        underline: true,
+    };
+    let blue = Attr {
+        color: Some((0x0000ff, 0xffffff)),
+        bold: false,
+        underline: false,
+    };
+    let len = 200_000;
+    let mut html = Html::with_limit(0xffffff, 10_000);
+    html.row(&Row {
+        chars: vec!['a'; len],
+        attrs: (0..len)
+            .map(|i| if i % 2 == 0 { red } else { blue })
+            .collect(),
+        from: Some(0),
+        to: len,
+    });
+    assert!(html.is_full());
+    // past the limit by the tags of one change and one char at most, here under 300 bytes
+    assert!(
+        (10_000..10_300).contains(&html.len()),
+        "{} bytes for a limit of 10 000",
+        html.len()
+    );
+    // with the closing tags, still near the limit
+    assert!(html.finish().len() < 10_400);
+}

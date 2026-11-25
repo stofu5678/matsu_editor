@@ -156,6 +156,12 @@ impl Html {
     /// the change from the style before it needs. Returns whether `text` ends with a line
     /// delimiter.
     fn append(&mut self, text: &[char]) -> bool {
+        // Nothing is written once the limit is reached, not even the tags of a change of style: a
+        // row whose style changes at every char would write a tag for each one. The most that is
+        // written past the limit is the tags of one change and one char (about 120 bytes).
+        if self.is_full() {
+            return false;
+        }
         let (last, open) = (self.last, self.open);
         let font_changed = last.bold != open.bold || last.underline != open.underline;
         let color_changed = last.color != open.color;
@@ -213,6 +219,9 @@ impl Html {
         // The style of the character before, to see where the style changes.
         let mut before = row.attrs.first().copied().unwrap_or(Attr::NONE);
         for (i, &next) in row.attrs.iter().enumerate() {
+            if self.is_full() {
+                break;
+            }
             if from <= i && i <= to {
                 if from == i {
                     self.last = next;
