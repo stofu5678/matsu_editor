@@ -199,3 +199,35 @@ fn a_click_on_the_box_opens_the_list_while_the_focus_is_elsewhere(cx: &mut TestA
     cx.run_until_parked();
     assert!(!with_dialog(cx, |d, _, _| d.kind_open));
 }
+
+#[gpui::test]
+fn space_opens_the_list_again_after_a_click_opened_it_and_escape_closed_it(
+    cx: &mut TestAppContext,
+) {
+    let _got = open_dialog(cx, SET);
+    let bounds = visual(cx).debug_bounds("win-kinds").expect("the combo box");
+    visual(cx).simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    keys(cx, "escape");
+    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert!(
+        cx.update(|app| current(app)).is_some(),
+        "Escape closed the list only"
+    );
+    keys(cx, "space");
+    assert!(
+        with_dialog(cx, |d, _, _| d.kind_open),
+        "Space opens the list"
+    );
+    // in the open list Space takes the row, and Alt+Up closes the list without choosing
+    keys(cx, "down");
+    keys(cx, "space");
+    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert_eq!(kind(cx), SIZE_MAXIMIZED);
+    keys(cx, "alt-down");
+    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    keys(cx, "alt-up");
+    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+    assert_eq!(kind(cx), SIZE_MAXIMIZED);
+}

@@ -76,7 +76,10 @@ impl WinSizeDialog {
         })
     }
 
-    /// A key on the combo box with its list closed.
+    /// A key on the combo box with its list closed, as `print_setting::on_combo_key` does it: F4
+    /// and Alt+Down open the list, and so does Space when the box itself has the focus (the
+    /// focus is on the box after a click opened the list: the button inside it takes Space as a
+    /// click when it has the focus). The arrows, Home, End, PageUp and PageDown choose at once.
     pub(super) fn on_kind_key(
         &mut self,
         event: &KeyDownEvent,
@@ -88,7 +91,11 @@ impl WinSizeDialog {
         }
         let modifiers = event.keystroke.modifiers;
         let key = event.keystroke.key.as_str();
-        if key == "f4" && !modifiers.modified() || key == "down" && modifiers.alt {
+        let own_focus = self.kind_focus.is_focused(window);
+        if key == "f4" && !modifiers.modified()
+            || key == "down" && modifiers.alt
+            || key == "space" && own_focus && !modifiers.modified()
+        {
             self.toggle_kind_list(window, cx);
             cx.stop_propagation();
             return;
@@ -124,11 +131,20 @@ impl WinSizeDialog {
         }
         let modifiers = event.keystroke.modifiers;
         let key = event.keystroke.key.as_str();
+        // Alt+Down and Alt+Up close the open list, as F4 does
+        if modifiers.alt && matches!(key, "down" | "up") {
+            self.kind_open = false;
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
         if modifiers.modified() {
             return;
         }
         match key {
-            "enter" => self.pick_kind(self.kind_cursor, cx),
+            // Space takes the row as Enter does, whichever of the box and its button has the
+            // focus (the button would take it as a click and close the list without choosing)
+            "enter" | "space" => self.pick_kind(self.kind_cursor, cx),
             "escape" | "f4" => {
                 self.kind_open = false;
                 cx.notify();
