@@ -231,3 +231,27 @@ fn space_opens_the_list_again_after_a_click_opened_it_and_escape_closed_it(
     assert!(!with_dialog(cx, |d, _, _| d.kind_open));
     assert_eq!(kind(cx), SIZE_MAXIMIZED);
 }
+
+#[gpui::test]
+fn the_open_list_is_drawn_over_the_dialog_and_moves_nothing(cx: &mut TestAppContext) {
+    let _got = open_dialog(cx, SET);
+    let closed = visual(cx).debug_bounds("win-kinds").expect("the combo box");
+    // the height box is under the combo box, and the close button at the bottom
+    let spin_closed = visual(cx)
+        .debug_bounds("win-size-close")
+        .expect("the close button");
+    visual(cx).simulate_click(closed.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(with_dialog(cx, |d, _, _| d.kind_open));
+    assert_eq!(visual(cx).debug_bounds("win-kinds"), Some(closed));
+    assert_eq!(visual(cx).debug_bounds("win-size-close"), Some(spin_closed));
+    // a click on a row takes it, while the focus stays in the box
+    let row = visual(cx)
+        .debug_bounds("win-kind-row-1")
+        .expect("the second row");
+    assert!(row.top() >= closed.bottom(), "the list is under the box");
+    visual(cx).simulate_click(row.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(kind(cx), SIZE_MAXIMIZED);
+    assert!(!with_dialog(cx, |d, _, _| d.kind_open));
+}

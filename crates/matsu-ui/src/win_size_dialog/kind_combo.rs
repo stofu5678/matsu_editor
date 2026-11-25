@@ -14,7 +14,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Context, InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _,
-    StatefulInteractiveElement as _, Styled as _, Window, div, px, rgb,
+    StatefulInteractiveElement as _, Styled as _, Window, deferred, div, px, rgb,
 };
 use gpui_component::Disableable as _;
 use gpui_component::button::Button;
@@ -41,24 +41,27 @@ impl WinSizeDialog {
     /// Chooses the entry at `row` (one of `KINDS`) and closes the list (`CBN_SELCHANGE`).
     pub(super) fn pick_kind(&mut self, row: usize, cx: &mut Context<Self>) {
         self.set_size_type(KINDS[row].1, cx);
+        self.close_kind_list(cx);
+    }
+
+    /// Closes the list that is open: the one place that does it (a row was taken, Escape, F4, a
+    /// key that leaves the box, the focus left the box, or the size left 直接指定).
+    pub(super) fn close_kind_list(&mut self, cx: &mut Context<Self>) {
         self.kind_open = false;
         cx.notify();
     }
 
-    /// Closes the list that is open (the mode of the size left 直接指定, or the focus left the box).
-    pub(super) fn close_kind_list(&mut self) {
-        self.kind_open = false;
-    }
-
     fn toggle_kind_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.kind_open = !self.kind_open;
         if self.kind_open {
-            // A click on the button does not move the focus (the button does not take it on
-            // mouse down), and a list opened while the focus is elsewhere would be closed again
-            // by `render` as a list that lost the focus: the focus goes into the box, as the
-            // print settings' `open_list` takes it.
-            window.focus(&self.kind_focus, cx);
+            self.close_kind_list(cx);
+            return;
         }
+        self.kind_open = true;
+        // A click on the button does not move the focus (the button does not take it on
+        // mouse down), and a list opened while the focus is elsewhere would be closed again
+        // by `render` as a list that lost the focus: the focus goes into the box, as the
+        // print settings' `open_list` takes it.
+        window.focus(&self.kind_focus, cx);
         self.kind_cursor = self.kind_row();
         cx.notify();
     }
@@ -125,16 +128,14 @@ impl WinSizeDialog {
         // A combo box closes its list when it loses the focus (`render` also closes it when the
         // focus has moved by Shift+Tab or a click) or cannot be used any more.
         if !self.kind_usable() || !self.kind_focus.contains_focused(window, cx) {
-            self.kind_open = false;
-            cx.notify();
+            self.close_kind_list(cx);
             return;
         }
         let modifiers = event.keystroke.modifiers;
         let key = event.keystroke.key.as_str();
         // Alt+Down and Alt+Up close the open list, as F4 does
         if modifiers.alt && matches!(key, "down" | "up") {
-            self.kind_open = false;
-            cx.notify();
+            self.close_kind_list(cx);
             cx.stop_propagation();
             return;
         }
@@ -145,15 +146,11 @@ impl WinSizeDialog {
             // Space takes the row as Enter does, whichever of the box and its button has the
             // focus (the button would take it as a click and close the list without choosing)
             "enter" | "space" => self.pick_kind(self.kind_cursor, cx),
-            "escape" | "f4" => {
-                self.kind_open = false;
-                cx.notify();
-            }
+            "escape" | "f4" => self.close_kind_list(cx),
             _ => {
                 let Some(to) = Self::kind_target(key, self.kind_cursor) else {
                     // Tab and the like leave the box: the list is closed and the key goes on
-                    self.kind_open = false;
-                    cx.notify();
+                    self.close_kind_list(cx);
                     return;
                 };
                 self.kind_cursor = to;
@@ -172,6 +169,7 @@ impl WinSizeDialog {
             .debug_selector(|| "win-kinds".to_owned())
             .track_focus(&self.kind_focus)
             .on_key_down(cx.listener(|this, event, window, cx| this.on_kind_key(event, window, cx)))
+            .relative()
             .w(px(110.))
             .child(
                 Button::new("win-kind")
@@ -180,16 +178,24 @@ impl WinSizeDialog {
                     .disabled(!self.kind_usable())
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_kind_list(window, cx))),
             )
-            .when(self.kind_open, |combo| combo.child(self.kind_list(cx)))
+            .when(self.kind_open, |combo| {
+                // drawn over what is under the box (deferred, so that nothing after it covers
+                // it), so that opening the list moves nothing in the fixed window
+                combo.child(deferred(self.kind_list(cx)).with_priority(1))
+            })
     }
 
-    /// The list under the combo box while it is open.
+    /// The list under the combo box while it is open, anchored to the bottom of the box.
     fn kind_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut list = div()
             .id("win-kind-list")
             .role(gpui::Role::ListBox)
             .aria_label("起動時の大きさ")
+            .absolute()
+            .top_full()
+            .left_0()
             .w(px(110.))
+            .occlude()
             .border_1()
             .border_color(rgb(0xaaaaaa))
             .bg(rgb(0xffffff));
@@ -197,6 +203,7 @@ impl WinSizeDialog {
             let at = row == self.kind_cursor;
             list = list.child(
                 crate::a11y::list_row(div().id(("win-kind-row", row)), text, at)
+                    .debug_selector(move || format!("win-kind-row-{row}"))
                     .px_1()
                     .cursor_pointer()
                     .when(at, |item| item.bg(rgb(0xc8dcf5)))

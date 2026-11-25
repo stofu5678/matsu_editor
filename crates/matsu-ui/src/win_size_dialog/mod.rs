@@ -205,7 +205,7 @@ impl WinSizeDialog {
     pub(crate) fn set_size_mode(&mut self, mode: i32, cx: &mut Context<Self>) {
         self.size_mode = mode;
         if !self.kind_usable() {
-            self.close_kind_list();
+            self.close_kind_list(cx);
         }
         cx.notify();
     }
@@ -363,7 +363,7 @@ impl Render for WinSizeDialog {
         // a list that is open while the focus has left the box is closed, as a combo box does
         // (the print settings' lists do the same): Shift+Tab and a click elsewhere come here
         if self.kind_open && !self.kind_focus.contains_focused(window, cx) {
-            self.close_kind_list();
+            self.close_kind_list(cx);
         }
 
         // `MODE_DEFAULT`, `MODE_SAVE` and `MODE_SET` are 0, 1 and 2: the position in the group
@@ -533,19 +533,26 @@ impl Render for WinSizeDialog {
                     .justify_end()
                     .gap_2()
                     .child(
-                        crate::a11y::button(div().id("win-size-close"), CLOSE_LABEL)
-                            .px_4()
-                            .h(px(28.))
-                            .flex()
-                            .items_center()
-                            .border_1()
-                            .border_color(rgb(BORDER))
-                            .bg(rgb(0xf4f4f4))
-                            .cursor_pointer()
-                            .child("閉じる(C)")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        crate::a11y::button(
+                            div()
+                                .id("win-size-close")
+                                .debug_selector(|| "win-size-close".to_owned()),
+                            CLOSE_LABEL,
+                        )
+                        .px_4()
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .bg(rgb(0xf4f4f4))
+                        .cursor_pointer()
+                        .child("閉じる(C)")
+                        .on_click(cx.listener(
+                            |this, _: &ClickEvent, window, cx| {
                                 this.close(window, cx);
-                            })),
+                            },
+                        )),
                     )
                     .child(
                         crate::a11y::button(div().id("win-size-help"), HELP_LABEL)
