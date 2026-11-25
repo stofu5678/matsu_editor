@@ -4,7 +4,7 @@
 use matsu_core::encoding::Eol;
 use serde_json::Value;
 
-use super::{EditorFunc, layout::layout_point, unavailable};
+use super::{EditorFunc, command, layout::layout_point, unavailable};
 use crate::api::{Args, Ty, req};
 use crate::host::Editor;
 use crate::protocol::RpcError;
@@ -25,7 +25,11 @@ fn selection_corners(ed: &Editor) -> Result<Option<(Point, Point)>> {
     let cx = &*ed.cx;
     let a;
     let b;
-    if let Some(((pa, ca), (pb, cb))) = cx.cursor().box_corners() {
+    if let Some(((_, ca), (_, cb))) = cx.cursor().box_corners() {
+        // the rows of the corners: one in the gap after a wrapped row is on that row
+        let Some((pa, pb)) = cx.box_corner_rows().map_err(command)? else {
+            return Ok(None);
+        };
         a = (layout_point(cx, pa)?.0, ca);
         b = (layout_point(cx, pb)?.0, cb);
     } else if let Some((from, to)) = cx.selection() {

@@ -280,6 +280,8 @@ pub(crate) fn line_over(doc: &Document, cursor: &Cursor, limit: usize) -> Option
     }
     let (from, to) = cursor.selection()?;
     let (first, last) = match cursor.box_corners() {
+        // (a corner in the gap after a wrapped row has the position of the start of the next row,
+        // which is a row of the same line: the lines are those of the positions)
         Some(((a, _), (c, _))) => (a.line.min(c.line), a.line.max(c.line)),
         None => (from.line, to.line),
     };
@@ -298,11 +300,13 @@ fn html_rows(source: &Source<'_>, limit: usize) -> Option<Result<String, OutputF
     // The rows of the selection (`rcSel`) and, for a box, its columns.
     let (top, bottom, area) = if is_box {
         let area = BoxArea::of_cursor(layout, doc, source.cursor)?;
-        let ((a, _), (c, _)) = source.cursor.box_corners()?;
-        let (row_a, row_c) = (
-            layout.pos_to_row(doc, a).ok()?.row,
-            layout.pos_to_row(doc, c).ok()?.row,
-        );
+        // the rows of the corners (one in the gap after a wrapped row is on that row)
+        let row_a = crate::hit::anchor_row_pos(layout, doc, source.cursor, true)
+            .ok()??
+            .row;
+        let row_c = crate::hit::caret_row_pos(layout, doc, source.cursor, true)
+            .ok()?
+            .row;
         (row_a.min(row_c), row_a.max(row_c), Some(area))
     } else {
         (

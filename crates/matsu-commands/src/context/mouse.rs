@@ -11,6 +11,7 @@
 use matsu_core::buffer::Pos;
 
 use super::CommandContext;
+use super::boxsel::RowCorner;
 use crate::command::Result;
 use crate::layout::X;
 
@@ -129,6 +130,33 @@ impl CommandContext<'_> {
         Ok(())
     }
 
+    /// Alt and a press at `pos`, when the pointer is on the row that starts at `row_pos`, at `x`.
+    /// As [`mouse_begin_box`](Self::mouse_begin_box), except that a press right of the end of a
+    /// wrapped row (`pos` is the start of the next row) begins the box in the gap after that row,
+    /// on that row, at the column of the pointer: from the end of the text up to the width of a
+    /// row (Sakura's caret is a layout point there, as in a box drag, `MoveCursorToClientPoint`).
+    pub fn mouse_begin_box_at(&mut self, pos: Pos, row_pos: Pos, x: X) -> Result<()> {
+        let ends_here = self.layout.row_end(self.doc(), row_pos)? == pos;
+        if !(ends_here && self.row_is_wrapped(row_pos)?) {
+            return self.mouse_begin_box(pos);
+        }
+        // The same decision as a drag makes (`wrapped_end_corner`): the gap, or, when the pointer
+        // is inside the last char (a wide char or a tab, which the click rounded to the end of the
+        // row), that char's left edge.
+        match self.wrapped_end_corner(row_pos, x)? {
+            RowCorner::Gap { x } => {
+                self.move_caret(pos, false)?;
+                self.begin_box_at(x, false);
+                self.set_free_x(Some(x));
+            }
+            RowCorner::Char { pos, x } => {
+                self.move_caret(pos, false)?;
+                self.begin_box_at(x, false);
+            }
+        }
+        Ok(())
+    }
+
     /// The pointer of a box drag is on the row that contains `row_pos`, at `x`: moves the corner
     /// there. Past the end of the text the corner is in the empty space
     /// (`MoveCursorToClientPoint` in `OnMOUSEMOVE`).
@@ -141,7 +169,8 @@ impl CommandContext<'_> {
     pub fn mouse_end_empty_box(&mut self) -> Result<bool> {
         if self.cursor.is_box() && !self.cursor.has_selection() {
             let caret = self.caret();
-            self.move_caret(caret, false)?;
+            // A box that began in the gap after a wrapped row leaves the caret there.
+            self.end_box_with(|cx| cx.move_caret(caret, false))?;
             return Ok(true);
         }
         Ok(false)

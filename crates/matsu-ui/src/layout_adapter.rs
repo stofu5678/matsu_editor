@@ -655,16 +655,18 @@ mod tests {
         assert_eq!(corners(&cursor), (Pos::new(2, 1), Some(1), Some(1)));
     }
 
-    /// On a wrapped row the end of the row is the start of the next one: a box caret does not
-    /// rest there, and the empty space exists only after the last row of a line.
+    /// On a wrapped row the end of the row is the start of the next one for a position, and a box
+    /// caret rests there all the same, in the gap after the row (on the row, with the mark of the
+    /// free caret), up to the wrap column; the empty space of a row that is not the last of a line
+    /// is that gap.
     #[test]
-    fn a_box_caret_does_not_rest_at_the_end_of_a_wrapped_row() {
+    fn a_box_caret_rests_in_the_gap_at_the_end_of_a_wrapped_row() {
         for per_column in PER_COLUMN {
-            a_box_caret_stays_on_a_wrapped_row(per_column);
+            a_box_caret_goes_into_the_gap_of_a_wrapped_row(per_column);
         }
     }
 
-    fn a_box_caret_stays_on_a_wrapped_row(per_column: u32) {
+    fn a_box_caret_goes_into_the_gap_of_a_wrapped_row(per_column: u32) {
         let cfg = LayoutConfig {
             wrap: Wrap::Columns(4),
             ..scaled(per_column)
@@ -686,9 +688,19 @@ mod tests {
         assert_eq!(at(&cursor), (Pos::new(0, 2), Some(2)));
         run("cursor_right_box", &mut cursor);
         assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
-        // the last char of the row is as far as it goes; it stays on the row
+        // the gap after the last char of the row: the position is the start of the next row, and
+        // the mark says that the caret is on the row before
         run("cursor_right_box", &mut cursor);
-        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        assert_eq!(at(&cursor), (Pos::new(0, 4), Some(4)));
+        assert_eq!(cursor.free_col().map(|x| x / per), Some(4));
+        // the wrap column is as far as it goes
+        run("cursor_right_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 4), Some(4)));
+        run("cursor_left_box", &mut cursor);
+        assert_eq!(
+            (at(&cursor), cursor.free_col()),
+            ((Pos::new(0, 3), Some(3)), None)
+        );
         run("cursor_left_box", &mut cursor);
         assert_eq!(at(&cursor), (Pos::new(0, 2), Some(2)));
         // down to the short row, and on to the end of the last row, where there is empty space
@@ -702,11 +714,12 @@ mod tests {
         assert_eq!(at(&cursor), (Pos::new(0, 6), Some(4)));
         run("cursor_left_box", &mut cursor);
         assert_eq!(at(&cursor), (Pos::new(0, 6), Some(3)));
-        // the end of a row: the last char of a wrapped one, the end of the text of the last one
+        // the end of a row: the gap after a wrapped one, the end of the text of the last one
         run("cursor_up_box", &mut cursor);
         run("go_line_end_box", &mut cursor);
-        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        assert_eq!(at(&cursor), (Pos::new(0, 4), Some(4)));
         run("cursor_down_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(4)));
         run("go_line_end_box", &mut cursor);
         assert_eq!(at(&cursor), (Pos::new(0, 6), Some(2)));
     }

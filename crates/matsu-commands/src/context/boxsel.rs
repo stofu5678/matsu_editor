@@ -7,6 +7,15 @@
 //! the horizontal position ([`X`]) of each corner for that ([`Cursor::move_box_to`]); the position
 //! is then the end of the row.
 //!
+//! The end of a wrapped row is the start of the next row for a position, and a corner can stand
+//! at the end of a wrapped row and right of it too (Sakura's corners are layout points; the
+//! caret of a box goes there by `Command_RIGHT`, `Cursor_UPDOWN`, and a click). Such a corner has
+//! the position of the start of the next row and the mark of the free cursor
+//! ([`Cursor::free_col`](matsu_core::cursor::Cursor::free_col) for the caret,
+//! [`anchor_free_col`](matsu_core::cursor::Cursor::anchor_free_col) for the anchor), which says
+//! that it is on the row before ([`Corner`]); the mark is checked where it is read
+//! ([`CommandContext::box_corners`]). Unlike a free caret, it needs no free cursor mode.
+//!
 //! The moves of the box commands are the ordinary moves ([`CommandContext::move_left`] and the
 //! others) run on a cursor that is in box mode; this file has the box versions of the moves
 //! whose rules differ, and [`CommandContext::begin_box`].
@@ -22,6 +31,46 @@ use super::CommandContext;
 use crate::command::{Arg, Result};
 use crate::edit_options;
 use crate::layout::X;
+
+/// A corner of a box selection: its position and `X`, and the row it stands on when that is not the
+/// row of its position (see the header of this file).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Corner {
+    pub pos: Pos,
+    pub x: X,
+    /// The last char of the wrapped row whose gap the corner stands in; `pos` is the start of the
+    /// next row then.
+    pub gap_last: Option<Pos>,
+}
+
+impl Corner {
+    /// A position on the row of the corner, to ask the layout for the row.
+    pub fn row_pos(&self) -> Pos {
+        self.gap_last.unwrap_or(self.pos)
+    }
+
+    pub fn in_gap(&self) -> bool {
+        self.gap_last.is_some()
+    }
+}
+
+/// The corner that [`CommandContext::wrapped_end_corner`] decides: in the gap after the wrapped row
+/// (its position is the start of the next row), or on a char.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RowCorner {
+    Gap { x: X },
+    Char { pos: Pos, x: X },
+}
+
+/// The bounds of a box selection ([`CommandContext::box_bounds`]): a position on its top and on
+/// its bottom row (not yet the start of the row), and its left and right `X`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct BoxBounds {
+    pub top: Pos,
+    pub bottom: Pos,
+    pub left: X,
+    pub right: X,
+}
 
 /// The lock option of a box move (the argument of `Sub_BoxSelectLock`, `CViewCommander.cpp`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,21 +131,14 @@ impl CommandContext<'_> {
     }
 
     fn start_box(&mut self, lock: bool) -> Result<()> {
-        self.land_on_caret_row()?;
+        // A caret in the gap at the end of a wrapped row begins the box there, on that row
+        // (Sakura's caret is a layout point, and `BeginSelectArea` copies it).
+        let in_gap = self.caret_wrapped_gap()?.is_some();
+        // (a box that is going on keeps the column of its corner, also in the empty space)
         let x = self.box_caret_x()?;
         self.begin_box_at(x, lock);
-        Ok(())
-    }
-
-    /// A caret at the end of a wrapped row, or right of it (`Cursor::free_col`), stands on that
-    /// row, but its position is the start of the next row. A box that begins there begins on that
-    /// row (Sakura's caret is a layout point, and `BeginSelectArea` copies it): the caret goes to
-    /// the last char of the row, where the corner of a box on a wrapped row stands at most
-    /// ([`box_move_to_x`](Self::box_move_to_x)). Does nothing at any other place.
-    pub(super) fn land_on_caret_row(&mut self) -> Result<()> {
-        let row_pos = self.caret_row_pos()?;
-        if row_pos != self.caret() {
-            self.cursor.move_to(row_pos, false);
+        if in_gap {
+            self.set_free_x(Some(x));
         }
         Ok(())
     }
@@ -104,21 +146,128 @@ impl CommandContext<'_> {
     /// The `X` of the caret: for a box selection that of its corner, which can be past the end of
     /// the text; otherwise that of the caret position.
     pub fn box_caret_x(&self) -> Result<X> {
-        let at = self.caret_x_for_box()?;
+        let at = self.caret_x_with_free()?;
         Ok(self.stored_box_caret_x().map_or(at, |c| c.max(at)))
     }
 
-    /// The `X` where a box that starts at the caret starts: that of the caret, counting the free
-    /// cursor's space to the right of the text. A box corner is never at the end of a wrapped
-    /// row: a box that begins from a free caret in the gap after one first puts the caret on the
-    /// last char of that row ([`land_on_caret_row`](Self::land_on_caret_row)); a caller that does
-    /// not begin a box gets the `X` of the position, at the start of the next row.
-    pub(super) fn caret_x_for_box(&self) -> Result<X> {
-        if self.caret_row_pos()? == self.caret() {
-            self.caret_x_with_free()
-        } else {
-            self.caret_display_x()
+    /// The two corners of the box selection, anchor first, with the rows they stand on: a corner
+    /// that carries a good mark stands in the gap of the wrapped row before its position. `None`
+    /// when no box covers anything.
+    pub(super) fn box_corners(&self) -> Result<Option<(Corner, Corner)>> {
+        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
+            return Ok(None);
+        };
+        let gap_row = |gap: Option<(X, crate::layout::WrappedGap)>| gap.map(|(_, gap)| gap.last);
+        Ok(Some((
+            Corner {
+                pos: a,
+                x: a_x,
+                gap_last: gap_row(self.anchor_wrapped_gap()?),
+            },
+            Corner {
+                pos: c,
+                x: c_x,
+                gap_last: gap_row(self.caret_wrapped_gap()?),
+            },
+        )))
+    }
+
+    /// The column of the caret of a box selection that stands in the gap after a wrapped row, to
+    /// be given back with [`keep_gap_mark`](Self::keep_gap_mark) after the box has ended. `None`
+    /// for any other caret.
+    pub(super) fn box_gap_mark(&self) -> Result<Option<X>> {
+        if !self.cursor.is_box() {
+            return Ok(None);
         }
+        Ok(self.caret_wrapped_gap()?.map(|(x, _)| x))
+    }
+
+    /// Puts the caret back in the gap that [`box_gap_mark`](Self::box_gap_mark) saw, after a move
+    /// that ended the box dropped the mark. Without the free cursor mode the column is brought
+    /// back to the end of the text.
+    pub(super) fn keep_gap_mark(&mut self, mark: Option<X>) -> Result<()> {
+        match mark {
+            Some(x) => self.set_gap_free_x(x),
+            None => Ok(()),
+        }
+    }
+
+    /// Ends the box selection (and any other selection) where the caret is: the caret does not
+    /// move, and one in the gap after a wrapped row stays on that row. The one place that every
+    /// command that drops a box in place goes through (`F_CANCEL_MODE`, a copy that disables the
+    /// selection, an empty box that the mouse ends, the commands that drop the selection and work
+    /// on the caret's row). A command that moves the caret anyway does not need it.
+    pub fn end_box_in_place(&mut self) -> Result<()> {
+        self.end_box_with(|cx| {
+            cx.cursor.clear_selection();
+            Ok(())
+        })
+    }
+
+    /// [`end_box_in_place`](Self::end_box_in_place) with the step that ends the box left to the
+    /// caller (`cancel_mode` and the mouse end the box with `move_caret`, which reports a move):
+    /// the mark is taken before the step and put back after it, in this one order.
+    pub(super) fn end_box_with(
+        &mut self,
+        step: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<()> {
+        let mark = self.box_gap_mark()?;
+        step(self)?;
+        self.keep_gap_mark(mark)
+    }
+
+    /// `Command_LEFT` and `Command_RIGHT` without Shift with a box that covers something: the box
+    /// ends and the caret goes to the top left corner of the rectangle (`to_bottom_right` false)
+    /// or to its bottom right corner (true), and that is the whole move
+    /// (`Command_CANCEL_MODE( 1 )` and `( 2 )` in `cmd/CViewCommander_ModeChange.cpp`: `ptTo` is
+    /// `rcSel.GetFrom()` or `GetTo()` of `TwoPointToRange`, the corners of the rectangle; called
+    /// from `Command_LEFT` and `Command_RIGHT` in `cmd/CViewCommander_Cursor.cpp`, `continue`).
+    /// Without the free cursor mode the column is brought back to the end of the text of the row
+    /// (`ptTo.x = t_min( ptTo.x, CalcLayoutWidth )`), which on a wrapped row is its gap. A corner
+    /// in the gap of a wrapped row stays on that row (the caret carries the mark).
+    pub(super) fn collapse_box(&mut self, to_bottom_right: bool) -> Result<()> {
+        // The bounds are enough: the rows between the corners are not listed (a box can be as high
+        // as the document, and an arrow key must not cost that).
+        let Some(bounds) = self.box_bounds()? else {
+            return Ok(());
+        };
+        let (row_pos, x) = if to_bottom_right {
+            (bounds.bottom, bounds.right)
+        } else {
+            (bounds.top, bounds.left)
+        };
+        let row = self.layout.row_start(self.doc(), row_pos)?;
+        let target = self.box_corner_pos(row, x)?;
+        self.cursor.clear_selection();
+        self.move_caret(target.pos, false)?;
+        if target.in_gap() {
+            self.set_gap_free_x(target.x)?;
+        } else {
+            // right of the text of a row that is not wrapped: the free cursor mode keeps the column
+            self.stand_free(target.x)?;
+        }
+        Ok(())
+    }
+
+    /// The bounds of the box selection, from its two corners. The one place that says which rows
+    /// and columns the box covers: a corner in the gap after a wrapped row belongs to that row
+    /// ([`Corner::row_pos`]). `None` when no box covers anything.
+    pub(super) fn box_bounds(&self) -> Result<Option<BoxBounds>> {
+        Ok(self.box_corners()?.map(|(a, c)| BoxBounds {
+            top: a.row_pos().min(c.row_pos()),
+            bottom: a.row_pos().max(c.row_pos()),
+            left: a.x.min(c.x),
+            right: a.x.max(c.x),
+        }))
+    }
+
+    /// A position on the row of each corner of the box selection, anchor first (for a corner in
+    /// the gap after a wrapped row, the last char of that row; otherwise the corner's position),
+    /// for what counts the rows of the corners. `None` when no box covers anything. (In the order
+    /// of the corners, which the plugin functions need; the bounds are
+    /// `box_bounds`.)
+    pub fn box_corner_rows(&self) -> Result<Option<(Pos, Pos)>> {
+        Ok(self.box_corners()?.map(|(a, c)| (a.row_pos(), c.row_pos())))
     }
 
     /// Whether the row of `row_pos` ends because the line wraps there. The end of such a row is
@@ -142,28 +291,58 @@ impl CommandContext<'_> {
     }
 
     /// Whether the caret of a box selection is to the right of the end of the text of its row.
+    /// The gap after a wrapped row is not that empty space: there the caret is at a place of the
+    /// text, which continues in the next row. Typing there pads the gap and, in overwrite mode,
+    /// replaces the next char. For a plain caret in the gap that is what Sakura does
+    /// (`DelCharForOverwrite`: `nIdxTo >= GetLengthWithoutEOL`, then `Command_DELETE`, "行終端が
+    /// 折り返し": pad with spaces, delete the next char; `cmd/CViewCommander_Edit.cpp`; measured
+    /// on 2026-11-26). Typing into a box that was just begun there differs from Sakura, which
+    /// inserts: MATSU overwrites, as it does for such a box anywhere (a difference that is older
+    /// than the gap corners, left for another change).
     pub(super) fn caret_is_in_empty_space(&self) -> Result<bool> {
-        let caret = self.caret();
+        // The row of the caret: at the end of a wrapped row (or right of it) it is that row.
+        let row = self.caret_row_pos()?;
         Ok(self.cursor.is_box()
-            && !self.row_is_wrapped(caret)?
+            && !self.row_is_wrapped(row)?
             && self.box_caret_x()? > self.caret_display_x()?)
     }
 
+    /// Where a corner goes when the pointer, or the column, is at `x` on the wrapped row of
+    /// `row_pos` and rounds to the end of the row. The one place that decides it, for a drag
+    /// ([`box_move_to_x`](Self::box_move_to_x)) and a press (`mouse_begin_box_at`): `x` at the end
+    /// of the text or right of it is the gap after the row, up to the width of a row; `x` inside
+    /// the last char (a wide char or a tab) is the left edge of that char.
+    pub(super) fn wrapped_end_corner(&self, row_pos: Pos, x: X) -> Result<RowCorner> {
+        let end = self.layout.row_end(self.doc(), row_pos)?;
+        let text_end = self.row_text_end_x(row_pos)?;
+        if x >= text_end {
+            return Ok(RowCorner::Gap {
+                x: x.min(self.max_box_x().max(text_end)),
+            });
+        }
+        let mut pos = end;
+        if let Some(last) = char_left(self.doc(), end)?
+            && last >= self.layout.row_start(self.doc(), row_pos)?
+        {
+            pos = last;
+        }
+        let at = self.layout.display_x(self.doc(), pos)?;
+        Ok(RowCorner::Char { pos, x: at })
+    }
+
     /// Moves the box caret to `x` on the row of `row_pos`: onto the char that covers it, or into
-    /// the empty space after the text. On a wrapped row, the last char of the row is as far as
-    /// the caret goes.
+    /// the empty space after the text. On a wrapped row, `x` at the end of the text or right of it
+    /// (up to the width of a row) is the gap after the row, where the corner is on the row and its
+    /// position is the start of the next one.
     pub(super) fn box_move_to_x(&mut self, row_pos: Pos, x: X) -> Result<()> {
-        let mut pos = self.layout.pos_at_x(self.doc(), row_pos, x)?;
+        let pos = self.layout.pos_at_x(self.doc(), row_pos, x)?;
         let end = self.layout.row_end(self.doc(), row_pos)?;
         let wrapped = self.row_is_wrapped(row_pos)?;
-        if pos == end && wrapped {
-            if let Some(last) = char_left(self.doc(), end)?
-                && last >= self.layout.row_start(self.doc(), row_pos)?
-            {
-                pos = last;
+        if wrapped && pos == end {
+            match self.wrapped_end_corner(row_pos, x)? {
+                RowCorner::Gap { x } => self.set_box_gap_caret(end, x),
+                RowCorner::Char { pos, x } => self.set_box_caret(pos, x),
             }
-            let at = self.layout.display_x(self.doc(), pos)?;
-            self.set_box_caret(pos, at);
             return Ok(());
         }
         let at = self.layout.display_x(self.doc(), pos)?;
@@ -172,22 +351,17 @@ impl CommandContext<'_> {
         Ok(())
     }
 
-    /// Moves the box caret to the end of the text of its row (on a wrapped row, its last char).
+    /// Moves the box caret to the end of the text of its row (on a wrapped row, the gap after it).
     pub(super) fn box_move_to_row_end(&mut self) -> Result<()> {
-        let caret = self.caret();
-        let (start, end) = (
-            self.layout.row_start(self.doc(), caret)?,
-            self.layout.row_end(self.doc(), caret)?,
-        );
-        let mut pos = end;
-        if self.row_is_wrapped(caret)?
-            && let Some(last) = char_left(self.doc(), end)?
-            && last >= start
-        {
-            pos = last;
+        let row = self.caret_row_pos()?;
+        let end = self.layout.row_end(self.doc(), row)?;
+        if self.row_is_wrapped(row)? {
+            let text_end = self.row_text_end_x(row)?;
+            self.set_box_gap_caret(end, text_end);
+            return Ok(());
         }
-        let x = self.layout.display_x(self.doc(), pos)?;
-        self.set_box_caret(pos, x);
+        let x = self.layout.display_x(self.doc(), end)?;
+        self.set_box_caret(end, x);
         Ok(())
     }
 
@@ -195,8 +369,20 @@ impl CommandContext<'_> {
     /// does not go to the previous row.
     ///
     /// In the empty space the move is one column (`dx_default`, [`column_x`](crate::layout::Layout::column_x))
-    /// and stops at the end of the text (`x = max(x - dx_default, end)`, `Command_LEFT`).
+    /// and stops at the end of the text (`x = max(x - dx_default, end)`, `Command_LEFT`). In the
+    /// gap after a wrapped row it is the same, and from the end of the text the caret goes onto the
+    /// last char of the row.
     pub(super) fn box_left(&mut self) -> Result<()> {
+        if let Some((x, gap)) = self.caret_wrapped_gap()? {
+            if x > gap.text_end {
+                let back = x.saturating_sub(self.layout.column_x()).max(gap.text_end);
+                self.set_box_gap_caret(self.caret(), back);
+            } else {
+                let at = self.layout.display_x(self.doc(), gap.last)?;
+                self.set_box_caret(gap.last, at);
+            }
+            return Ok(());
+        }
         let (caret, x) = (self.caret(), self.box_caret_x()?);
         if self.caret_is_in_empty_space()? {
             let end = self.layout.row_end(self.doc(), caret)?;
@@ -217,24 +403,36 @@ impl CommandContext<'_> {
 
     /// One char right over the text, then one column at a time through the empty space up to
     /// [`max_box_x`](Self::max_box_x) (`to_x = min(x + dx_default, x_max)`, `Command_RIGHT`). The
-    /// caret does not go to the next row, and not onto the end of a wrapped row.
+    /// caret does not go to the next row. From the last char of a wrapped row it goes into the
+    /// gap after the row, and on through it.
     pub(super) fn box_right(&mut self) -> Result<()> {
+        let max = self.max_box_x();
+        if let Some((x, gap)) = self.caret_wrapped_gap()? {
+            if x < max {
+                let next = (x + self.layout.column_x()).min(max);
+                self.set_box_gap_caret(self.caret(), next.max(gap.text_end));
+            }
+            return Ok(());
+        }
         let (caret, x) = (self.caret(), self.box_caret_x()?);
         let end = self.layout.row_end(self.doc(), caret)?;
         let wrapped = self.row_is_wrapped(caret)?;
         if !wrapped && x >= self.layout.display_x(self.doc(), end)? {
-            let max = self.max_box_x();
             if x < max {
                 let next = (x + self.layout.column_x()).min(max);
                 self.set_box_caret(end, next);
             }
             return Ok(());
         }
-        if let Some(next) = matsu_core::cursor::char_right(self.doc(), caret)?
-            && !(wrapped && next >= end)
-        {
-            let x = self.layout.display_x(self.doc(), next)?;
-            self.set_box_caret(next, x);
+        if let Some(next) = matsu_core::cursor::char_right(self.doc(), caret)? {
+            if wrapped && next >= end {
+                // past the last char of the row: the end of its text, in the gap
+                let text_end = self.row_text_end_x(caret)?;
+                self.set_box_gap_caret(end, text_end);
+            } else {
+                let x = self.layout.display_x(self.doc(), next)?;
+                self.set_box_caret(next, x);
+            }
         }
         Ok(())
     }
@@ -246,7 +444,8 @@ impl CommandContext<'_> {
     pub(super) fn box_vertical(&mut self, rows: isize) -> Result<()> {
         let caret_x = self.box_caret_x()?;
         let goal = self.goal_x().unwrap_or(caret_x);
-        let caret = self.caret();
+        // the row of the caret, which in the gap after a wrapped row is not that of its position
+        let caret = self.caret_row_pos()?;
         // The start of the row, not the position at the goal column: the end of a wrapped row
         // belongs to the next one.
         let mut row = self.layout.move_rows(self.doc(), caret, rows, X::ZERO)?;

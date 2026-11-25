@@ -279,7 +279,7 @@ impl CommandContext<'_> {
             // `bCopyAndDisablSelection`: the selection goes after a copy that went through
             // (`Command_COPY`, the same clean-up).
             if options.copy_and_disable_selection && self.selection().is_some() {
-                self.cursor.clear_selection();
+                self.end_box_in_place()?;
             }
         }
         Ok(())

@@ -61,12 +61,15 @@ impl CommandContext<'_> {
     pub fn cancel_mode(&mut self) -> Result<()> {
         if self.cursor.has_selection() {
             let caret = self.caret();
-            self.cursor.clear_selection();
-            self.move_caret(caret, false)
+            // a box whose caret is in the gap after a wrapped row ends on that row
+            self.end_box_with(|cx| {
+                cx.cursor.clear_selection();
+                cx.move_caret(caret, false)
+            })
         } else {
             // a lock or a box that covers nothing still has to go (`IsTextSelecting`)
             if self.cursor.selecting_lock() || self.cursor.is_box() {
-                self.cursor.clear_selection();
+                self.end_box_in_place()?;
                 self.cursor.set_goal_col(None);
             }
             Ok(())

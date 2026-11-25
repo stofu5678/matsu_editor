@@ -32,6 +32,7 @@ use matsu_core::buffer::{Edit, Pos};
 use matsu_core::cursor::char_left;
 
 use super::CommandContext;
+use super::boxsel::Corner;
 use crate::command::Result;
 use crate::layout::X;
 
@@ -75,11 +76,11 @@ impl CommandContext<'_> {
 
     /// The rectangle of the box selection, or `None` if no box covers anything.
     pub(super) fn box_rect(&self) -> Result<Option<BoxRect>> {
-        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
+        let Some(bounds) = self.box_bounds()? else {
             return Ok(None);
         };
-        let first = self.layout.row_start(self.doc(), a.min(c))?;
-        let last = self.layout.row_start(self.doc(), a.max(c))?;
+        let first = self.layout.row_start(self.doc(), bounds.top)?;
+        let last = self.layout.row_start(self.doc(), bounds.bottom)?;
         let mut rows = vec![first];
         while let Some(&row) = rows.last()
             && row < last
@@ -88,8 +89,8 @@ impl CommandContext<'_> {
             rows.push(next);
         }
         Ok(Some(BoxRect {
-            left: a_x.min(c_x),
-            right: a_x.max(c_x),
+            left: bounds.left,
+            right: bounds.right,
             rows,
         }))
     }
@@ -99,12 +100,12 @@ impl CommandContext<'_> {
     /// Without a box it is 0. The rows are not listed, as a box can cover the whole document
     /// ([`box_rect`](Self::box_rect) lists them).
     pub(super) fn box_bytes(&self, limit: usize) -> Result<usize> {
-        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
+        let Some(bounds) = self.box_bounds()? else {
             return Ok(0);
         };
-        let (left, right) = (a_x.min(c_x), a_x.max(c_x));
-        let last = self.layout.row_start(self.doc(), a.max(c))?;
-        let mut row = self.layout.row_start(self.doc(), a.min(c))?;
+        let (left, right) = (bounds.left, bounds.right);
+        let last = self.layout.row_start(self.doc(), bounds.bottom)?;
+        let mut row = self.layout.row_start(self.doc(), bounds.top)?;
         let mut bytes = 0usize;
         loop {
             let (from, to) = self.box_row_range(row, left, right)?;
@@ -147,31 +148,49 @@ impl CommandContext<'_> {
         Ok((from, to.max(from)))
     }
 
-    /// The position of the box corner at `x` of `row`: the char that covers it, the end of the
-    /// text if `x` is past it, and on a wrapped row the last char.
-    pub(super) fn box_corner_pos(&self, row: Pos, x: X) -> Result<Pos> {
+    /// The box corner at `x` of `row`: the char that covers it, the end of the text if `x` is
+    /// past it. On a wrapped row, `x` at the end of its text or past it is in the gap after the
+    /// row (the corner is on the row, and its position is the start of the next one); `x` inside
+    /// its last char is the left edge of that char.
+    pub(super) fn box_corner_pos(&self, row: Pos, x: X) -> Result<Corner> {
         let info = self.box_row_info(row)?;
+        let mut corner = Corner {
+            pos: row,
+            x,
+            gap_last: None,
+        };
         if info.eof {
-            return Ok(row);
+            return Ok(corner);
         }
-        let pos = self.layout.pos_at_x(self.doc(), row, x)?;
-        if pos == info.end
+        corner.pos = self.layout.pos_at_x(self.doc(), row, x)?;
+        if corner.pos == info.end
             && self.row_is_wrapped(row)?
             && let Some(last) = char_left(self.doc(), info.end)?
             && last >= row
         {
-            return Ok(last);
+            if x >= info.width {
+                corner.gap_last = Some(last);
+            } else {
+                corner.pos = last;
+            }
         }
-        Ok(pos)
+        Ok(corner)
     }
 
-    /// Makes a box selection with the given corners (position and `X`), keeping the lock of the
-    /// plain moves as it was.
-    pub(super) fn set_box(&mut self, anchor: (Pos, X), caret: (Pos, X), lock: bool) {
+    /// Makes a box selection with the given corners, keeping the lock of the plain moves as it
+    /// was.
+    pub(super) fn set_box(&mut self, anchor: Corner, caret: Corner, lock: bool) {
         self.cursor.clear_selection();
-        self.cursor.move_to(anchor.0, false);
-        self.begin_box_at(anchor.1, lock);
-        self.set_box_caret(caret.0, caret.1);
+        self.cursor.move_to(anchor.pos, false);
+        self.begin_box_at(anchor.x, lock);
+        if anchor.in_gap() {
+            self.set_free_x(Some(anchor.x));
+        }
+        if caret.in_gap() {
+            self.set_box_gap_caret(caret.pos, caret.x);
+        } else {
+            self.set_box_caret(caret.pos, caret.x);
+        }
     }
 
     // ---- copy and delete ----
@@ -204,11 +223,11 @@ impl CommandContext<'_> {
     pub fn box_first_row_text(&self) -> Result<Option<String>> {
         // The rows are not listed: only the first one is needed, and a box can cover the whole
         // document.
-        let Some(((a, a_x), (c, c_x))) = self.box_corner_xs() else {
+        let Some(bounds) = self.box_bounds()? else {
             return Ok(None);
         };
-        let row = self.layout.row_start(self.doc(), a.min(c))?;
-        let (from, to) = self.box_row_range(row, a_x.min(c_x), a_x.max(c_x))?;
+        let row = self.layout.row_start(self.doc(), bounds.top)?;
+        let (from, to) = self.box_row_range(row, bounds.left, bounds.right)?;
         Ok(Some(self.doc().text_between(from, to)?))
     }
 
@@ -224,7 +243,9 @@ impl CommandContext<'_> {
         for &row in &rect.rows {
             ranges.push(self.box_row_range(row, rect.left, rect.right)?);
         }
-        // The caret goes to the left column of the top row; past the text it stays at the end.
+        // The caret goes to the left column of the top row; past the text it stays at the end. At
+        // the left column in the gap after a wrapped row it stays in the gap, on that row.
+        let top_left = self.box_corner_pos(rect.rows[0], rect.left)?;
         let caret = ranges[0].0;
         self.cursor.clear_selection();
         for &(from, to) in ranges.iter().rev() {
@@ -232,8 +253,18 @@ impl CommandContext<'_> {
                 self.replace(from, to, "")?;
             }
         }
+        self.end_box_edit_at(caret, top_left)
+    }
+
+    /// Ends a box edit that leaves the caret at the top left corner of the box (`caret`, the
+    /// position of the corner's column on its row): the selection is gone, and a corner that was in
+    /// the gap after a wrapped row keeps the caret in that gap (without the free cursor mode the
+    /// column is brought back to the end of the text). Delete and the conversions (case, tabs and
+    /// spaces, trimming, ...) end here.
+    fn end_box_edit_at(&mut self, caret: Pos, top_left: Corner) -> Result<()> {
         self.cursor.move_to(caret, false);
-        Ok(())
+        let mark = (top_left.in_gap() && caret == top_left.pos).then_some(top_left.x);
+        self.keep_gap_mark(mark)
     }
 
     /// `Command_INDENT` with `m_bOverWriteBoxDelete` in overwrite mode: deletes the text of the
@@ -243,11 +274,11 @@ impl CommandContext<'_> {
         let Some(rect) = self.box_rect()? else {
             return Ok(());
         };
-        let Some((anchor, caret)) = self.box_corner_xs() else {
+        let Some((anchor, caret)) = self.box_corners()? else {
             return Ok(());
         };
         let lock = self.cursor.selecting_lock();
-        let anchor_is_top = anchor.0 <= caret.0;
+        let anchor_is_top = anchor.row_pos() <= caret.row_pos();
         let top_index = self.layout.row_index(self.doc(), rect.rows[0])?;
         let bottom_index = self
             .layout
@@ -266,14 +297,8 @@ impl CommandContext<'_> {
                 .row_start_at(this.doc(), index)?
                 .unwrap_or_else(|| Pos::new(this.doc().line_count().saturating_sub(1), 0)))
         };
-        let anchor = (
-            self.box_corner_pos(row_start(self, anchor_row)?, anchor.1)?,
-            anchor.1,
-        );
-        let caret = (
-            self.box_corner_pos(row_start(self, caret_row)?, caret.1)?,
-            caret.1,
-        );
+        let anchor = self.box_corner_pos(row_start(self, anchor_row)?, anchor.x)?;
+        let caret = self.box_corner_pos(row_start(self, caret_row)?, caret.x)?;
         self.set_box(anchor, caret, lock);
         Ok(())
     }
@@ -427,8 +452,8 @@ impl CommandContext<'_> {
         let max = self.max_box_x();
         let (left, right) = ((rect.left + shift).min(max), (rect.right + shift).min(max));
         let (top, bottom) = (rect.rows[0], rect.rows[rect.rows.len() - 1]);
-        let caret = (self.box_corner_pos(top, left)?, left);
-        let anchor = (self.box_corner_pos(bottom, right)?, right);
+        let caret = self.box_corner_pos(top, left)?;
+        let anchor = self.box_corner_pos(bottom, right)?;
         self.set_box(anchor, caret, lock);
         Ok(())
     }
@@ -441,7 +466,7 @@ impl CommandContext<'_> {
         // A box that covers nothing has corners too (`box_corner_xs` has none then): only
         // whether they are the same is asked, which the stored numbers answer.
         if self.cursor.box_anchor_col() == self.cursor.box_caret_col() {
-            let row = self.layout.row_start(self.doc(), self.caret())?;
+            let row = self.layout.row_start(self.doc(), self.caret_row_pos()?)?;
             return self.box_move_to_x(row, self.max_box_x());
         }
         let mut utf8 = [0; 4];
@@ -456,20 +481,31 @@ impl CommandContext<'_> {
     /// last line). The caret ends where it started.
     pub(crate) fn paste_box(&mut self, text: &str) -> Result<()> {
         self.refuse_in_view_mode()?;
+        // A box whose top left corner is in the gap after a wrapped row pastes there: the caret
+        // that the delete leaves cannot say the column without the free cursor mode.
+        let mut at_gap = None;
         if self.cursor.is_box() {
             if self.cursor.has_selection() {
+                if let Some(rect) = self.box_rect()? {
+                    let top_left = self.box_corner_pos(rect.rows[0], rect.left)?;
+                    at_gap = top_left.in_gap().then_some((rect.rows[0], rect.left));
+                }
                 self.delete_box()?;
             }
         } else {
             self.delete_selection()?;
         }
-        let x = if self.cursor.is_box() {
-            self.box_caret_x()?
+        let (x, first_row) = if let Some((row, left)) = at_gap {
+            (left, row)
         } else {
-            // the free cursor mode: the rectangle starts where the caret is shown
-            self.caret_x_for_box()?
+            let x = if self.cursor.is_box() {
+                self.box_caret_x()?
+            } else {
+                // the free cursor mode: the rectangle starts where the caret is shown
+                self.caret_x_with_free()?
+            };
+            (x, self.layout.row_start(self.doc(), self.caret_row_pos()?)?)
         };
-        let first_row = self.layout.row_start(self.doc(), self.caret())?;
         self.cursor.clear_selection();
         let new_line = matsu_core::model::eol_text(self.new_line());
 
@@ -512,7 +548,10 @@ impl CommandContext<'_> {
             }
         }
         let caret = self.box_corner_pos(first_row, x)?;
-        self.cursor.move_to(caret, false);
+        self.cursor.move_to(caret.pos, false);
+        if caret.in_gap() {
+            self.set_gap_free_x(x)?;
+        }
         Ok(())
     }
 
@@ -546,6 +585,7 @@ impl CommandContext<'_> {
         for &row in &rect.rows {
             ranges.push(self.box_row_range(row, rect.left, rect.right)?);
         }
+        let top_left = self.box_corner_pos(rect.rows[0], rect.left)?;
         let caret = ranges[0].0;
         self.cursor.clear_selection();
         for &(from, to) in ranges.iter().rev() {
@@ -559,7 +599,6 @@ impl CommandContext<'_> {
                 self.replace(from, to, &new)?;
             }
         }
-        self.cursor.move_to(caret, false);
-        Ok(())
+        self.end_box_edit_at(caret, top_left)
     }
 }

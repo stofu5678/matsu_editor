@@ -32,6 +32,7 @@ struct Rig {
     cursor: Cursor,
     layout: Wrap,
     clip: MemoryClipboard,
+    overwrite: bool,
 }
 
 impl Rig {
@@ -43,12 +44,14 @@ impl Rig {
             cursor: Cursor::default(),
             layout: Wrap(3),
             clip: MemoryClipboard::default(),
+            overwrite: false,
         }
     }
 
     fn cx<R>(&mut self, f: impl FnOnce(&mut CommandContext<'_>) -> R) -> R {
         let mut cx = CommandContext::new(&mut self.model, &mut self.cursor, &mut self.layout, None)
-            .with_clipboard(&mut self.clip);
+            .with_clipboard(&mut self.clip)
+            .with_overwrite(self.overwrite);
         f(&mut cx)
     }
 
@@ -396,30 +399,34 @@ fn a_selection_that_starts_in_the_gap_keeps_the_row_of_its_anchor() {
 }
 
 #[test]
-fn pasting_a_box_in_the_gap_of_a_wrapped_row_starts_where_the_position_is() {
+fn the_column_of_a_caret_in_the_gap_is_where_a_box_starts() {
     with_options(free(), || {
         let mut r = Rig::new("abcdefgh");
         r.click(P1, 7);
-        // the corner is where the position is: the start of the next row, column 0
-        assert_eq!(r.cx(|cx| cx.box_caret_x().unwrap()), X::from_raw(0));
+        // the corner of a box there is on the row of the gap, at its column
+        assert_eq!(r.cx(|cx| cx.box_caret_x().unwrap()), X::from_raw(7));
     });
 }
 
 #[test]
-fn a_box_starts_on_the_row_of_the_gap_of_a_wrapped_row() {
+fn a_box_starts_in_the_gap_of_a_wrapped_row() {
     with_options(free(), || {
         let mut r = Rig::new("abcdefgh");
         r.click(P1, 7);
         r.run("begin_box");
-        // the box begins on the row "abc", at its last char (the most a box corner can stand at
-        // on a wrapped row); the next row is not the row of the corner
-        assert_eq!(r.caret(), Pos::new(0, 2));
-        assert_eq!(r.cx(|cx| cx.box_caret_x().unwrap()), X::from_raw(2));
+        // the corner is in the gap after the row "abc": its position is the start of the next
+        // row, and the mark and the column say that it is on the row before
+        assert_eq!((r.caret(), r.col()), (P1, Some(7)));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+        assert_eq!(r.cx(|cx| cx.box_caret_x().unwrap()), X::from_raw(7));
         r.run("cursor_down_box");
         assert_eq!(
             r.cursor.box_corners(),
-            Some(((Pos::new(0, 2), 2), (Pos::new(0, 5), 2)))
+            Some(((P1, 7), (P2, 7))),
+            "the corners keep their rows"
         );
+        assert_eq!(r.cursor.anchor_free_col(), Some(7));
+        assert_eq!(r.col(), Some(7));
     });
 }
 
@@ -678,5 +685,592 @@ mod end_of_a_wrapped_row_without_the_mode {
         // the end of the text is taken
         r.cursor.set_free_col(Some(3));
         assert_eq!(r.row_pos(), Pos::new(0, 2));
+    }
+}
+
+/// A box corner in the gap after a wrapped row (`Command_RIGHT`, `Cursor_UPDOWN`, a click: Sakura's
+/// corners are layout points, `CViewSelect`). The measurement in Sakura 2.4.2 with rows of 40
+/// columns and the free cursor off: End on row 0, Shift+F6 (begin a box), Down, Left, copy gives
+/// the char of column 39 of rows 0 and 1; here the rows have 3 columns, so column 2. No test here
+/// reads a path or depends on the line ending of the platform: the document is `Rig`'s, and the
+/// copied rows end in the CRLF that Sakura writes.
+mod box_corners_in_the_gap {
+    use super::*;
+
+    /// "abcdefgh" with the caret at the end of the first row, by `End` (no free cursor mode).
+    fn at_end() -> Rig {
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        r.run("go_line_end");
+        r
+    }
+
+    fn copied(r: &mut Rig) -> String {
+        r.run("copy");
+        r.clip.data().expect("a copy").text.clone()
+    }
+
+    #[test]
+    fn begin_box_down_left_copies_the_column_before_the_end() {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        // the box is columns 2..3 of rows 0 and 1
+        assert_eq!(r.cursor.box_corners(), Some(((P1, 3), (Pos::new(0, 5), 2))));
+        assert_eq!(copied(&mut r), "c\r\nf\r\n");
+    }
+
+    #[test]
+    fn down_alone_makes_a_box_of_no_width() {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down");
+        assert_eq!(r.cursor.box_corners(), Some(((P1, 3), (P2, 3))));
+        // the caret is in the gap after the second row too, and both rows are copied (empty)
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(copied(&mut r), "\r\n\r\n");
+    }
+
+    #[test]
+    fn down_and_right_goes_on_through_the_gap() {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_right");
+        // one column right of the end of the text, still on the row of the gap
+        assert_eq!(r.cursor.box_corners(), Some(((P1, 3), (P2, 4))));
+        assert_eq!((r.caret(), r.col()), (P2, Some(4)));
+        // and left comes back to the end of the text, then onto the last char
+        r.run("cursor_left");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        r.run("cursor_left");
+        assert_eq!(r.cursor.box_corners(), Some(((P1, 3), (Pos::new(0, 5), 2))));
+        assert_eq!(copied(&mut r), "c\r\nf\r\n");
+    }
+
+    #[test]
+    fn right_from_the_last_char_enters_the_gap() {
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 2), false);
+        r.run("begin_box").run("cursor_right");
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+        // the box covers the last char: columns 2..3
+        assert_eq!(copied(&mut r), "c\r\n");
+    }
+
+    #[test]
+    fn shift_alt_down_from_the_end_of_a_wrapped_row_begins_in_the_gap() {
+        let mut r = at_end();
+        r.run("cursor_down_box");
+        assert_eq!(r.cursor.box_corners(), Some(((P1, 3), (P2, 3))));
+        assert_eq!(r.cursor.anchor_free_col(), Some(3));
+        // the same for the box of the arrow keys that go right
+        let mut r = at_end();
+        r.run("cursor_right_box");
+        assert_eq!((r.caret(), r.col()), (P1, Some(4)));
+        assert_eq!(r.cursor.box_anchor_col(), Some(3));
+        assert_eq!(r.cursor.anchor_free_col(), Some(3));
+    }
+
+    #[test]
+    fn a_press_right_of_a_wrapped_row_begins_the_box_in_its_gap() {
+        // Alt+click right of the first row, the pointer at column 5; then down and left
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(5))
+                .unwrap()
+        });
+        assert_eq!((r.caret(), r.col()), (P1, Some(5)));
+        assert_eq!(r.cursor.box_caret_col(), Some(5));
+        r.cx(|cx| cx.mouse_box_to(Pos::new(0, 3), X::from_raw(3)).unwrap());
+        // a drag to the end of the text of row 1: the box is columns 3..5
+        assert_eq!(r.cursor.box_corners(), Some(((P1, 5), (P2, 3))));
+        // a press at the end of the text: the column of the end
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(3))
+                .unwrap()
+        });
+        // (the box of a press is not locked: the box moves go on with it)
+        r.run("cursor_down_box").run("cursor_left_box");
+        assert_eq!(copied(&mut r), "c\r\nf\r\n");
+        // a press inside the last char of the row (the click rounded to the end) is on the left
+        // edge of that char, as a drag puts a corner there
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(2))
+                .unwrap()
+        });
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 2), None));
+        assert_eq!(r.cursor.box_caret_col(), Some(2));
+        // a press that is not right of a wrapped row is the plain press
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(Pos::new(0, 1), Pos::new(0, 0), X::from_raw(1))
+                .unwrap()
+        });
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 1), None));
+        assert_eq!(r.cursor.box_caret_col(), Some(1));
+        // a click right of the last row of a line is not in a wrapped gap either
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(Pos::new(0, 8), Pos::new(0, 6), X::from_raw(9))
+                .unwrap()
+        });
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 8), None));
+    }
+
+    #[test]
+    fn a_box_with_a_corner_in_the_gap_is_deleted_by_its_rows() {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        r.run("delete");
+        // the chars of column 2 of the rows 0 and 1; the caret is at the top left corner
+        assert_eq!(r.text(), "abdegh");
+        assert_eq!(r.caret(), Pos::new(0, 2));
+        assert!(!r.cursor.is_box());
+        // a box that starts in the gap and goes right of it covers nothing: nothing is deleted,
+        // and the caret stays in the gap
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_right");
+        r.run("delete");
+        assert_eq!(r.text(), "abcdefgh");
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+    }
+
+    #[test]
+    fn cut_takes_the_text_of_the_rows_of_the_corners() {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        r.run("cut");
+        assert_eq!(r.clip.data().expect("a cut").text, "c\r\nf\r\n");
+        assert_eq!(r.text(), "abdegh");
+    }
+
+    #[test]
+    fn typing_in_a_box_whose_corners_are_in_the_gap_goes_into_each_row() {
+        // the box is columns 3..4 of the rows 0 and 1, both in the gaps: the text goes at the
+        // end of the text of each row
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_right");
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "abcXdefXgh");
+        // typing in a box in the gap that covers a column of text
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "abXcdeXfgh");
+    }
+
+    #[test]
+    fn a_box_paste_with_a_corner_in_the_gap_starts_on_the_row_of_the_gap() {
+        // the box is columns 2..3 of rows 0 and 1; pasting replaces it and starts at its top left
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        r.cx(|cx| cx.paste_box("X\nY").unwrap());
+        // (a row that wraps gets a line ending where the pasted text ends, as `paste_box` does
+        // for every wrapped row)
+        assert_eq!(r.text(), "abX\ndeY\ngh");
+        // an empty box in the gap: the text goes in at the end of the row, at the column of the
+        // gap (the end of the row gets the line ending, so the text starts the next row)
+        let mut r = at_end();
+        r.run("begin_box");
+        r.cx(|cx| cx.paste_box("X").unwrap());
+        assert_eq!(r.text(), "abc\nXdefgh");
+        // the top left corner of a box in the gap: the box is the gap of the rows 0 and 1
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_right");
+        r.cx(|cx| cx.paste_box("X").unwrap());
+        assert_eq!(r.text(), "abc\nXdefgh");
+    }
+
+    #[test]
+    fn the_column_of_a_gap_corner_is_the_box_column_not_the_mark() {
+        // the mark only says "on the upper row": a different number in it changes nothing
+        let mut r = at_end();
+        r.run("begin_box");
+        r.cursor.set_free_col(Some(99));
+        r.run("cursor_down").run("cursor_left");
+        r.cursor.set_anchor_free_col(Some(1));
+        assert_eq!(copied(&mut r), "c\r\nf\r\n");
+    }
+
+    #[test]
+    fn a_box_that_begins_again_keeps_the_column_of_its_corner() {
+        // in the empty space after the last row of a line
+        let mut r = Rig::new("ab");
+        r.cursor.move_to(Pos::new(0, 2), false);
+        r.run("begin_box").run("cursor_right");
+        assert_eq!(r.cursor.box_caret_col(), Some(3));
+        r.run("begin_box");
+        assert_eq!(r.cursor.box_corners(), None);
+        assert_eq!(r.cursor.box_caret_col(), Some(3));
+        // in the gap after a wrapped row
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_right").run("begin_box");
+        assert_eq!(
+            (r.caret(), r.cursor.box_caret_col(), r.col()),
+            (P1, Some(4), Some(4))
+        );
+    }
+
+    #[test]
+    fn a_column_right_of_the_text_is_brought_back_when_the_mode_is_off() {
+        // a box that ends empty in the gap, or a delete that leaves the caret there: without the
+        // free cursor mode the caret stays on the row at the end of its text
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(3))
+                .unwrap();
+            assert!(cx.mouse_end_empty_box().unwrap());
+        });
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(6))
+                .unwrap();
+            assert!(cx.mouse_end_empty_box().unwrap());
+        });
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+        // with the mode on the column stays
+        with_options(free(), || {
+            let mut r = Rig::new("abcdefgh");
+            r.cx(|cx| {
+                cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(6))
+                    .unwrap();
+                assert!(cx.mouse_end_empty_box().unwrap());
+            });
+            assert_eq!((r.caret(), r.col()), (P1, Some(6)));
+        });
+    }
+
+    #[test]
+    fn conversions_of_a_box_in_the_gap_leave_the_caret_in_the_gap() {
+        // a box of no width over the gaps of the rows 0 and 1 changes no text, and the caret
+        // goes to its top left corner, which is the gap after row 0
+        for id in [
+            "to_upper",
+            "to_lower",
+            "tab_to_space",
+            "space_to_tab",
+            "ltrim",
+            "rtrim",
+        ] {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_down");
+            let before = r.text();
+            r.run(id);
+            assert_eq!(r.text(), before, "{id}");
+            assert_eq!((r.caret(), r.col()), (P1, Some(3)), "{id}");
+            assert_eq!(r.row_pos(), Pos::new(0, 2), "{id}");
+            assert!(!r.cursor.is_box(), "{id}");
+        }
+        // a box that has text still ends at its top left corner on the text
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        r.run("to_upper");
+        assert_eq!(r.text(), "abCdeFgh");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 2), None));
+    }
+
+    /// A 100-character line wrapped (here after 3 columns): End, begin a box, Down, and then what
+    /// ends the box where the caret is. The caret stays on the second row (in its gap).
+    fn boxed_in_the_gap() -> Rig {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        r
+    }
+
+    #[test]
+    fn escape_ends_a_box_in_the_gap_on_its_row() {
+        let mut r = boxed_in_the_gap();
+        r.run("cancel_mode");
+        assert!(!r.cursor.is_box());
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 5));
+        // a box that covers nothing (Down not pressed) ends the same way
+        let mut r = at_end();
+        r.run("begin_box").run("cancel_mode");
+        assert!(!r.cursor.is_box());
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        // a column right of the text, without the free cursor mode, is brought back to its end
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_right");
+        r.run("cancel_mode");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        // with the mode the column stays
+        with_options(free(), || {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_down").run("cursor_right");
+            r.run("cancel_mode");
+            assert_eq!((r.caret(), r.col()), (P2, Some(4)));
+        });
+    }
+
+    #[test]
+    fn a_copy_that_disables_the_selection_ends_a_box_in_the_gap_on_its_row() {
+        let mut o = EditOptions::DEFAULT;
+        o.copy_and_disable_selection = true;
+        with_options(o, || {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_down").run("cursor_right");
+            r.run("cursor_left").run("cursor_left");
+            r.run("copy");
+            assert!(!r.cursor.is_box());
+            // on the last char of the second row (the lefts went through the gap)
+            assert_eq!((r.caret(), r.col()), (Pos::new(0, 5), None));
+        });
+        // and with a column right of the text, the mode off
+        let mut o = EditOptions::DEFAULT;
+        o.copy_and_disable_selection = true;
+        with_options(o, || {
+            let mut r = at_end();
+            r.run("begin_box").run("cursor_right").run("cursor_down");
+            r.run("copy");
+            assert!(!r.cursor.is_box());
+            assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        });
+    }
+
+    #[test]
+    fn dropping_the_selection_for_a_row_command_keeps_the_row_of_the_gap() {
+        // `duplicate_line` drops the selection first and works on the row of the caret
+        let mut r = boxed_in_the_gap();
+        r.run("duplicate_line");
+        assert_eq!(r.text(), "abcdefdefgh");
+        assert!(!r.cursor.is_box());
+    }
+
+    #[test]
+    fn a_mark_is_stored_only_where_a_wrapped_row_ends() {
+        // after an edit the caret may not be at the end of a wrapped row any more: no mark then
+        let mut r = Rig::new("abcdefgh\nxy");
+        for (at, expected) in [
+            (Pos::new(0, 1), None), // inside the text
+            (Pos::new(1, 2), None), // the end of the last row of a line
+            (Pos::new(0, 4), None), // inside the text of the second row
+            (P1, Some(5)),          // the end of a wrapped row
+        ] {
+            r.cursor.move_to(at, false);
+            r.cx(|cx| cx.keep_gap_mark(Some(X::from_raw(5))).unwrap());
+            // (the mode is off: the end of the text is the only column of the gap)
+            let expected = expected.map(|_| 3);
+            assert_eq!(r.col(), expected, "{at:?}");
+            assert_eq!(
+                r.cx(|cx| cx.caret_row_x().unwrap()),
+                X::from_raw(if expected.is_some() {
+                    3
+                } else {
+                    at.col as u32 % 3
+                }),
+                "{at:?}"
+            );
+        }
+        // a conversion that changes the row ends without a stale mark: the box is over the rows
+        // 0 and 1 and `rtrim` takes the spaces out, so the row no longer wraps at that place
+        let mut r = Rig::new("ab \ncd");
+        r.cursor.move_to(Pos::new(0, 3), false);
+        r.cx(|cx| cx.keep_gap_mark(Some(X::from_raw(3))).unwrap());
+        assert_eq!(r.col(), None);
+    }
+
+    /// A box that the mouse made and that is not locked: the anchor is on the text of row 0 (column
+    /// 1) and the caret is in the gap after row 1 (column 3).
+    fn dragged_into_the_gap() -> Rig {
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box(Pos::new(0, 1)).unwrap();
+            cx.mouse_box_to(P1, X::from_raw(3)).unwrap();
+        });
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(r.cursor.box_anchor_col(), Some(1));
+        assert!(r.cursor.has_selection());
+        r
+    }
+
+    #[test]
+    fn right_and_left_end_a_box_at_the_corners_of_its_rectangle() {
+        // `Command_RIGHT` and `Command_LEFT` without Shift: `Command_CANCEL_MODE( 2 )` and `( 1 )`
+        // go to the bottom right and the top left corner of the rectangle, and that is the move
+        let mut r = dragged_into_the_gap();
+        r.run("cursor_right");
+        assert!(!r.cursor.is_box() && !r.cursor.has_selection());
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        assert_eq!(r.row_pos(), Pos::new(0, 5));
+        let mut r = dragged_into_the_gap();
+        r.run("cursor_left");
+        assert!(!r.cursor.is_box());
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 1), None));
+        // the other way: the anchor is in the gap of row 0, the caret is on the text of row 1
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(3))
+                .unwrap();
+            cx.mouse_box_to(P1, X::from_raw(1)).unwrap();
+        });
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 4), None));
+        r.run("cursor_right");
+        // the rectangle is the columns 1..3 of the rows 0 and 1: its bottom right is the gap of row 1
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(3))
+                .unwrap();
+            cx.mouse_box_to(P1, X::from_raw(1)).unwrap();
+        });
+        r.run("cursor_left");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 1), None));
+        // a box with nothing in it is only a mode: the move goes on from the gap (to the next row)
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(3))
+                .unwrap()
+        });
+        r.run("cursor_right");
+        assert!(!r.cursor.is_box());
+        assert_eq!((r.caret(), r.col()), (P1, None));
+    }
+
+    #[test]
+    fn a_collapsed_box_keeps_a_column_right_of_the_text_only_with_the_mode() {
+        // the rectangle reaches column 5, right of the text of the rows (3 and 2 columns wide)
+        let make = || {
+            let mut r = Rig::new("abcdefgh");
+            r.cx(|cx| {
+                cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(5))
+                    .unwrap();
+                cx.mouse_box_to(P1, X::from_raw(1)).unwrap();
+            });
+            r
+        };
+        let mut r = make();
+        r.run("cursor_right");
+        assert_eq!((r.caret(), r.col()), (P2, Some(3)));
+        with_options(free(), || {
+            let mut r = make();
+            r.run("cursor_right");
+            assert_eq!((r.caret(), r.col()), (P2, Some(5)));
+        });
+        // on the last row of the line: the end of the text, or the free caret
+        let make = || {
+            let mut r = Rig::new("abcdefgh");
+            r.cx(|cx| {
+                cx.mouse_begin_box(Pos::new(0, 1)).unwrap();
+                cx.mouse_box_to(Pos::new(0, 6), X::from_raw(5)).unwrap();
+            });
+            r
+        };
+        let mut r = make();
+        r.run("cursor_right");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 8), None));
+        with_options(free(), || {
+            let mut r = make();
+            r.run("cursor_right");
+            assert_eq!((r.caret(), r.col()), (Pos::new(0, 8), Some(5)));
+        });
+    }
+
+    #[test]
+    fn the_other_plain_moves_start_from_the_row_of_a_box_caret_in_the_gap() {
+        // Home, End, Up, Down, Ctrl+Home and Ctrl+End end the box and move from the caret's row
+        // (row 1, in its gap), as `Command_GOLINETOP` and the others do from the layout point
+        let cases: [(&str, Pos, Option<usize>); 6] = [
+            ("go_line_top", P1, None),
+            ("go_line_end", P2, Some(3)),
+            ("cursor_up", P1, Some(3)),
+            ("cursor_down", Pos::new(0, 8), None),
+            ("go_file_top", Pos::new(0, 0), None),
+            ("go_file_end", Pos::new(0, 8), None),
+        ];
+        for (id, caret, col) in cases {
+            let mut r = dragged_into_the_gap();
+            r.run(id);
+            assert!(!r.cursor.is_box() && !r.cursor.has_selection(), "{id}");
+            assert_eq!((r.caret(), r.col()), (caret, col), "{id}");
+        }
+    }
+
+    #[test]
+    fn typing_in_an_empty_box_in_the_gap_is_what_matsu_does_today() {
+        // MATSU treats an empty box like a free caret in the gap: it pads the gap, and in
+        // overwrite mode replaces the next char. For a plain caret that is what Sakura does too
+        // (`DelCharForOverwrite` and `Command_DELETE`, `cmd/CViewCommander_Edit.cpp`). Sakura
+        // inserts instead when the empty box was just begun with Shift+F6 (measured on
+        // 2026-11-26); that general difference is not part of the gap corners, and this test pins
+        // MATSU's present result, not Sakura's.
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_right").run("begin_box");
+        assert_eq!((r.caret(), r.col()), (P1, Some(4)));
+        assert!(r.cursor.is_box() && !r.cursor.has_selection());
+        r.overwrite = true;
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "abc Xefgh");
+        // a box that is one column wide in the gap is a selection: the char goes in front of it
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_right");
+        r.overwrite = true;
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "abcXdefgh");
+        // the insert mode pads and inserts
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_right").run("begin_box");
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "abc Xdefgh");
+        // at the end of the text of the row, without a gap to fill, overwrite replaces the next char
+        let mut r = at_end();
+        r.run("begin_box");
+        r.overwrite = true;
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "abcXefgh");
+    }
+
+    #[test]
+    fn delete_and_backspace_with_an_empty_box_in_the_gap_are_what_matsu_does_today() {
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_right").run("begin_box");
+        r.run("delete");
+        // `Command_DELETE`: fills the gap, then deletes the next char
+        assert_eq!(r.text(), "abc efgh");
+        let mut r = at_end();
+        r.run("begin_box");
+        r.run("delete_back");
+        // `Command_DELETE_BACK` deletes the char before the caret: the last char of the row
+        assert_eq!(r.text(), "abdefgh");
+    }
+
+    #[test]
+    fn the_size_of_a_box_counts_the_rows_of_its_corners() {
+        // End, Begin Box, Down, Left selects `c` and `f`: the anchor is in the gap after row 0
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_down").run("cursor_left");
+        assert_eq!(r.cx(|cx| cx.selection_bytes(usize::MAX).unwrap()), 2);
+        // the bottom corner in the gap after row 1: the rows 0 and 1 only, not the next row
+        // (`bc`, `ef`; counting the row of the position of that corner would add the `h` of row 2)
+        let mut r = dragged_into_the_gap();
+        assert_eq!(r.cx(|cx| cx.selection_bytes(usize::MAX).unwrap()), 4);
+        // a copy that is allowed by the size copies the same text
+        r.run("copy");
+        assert_eq!(r.clip.data().expect("a copy").text, "bc\r\nef\r\n");
+    }
+
+    #[test]
+    fn the_rest_of_the_moves_work_from_the_gap() {
+        // up from the gap of the second row, onto the gap of the first
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 4), false);
+        r.run("go_line_end").run("begin_box").run("cursor_up");
+        assert_eq!(r.cursor.box_corners(), Some(((P2, 3), (P1, 3))));
+        // End in a box goes into the gap of the row
+        let mut r = Rig::new("abcdefgh");
+        r.cursor.move_to(Pos::new(0, 1), false);
+        r.run("begin_box").run("go_line_end_box");
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        assert_eq!(r.cursor.box_corners(), Some(((Pos::new(0, 1), 1), (P1, 3))));
+        // a box move off the gap onto a text row drops the mark
+        r.run("cursor_down");
+        assert_eq!(r.col(), Some(3));
+        let mut r = at_end();
+        r.run("begin_box").run("cursor_left").run("cursor_left");
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 1), None));
+        assert_eq!(r.cursor.anchor_free_col(), Some(3));
     }
 }

@@ -71,6 +71,9 @@ impl CommandContext<'_> {
         if extend && self.cursor.is_box() {
             return self.box_left();
         }
+        if !extend && self.cursor.is_box() && self.cursor.has_selection() {
+            return self.collapse_box(false);
+        }
         if !extend && let Some((start, _)) = self.selection() {
             return self.move_caret(start, false);
         }
@@ -93,6 +96,9 @@ impl CommandContext<'_> {
         let extend = self.extends(extend);
         if extend && self.cursor.is_box() {
             return self.box_right();
+        }
+        if !extend && self.cursor.is_box() && self.cursor.has_selection() {
+            return self.collapse_box(true);
         }
         if !extend && let Some((_, end)) = self.selection() {
             return self.move_caret(end, false);

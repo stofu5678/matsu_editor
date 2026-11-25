@@ -1503,7 +1503,7 @@ fn shift_click_from_a_click_at_the_end_of_a_wrapped_row_starts_on_that_row(
 }
 
 #[gpui::test]
-fn an_alt_press_at_the_end_of_a_wrapped_row_begins_the_box_on_that_row(cx: &mut TestAppContext) {
+fn an_alt_press_at_the_end_of_a_wrapped_row_begins_the_box_in_its_gap(cx: &mut TestAppContext) {
     let _o = options();
     let (f, cx) = setup(cx, "abcdefghijklmnop\nxy");
     f.view.update(cx, |v, cx| v.set_wrap_columns(10, cx));
@@ -1512,10 +1512,21 @@ fn an_alt_press_at_the_end_of_a_wrapped_row_begins_the_box_on_that_row(cx: &mut 
     drag_at(&f, cx, 1, 3, alt());
     up_at(&f, cx, 1, 3, alt());
     f.view.read_with(cx, |v, _| {
-        let ((a, _), (c, _)) = v.cursor.box_corners().expect("a box");
-        // the corner of the press is the last char of row 0, not the start of row 1
-        assert_eq!((a, c), (Pos::new(0, 9), Pos::new(0, 13)));
+        // the corner of the press is the gap after row 0 (Sakura's corner is a layout point,
+        // `x = 10`), not the last char of the row and not the start of row 1
+        assert_eq!(
+            v.cursor.box_corners(),
+            Some(((Pos::new(0, 10), 10 * 64), (Pos::new(0, 13), 3 * 64)))
+        );
+        assert_eq!(v.cursor.anchor_free_col(), Some(10 * 64));
+        assert_eq!(v.cursor.free_col(), None);
     });
+    // the box is the columns 3..10 of the rows 0 and 1
+    f.view.update(cx, |v, cx| v.run_command("copy", &[], cx));
+    assert_eq!(
+        cx.read_from_clipboard().and_then(|i| i.text()).as_deref(),
+        Some("defghij\r\nnop\r\n")
+    );
 }
 
 #[gpui::test]
@@ -1537,4 +1548,210 @@ fn a_layout_change_during_a_drag_drops_the_mark_of_the_click(cx: &mut TestAppCon
     f.view
         .read_with(cx, |v, _| assert_eq!(v.cursor.anchor_free_col(), None));
     up_at(&f, cx, 0, 5, Modifiers::default());
+}
+
+// ---- box corners in the gap of a wrapped row ----
+
+/// Sakura 2.4.2 measured by the coordinator on 2026-11-25 (`nTextWrapMethod=1`, wrap at 40, the free
+/// cursor off): line 1 is `0123456789` ten times (rows 0, 1 and 2), line 2 is `abcdefghij` five
+/// times. Each step starts at the top (Ctrl+Home) with End on row 0 and Shift+F6 (`F_BEGIN_BOX`);
+/// the box text is read from the clipboard.
+fn measured_text() -> String {
+    format!("{}\n{}", "0123456789".repeat(10), "abcdefghij".repeat(5))
+}
+
+fn wrapped_at_40(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
+    let (f, cx) = setup(cx, &measured_text());
+    f.view.update(cx, |v, cx| v.set_wrap_columns(40, cx));
+    cx.run_until_parked();
+    (f, cx)
+}
+
+fn run_keys(f: &Fixture, cx: &mut VisualTestContext, ids: &[&str]) {
+    for id in ids {
+        f.view.update(cx, |v, cx| v.run_command(id, &[], cx));
+    }
+}
+
+fn copied(cx: &mut VisualTestContext) -> Option<String> {
+    cx.read_from_clipboard().and_then(|i| i.text())
+}
+
+#[gpui::test]
+fn a_box_from_the_end_of_a_wrapped_row_copies_what_sakura_copies(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    // (the steps after End on row 0 and Shift+F6, what Sakura 2.4.2 copies)
+    let cases: [(&[&str], &str); 3] = [
+        // Down, Left: the column 39 of the rows 0 and 1 (MATSU 0.27.1 copied the column 38)
+        (&["cursor_down", "cursor_left"], "9\r\n9\r\n"),
+        // Down: a box of no width
+        (&["cursor_down"], "\r\n\r\n"),
+        // Down, Right: the gap ends at the width of the row, so the box is still of no width
+        (&["cursor_down", "cursor_right"], "\r\n\r\n"),
+    ];
+    for (steps, expected) in cases {
+        f.view
+            .update(cx, |v, _| v.cursor.move_to(Pos::new(0, 0), false));
+        run_keys(&f, cx, &["go_line_end", "begin_box"]);
+        run_keys(&f, cx, steps);
+        run_keys(&f, cx, &["copy"]);
+        assert_eq!(copied(cx).as_deref(), Some(expected), "{steps:?}");
+    }
+}
+
+#[gpui::test]
+fn an_alt_click_right_of_a_wrapped_row_then_down_and_left_copies_the_same(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    // the press is right of the end of row 0; the release of a box that covers nothing ends the
+    // box mode and leaves the caret in the gap
+    down_at(&f, cx, 0, 40, 1, alt());
+    up_at(&f, cx, 0, 40, alt());
+    f.view.read_with(cx, |v, _| {
+        assert!(!v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(0, 40));
+        assert_eq!(v.cursor.free_col(), Some(40 * 64));
+    });
+    // Shift+Alt+Down and Shift+Alt+Left from there
+    run_keys(&f, cx, &["cursor_down_box", "cursor_left_box", "copy"]);
+    assert_eq!(copied(cx).as_deref(), Some("9\r\n9\r\n"));
+}
+
+#[gpui::test]
+fn an_alt_drag_from_the_gap_of_a_wrapped_row_covers_the_rows_of_its_corners(
+    cx: &mut TestAppContext,
+) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    // from right of row 0 to the column 37 of row 1
+    down_at(&f, cx, 0, 41, 1, alt());
+    drag_at(&f, cx, 1, 37, alt());
+    up_at(&f, cx, 1, 37, alt());
+    f.view.read_with(cx, |v, _| {
+        // the press is clamped to the width of the row
+        assert_eq!(v.cursor.box_anchor_col(), Some(40 * 64));
+        assert_eq!(v.cursor.anchor(), Some(Pos::new(0, 40)));
+        assert_eq!(v.cursor.caret(), Pos::new(0, 77));
+    });
+    run_keys(&f, cx, &["copy"]);
+    assert_eq!(copied(cx).as_deref(), Some("789\r\n789\r\n"));
+    // and the other way: from the middle of row 1 to right of row 0, going up (the press must not
+    // be in the old selection, which would wait for a drag of the text)
+    f.view
+        .update(cx, |v, _| v.cursor.move_to(Pos::new(1, 0), false));
+    down_at(&f, cx, 1, 37, 1, alt());
+    drag_at(&f, cx, 0, 40, alt());
+    up_at(&f, cx, 0, 40, alt());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 40));
+        assert_eq!(v.cursor.free_col(), Some(40 * 64));
+    });
+    run_keys(&f, cx, &["copy"]);
+    assert_eq!(copied(cx).as_deref(), Some("789\r\n789\r\n"));
+}
+
+#[gpui::test]
+fn shift_alt_down_from_the_end_of_a_wrapped_row_and_the_status_bar(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    run_keys(
+        &f,
+        cx,
+        &["go_line_end", "cursor_down_box", "cursor_left_box"],
+    );
+    // the box is one column wide over the rows 0 and 1: Sakura's message
+    // (`PrintSelectionInfoMsg`: columns, pixels, the rows of the corners)
+    let text = selection_text(&f, cx).expect("a box");
+    assert!(text.starts_with("1 col ("), "{text}");
+    assert!(text.ends_with("* 2 lines selected."), "{text}");
+}
+
+#[gpui::test]
+fn an_alt_press_inside_the_last_char_of_a_wrapped_row_is_not_in_the_gap(cx: &mut TestAppContext) {
+    let _o = options();
+    // row 0 is `ab` and a char of two columns (columns 2-3) or a tab (columns 2-3), then `cdef`
+    for text in ["ab\u{754c}cdef", "ab\tcdef"] {
+        let (f, cx) = setup(cx, text);
+        f.view.update(cx, |v, cx| v.set_wrap_columns(4, cx));
+        cx.run_until_parked();
+        // the pointer is in column 3, inside the last char: its left edge, column 2
+        down_at(&f, cx, 0, 3, 1, alt());
+        drag_at(&f, cx, 1, 1, alt());
+        f.view.read_with(cx, |v, _| {
+            assert_eq!(v.cursor.box_anchor_col(), Some(2 * 64), "{text:?}");
+            assert_eq!(v.cursor.anchor(), Some(Pos::new(0, 2)), "{text:?}");
+            assert_eq!(v.cursor.anchor_free_col(), None, "{text:?}");
+        });
+        up_at(&f, cx, 1, 1, alt());
+        f.view
+            .update(cx, |v, _| v.cursor.move_to(Pos::new(1, 0), false));
+        // right of the end of the text (column 4 and further): the gap
+        down_at(&f, cx, 0, 4, 1, alt());
+        drag_at(&f, cx, 1, 1, alt());
+        f.view.read_with(cx, |v, _| {
+            assert_eq!(v.cursor.box_anchor_col(), Some(4 * 64), "{text:?}");
+            assert_eq!(v.cursor.anchor_free_col(), Some(4 * 64), "{text:?}");
+        });
+        up_at(&f, cx, 1, 1, alt());
+    }
+}
+
+#[gpui::test]
+fn right_after_an_alt_drag_to_the_gap_of_a_wrapped_row_stays_on_that_row(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    // from column 10 of row 0 to the gap after row 1 (right of its text), then Right: the box
+    // ends and the caret goes to the bottom right corner of the rectangle, on row 1
+    // (`Command_RIGHT`: `Command_CANCEL_MODE( 2 )`)
+    down_at(&f, cx, 0, 10, 1, alt());
+    drag_at(&f, cx, 1, 40, alt());
+    up_at(&f, cx, 1, 40, alt());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 80));
+        assert_eq!(v.cursor.free_col(), Some(40 * 64));
+    });
+    run_keys(&f, cx, &["cursor_right"]);
+    f.view.read_with(cx, |v, app| {
+        assert!(!v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(0, 80));
+        assert_eq!(v.cursor.free_col(), Some(40 * 64));
+        assert_eq!(v.caret_row(app).row, 1);
+    });
+    // Left from the same kind of box: the top left corner, column 10 of row 0
+    down_at(&f, cx, 0, 10, 1, alt());
+    drag_at(&f, cx, 1, 40, alt());
+    up_at(&f, cx, 1, 40, alt());
+    run_keys(&f, cx, &["cursor_left"]);
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 10));
+        assert_eq!(v.caret_row(app).row, 0);
+    });
+}
+
+#[gpui::test]
+fn a_plain_click_ends_a_box_in_the_gap_and_goes_where_it_is_clicked(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = wrapped_at_40(cx);
+    run_keys(
+        &f,
+        cx,
+        &["go_line_end", "cursor_down_box", "cursor_left_box"],
+    );
+    down_at(&f, cx, 2, 5, 1, Modifiers::default());
+    up_at(&f, cx, 2, 5, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert!(!v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(0, 85));
+        assert_eq!(v.cursor.free_col(), None);
+    });
+    // and a click right of row 0 puts the caret at the end of that row
+    run_keys(&f, cx, &["go_line_end", "cursor_down_box"]);
+    down_at(&f, cx, 0, 41, 1, Modifiers::default());
+    up_at(&f, cx, 0, 41, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert!(!v.cursor.is_box());
+        assert_eq!(v.cursor.caret(), Pos::new(0, 40));
+        assert_eq!(v.caret_row(app).row, 0);
+    });
 }

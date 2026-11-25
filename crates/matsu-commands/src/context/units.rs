@@ -79,6 +79,12 @@ impl CommandContext<'_> {
         self.cursor.move_box_to(pos, raw_of(x));
     }
 
+    /// Moves the caret of a box into the gap at the end of the wrapped row before `pos`, standing
+    /// at `x` (`Cursor::move_box_to_gap`).
+    pub(super) fn set_box_gap_caret(&mut self, pos: Pos, x: X) {
+        self.cursor.move_box_to_gap(pos, raw_of(x));
+    }
+
     /// How many half-width spaces fill a gap of `gap`, the way Sakura counts them when something
     /// is put to the right of the end of a line: one space for each step of the width of a space
     /// that starts before the end of the gap, so a gap that is not a whole number of spaces gets
