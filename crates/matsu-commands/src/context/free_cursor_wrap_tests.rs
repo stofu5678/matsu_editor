@@ -788,6 +788,15 @@ mod box_corners_in_the_gap {
         // (the box of a press is not locked: the box moves go on with it)
         r.run("cursor_down_box").run("cursor_left_box");
         assert_eq!(copied(&mut r), "c\r\nf\r\n");
+        // a press inside the last char of the row (the click rounded to the end) is on the left
+        // edge of that char, as a drag puts a corner there
+        let mut r = Rig::new("abcdefgh");
+        r.cx(|cx| {
+            cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(2))
+                .unwrap()
+        });
+        assert_eq!((r.caret(), r.col()), (Pos::new(0, 2), None));
+        assert_eq!(r.cursor.box_caret_col(), Some(2));
         // a press that is not right of a wrapped row is the plain press
         let mut r = Rig::new("abcdefgh");
         r.cx(|cx| {

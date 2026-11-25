@@ -1666,3 +1666,33 @@ fn shift_alt_down_from_the_end_of_a_wrapped_row_and_the_status_bar(cx: &mut Test
     assert!(text.starts_with("1 col ("), "{text}");
     assert!(text.ends_with("* 2 lines selected."), "{text}");
 }
+
+#[gpui::test]
+fn an_alt_press_inside_the_last_char_of_a_wrapped_row_is_not_in_the_gap(cx: &mut TestAppContext) {
+    let _o = options();
+    // row 0 is `ab` and a char of two columns (columns 2-3) or a tab (columns 2-3), then `cdef`
+    for text in ["ab\u{754c}cdef", "ab\tcdef"] {
+        let (f, cx) = setup(cx, text);
+        f.view.update(cx, |v, cx| v.set_wrap_columns(4, cx));
+        cx.run_until_parked();
+        // the pointer is in column 3, inside the last char: its left edge, column 2
+        down_at(&f, cx, 0, 3, 1, alt());
+        drag_at(&f, cx, 1, 1, alt());
+        f.view.read_with(cx, |v, _| {
+            assert_eq!(v.cursor.box_anchor_col(), Some(2 * 64), "{text:?}");
+            assert_eq!(v.cursor.anchor(), Some(Pos::new(0, 2)), "{text:?}");
+            assert_eq!(v.cursor.anchor_free_col(), None, "{text:?}");
+        });
+        up_at(&f, cx, 1, 1, alt());
+        f.view
+            .update(cx, |v, _| v.cursor.move_to(Pos::new(1, 0), false));
+        // right of the end of the text (column 4 and further): the gap
+        down_at(&f, cx, 0, 4, 1, alt());
+        drag_at(&f, cx, 1, 1, alt());
+        f.view.read_with(cx, |v, _| {
+            assert_eq!(v.cursor.box_anchor_col(), Some(4 * 64), "{text:?}");
+            assert_eq!(v.cursor.anchor_free_col(), Some(4 * 64), "{text:?}");
+        });
+        up_at(&f, cx, 1, 1, alt());
+    }
+}

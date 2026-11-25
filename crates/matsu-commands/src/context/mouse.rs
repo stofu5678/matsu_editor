@@ -139,8 +139,18 @@ impl CommandContext<'_> {
         if !(ends_here && self.row_is_wrapped(row_pos)?) {
             return self.mouse_begin_box(pos);
         }
-        self.move_caret(pos, false)?;
         let text_end = self.row_text_end_x(row_pos)?;
+        if x < text_end {
+            // The pointer is inside the last char (a wide char or a tab, which the click rounded
+            // to the end of the row): the corner is on its left edge, as `box_move_to_x` puts a
+            // corner of a drag.
+            let last = matsu_core::cursor::char_left(self.doc(), pos)?.unwrap_or(pos);
+            let at = self.layout.display_x(self.doc(), last)?;
+            self.move_caret(last, false)?;
+            self.begin_box_at(at, false);
+            return Ok(());
+        }
+        self.move_caret(pos, false)?;
         let x = x.clamp(text_end, self.max_box_x().max(text_end));
         self.begin_box_at(x, false);
         self.set_free_x(Some(x));
