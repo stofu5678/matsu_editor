@@ -76,13 +76,11 @@ impl CommandContext<'_> {
 
     /// The rectangle of the box selection, or `None` if no box covers anything.
     pub(super) fn box_rect(&self) -> Result<Option<BoxRect>> {
-        let Some((a, c)) = self.box_corners()? else {
+        let Some(bounds) = self.box_bounds()? else {
             return Ok(None);
         };
-        // A corner in the gap after a wrapped row is on that row, not on the next one.
-        let (a_row, c_row) = (a.row_pos(), c.row_pos());
-        let first = self.layout.row_start(self.doc(), a_row.min(c_row))?;
-        let last = self.layout.row_start(self.doc(), a_row.max(c_row))?;
+        let first = self.layout.row_start(self.doc(), bounds.top)?;
+        let last = self.layout.row_start(self.doc(), bounds.bottom)?;
         let mut rows = vec![first];
         while let Some(&row) = rows.last()
             && row < last
@@ -91,8 +89,8 @@ impl CommandContext<'_> {
             rows.push(next);
         }
         Ok(Some(BoxRect {
-            left: a.x.min(c.x),
-            right: a.x.max(c.x),
+            left: bounds.left,
+            right: bounds.right,
             rows,
         }))
     }
@@ -225,13 +223,11 @@ impl CommandContext<'_> {
     pub fn box_first_row_text(&self) -> Result<Option<String>> {
         // The rows are not listed: only the first one is needed, and a box can cover the whole
         // document.
-        let Some((a, c)) = self.box_corners()? else {
+        let Some(bounds) = self.box_bounds()? else {
             return Ok(None);
         };
-        let row = self
-            .layout
-            .row_start(self.doc(), a.row_pos().min(c.row_pos()))?;
-        let (from, to) = self.box_row_range(row, a.x.min(c.x), a.x.max(c.x))?;
+        let row = self.layout.row_start(self.doc(), bounds.top)?;
+        let (from, to) = self.box_row_range(row, bounds.left, bounds.right)?;
         Ok(Some(self.doc().text_between(from, to)?))
     }
 

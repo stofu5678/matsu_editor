@@ -62,6 +62,16 @@ pub(super) enum RowCorner {
     Char { pos: Pos, x: X },
 }
 
+/// The bounds of a box selection ([`CommandContext::box_bounds`]): a position on its top and on
+/// its bottom row (not yet the start of the row), and its left and right `X`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct BoxBounds {
+    pub top: Pos,
+    pub bottom: Pos,
+    pub left: X,
+    pub right: X,
+}
+
 /// The lock option of a box move (the argument of `Sub_BoxSelectLock`, `CViewCommander.cpp`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoxLock {
@@ -216,21 +226,15 @@ impl CommandContext<'_> {
     /// (`ptTo.x = t_min( ptTo.x, CalcLayoutWidth )`), which on a wrapped row is its gap. A corner
     /// in the gap of a wrapped row stays on that row (the caret carries the mark).
     pub(super) fn collapse_box(&mut self, to_bottom_right: bool) -> Result<()> {
-        // The two corners are enough: the rows between them are not listed (a box can be as high
+        // The bounds are enough: the rows between the corners are not listed (a box can be as high
         // as the document, and an arrow key must not cost that).
-        let Some((a, c)) = self.box_corners()? else {
+        let Some(bounds) = self.box_bounds()? else {
             return Ok(());
         };
-        let (a_row, c_row) = (a.row_pos(), c.row_pos());
-        let row_pos = if to_bottom_right {
-            a_row.max(c_row)
+        let (row_pos, x) = if to_bottom_right {
+            (bounds.bottom, bounds.right)
         } else {
-            a_row.min(c_row)
-        };
-        let x = if to_bottom_right {
-            a.x.max(c.x)
-        } else {
-            a.x.min(c.x)
+            (bounds.top, bounds.left)
         };
         let row = self.layout.row_start(self.doc(), row_pos)?;
         let target = self.box_corner_pos(row, x)?;
@@ -245,9 +249,23 @@ impl CommandContext<'_> {
         Ok(())
     }
 
+    /// The bounds of the box selection, from its two corners. The one place that says which rows
+    /// and columns the box covers: a corner in the gap after a wrapped row belongs to that row
+    /// ([`Corner::row_pos`]). `None` when no box covers anything.
+    pub(super) fn box_bounds(&self) -> Result<Option<BoxBounds>> {
+        Ok(self.box_corners()?.map(|(a, c)| BoxBounds {
+            top: a.row_pos().min(c.row_pos()),
+            bottom: a.row_pos().max(c.row_pos()),
+            left: a.x.min(c.x),
+            right: a.x.max(c.x),
+        }))
+    }
+
     /// A position on the row of each corner of the box selection, anchor first (for a corner in
     /// the gap after a wrapped row, the last char of that row; otherwise the corner's position),
-    /// for what counts the rows of the corners. `None` when no box covers anything.
+    /// for what counts the rows of the corners. `None` when no box covers anything. (In the order
+    /// of the corners, which the plugin functions need; the bounds are
+    /// [`box_bounds`](Self::box_bounds).)
     pub fn box_corner_rows(&self) -> Result<Option<(Pos, Pos)>> {
         Ok(self.box_corners()?.map(|(a, c)| (a.row_pos(), c.row_pos())))
     }
