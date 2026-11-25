@@ -212,10 +212,12 @@ impl LineReader {
                         self.codec
                             .boundary_at_or_after(&self.buf, self.scan_from, target);
                 }
-                // A line that is over the limit already is not kept: what is before the place
-                // where the search goes on is part of it for certain, and a character boundary.
+                // A line that is over the limit already is not kept. Only what is before the place
+                // where the search goes on counts: it is part of the line for certain, and a
+                // character boundary. The bytes after it may be the start of a line ending (a
+                // multibyte one, or the CR of CR LF), which are not part of the line.
                 if let Some(max) = limit
-                    && self.dropped + (self.buf.len() - self.start) as u64 > max as u64
+                    && self.dropped + (self.scan_from - self.start) as u64 > max as u64
                 {
                     self.dropped += (self.scan_from - self.start) as u64;
                     self.buf.drain(..self.scan_from);

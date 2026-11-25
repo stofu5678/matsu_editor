@@ -21,7 +21,7 @@ thread_local! {
 }
 
 /// The limit that is in force: [`MAX_COPY_BYTES`], or a smaller one that a test asked for on this
-/// thread ([`with_copy_limit`]).
+/// thread (`with_copy_limit`, for tests).
 pub fn copy_limit() -> usize {
     COPY_LIMIT.with(std::cell::Cell::get)
 }

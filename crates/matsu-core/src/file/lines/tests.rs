@@ -506,3 +506,37 @@ fn a_stop_inside_a_dropped_line_goes_on_with_the_same_line() {
         ]
     );
 }
+
+#[test]
+fn a_line_within_the_limit_is_not_cut_by_the_start_of_a_multibyte_ending() {
+    // U+2028 is 3 bytes in UTF-8; with the extended endings on it ends the line. The line has 100
+    // bytes, exactly the limit, and the reader must not drop any of them early.
+    let bytes = format!("xxxxxxxxxx\n{}\u{2028}end", "a".repeat(100)).into_bytes();
+    for chunk in 4..=128 {
+        let mut r = reader(Counting::new(&bytes), Encoding::Utf8, true, chunk);
+        let got = read_limited(&mut r, 100);
+        assert_eq!(
+            got,
+            vec![
+                whole("xxxxxxxxxx", Some(Eol::Lf)),
+                whole(&"a".repeat(100), Some(Eol::Ls)),
+                whole("end", None),
+            ],
+            "chunk {chunk}"
+        );
+    }
+}
+
+#[test]
+fn a_line_within_the_limit_is_whole_when_its_crlf_is_split_by_a_chunk() {
+    let bytes = format!("{}\r\nnext", "b".repeat(40)).into_bytes();
+    for chunk in 4..=64 {
+        let mut r = reader(Counting::new(&bytes), Encoding::Utf8, false, chunk);
+        let got = read_limited(&mut r, 40);
+        assert_eq!(
+            got,
+            vec![whole(&"b".repeat(40), Some(Eol::CrLf)), whole("next", None)],
+            "chunk {chunk}"
+        );
+    }
+}
