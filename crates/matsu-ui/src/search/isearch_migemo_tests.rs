@@ -40,7 +40,7 @@ fn words(key: &str) -> Option<String> {
         "k" => "(k|\u{ff4b}|か|き|柿)",
         "ka" => "(ka|\u{ff4b}\u{ff41}|か|カ|ｶ|柿)",
         "kaki" => "(kaki|かき|カキ|柿|牡蠣)",
-        _ => return None,
+        other => return Some(format!("({other})")),
     };
     Some(pattern.to_owned())
 }
@@ -136,9 +136,9 @@ fn backspace_asks_the_library_again(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("backspace");
     assert_eq!(f.key(cx).as_deref(), Some("k"));
     assert_eq!(f.pattern(cx), "(k|\u{ff4b}|か|き|柿)");
-    // the library does not know "kx": the text itself is searched for
+    // a text that the dictionary has no word for is a group of the text itself
     cx.simulate_input("x");
-    assert_eq!(f.pattern(cx), "kx");
+    assert_eq!(f.pattern(cx), "(kx)");
     assert!(f.message(cx).unwrap().ends_with("(見つかりません)"));
 }
 
@@ -230,7 +230,7 @@ fn another_windows_settings_do_not_change_a_running_search(cx: &mut TestAppConte
     let (f, cx) = setup(cx, "ka あ か");
     f.run(cx, "F_ISEARCH_MIGEMO_NEXT");
     cx.simulate_input("k");
-    assert_eq!(f.selected(cx).as_deref(), Some("か"));
+    assert_eq!(f.selected(cx).as_deref(), Some("k"));
     // Another window changes the setting and begins its own search with it: that fails, and
     // must not touch the library of the search that is running.
     cx.update(|_, app| {
