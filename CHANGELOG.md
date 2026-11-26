@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.28.0](https://github.com/stofu5678/matsu_editor/compare/v0.27.3...v0.28.0) (2026-11-26)
+
+
+### Features
+
+* **dialogs:** add the profile manager ([#596](https://github.com/stofu5678/matsu_editor/issues/596)) ([9116387](https://github.com/stofu5678/matsu_editor/commit/911638752311042e2ae4ed71d639d7b40800e53e))
+* **search:** add Migemo to the incremental search, with the user's DLL and dictionary ([#595](https://github.com/stofu5678/matsu_editor/issues/595)) ([857a415](https://github.com/stofu5678/matsu_editor/commit/857a415189107d8df15f27ecfca50c2a001168c0))
+
+
+### Bug Fixes
+
+* **edit:** insert into a box just begun by Shift+F6, also in overwrite mode ([#594](https://github.com/stofu5678/matsu_editor/issues/594)) ([953e277](https://github.com/stofu5678/matsu_editor/commit/953e277b76c100d7dbf922b032bb3d0f491f6e21))
+
 ## [0.27.3](https://github.com/stofu5678/matsu_editor/compare/v0.27.2...v0.27.3) (2026-11-25)
 
 
