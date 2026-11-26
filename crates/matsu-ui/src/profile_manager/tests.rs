@@ -642,21 +642,90 @@ fn the_profile_is_in_use_while_any_of_its_editors_runs() {
 }
 
 #[test]
-fn the_files_of_gone_processes_are_cleaned_and_the_others_are_not_touched() {
+fn a_live_holders_file_survives_a_check_and_a_stale_one_is_not_deleted() {
     let dir = tempfile::tempdir().unwrap();
     // a process that crashed left its file: nobody holds the lock
-    let gone = in_use::hold_as(dir.path(), 7).unwrap();
-    drop(gone);
+    drop(in_use::hold_as(dir.path(), 7).unwrap());
     let live = in_use::hold_as(dir.path(), 8).unwrap();
-    std::fs::write(dir.path().join("matsu.ini"), b"x").unwrap();
-    assert!(in_use::is_held(dir.path()));
-    let mut names: Vec<String> = std::fs::read_dir(dir.path())
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    assert_eq!(names, ["in-use-8.lock", "matsu.ini"], "the stale file went");
+    for _ in 0..3 {
+        assert!(in_use::is_held(dir.path()));
+    }
+    let names = |dir: &Path| {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    // nothing was deleted, and the live file still holds its lock
+    assert_eq!(names(dir.path()), ["in-use-7.lock", "in-use-8.lock"]);
+    assert!(in_use::hold_as(dir.path(), 8).is_err());
     drop(live);
+    // the stale files lock fine: not in use, and still there
+    assert!(!in_use::is_held(dir.path()));
+    assert_eq!(names(dir.path()), ["in-use-7.lock", "in-use-8.lock"]);
+    // a process that starts with the number of a stale file uses it again
+    assert!(in_use::hold_as(dir.path(), 7).is_ok());
+}
+
+#[test]
+fn a_mark_taken_while_a_check_holds_the_file_is_made_after_the_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    drop(in_use::hold_as(dir.path(), 1).unwrap());
+    let path = dir.path().join("in-use-1.lock");
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    // the checker: locks the file for a moment, as `is_held` does
+    let checker = std::thread::spawn(move || {
+        let lock = matsu_platform::file_lock::FileLock::acquire(
+            &path,
+            matsu_platform::file_lock::ShareMode::DenyReadWrite,
+        )
+        .unwrap();
+        ready_tx.send(()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        drop(lock);
+    });
+    ready_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    // refused for the first tries, then the lock is free
+    assert!(in_use::hold_as(dir.path(), 1).is_ok());
+    checker.join().unwrap();
+}
+
+#[test]
+fn a_file_that_is_gone_is_not_a_holder() {
+    // a folder that is not there, and a folder without marks, have no holder
+    let dir = tempfile::tempdir().unwrap();
+    assert!(!in_use::is_held(&dir.path().join("none")));
+    assert!(!in_use::is_held(dir.path()));
+    // a mark that was removed after the folder was read is `NotFound` for the lock: not a holder
+    // (`is_held` reads the names, then locks each; only the other errors count as in use)
+    let held = in_use::hold_as(dir.path(), 3).unwrap();
+    assert!(in_use::is_held(dir.path()));
+    drop(held);
+    std::fs::remove_file(dir.path().join("in-use-3.lock")).unwrap();
+    assert!(!in_use::is_held(dir.path()));
+}
+
+#[test]
+fn the_mark_is_let_go_after_the_writes_of_the_end() {
+    let log = std::cell::RefCell::new(Vec::new());
+    // `release_after` is what the end of the application calls; its `release` is the real one, and
+    // the writes see the mark still held
+    let dir = tempfile::tempdir().unwrap();
+    let lock = in_use::hold_as(dir.path(), std::process::id()).unwrap();
+    in_use::set_held_for_test(dir.path(), lock);
+    let result = in_use::release_after(|| {
+        log.borrow_mut()
+            .push(("write", in_use::is_held(dir.path())));
+        7
+    });
+    log.borrow_mut()
+        .push(("after", in_use::is_held(dir.path())));
+    assert_eq!(result, 7);
+    assert_eq!(*log.borrow(), [("write", true), ("after", false)]);
 }
 
 #[gpui::test]

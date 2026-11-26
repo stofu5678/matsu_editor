@@ -7,7 +7,6 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use matsu_platform::file_lock::{FileLock, ShareMode};
@@ -37,7 +36,7 @@ pub(crate) struct Move {
 }
 
 /// Where the folder of a profile is, by the name of the profile.
-type DirOf = Rc<dyn Fn(&str) -> Option<PathBuf>>;
+type DirOf = Box<dyn Fn(&str) -> Option<PathBuf>>;
 
 /// The manager's file and the places of the profiles' folders.
 pub(crate) struct Store {
@@ -64,7 +63,7 @@ impl Store {
         let ini = profile_manager::settings_path(os, &env)?;
         Some(Self {
             ini,
-            dir_of: Rc::new(move |name| profile_manager::profile_dir(os, &env, name)),
+            dir_of: Box::new(move |name| profile_manager::profile_dir(os, &env, name)),
             wait: LOCK_WAIT,
         })
     }
@@ -75,7 +74,7 @@ impl Store {
         let base = base.to_path_buf();
         Self {
             ini: base.join(profile_manager::FILE_NAME),
-            dir_of: Rc::new(move |name| Some(base.join(name))),
+            dir_of: Box::new(move |name| Some(base.join(name))),
             wait: LOCK_WAIT,
         }
     }
@@ -97,14 +96,17 @@ impl Store {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        // the handle that makes the file is closed before the lock opens it (Windows shares nothing)
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
         let start = Instant::now();
         loop {
-            match FileLock::acquire(&path, ShareMode::DenyReadWrite) {
+            // Both steps are in the loop: on Windows the holder shares nothing, so the open that makes
+            // sure the file is there is refused too while another process holds it. (The handle that makes
+            // the file is closed before the lock opens it.)
+            let locked = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|_| FileLock::acquire(&path, ShareMode::DenyReadWrite));
+            match locked {
                 Ok(lock) => return Ok(ListLock(lock)),
                 Err(error) if start.elapsed() >= self.wait => return Err(error),
                 Err(_) => std::thread::sleep(Duration::from_millis(25)),
