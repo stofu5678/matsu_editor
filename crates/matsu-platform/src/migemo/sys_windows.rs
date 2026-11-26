@@ -71,10 +71,15 @@ impl Library {
                 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
             )
         };
+        // The error code is read first: the call that puts the error mode back may change it.
+        let code = if module.is_null() {
+            // SAFETY: reads the error code of this thread.
+            unsafe { GetLastError() }
+        } else {
+            0
+        };
         drop(quiet);
         if module.is_null() {
-            // SAFETY: reads the error code of this thread.
-            let code = unsafe { GetLastError() };
             return Err(format!("LoadLibraryExW failed with the error {code}"));
         }
         Ok(Self(module))
