@@ -1080,11 +1080,8 @@ fn legacy_only_profile(dir: &Path) {
         profile_name: Some("work".to_owned()),
         ..windows_env(dir)
     };
-    let file = matsu_config::migrate_old_name::legacy_candidate_paths(Os::Windows, &env)
-        .pop()
-        .expect("the user's own folder");
-    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    std::fs::write(file, "[Common]\nkey=7\n").unwrap();
+    matsu_config::migrate_old_name::plant_legacy_settings(Os::Windows, &env, "[Common]\nkey=7\n")
+        .unwrap();
 }
 
 #[gpui::test]

@@ -39,13 +39,28 @@ const NEW_HEADER_START: &[u8] = b"; matsu.ini";
 /// The places of the old settings file for the same profile, in the order of [`location::candidate_paths`]
 /// (the one at an index is the old file of the new place at that index). The only place that spells out the
 /// old names and places. Delete with the module (version 1.0).
-pub fn legacy_candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
+pub(crate) fn legacy_candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
     location::candidate_paths_named(os, env, OLD_APP_DIR, OLD_FILE_NAME)
 }
 
-/// The old settings file in `dir`, for the tests that make one.
-pub fn legacy_settings_file(dir: &Path) -> PathBuf {
+/// The old settings file in `dir`, for the tests of this crate that make one.
+#[cfg(test)]
+pub(crate) fn legacy_settings_file(dir: &Path) -> PathBuf {
     dir.join(OLD_FILE_NAME)
+}
+
+/// For the tests of other crates: writes `contents` as the old settings file of the profile in `env`
+/// (`env.profile_name`), in the last of the old places (the user's own folder), where [`migrate`] looks for
+/// it. Not for the program; it goes with this module at version 1.0.
+#[doc(hidden)]
+pub fn plant_legacy_settings(os: Os, env: &Environment, contents: &str) -> io::Result<()> {
+    let Some(file) = legacy_candidate_paths(os, env).pop() else {
+        return Err(io::Error::other("the OS has no place for the settings"));
+    };
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(file, contents)
 }
 
 /// Whether settings of the old name have to come over, by the one rule that [`migrate`] and the profile
