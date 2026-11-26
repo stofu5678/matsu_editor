@@ -6,7 +6,7 @@
 //! `STR_EDITVWISRCH_MIGEGO1` and `STR_EDITVWISRCH_MIGEGO2` (`sakura_rc.rc`).
 //!
 //! The library is behind [`MigemoEngine`], and the way it is opened behind an opener, so that the
-//! tests need no library: the real opener ([`open_platform`]) uses `matsu_platform::migemo`.
+//! tests need no library: the real opener (`open_platform`) uses `matsu_platform::migemo`.
 //! [`MigemoHost`] is the one place that keeps the opened library for the whole application
 //! (Sakura's `CMigemo` is a singleton too); it is a GPUI global that holds nothing of a window.
 //! When the two paths of the settings change, the library is opened again at the next use.
