@@ -17,6 +17,7 @@ pub mod location;
 pub mod migrate_old_name;
 pub mod plugins;
 pub mod profile;
+pub mod profile_manager;
 pub mod save_filter;
 pub mod settings;
 mod sync;

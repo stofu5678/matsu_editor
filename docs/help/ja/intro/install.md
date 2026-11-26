@@ -156,9 +156,12 @@ MATSU Editor は、使う設定ファイル（`matsu.ini`）1 つにつき、1 �
 | `-GREPMODE` `-GREPDLG` `-GKEY=` `-GREPR=` `-GFILE=` `-GFOLDER=` `-GOPT=` `-GCODE=` | Grep |
 | `-M=` | 読み込み後に実行するマクロのファイル |
 | `-PROF=` | 設定のプロファイル（設定ファイルのサブフォルダー）。[設定ファイル matsu.ini](settings-file.md) を見てください |
+| `-PROFMGR` | 起動のときに、プロファイルマネージャを開いて、プロファイルを選ばせる |
 | `-@=` | レスポンスファイル |
 
-`-NOWIN` `-GROUP=` `-DEBUGMODE` `-PROFMGR` は、受け付けて何もしません。
+`-NOWIN` `-GROUP=` `-DEBUGMODE` は、受け付けて何もしません。
+
+`-PROFMGR` は、プロファイルマネージャを開きます（[設定ファイル matsu.ini](settings-file.md)）。
 
 ### macOS の PATH
 

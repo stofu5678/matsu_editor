@@ -41,8 +41,8 @@
 //!
 //! `-X=` `-Y=` (the caret), `-VX=` `-VY=` (the top left of the view), `-SX=` `-SY=` `-WX=` `-WY=`
 //! (the window), `-TYPE=`, `-CODE=`, `-R`, `-GREPMODE`, `-GREPDLG`, `-GKEY=`, `-GREPR=`, `-GFILE=`,
-//! `-GFOLDER=`, `-GOPT=`, `-GCODE=`, `-M=`, `-MTYPE=`, `-PROF=`, `-@=` and the ones that MATSU Editor
-//! accepts and ignores (`-NOWIN`, `-GROUP=`, `-DEBUGMODE`, `-PROFMGR`), with the files named
+//! `-GFOLDER=`, `-GOPT=`, `-GCODE=`, `-M=`, `-MTYPE=`, `-PROF=`, `-PROFMGR`, `-@=` and the ones that MATSU Editor
+//! accepts and ignores (`-NOWIN`, `-GROUP=`, `-DEBUGMODE`), with the files named
 //! among them. The help is `help/sakura/res/HLP000109.html`.
 //!
 //! Sakura reads one string (`GetCommandLine`) and cuts it at the blanks. A launch of MATSU Editor has
@@ -71,7 +71,7 @@
 //! when `wcsncpy_s(.., _TRUNCATE)` cuts the name at `_MAX_PATH`): MATSU Editor's paths have no such
 //! limit, so there is no case to show it for (type B of ADR-0018).
 //!
-//! The options that are read and dropped (`-NOWIN`, `-GROUP=`, `-DEBUGMODE`, `-PROFMGR`) and why
+//! The options that are read and dropped (`-NOWIN`, `-GROUP=`, `-DEBUGMODE`) and why
 //! are in `docs/help/ja/specs-regex/command-line.md` and `docs/sakura-gaps.md`.
 
 use std::ffi::{OsStr, OsString};
@@ -200,7 +200,7 @@ pub(crate) struct CommandLine {
     pub grep_dialog: bool,
     /// `-DEBUGMODE`.
     pub debug_mode: bool,
-    /// `-PROFMGR`.
+    /// `-PROFMGR`: shows the profile manager at the start (`crate::profile_manager::startup`).
     pub profile_manager: bool,
     /// `-GROUP=`: -1 when it was not given.
     pub group: Option<i32>,

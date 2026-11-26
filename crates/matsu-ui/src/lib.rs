@@ -86,6 +86,7 @@ pub(crate) mod plugin_outline;
 pub(crate) mod preview;
 pub mod print;
 pub mod print_setting;
+mod profile_manager;
 mod radio_group;
 mod reconvert;
 mod saved_state;

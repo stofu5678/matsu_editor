@@ -74,7 +74,6 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| `F_PROFILEMGR` | `CViewCommander_File.cpp` | コマンドなし | 決まった（2026-11-25）: サクラの `CDlgProfileMgr` に沿って作る | M | `CDlgProfileMgr` |
 
 ### マクロ
 
@@ -106,7 +105,6 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| プロファイルマネージャ | `dlg/CDlgProfileMgr.cpp` | なし | 決まった（2026-11-25）: サクラの `CDlgProfileMgr` に沿って作る | M | 同上 |
 | タイプ一覧のファイルの関連付け（右クリックメニュー・ダブルクリックで開く） | `typeprop/CDlgTypeList.cpp` | 追加・削除・複製・上下・インポート・エクスポート・初期化は入った（`doc_types/`、`matsu-config` の `type_list.rs` `type_file.rs`）。関連付けは Windows のレジストリに書くので未対応 | 決まった（2026-11-25）: Windows は作る。macOS・Linux は、型を宣言する方法と、タイプ一覧から既定のアプリにする方法を調べた。ユーザーの判断が要る: どちらにするか | M | なし |
 | ヘルプボタン | 各ダイアログ | 入った（`MyWinHelp` のあるダイアログ。ボタンの「ヘルプ(H)」、Alt+H、F1 で `support/help.rs` の `PAGES` の頁を開く）。残り: ファイルのプロパティ（OS のメッセージ箱で、ボタンを足せない）、アウトライン解析のダイアログ（MATSU はドックのペインで、ボタンがない）、コントロールごとのポップアップヘルプ（`WM_HELP`。コントロールの説明の表がなく、F1 はダイアログの頁を開く） | B | － | なし |
 | ダイアログがモーダルでない（GPUI にモーダルの子ウィンドウがない） | － | 自前のダイアログはモーダルではない（#150） | B | L | GPUI |
@@ -184,7 +182,7 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| コマンドラインの `-GROUP=`（タブのグループ指定）、`-NOWIN`、`-DEBUGMODE`、`-PROFMGR` | `CCommandLine.cpp`、`CNormalProcess.cpp`、`CProcessFactory.cpp` | 読んで無視する（`command_line.rs`）。`-DEBUGMODE` はタイプだけ変える。理由: `-GROUP=` は、サクラが自分で起動する子プロセス（`CControlTray.cpp` 1113 行あたり、`CPropComPlugin.cpp` 575 行）にグループ番号（`GetFreeGroupId`）を渡す内部の取り決めで、利用者には見えない。MATSU のグループはウィンドウ（ADR-0015）で、番号がなく、1 つのプロセスが作るので、渡す相手がいない。`-NOWIN` は、トレイだけのコントロールプロセスを起こす（`IsStartingControlProcess`）。トレイがない MATSU で窓なしで起動すると、見えず終えられないプロセスになる。`-DEBUGMODE` は `OutputDebugString` を見せる窓（Windows のデバッグ出力）。`-PROFMGR` は、プロファイルマネージャー（「ダイアログとプロパティシート」の行。作ると決まった）に頼る | B | S | 同上 |
+| コマンドラインの `-GROUP=`（タブのグループ指定）、`-NOWIN`、`-DEBUGMODE` | `CCommandLine.cpp`、`CNormalProcess.cpp`、`CProcessFactory.cpp` | 読んで無視する（`command_line.rs`）。`-DEBUGMODE` はタイプだけ変える。理由: `-GROUP=` は、サクラが自分で起動する子プロセス（`CControlTray.cpp` 1113 行あたり、`CPropComPlugin.cpp` 575 行）にグループ番号（`GetFreeGroupId`）を渡す内部の取り決めで、利用者には見えない。MATSU のグループはウィンドウ（ADR-0015）で、番号がなく、1 つのプロセスが作るので、渡す相手がいない。`-NOWIN` は、トレイだけのコントロールプロセスを起こす（`IsStartingControlProcess`）。トレイがない MATSU で窓なしで起動すると、見えず終えられないプロセスになる。`-DEBUGMODE` は `OutputDebugString` を見せる窓（Windows のデバッグ出力）。`-PROFMGR` はプロファイルマネージャを開く（`profile_manager/startup.rs`。2026-11-26 に入れた）ので、ここにはない | B | S | 同上 |
 | コマンドラインの細部の残り: 長すぎるパスの箱（`STR_ERR_FILEPATH_TOO_LONG`）、起動を実行中の MATSU Editor に渡したときのプログラム名の数字 | `CCommandLine.cpp` | 空白入りで引用符のない名前の探索（作業フォルダーで、つなげて存在するもの）、使えない文字（`* ? " < > |`）の確認の箱（Windows のみ。ほかでは使える文字なので型 B）、プログラム名の数字による文字コード（`-CODE=` が勝つ）、`-TYPE` の既定の文字コードを読み込みに使うことは入った。長すぎるパスの箱は、MATSU のパスの長さに上限がない（`wcsncpy_s` の `_TRUNCATE` に当たる所がない）ので出す場面がなく、型 B。渡す側のプログラム名の数字は `Request`（`matsu-platform/src/instance/request.rs`）に載らない。載せるには、プロセス間の取り決めの新しい版が要る。ユーザーが、取り決めを変えず、効かせずに閉じると決めた（2026-11-19。`-CODE=` で同じことができる） | B | S | なし |
 | ダイアログの表示言語（`szLanguageDll`）。一覧にフォーカスを移すアクセスキーは #547 で入った | `CPropComKeybind.cpp`、`CSelectLang.cpp` | 画面の言語は日本語だけ（共通設定「ウィンドウ」の言語の欄は灰色） | 決まった（2026-11-25）: 作る。第 1 段は英語と中国語、第 2 段はフランス語・スペイン語・韓国語・ポルトガル語・ドイツ語。ユーザーの判断が要る: 仕組み（ADR の下書き。候補は Project Fluent）と地域の別 | M | なし |
 
