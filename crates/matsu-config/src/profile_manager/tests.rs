@@ -353,3 +353,37 @@ fn one_rule_for_the_names_of_the_manager_and_of_prof() {
         assert_eq!(s.check_name(name, None), Ok(()), "{name:?}");
     }
 }
+
+#[test]
+fn a_portable_profile_with_only_the_old_file_is_settled_beside_the_executable_and_migrated_there() {
+    // `<exe>\work\ume.ini` (the name before ADR-0021) and no `matsu.ini` anywhere
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join("exe");
+    std::fs::create_dir_all(exe.join("work")).unwrap();
+    std::fs::write(exe.join("work").join("ume.ini"), "[Common]\nkey=7\n").unwrap();
+    let env = Environment {
+        exe_dir: Some(exe.clone()),
+        app_data: Some(dir.path().join("appdata")),
+        profile_name: Some("work".to_owned()),
+        ..Environment::default()
+    };
+    // the folder is settled where the old file is, not in the user's own folder
+    let settled = profile_dir(Os::Windows, &env, "work").unwrap();
+    assert_eq!(settled, exe.join("work"));
+    // the process keeps that folder; the migration then writes `matsu.ini` there and it is read from there
+    let pinned = Environment {
+        profile_dir: Some(settled),
+        ..env
+    };
+    let outcome = crate::migrate_old_name::migrate(Os::Windows, &pinned);
+    assert!(
+        matches!(outcome, crate::migrate_old_name::Outcome::Migrated { .. }),
+        "{outcome:?}"
+    );
+    let file = crate::location::settings_file(Os::Windows, &pinned).unwrap();
+    assert_eq!(file, exe.join("work").join("matsu.ini"));
+    assert_eq!(
+        Profile::load(&file).unwrap().get("Common", "key"),
+        Some("7")
+    );
+}

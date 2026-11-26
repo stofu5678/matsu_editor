@@ -320,7 +320,19 @@ pub fn profile_dir(os: Os, env: &Environment, name: &str) -> Option<PathBuf> {
         profile_dir: None,
         ..env.clone()
     };
-    location::settings_file(os, &with_profile)?
+    // The place is the first one that has the settings file, and a profile that is not migrated from the old
+    // name yet has it as `ume.ini` (the migration runs after the folder is settled, and writes `matsu.ini`
+    // in the place of the old file). Without that, a portable profile that has only `ume.ini` would be
+    // settled in the user's own folder, and the migration would put its settings where nothing reads them.
+    let new = location::candidate_paths(os, &with_profile);
+    let old = crate::migrate_old_name::legacy_candidate_paths(os, &with_profile);
+    let found = new
+        .iter()
+        .zip(&old)
+        .find(|(new, old)| new.is_file() || old.is_file())
+        .map(|(new, _)| new.as_path());
+    found
+        .or_else(|| location::write_path(&new))?
         .parent()
         .map(Path::to_path_buf)
 }

@@ -36,6 +36,14 @@ const OLD_FILE_NAME: &str = "ume.ini";
 const OLD_HEADER_START: &[u8] = b"; ume.ini";
 const NEW_HEADER_START: &[u8] = b"; matsu.ini";
 
+/// The places of the old settings file for the same profile, in the order of [`location::candidate_paths`]
+/// (the one at an index is the old file of the new place at that index). The profile manager counts an old
+/// file as the settings file of a profile that is not migrated yet, so that the folder it settles is the one
+/// the migration then writes `matsu.ini` into. Delete with the module (version 1.0).
+pub(crate) fn legacy_candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
+    location::candidate_paths_named(os, env, OLD_APP_DIR, OLD_FILE_NAME)
+}
+
 /// What [`migrate`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
