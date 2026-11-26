@@ -296,6 +296,7 @@ pub fn write(path: &Path, settings: &ProfileSettings) -> io::Result<()> {
 pub fn base_dir(os: Os, env: &Environment) -> Option<PathBuf> {
     let without_profile = Environment {
         profile_name: None,
+        profile_dir: None,
         ..env.clone()
     };
     location::settings_file(os, &without_profile)?
@@ -313,8 +314,10 @@ pub fn settings_path(os: Os, env: &Environment) -> Option<PathBuf> {
 /// choice as `UserSettings`). On Windows with a `matsu.ini` next to the program that is the folder next
 /// to the program only if `name\matsu.ini` is there already, else the user's own folder.
 pub fn profile_dir(os: Os, env: &Environment, name: &str) -> Option<PathBuf> {
+    // another profile than the one of this process: its own places, not the folder that was settled
     let with_profile = Environment {
         profile_name: Some(name.to_owned()),
+        profile_dir: None,
         ..env.clone()
     };
     location::settings_file(os, &with_profile)?

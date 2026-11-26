@@ -100,19 +100,24 @@ pub(crate) fn is_held(dir: &Path) -> bool {
     })
 }
 
-/// The start of an editor whose profile has a name: marks the folder of the profile as in use for as
-/// long as the process runs.
+/// The start of an editor whose profile has a name: under the lock of the list, resolves the folder of
+/// the profile, marks it as in use for as long as the process runs, and settles it as the folder the
+/// settings of this process are read from (`location::set_process_profile_dir`). Before anything of the
+/// profile is read.
 pub(crate) fn mark_this_process() {
     let env = Environment::from_process();
     let Some(name) = env.profile_name.clone().filter(|name| !name.is_empty()) else {
         return;
     };
-    let Some(dir) = profile_manager::profile_dir(Os::current(), &env, &name) else {
-        return;
-    };
     let id = std::process::id();
     let store = Store::for_process();
-    match mark_ordered(store.as_ref(), &dir, id) {
+    let resolve = || profile_manager::profile_dir(Os::current(), &env, &name);
+    let Some((dir, marked)) = mark_ordered(store.as_ref(), resolve, id) else {
+        return;
+    };
+    // the settings are read from the folder that was marked, not looked up again
+    matsu_config::location::set_process_profile_dir(dir.clone());
+    match marked {
         Ok(lock) => {
             if let Ok(mut held) = HELD.lock() {
                 *held = Some((file_of(&dir, id), lock));
@@ -129,10 +134,16 @@ pub(crate) fn mark_this_process() {
 /// Makes the mark while holding the lock of the list, so that a start and a rename are ordered: a manager
 /// that renames holds that lock from its check of the marks to the end of its folder move, so either this
 /// mark is made first and the rename is refused, or the rename is done first and this editor starts on the
-/// new state (its profile folder is looked up after this). The lock is let go as soon as the mark is made;
-/// nothing is waited for while it is held. If the lock cannot be had within its wait (a folder that
-/// cannot be written, a manager that hangs), the mark is made without it, and that is said.
-pub(crate) fn mark_ordered(store: Option<&Store>, dir: &Path, id: u32) -> io::Result<FileLock> {
+/// new state. The folder is resolved by `resolve` after the lock is taken, because which folder it is
+/// depends on which files exist, and a rename that ran while this waited changes that. The lock is let go
+/// as soon as the mark is made; nothing is waited for while it is held. If the lock cannot be had within
+/// its wait (a folder that cannot be written, a manager that hangs), the mark is made without it, and that
+/// is said. `None` when there is no folder for the profile.
+pub(crate) fn mark_ordered(
+    store: Option<&Store>,
+    resolve: impl FnOnce() -> Option<PathBuf>,
+    id: u32,
+) -> Option<(PathBuf, io::Result<FileLock>)> {
     let _list = store.and_then(|store| match store.lock() {
         Ok(lock) => Some(lock),
         Err(error) => {
@@ -140,7 +151,9 @@ pub(crate) fn mark_ordered(store: Option<&Store>, dir: &Path, id: u32) -> io::Re
             None
         }
     });
-    hold_as(dir, id)
+    let dir = resolve()?;
+    let marked = hold_as(&dir, id);
+    Some((dir, marked))
 }
 
 /// Runs the writes of the end of the process, and only then lets go of the mark: another process must not

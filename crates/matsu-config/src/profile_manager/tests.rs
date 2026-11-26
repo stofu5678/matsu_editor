@@ -272,6 +272,7 @@ fn env() -> Environment {
         app_data: Some(PathBuf::from("/appdata")),
         xdg_config_home: None,
         profile_name: None,
+        profile_dir: None,
     }
 }
 

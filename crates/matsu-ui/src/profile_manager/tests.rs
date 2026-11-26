@@ -823,7 +823,10 @@ fn a_start_and_a_rename_are_ordered_by_the_lock_of_the_list() {
     // the editor that starts with the profile: its mark waits for the lock
     let editor = std::thread::spawn(move || {
         let store = Store::in_folder(&start_dir);
-        let lock = in_use::mark_ordered(Some(&store), &start_folder, 11).unwrap();
+        let lock = in_use::mark_ordered(Some(&store), || Some(start_folder), 11)
+            .unwrap()
+            .1
+            .unwrap();
         done_tx.send(()).unwrap();
         lock
     });
@@ -859,12 +862,96 @@ fn a_start_that_cannot_take_the_lock_still_marks_the_profile() {
     let folder = dir.path().join("work");
     let held = Store::in_folder(dir.path()).lock().unwrap();
     let store = Store::in_folder(dir.path()).waiting(std::time::Duration::ZERO);
-    let mark = in_use::mark_ordered(Some(&store), &folder, 12);
-    assert!(mark.is_ok(), "marked without the lock");
+    let mark = in_use::mark_ordered(Some(&store), || Some(folder.clone()), 12);
+    let (_, lock) = mark.expect("a folder");
+    assert!(lock.is_ok(), "marked without the lock");
     assert!(in_use::is_held(&folder));
     drop(held);
     // no store at all (no place for the list) marks as well
-    assert!(in_use::mark_ordered(None, &folder, 13).is_ok());
+    assert!(in_use::mark_ordered(None, || Some(folder.clone()), 13).is_some());
+}
+
+#[test]
+fn the_folder_is_resolved_after_the_lock_is_taken() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("work");
+    let store = Store::in_folder(dir.path());
+    let seen = std::cell::Cell::new(None);
+    let marked = in_use::mark_ordered(
+        Some(&store),
+        || {
+            // inside `mark_ordered`, the list is locked by this very call
+            let locked = Store::in_folder(dir.path())
+                .waiting(std::time::Duration::ZERO)
+                .lock()
+                .is_err();
+            seen.set(Some(locked));
+            Some(folder.clone())
+        },
+        14,
+    );
+    assert_eq!(seen.get(), Some(true), "resolved under the lock");
+    assert!(marked.is_some_and(|(_, lock)| lock.is_ok()));
+    // no folder for the profile: nothing is marked
+    assert!(in_use::mark_ordered(None, || None, 15).is_none());
+}
+
+#[test]
+fn a_portable_profile_is_renamed_beside_the_executable() {
+    // Windows with a portable `matsu.ini`: a profile that has its folder beside the program is looked up
+    // there, while a name that was never used is looked up in the user's own folder
+    let dir = tempfile::tempdir().unwrap();
+    let portable = dir.path().join("exe");
+    let user = dir.path().join("appdata");
+    std::fs::create_dir_all(portable.join("old")).unwrap();
+    std::fs::write(portable.join("old").join("matsu.ini"), b"x").unwrap();
+    std::fs::create_dir_all(&user).unwrap();
+    let (p, u) = (portable.clone(), user.clone());
+    let store = Store::with_dirs(dir.path(), move |name| {
+        let beside = p.join(name);
+        Some(if beside.join("matsu.ini").exists() {
+            beside
+        } else {
+            u.join(name)
+        })
+    });
+    let plan = store
+        .plan_rename("old", "new")
+        .unwrap()
+        .expect("a folder to move");
+    store.move_dir(&plan).unwrap();
+    assert!(portable.join("new").join("matsu.ini").is_file());
+    assert!(!portable.join("old").exists());
+    assert!(
+        !user.join("new").exists(),
+        "the profile did not leave its root"
+    );
+}
+
+#[gpui::test]
+fn start_with_a_profile_that_another_manager_renamed_stays_open(cx: &mut TestAppContext) {
+    for checked in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let answers = open_dialog(cx, dir.path(), Some(&settings(&["a"], -1)));
+        with_dialog(cx, |d, _, dcx| {
+            d.select(1, dcx);
+            d.set_default_start(checked, dcx);
+        });
+        // another manager renamed the profile
+        change_elsewhere(dir.path(), |list| list.rename(1, "b"));
+        with_dialog(cx, |d, window, dcx| d.start(window, dcx));
+        assert!(error_box(cx), "told (check box {checked})");
+        assert!(is_open(cx), "the dialog stays");
+        assert!(answers.borrow().is_empty(), "nothing is answered");
+        assert_eq!(rows(cx), ["(default)", "b"], "the list that is there");
+        // and starting the profile that is there works
+        with_dialog(cx, |d, window, dcx| {
+            d.select(1, dcx);
+            d.start(window, dcx);
+        });
+        assert_eq!(answers.borrow().as_slice(), [Some("b".to_owned())]);
+        assert!(!is_open(cx));
+    }
 }
 
 #[gpui::test]

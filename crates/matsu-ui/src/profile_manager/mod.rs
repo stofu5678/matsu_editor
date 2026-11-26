@@ -83,6 +83,8 @@ const RENAME_TITLE: &str = "プロファイル名の変更";
 const RENAME_MESSAGE: &str = "プロファイル名を入力してください";
 pub(crate) const ERR_IN_USE: &str =
     "このプロファイルは使用中です。\n使用中のプロファイルの名前変更と削除はできません。";
+/// Sakura has no text for it (it does not handle a second manager): the words follow the others.
+pub(crate) const ERR_GONE: &str = "選んだプロファイルは、一覧にありません。\n別のプロファイルマネージャで変更されたので、一覧を読み直しました。";
 pub(crate) const ERR_RENAME: &str =
     "名前の変更に失敗しました。\nプロファイルは利用中の可能性があります。";
 
@@ -525,20 +527,48 @@ impl ProfileManagerDialog {
     }
 
     /// 起動 (`GetData(true)`): the chosen profile goes to whoever opened the dialog. With the check
-    /// box checked the row becomes the default one first.
+    /// box checked the row becomes the default one first. The chosen profile is looked for in the list as
+    /// it is on the disk now (under the lock): another manager may have renamed or removed it since this
+    /// window read the list. If it is gone, the dialog stays, shows the list that is there, and says so.
     pub(crate) fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.settings.profile_of(self.selected).to_owned();
         let checked = self.settings.default_select;
-        if checked || self.box_changed {
+        let done = if checked || self.box_changed {
             self.change(window, cx, |_, list| {
-                if checked && let Some(row) = row_named(list, &name) {
+                let row = row_named(list, &name).ok_or_else(|| Failure::new(ERR_GONE))?;
+                if checked {
                     list.set_default(row);
                 }
                 Ok(())
-            });
+            })
+        } else {
+            self.verify_listed(&name, window, cx)
+        };
+        if !done {
+            return;
         }
         self.answer(Some(name), cx);
         window.remove_window();
+    }
+
+    /// Whether the profile is in the list on the disk (the default one always is); when it is not, the
+    /// reason is told and the window shows the list that is there. Nothing is written.
+    fn verify_listed(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if name.is_empty() {
+            return true;
+        }
+        let listed = {
+            let _lock = self.store.lock();
+            self.store
+                .read()
+                .is_none_or(|list| row_named(&list, name).is_some())
+        };
+        if !listed {
+            self.tell(&Failure::new(ERR_GONE), window, cx);
+            let disk = self.fresh();
+            self.adopt(disk, cx);
+        }
+        listed
     }
 
     /// 閉じる (`GetData(false)`): nothing is chosen; the check box is kept if it changed.

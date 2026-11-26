@@ -79,6 +79,19 @@ impl Store {
         }
     }
 
+    /// A store whose profiles are looked up by `dir_of` (several roots).
+    #[cfg(test)]
+    pub(crate) fn with_dirs(
+        base: &Path,
+        dir_of: impl Fn(&str) -> Option<PathBuf> + 'static,
+    ) -> Self {
+        Self {
+            ini: base.join(profile_manager::FILE_NAME),
+            dir_of: Box::new(dir_of),
+            wait: LOCK_WAIT,
+        }
+    }
+
     /// The same, with another wait for the lock.
     #[cfg(test)]
     pub(crate) fn waiting(mut self, wait: Duration) -> Self {
@@ -142,7 +155,13 @@ impl Store {
     /// `RenameProf`, before anything is written: what has to be moved, if anything. A profile that has
     /// no folder (never used) is only renamed in the list.
     pub(crate) fn plan_rename(&self, old: &str, new: &str) -> Result<Option<Move>, MoveError> {
-        let (Some(from), Some(to)) = (self.dir(old), self.dir(new)) else {
+        // The folder stays where it is: the new name goes beside the old one. Looking the new name up like a
+        // profile that was never used would give another root (on Windows with a portable `matsu.ini`,
+        // the user's own folder), and the move would cross it or fail.
+        let Some(from) = self.dir(old) else {
+            return Ok(None);
+        };
+        let Some(to) = from.parent().map(|parent| parent.join(new)) else {
             return Ok(None);
         };
         if !from.exists() {
