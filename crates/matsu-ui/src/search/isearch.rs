@@ -9,25 +9,31 @@
 //! mode is on, the functions that Sakura translates ([`translate`]) are taken over by the mode,
 //! and any other function ends it first.
 //!
-//! Not like Sakura: the migemo search is not here (it needs a dictionary and a library); an IME
-//! composition is not shown while the mode is on (the text that the IME commits is added to the
-//! pattern, as Sakura's `F_IME_CHAR` does); the pointer does not change into the incremental
-//! search icon.
+//! The Migemo search passes what is typed through the library of C/Migemo and searches for the
+//! regular expression that comes back ([`super::migemo`]).
+//!
+//! Not like Sakura: an IME composition is not shown while the mode is on (the text that the IME
+//! commits is added to the pattern, as Sakura's `F_IME_CHAR` does); the pointer does not change
+//! into the incremental search icon.
 
 use gpui::Context;
 use matsu_commands::command::Arg;
 use matsu_core::buffer::Pos;
 use matsu_core::search::{Control, Direction, find, start_after};
 
+use super::migemo::{Engine, MigemoHost, MigemoPaths, Unavailable};
 use crate::view::EditorView;
 
-/// Sakura's `ESearchMode` without the migemo search.
+/// Sakura's `ESearchMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ISearchMode {
     /// `SEARCH_NORMAL`: the pattern is plain text.
     Normal,
     /// `SEARCH_REGEXP`: the pattern is a regular expression.
     Regexp,
+    /// `SEARCH_MIGEMO`: the pattern is romaji that the library of Migemo turns into a regular
+    /// expression.
+    Migemo,
 }
 
 /// The most history entries (`m_sISearchHistory[256]`).
@@ -63,6 +69,10 @@ pub struct ISearch {
     history: Vec<Step>,
     /// The status bar text (`ISearchSetStatusMsg`, plus the no match note).
     message: String,
+    /// The library of the Migemo search, opened when the mode began. This search holds it to the
+    /// end, so another window's settings or search never change what this one finds. `None` in
+    /// the other modes.
+    engine: Option<Engine>,
 }
 
 impl ISearch {
@@ -89,11 +99,25 @@ impl ISearch {
         &self.message
     }
 
+    /// `ISearchWordMake`: the pattern to search for, from the text typed. The Migemo search asks
+    /// its library for it; the others search for the text itself. `None` when the library gives
+    /// nothing (Migemo mode without a library does not exist: the mode needs one to begin).
+    fn pattern(&self) -> Option<String> {
+        match (&self.mode, &self.engine) {
+            (ISearchMode::Migemo, Some(engine)) if !self.key.is_empty() => {
+                engine.pattern(&self.key)
+            }
+            (ISearchMode::Migemo, None) => None,
+            _ => Some(self.key.clone()),
+        }
+    }
+
     /// The status bar text without the no match note (`ISearchSetStatusMsg`).
     fn status(&self) -> String {
         let mut text = String::from(match self.mode {
             ISearchMode::Normal => "I-Search",
             ISearchMode::Regexp => "[RegExp] I-Search",
+            ISearchMode::Migemo => "[Migemo] I-Search",
         });
         text.push_str(if self.direction == Direction::Backward {
             " Backward: "
@@ -214,10 +238,32 @@ impl EditorView {
         // The options of the search panel, with the incremental search's own case and word
         // rules: it ignores case, and the plain search is not by word.
         let mut options = self.search.options();
-        options.regex = mode == ISearchMode::Regexp;
+        options.regex = mode != ISearchMode::Normal;
         options.match_case = false;
         if mode == ISearchMode::Normal {
             options.whole_word = false;
+        }
+        let mut engine = None;
+        if mode == ISearchMode::Migemo {
+            // Sakura checks the library after the selection has gone and before it changes
+            // anything else: the mode does not begin, the status bar says why (and Sakura
+            // beeps). A search that is on stays on, as in Sakura: its `return`
+            // (`CEditView_Cmdisrch.cpp` 204-205 and 214-215) leaves `m_nISearchMode` as it was.
+            // The message is shown at once (`SendStatusMessage`) and is replaced by the next
+            // status of that search.
+            let paths = MigemoPaths::current(cx);
+            match cx.default_global::<MigemoHost>().open(&paths) {
+                Ok(opened) => engine = Some(opened),
+                Err(why) => {
+                    // `status()` shows the message of a search that is on before the notice
+                    if let Some(a) = &mut self.isearch {
+                        a.message = why.message().to_owned();
+                    }
+                    self.notice = Some(why.message().to_owned());
+                    cx.notify();
+                    return;
+                }
+            }
         }
         self.search.set_options(options);
         let key = match self.isearch.take() {
@@ -241,6 +287,7 @@ impl EditorView {
                 next: false,
             }],
             message: String::new(),
+            engine,
         };
         a.message = a.status();
         self.isearch = Some(a);
@@ -251,10 +298,20 @@ impl EditorView {
     /// them). A pattern that was never searched for is dropped.
     pub fn isearch_exit(&mut self, cx: &mut Context<Self>) {
         let Some(a) = self.isearch.take() else { return };
+        // The key stays as typed, whatever the mode: `ISearchExit` keeps `m_strCurSearchKey`.
         self.search
             .set_pattern(if a.count() == 0 { "" } else { &a.key });
         // `ISearchExit` puts the key in the history and keeps the window's sequence up to date.
         self.publish_search_key(cx);
+        cx.notify();
+    }
+
+    /// The search has no library to ask (it gave nothing for the text typed): the mode ends and
+    /// the status bar says that Migemo cannot be used, as when it cannot begin
+    /// (`STR_EDITVWISRCH_MIGEGO2`).
+    fn isearch_migemo_failed(&mut self, cx: &mut Context<Self>) {
+        self.isearch_exit(cx);
+        self.notice = Some(Unavailable::Dictionary.message().to_owned());
         cx.notify();
     }
 
@@ -291,9 +348,13 @@ impl EditorView {
         if a.key.is_empty() {
             return;
         }
-        let (direction, wrapping, key) = (a.direction, a.wrap && next, a.key.clone());
+        let (direction, wrapping) = (a.direction, a.wrap && next);
         // `ISearchWordMake`: the options were set when the mode began.
-        self.search.set_pattern(&key);
+        let Some(pattern) = a.pattern() else {
+            self.isearch_migemo_failed(cx);
+            return;
+        };
+        self.search.set_pattern(&pattern);
         self.search.set_mark(true);
         let selection = self.cursor.selection();
         let caret = self.cursor.caret();
@@ -388,8 +449,12 @@ impl EditorView {
         let range = a.history[a.count()].range.clone();
         let at_start = a.count() == 0;
         a.message = a.status();
-        let key = a.key.clone();
-        self.search.set_pattern(&key);
+        let pattern = a.pattern();
+        let Some(pattern) = pattern else {
+            self.isearch_migemo_failed(cx);
+            return;
+        };
+        self.search.set_pattern(&pattern);
         self.search.set_mark(mark);
         self.run_with(cx, |c| {
             if at_start || range.start == range.end {

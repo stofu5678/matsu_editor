@@ -13,8 +13,13 @@ use crate::file_dialog::{self, Ask};
 /// The path the file dialog gives, as the box takes it: relative to the folder of the settings
 /// file when it is under it.
 pub(crate) fn path_for_box(path: &Path, ini_dir: Option<&Path>) -> String {
+    // The folder itself stays absolute: an empty box means something else (for the dictionary
+    // of Migemo, `dict` under that folder). Sakura's `GetRelPath` keeps it as it is too: it cuts
+    // the folder *with* its closing `\` (`GetInidir(.., L"")`), which the path of a chosen folder
+    // does not have (`sakura_core/util/file.cpp` 621-639).
     let shown = ini_dir
         .and_then(|dir| path.strip_prefix(dir).ok())
+        .filter(|rest| !rest.as_os_str().is_empty())
         .unwrap_or(path);
     shown.to_string_lossy().into_owned()
 }
@@ -80,4 +85,62 @@ pub(crate) fn browse_into_filtered(
         }
     })
     .detach();
+}
+
+/// The button beside a box that holds a folder name, in the place of [`browse_into`]: chooses a
+/// folder, starting where the box says (`SelectDir`), and puts it in the box relative to the
+/// folder of the settings file when it is under it (`GetRelPath`).
+pub(crate) fn browse_folder_into(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+    id: &'static str,
+    title: &'static str,
+) {
+    let text = dialog.input_text(id, cx).unwrap_or_default();
+    let ini_dir: Option<PathBuf> = crate::doc_types::with_user(cx, |user| {
+        crate::settings::history_file(user).and_then(|path| path.parent().map(Path::to_owned))
+    });
+    let typed = Path::new(&text);
+    let full = match (&ini_dir, typed.is_relative()) {
+        (Some(dir), true) => dir.join(typed),
+        _ => typed.to_owned(),
+    };
+    let start = Some(full)
+        .filter(|path| !text.is_empty() && path.is_dir())
+        .or_else(|| ini_dir.clone());
+    let receiver = file_dialog::ask(window, cx, Ask::folder().start(start).titled(title, "選択"));
+    cx.spawn_in(window, async move |this, cx| {
+        let chosen = receiver.await.ok().flatten();
+        if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
+            let text = path_for_box(&path, ini_dir.as_deref());
+            this.update_in(cx, |this, window, cx| this.set_input(id, &text, window, cx))
+                .ok();
+        }
+    })
+    .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_settings_folder_chosen_as_a_folder_stays_absolute() {
+        let dir = std::env::temp_dir();
+        // a folder under it is relative, as `GetRelPath` makes it
+        assert_eq!(
+            path_for_box(&dir.join("dict"), Some(&dir)),
+            Path::new("dict").to_string_lossy()
+        );
+        // the folder itself would be an empty box, which means `dict` under it
+        let shown = path_for_box(&dir, Some(&dir));
+        assert_eq!(shown, dir.to_string_lossy());
+        // and what the box holds is a dictionary root that the resolver takes as it is
+        let has = |p: &Path| p == dir.join("utf-8").join("migemo-dict");
+        assert_eq!(
+            matsu_platform::migemo::dictionary_dir(&shown, Some(&dir), has),
+            Some(dir.join("utf-8"))
+        );
+    }
 }

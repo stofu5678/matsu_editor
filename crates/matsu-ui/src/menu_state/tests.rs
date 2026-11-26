@@ -240,8 +240,17 @@ fn the_incremental_search_is_checked_by_its_mode() {
     for name in ["F_ISEARCH_REGEXP_NEXT", "F_ISEARCH_REGEXP_PREV"] {
         assert!(checked(&regexp, name) && !checked(&normal, name) && !checked(&base(), name));
     }
-    // no Migemo search here
-    assert!(!checked(&normal, "F_ISEARCH_MIGEMO_NEXT"));
+    let migemo = FuncStates {
+        isearch: Some(ISearchMode::Migemo),
+        ..base()
+    };
+    for name in ["F_ISEARCH_MIGEMO_NEXT", "F_ISEARCH_MIGEMO_PREV"] {
+        assert!(checked(&migemo, name) && !checked(&normal, name) && !checked(&base(), name));
+        assert!(!checked(&regexp, name));
+    }
+    for name in ["F_ISEARCH_NEXT", "F_ISEARCH_REGEXP_PREV"] {
+        assert!(!checked(&migemo, name), "{name}");
+    }
 }
 
 #[test]

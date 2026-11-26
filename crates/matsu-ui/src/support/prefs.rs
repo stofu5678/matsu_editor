@@ -2,8 +2,9 @@
 //! keys are in `[Common]`, `CShareData_IO::ShareData_IO_Common`) that the windows use: the keys
 //! that choose a candidate of the input completion, and the external help files.
 //!
-//! The font of the keyword help and the paths of migemo are on the page too; the tip reads its
-//! font from the file ([`crate::key_help`]) and there is no migemo.
+//! The font of the keyword help is on the page too; the tip reads its font from the file
+//! ([`crate::key_help`]). The paths of migemo are used by the incremental search of Migemo
+//! ([`crate::search::migemo`]).
 
 use gpui::{App, Global};
 use matsu_config::settings::FontSetting;
@@ -23,6 +24,10 @@ pub(crate) struct HelperPrefs {
     pub ext_html_help: String,
     /// `m_bHtmlHelpIsSingle`: one viewer for the HTML help.
     pub html_help_is_single: bool,
+    /// `m_szMigemoDll`: the library of C/Migemo (empty: the default name).
+    pub migemo_dll: String,
+    /// `m_szMigemoDict`: the folder of the dictionary (empty: `dict` beside the settings file).
+    pub migemo_dict: String,
     /// `m_lf`, `m_nPointSize`: the font of the keyword help tip (`None`: the font of the text).
     pub key_help_font: Option<FontSetting>,
 }
@@ -36,6 +41,8 @@ impl Default for HelperPrefs {
             ext_help: String::new(),
             ext_html_help: String::new(),
             html_help_is_single: true,
+            migemo_dll: String::new(),
+            migemo_dict: String::new(),
             key_help_font: None,
         }
     }

@@ -8,15 +8,20 @@
 //! have its own help files (the type settings, 支援).
 //!
 //! The font of the keyword help (`khlf`, `khps`) is chosen with the font dialog, shown next to
-//! the button as `SetFontLabel` does, and used by the tip from OK on ([`crate::key_help`]). Not
-//! available: the DLL and the dictionary of migemo (MATSU Editor has no migemo).
+//! the button as `SetFontLabel` does, and used by the tip from OK on ([`crate::key_help`]).
+//!
+//! The DLL and the dictionary of migemo are the two boxes of the Migemo search
+//! ([`crate::search::migemo`]); the user puts the library and the dictionary there, MATSU Editor
+//! does not ship them. The DLL button lists the files of a library of this OS (`*.dll`,
+//! `*.dylib` or `*.so`); the dictionary button chooses a folder and gives it relative to the
+//! settings file when it is under it (`GetRelPath`).
 
 use super::super::CommonSettingsDialog;
 use matsu_config::settings::FontSetting;
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
-use crate::support::browse::browse_into;
+use crate::support::browse::{browse_folder_into, browse_into, browse_into_filtered};
 use crate::support::prefs::HelperPrefs;
 
 const EXT_HELP: &str = "helper_ext_help";
@@ -75,11 +80,46 @@ fn font_label(
     super::super::model::font_label(Some(&font), cx)
 }
 
-fn no_action(
-    _: &mut CommonSettingsDialog,
-    _: &mut gpui::Window,
-    _: &mut gpui::Context<CommonSettingsDialog>,
+const MIGEMO_DLL: &str = "helper_migemo_dll";
+const MIGEMO_DICT: &str = "helper_migemo_dict";
+
+/// `IDC_BUTTON_OPENMDLL`: chooses the library of migemo (`SelectFile` with `*.dll`).
+fn browse_migemo_dll(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
 ) {
+    let wildcard = if cfg!(windows) {
+        "*.dll"
+    } else if cfg!(target_os = "macos") {
+        "*.dylib"
+    } else {
+        "*.so"
+    };
+    browse_into_filtered(
+        dialog,
+        window,
+        cx,
+        MIGEMO_DLL,
+        "Migemoライブラリの選択",
+        Some(wildcard),
+    );
+}
+
+/// `IDC_BUTTON_OPENMDICT`: chooses the folder of the dictionary (`SelectDir`), starting where the
+/// box says; a relative path starts at the settings file's folder.
+fn browse_migemo_dict(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    browse_folder_into(
+        dialog,
+        window,
+        cx,
+        MIGEMO_DICT,
+        "検索するフォルダーを選んでください",
+    );
 }
 
 pub(in crate::common_settings) fn items() -> Vec<Item> {
@@ -136,21 +176,15 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             "migemo設定",
             vec![
                 Item::Row(vec![
-                    Control::text("helper_migemo_dll", "DLL(&M)", "szMigemoDll", "")
-                        .unavailable()
-                        .into(),
-                    Control::button("helper_migemo_dll_ref", "(&3)...", no_action)
+                    Control::text(MIGEMO_DLL, "DLL(&M)", "szMigemoDll", "").into(),
+                    Control::button("helper_migemo_dll_ref", "(&3)...", browse_migemo_dll)
                         .named("DLLを参照")
-                        .unavailable()
                         .into(),
                 ]),
                 Item::Row(vec![
-                    Control::text("helper_migemo_dict", "辞書(&I)", "szMigemoDict", "")
-                        .unavailable()
-                        .into(),
-                    Control::button("helper_migemo_dict_ref", "(&4)...", no_action)
+                    Control::text(MIGEMO_DICT, "辞書(&I)", "szMigemoDict", "").into(),
+                    Control::button("helper_migemo_dict_ref", "(&4)...", browse_migemo_dict)
                         .named("辞書を参照")
-                        .unavailable()
                         .into(),
                 ]),
             ],
@@ -167,6 +201,8 @@ fn prefs(values: &Values) -> HelperPrefs {
         ext_help: values.text(EXT_HELP).to_owned(),
         ext_html_help: values.text(EXT_HTML_HELP).to_owned(),
         html_help_is_single: values.bool("helper_html_help_single"),
+        migemo_dll: values.text(MIGEMO_DLL).to_owned(),
+        migemo_dict: values.text(MIGEMO_DICT).to_owned(),
         key_help_font: Some(values.font(FONT)).filter(|f| !f.log_font.face_name.is_empty()),
     }
 }

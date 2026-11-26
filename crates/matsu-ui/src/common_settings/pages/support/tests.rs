@@ -55,9 +55,9 @@ fn the_page_has_the_controls_of_the_resource() {
     ] {
         assert!(keys.contains(&key), "{key}");
     }
-    // Only the migemo is not available; the font and the buttons of the files are.
+    // everything on the page works, the two files of migemo and their buttons too
     for c in &list {
-        assert_eq!(c.live, !c.id.starts_with("helper_migemo"), "{}", c.id);
+        assert!(c.live, "{}", c.id);
     }
     assert!(
         list.iter()
@@ -140,16 +140,28 @@ fn ok_writes_the_keys_and_the_windows_take_them(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn what_is_not_available_stays_as_the_file_has_it(cx: &mut TestAppContext) {
+fn the_migemo_boxes_are_written_and_the_search_takes_them(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, INI);
+    // the file's values are the ones the search uses from the start
+    let p = current(cx);
+    assert_eq!(
+        (p.migemo_dll.as_str(), p.migemo_dict.as_str()),
+        ("migemo.dll", "dict")
+    );
     open_page(cx, handle);
-    // a change of an unavailable box does nothing
     type_in(cx, "helper_migemo_dll", "other.dll");
+    type_in(cx, "helper_migemo_dict", "tools/dict");
     check(cx, "helper_hokan_tab", false);
     ok(cx);
-    assert_eq!(get(&ini, "szMigemoDll").as_deref(), Some("migemo.dll"));
-    assert_eq!(get(&ini, "szMigemoDict").as_deref(), Some("dict"));
-    // the font is not changed either
+    // Sakura's keys of [Common]: no new key
+    assert_eq!(get(&ini, "szMigemoDll").as_deref(), Some("other.dll"));
+    assert_eq!(get(&ini, "szMigemoDict").as_deref(), Some("tools/dict"));
+    let p = current(cx);
+    assert_eq!(
+        (p.migemo_dll.as_str(), p.migemo_dict.as_str()),
+        ("other.dll", "tools/dict")
+    );
+    // the font and the other keys stay
     assert_eq!(get(&ini, "khlfFaceName").as_deref(), Some("Meiryo"));
     assert_eq!(get(&ini, "khps").as_deref(), Some("90"));
     assert_eq!(get(&ini, "bHokanKey_TAB").as_deref(), Some("0"));
