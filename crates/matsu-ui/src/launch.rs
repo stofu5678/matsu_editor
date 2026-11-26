@@ -163,6 +163,10 @@ pub fn launch(args: Vec<OsString>) {
     }
     // `-PROF=`: before anything looks for the settings file.
     choose_profile(&first.options);
+    // A profile with a name is marked as in use while this process runs (the profile manager refuses to
+    // rename or delete it). Before the settings of the profile or anything else of it is read: the mark
+    // is made under the lock that a rename holds, so the two are ordered (`in_use::mark_ordered`).
+    crate::profile_manager::in_use::mark_this_process();
     // The settings of the old name are copied to the new places before the file is read.
     crate::settings::migrate_old_settings();
     // The one-liners that were marked for a generative AI move to `[AI]` (ADR-0035), still before the file is read.
@@ -181,6 +185,7 @@ pub fn launch(args: Vec<OsString>) {
                          diagnostics are printed (end it first, or add --separate-process)"
                     );
                 }
+                crate::profile_manager::in_use::release();
                 return;
             }
             Some(Joined::Receiver(receiver)) => Some(receiver),
@@ -196,9 +201,6 @@ pub fn launch(args: Vec<OsString>) {
     };
     // The `PATH` of the login shell is read while the window is made (macOS, not from a terminal).
     matsu_platform::login_path::start();
-    // A profile with a name is marked as in use while this process runs (the profile manager refuses to
-    // rename or delete it).
-    crate::profile_manager::in_use::mark_this_process();
     crate::app::run(user, tx, rx);
 }
 

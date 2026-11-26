@@ -777,6 +777,97 @@ fn undoing_a_rename_changes_only_that_row_of_the_list_as_it_is_now() {
 }
 
 #[gpui::test]
+fn a_window_that_did_not_touch_the_check_box_keeps_the_one_of_the_file(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let _a = open_dialog(cx, dir.path(), Some(&settings(&["a"], -1)));
+    // another manager checked the box and closed
+    change_elsewhere(dir.path(), |list| list.default_select = true);
+    // an unrelated action of this window does not write its old value over it
+    with_dialog(cx, |d, window, dcx| d.create("b", window, dcx));
+    let file = on_disk(dir.path()).unwrap();
+    assert_eq!(file.profiles, ["a", "b"]);
+    assert!(file.default_select, "kept by the list action");
+    // and closing without a change keeps it too (and the window shows it)
+    with_dialog(cx, |d, window, dcx| {
+        assert!(d.settings().default_select);
+        d.close(window, dcx);
+    });
+    assert!(on_disk(dir.path()).unwrap().default_select);
+}
+
+#[gpui::test]
+fn a_window_that_changed_the_check_box_writes_it_once(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let _a = open_dialog(cx, dir.path(), Some(&settings(&["a"], -1)));
+    with_dialog(cx, |d, window, dcx| {
+        d.set_default_start(true, dcx);
+        d.create("b", window, dcx);
+    });
+    assert!(on_disk(dir.path()).unwrap().default_select);
+    // it was written; another manager unchecks it; this window does not bring the old value back
+    change_elsewhere(dir.path(), |list| list.default_select = false);
+    with_dialog(cx, |d, window, dcx| d.close(window, dcx));
+    assert!(!on_disk(dir.path()).unwrap().default_select);
+}
+
+#[test]
+fn a_start_and_a_rename_are_ordered_by_the_lock_of_the_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("work");
+    // a manager is in the middle of a rename: it holds the lock of the list
+    let manager = Store::in_folder(dir.path());
+    let held = manager.lock().unwrap();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let start_dir = dir.path().to_path_buf();
+    let start_folder = folder.clone();
+    // the editor that starts with the profile: its mark waits for the lock
+    let editor = std::thread::spawn(move || {
+        let store = Store::in_folder(&start_dir);
+        let lock = in_use::mark_ordered(Some(&store), &start_folder, 11).unwrap();
+        done_tx.send(()).unwrap();
+        lock
+    });
+    assert!(
+        done_rx
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_err(),
+        "the mark waits while the rename holds the lock"
+    );
+    assert!(!in_use::is_held(&folder), "so the rename sees no mark");
+    drop(held);
+    done_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let mark = editor.join().unwrap();
+    assert!(
+        in_use::is_held(&folder),
+        "after the rename the editor is marked"
+    );
+    // the lock of the list was let go once the mark was made
+    assert!(
+        Store::in_folder(dir.path())
+            .waiting(std::time::Duration::ZERO)
+            .lock()
+            .is_ok()
+    );
+    drop(mark);
+}
+
+#[test]
+fn a_start_that_cannot_take_the_lock_still_marks_the_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("work");
+    let held = Store::in_folder(dir.path()).lock().unwrap();
+    let store = Store::in_folder(dir.path()).waiting(std::time::Duration::ZERO);
+    let mark = in_use::mark_ordered(Some(&store), &folder, 12);
+    assert!(mark.is_ok(), "marked without the lock");
+    assert!(in_use::is_held(&folder));
+    drop(held);
+    // no store at all (no place for the list) marks as well
+    assert!(in_use::mark_ordered(None, &folder, 13).is_ok());
+}
+
+#[gpui::test]
 fn a_case_only_rename_moves_the_folder(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("work")).unwrap();

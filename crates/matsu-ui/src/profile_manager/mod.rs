@@ -137,6 +137,9 @@ pub(crate) struct ProfileManagerDialog {
     settings: ProfileSettings,
     /// The row that is chosen (0 is 「(default)」).
     selected: usize,
+    /// Whether this window changed the check box since it was last written. The file owns the value
+    /// otherwise: a window that did not touch the box writes what the file has (ownership.md 2).
+    box_changed: bool,
     scroll: ScrollHandle,
     entry: Option<NameEntry>,
     on_done: Option<Done>,
@@ -160,6 +163,7 @@ impl ProfileManagerDialog {
             store,
             settings,
             selected,
+            box_changed: false,
             scroll,
             entry: None,
             on_done: Some(on_done),
@@ -209,6 +213,7 @@ impl ProfileManagerDialog {
     /// The check box 「デフォルト設定にして起動」. Nothing is written until the dialog is closed.
     pub(crate) fn set_default_start(&mut self, on: bool, cx: &mut Context<Self>) {
         self.settings.default_select = on;
+        self.box_changed = true;
         cx.notify();
     }
 
@@ -233,7 +238,10 @@ impl ProfileManagerDialog {
         // A file that cannot be read (it is gone, or something is in its place) leaves the window's own
         // list: the window does not turn into an empty list that the next action would write.
         let mut list = self.store.read().unwrap_or_else(|| self.settings.clone());
-        list.default_select = self.settings.default_select;
+        // the check box is this window's only when it changed it
+        if self.box_changed {
+            list.default_select = self.settings.default_select;
+        }
         list
     }
 
@@ -273,6 +281,8 @@ impl ProfileManagerDialog {
     ) -> bool {
         match self.transact(edit, then, undo) {
             Ok(list) => {
+                // the box was written with the list; the file owns it again
+                self.box_changed = false;
                 self.adopt(list, cx);
                 true
             }
@@ -451,11 +461,12 @@ impl ProfileManagerDialog {
                     .filter(|row| *row != 0)
                     .ok_or_else(Failure::none)?;
                 check_name(list, name, Some(row))?;
-                // The check and the move are two steps. An editor that starts with this profile
-                // between them (on macOS and Linux) runs in a folder that is moved under it; on Windows
-                // the move fails instead, because the folder is open. No lock can join the two steps:
-                // the editor that starts does not take the lock of the list, and Windows cannot move a
-                // folder that has a file open, so the check stays a courtesy that catches the usual case.
+                // The check and the move are under the lock of the list, and an editor makes its mark under
+                // the same lock before it reads anything of the profile (`in_use::mark_ordered`): either
+                // the mark is there when this check looks, or the editor starts after the move. What is
+                // left: an editor that could not take the lock (it marks without it and says so), and a
+                // program that does not make the mark (the lock of the mark is advisory on macOS and
+                // Linux). On Windows an open folder cannot be moved at all.
                 if in_use_of(store, &old) {
                     return Err(Failure::new(ERR_IN_USE));
                 }
@@ -518,8 +529,7 @@ impl ProfileManagerDialog {
     pub(crate) fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.settings.profile_of(self.selected).to_owned();
         let checked = self.settings.default_select;
-        let on_disk = self.store.read().is_some_and(|s| s.default_select);
-        if checked || on_disk != checked {
+        if checked || self.box_changed {
             self.change(window, cx, |_, list| {
                 if checked && let Some(row) = row_named(list, &name) {
                     list.set_default(row);
@@ -542,8 +552,7 @@ impl ProfileManagerDialog {
         if self.on_done.is_none() {
             return;
         }
-        let on_disk = self.store.read().is_some_and(|s| s.default_select);
-        if on_disk != self.settings.default_select {
+        if self.box_changed {
             self.change(window, cx, |_, _| Ok(()));
         }
         self.answer(None, cx);

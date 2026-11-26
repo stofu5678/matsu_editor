@@ -25,6 +25,8 @@ use matsu_config::location::{Environment, Os};
 use matsu_config::profile_manager;
 use matsu_platform::file_lock::{FileLock, ShareMode};
 
+use super::Store;
+
 /// The names of the files: `in-use-` and the number of the process, `.lock`.
 const PREFIX: &str = "in-use-";
 const SUFFIX: &str = ".lock";
@@ -52,12 +54,16 @@ pub(crate) fn hold_as(dir: &Path, id: u32) -> io::Result<FileLock> {
     let path = file_of(dir, id);
     let mut tries = 0;
     loop {
-        // the handle that makes the file is closed before the lock opens it (Windows shares nothing)
+        // The handle that makes the file is closed before the lock opens it (Windows shares nothing, and a
+        // closure parameter `_` would keep the handle until the closure ends).
         let locked = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&path)
-            .and_then(|_| FileLock::acquire(&path, ShareMode::DenyReadWrite));
+            .and_then(|file| {
+                drop(file);
+                FileLock::acquire(&path, ShareMode::DenyReadWrite)
+            });
         match locked {
             Ok(lock) => return Ok(lock),
             Err(error) => {
@@ -105,7 +111,8 @@ pub(crate) fn mark_this_process() {
         return;
     };
     let id = std::process::id();
-    match hold_as(&dir, id) {
+    let store = Store::for_process();
+    match mark_ordered(store.as_ref(), &dir, id) {
         Ok(lock) => {
             if let Ok(mut held) = HELD.lock() {
                 *held = Some((file_of(&dir, id), lock));
@@ -117,6 +124,23 @@ pub(crate) fn mark_this_process() {
             dir.display()
         ),
     }
+}
+
+/// Makes the mark while holding the lock of the list, so that a start and a rename are ordered: a manager
+/// that renames holds that lock from its check of the marks to the end of its folder move, so either this
+/// mark is made first and the rename is refused, or the rename is done first and this editor starts on the
+/// new state (its profile folder is looked up after this). The lock is let go as soon as the mark is made;
+/// nothing is waited for while it is held. If the lock cannot be had within its wait (a folder that
+/// cannot be written, a manager that hangs), the mark is made without it, and that is said.
+pub(crate) fn mark_ordered(store: Option<&Store>, dir: &Path, id: u32) -> io::Result<FileLock> {
+    let _list = store.and_then(|store| match store.lock() {
+        Ok(lock) => Some(lock),
+        Err(error) => {
+            eprintln!("matsu: the list of the profiles is not locked ({error}); marking the profile without it");
+            None
+        }
+    });
+    hold_as(dir, id)
 }
 
 /// Runs the writes of the end of the process, and only then lets go of the mark: another process must not

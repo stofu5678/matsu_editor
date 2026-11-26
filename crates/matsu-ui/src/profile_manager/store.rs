@@ -99,13 +99,17 @@ impl Store {
         let start = Instant::now();
         loop {
             // Both steps are in the loop: on Windows the holder shares nothing, so the open that makes
-            // sure the file is there is refused too while another process holds it. (The handle that makes
-            // the file is closed before the lock opens it.)
+            // sure the file is there is refused too while another process holds it. The handle that makes
+            // the file is closed before the lock opens it (a closure parameter `_` would keep it until the
+            // closure ends, and Windows refuses the lock then).
             let locked = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(&path)
-                .and_then(|_| FileLock::acquire(&path, ShareMode::DenyReadWrite));
+                .and_then(|file| {
+                    drop(file);
+                    FileLock::acquire(&path, ShareMode::DenyReadWrite)
+                });
             match locked {
                 Ok(lock) => return Ok(ListLock(lock)),
                 Err(error) if start.elapsed() >= self.wait => return Err(error),
