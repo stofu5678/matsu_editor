@@ -33,11 +33,14 @@ pub(crate) struct Move {
     same_folder: bool,
 }
 
+/// Where the folder of a profile is, by the name of the profile.
+type DirOf = Rc<dyn Fn(&str) -> Option<PathBuf>>;
+
 /// The manager's file and the places of the profiles' folders.
 pub(crate) struct Store {
     ini: PathBuf,
     /// The folder of the settings of a profile (`matsu_config::profile_manager::profile_dir`).
-    dir_of: Rc<dyn Fn(&str) -> Option<PathBuf>>,
+    dir_of: DirOf,
 }
 
 impl Store {

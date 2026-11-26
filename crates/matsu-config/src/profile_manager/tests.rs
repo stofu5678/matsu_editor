@@ -330,7 +330,7 @@ fn the_folder_of_an_existing_settings_file_is_the_one_used() {
     // and it is the folder of the file `UserSettings` reads for that profile
     let with_profile = Environment {
         profile_name: Some("p".to_owned()),
-        ..e.clone()
+        ..e
     };
     assert_eq!(
         crate::location::settings_file(Os::Windows, &with_profile).unwrap(),
