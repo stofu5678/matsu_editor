@@ -125,7 +125,24 @@ impl Cursor {
     /// that a move made empty again is not. Typing goes into the box in the first case and
     /// follows the typing mode in the second.
     pub fn box_just_begun(&self) -> bool {
-        self.box_cols.is_some_and(|c| c.begun)
+        self.anchor.is_none() && self.box_cols.is_some_and(|c| c.begun)
+    }
+
+    /// Whether a typed char is box input (`Command_INDENT`): a box that covers something, or one
+    /// just begun (`IsTextSelected` and `IsBoxSelecting` in `Command_WCHAR`). The one place that
+    /// says it; a box that a move made empty again is not.
+    pub fn box_input_applies(&self) -> bool {
+        self.is_box() && (self.has_selection() || self.box_just_begun())
+    }
+
+    /// Records that a box move was asked for, whether or not a corner moved. Every cursor command
+    /// ends with `ChangeSelectAreaByCurrentCursor`, and its `...TEST` clears an empty range when
+    /// the caret is on its start, also when the caret did not move (`view/CViewSelect.cpp`, the
+    /// `ptCaretPos==m_sSelectBgn.GetFrom()` branch), so the box is no longer selected text.
+    pub fn box_moved(&mut self) {
+        if let Some(cols) = self.box_cols.as_mut() {
+            cols.begun = false;
+        }
     }
 
     /// Whether plain moves extend the selection (Sakura: `m_bSelectingLock`).

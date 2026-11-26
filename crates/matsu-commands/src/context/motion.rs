@@ -36,6 +36,7 @@ impl CommandContext<'_> {
     pub fn move_caret(&mut self, pos: Pos, extend: bool) -> Result<()> {
         let pos = self.doc().clamp_pos(pos)?;
         if extend && self.cursor.is_box() {
+            self.cursor.box_moved();
             let x = self.layout.display_x(self.doc(), pos)?;
             self.set_box_caret(pos, x);
         } else {

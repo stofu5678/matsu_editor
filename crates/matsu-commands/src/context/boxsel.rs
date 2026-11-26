@@ -192,6 +192,18 @@ impl CommandContext<'_> {
         }
     }
 
+    /// `Command_DELETE` and `Command_DELETE_BACK` with a box just begun: it is selected text for
+    /// Sakura, so the delete goes to `DeleteData`, which has nothing to delete in a box that covers
+    /// nothing and only ends the selection. Returns whether it did (the caller then deletes
+    /// nothing).
+    pub fn end_begun_box(&mut self) -> Result<bool> {
+        if !self.cursor.box_just_begun() {
+            return Ok(false);
+        }
+        self.end_box_in_place()?;
+        Ok(true)
+    }
+
     /// Ends the box selection (and any other selection) where the caret is: the caret does not
     /// move, and one in the gap after a wrapped row stays on that row. The one place that every
     /// command that drops a box in place goes through (`F_CANCEL_MODE`, a copy that disables the
@@ -334,6 +346,7 @@ impl CommandContext<'_> {
     /// (up to the width of a row) is the gap after the row, where the corner is on the row and its
     /// position is the start of the next one.
     pub(super) fn box_move_to_x(&mut self, row_pos: Pos, x: X) -> Result<()> {
+        self.cursor.box_moved();
         let pos = self.layout.pos_at_x(self.doc(), row_pos, x)?;
         let end = self.layout.row_end(self.doc(), row_pos)?;
         let wrapped = self.row_is_wrapped(row_pos)?;
@@ -352,6 +365,7 @@ impl CommandContext<'_> {
 
     /// Moves the box caret to the end of the text of its row (on a wrapped row, the gap after it).
     pub(super) fn box_move_to_row_end(&mut self) -> Result<()> {
+        self.cursor.box_moved();
         let row = self.caret_row_pos()?;
         let end = self.layout.row_end(self.doc(), row)?;
         if self.row_is_wrapped(row)? {
@@ -372,6 +386,7 @@ impl CommandContext<'_> {
     /// gap after a wrapped row it is the same, and from the end of the text the caret goes onto the
     /// last char of the row.
     pub(super) fn box_left(&mut self) -> Result<()> {
+        self.cursor.box_moved();
         if let Some((x, gap)) = self.caret_wrapped_gap()? {
             if x > gap.text_end {
                 let back = x.saturating_sub(self.layout.column_x()).max(gap.text_end);
@@ -405,6 +420,7 @@ impl CommandContext<'_> {
     /// caret does not go to the next row. From the last char of a wrapped row it goes into the
     /// gap after the row, and on through it.
     pub(super) fn box_right(&mut self) -> Result<()> {
+        self.cursor.box_moved();
         let max = self.max_box_x();
         if let Some((x, gap)) = self.caret_wrapped_gap()? {
             if x < max {
@@ -441,6 +457,7 @@ impl CommandContext<'_> {
     /// ending when the caret is not in the first column, so that the column does not change
     /// (Sakura: `CCaret::Cursor_UPDOWN`).
     pub(super) fn box_vertical(&mut self, rows: isize) -> Result<()> {
+        self.cursor.box_moved();
         let caret_x = self.box_caret_x()?;
         let goal = self.goal_x().unwrap_or(caret_x);
         // the row of the caret, which in the gap after a wrapped row is not that of its position

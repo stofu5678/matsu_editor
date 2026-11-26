@@ -135,7 +135,7 @@ pub(super) fn type_char_as(cx: &mut CommandContext<'_>, c: char, convert_eol: bo
         cx.insert_text(&text)?;
     } else {
         // A box selection takes the char as `Command_INDENT` does and goes no further.
-        let boxed = cx.cursor().is_box() && cx.cursor().has_selection();
+        let boxed = cx.cursor().box_input_applies();
         cx.type_text(c.encode_utf8(&mut [0; 4]))?;
         if boxed {
             return Ok(());
@@ -979,6 +979,25 @@ mod tests {
             e.run_with(ID, &[Arg::Char('x')]);
             assert_eq!(e.changes().smart_indent_plugin, None);
         }
+    }
+
+    #[test]
+    fn box_input_goes_no_further_than_the_box_for_a_box_just_begun_too() {
+        // `Command_WCHAR` returns after `Command_INDENT`: no smart indent after a char typed into a
+        // box that covers something, or into one just begun
+        let mut e = Editor::new("if (x)|\n    y")
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp());
+        e.run("begin_box");
+        e.run_with(ID, &[Arg::Char('{')]);
+        e.assert_marked("if (x){|\n    y");
+        let mut e = Editor::new("ab|").with_input_options(InputOptions {
+            smart_indent: SmartIndent::Plugin(20_100),
+            ..Default::default()
+        });
+        e.run("begin_box");
+        e.run_with(ID, &[Arg::Char('x')]);
+        assert_eq!(e.changes().smart_indent_plugin, None);
     }
 
     #[test]

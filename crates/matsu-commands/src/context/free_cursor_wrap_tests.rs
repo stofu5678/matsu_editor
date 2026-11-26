@@ -42,7 +42,7 @@ impl Rig {
         Self {
             model,
             cursor: Cursor::default(),
-            layout: Wrap(3),
+            layout: Wrap(3, false),
             clip: MemoryClipboard::default(),
             overwrite: false,
         }
@@ -1267,6 +1267,51 @@ mod box_corners_in_the_gap {
         assert!(r.cursor.is_box() && !r.cursor.has_selection() && !r.cursor.box_just_begun());
         assert_eq!(typed_after(true, &keys, true).0, "aXcdefgh");
         assert_eq!(typed_after(true, &keys, false).0, "aXbcdefgh");
+    }
+
+    #[test]
+    fn a_box_move_that_goes_nowhere_still_ends_the_just_begun_state() {
+        // End, Shift+F6, Right with the box as wide as a row: the corner is at the right edge and
+        // does not move, but `ChangeSelectAreaByCurrentCursorTEST` clears the range all the same
+        // (measured B4: Sakura replaces the next row's first char in overwrite mode)
+        for (overwrite, want) in [(false, "abcXdefgh"), (true, "abcXefgh")] {
+            let mut r = at_end();
+            r.layout.1 = true;
+            r.run("begin_box").run("cursor_right");
+            assert_eq!(r.cursor.box_caret_col(), Some(3));
+            assert!(r.cursor.is_box() && !r.cursor.box_just_begun());
+            r.overwrite = overwrite;
+            r.run_with("input_char", &[Arg::Char('X')]);
+            assert_eq!(r.text(), want, "overwrite={overwrite}");
+        }
+        // the same at the top of the document: Left goes nowhere
+        let mut r = Rig::new("abcdefgh");
+        r.run("begin_box").run("cursor_left");
+        assert!(!r.cursor.box_just_begun());
+        r.overwrite = true;
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "Xbcdefgh");
+    }
+
+    #[test]
+    fn the_box_stays_on_its_row_when_the_char_reaches_the_wrap() {
+        // `X` after "ab" reaches the wrap of the 3-column rows: the caret is then on the next
+        // row, but the box moves right on its own row, to the edge (`insert_into_box_rows`)
+        let mut r = Rig::new("abcdefgh");
+        r.layout.1 = true;
+        r.cursor.move_to(Pos::new(0, 2), false);
+        r.run("begin_box");
+        r.run_with("input_char", &[Arg::Char('X')]);
+        assert_eq!(r.text(), "abXcdefgh");
+        assert!(r.cursor.box_just_begun());
+        // the corner is at the right edge of the first row: in its gap
+        assert_eq!(r.cursor.box_caret_col(), Some(3));
+        assert_eq!(r.row_pos(), Pos::new(0, 2));
+        // a box move goes on from that row: Alt+Down reaches the second row, not the third
+        r.run("cursor_down_box");
+        let ((a, _), (c, _)) = r.cursor.box_corners().expect("two rows");
+        // (corners in a gap stand at the start of the next row: the gaps of rows 0 and 1)
+        assert_eq!((a, c), (Pos::new(0, 3), Pos::new(0, 6)));
     }
 
     #[test]

@@ -335,6 +335,11 @@ impl CommandContext<'_> {
                 end: caret,
             });
         }
+        // The row and the column of the box before the insertion: the box stays on its row and
+        // moves right by the width of the char, as `insert_into_box_rows` does (a char that
+        // reaches the wrap ends on the next row: the width is then to the right edge).
+        let row = self.layout.row_start(self.doc(), self.caret_row_pos()?)?;
+        let x0 = self.box_caret_x()?;
         let edit = if self.caret_is_in_empty_space()? {
             self.insert_in_empty_space(first)?
         } else {
@@ -348,8 +353,19 @@ impl CommandContext<'_> {
         };
         // `Command_INDENT` ends the selection (`DisableSelectArea` also drops the lock of the
         // plain moves) and selects the box again, moved right.
-        let x = self.caret_display_x()?;
-        self.begin_box_at(x, false);
+        let end_x = self.layout.display_x(self.doc(), edit.end)?;
+        let max = self.max_box_x();
+        let width = if end_x >= x0 {
+            end_x - x0
+        } else {
+            max.saturating_sub(x0)
+        };
+        let corner = self.box_corner_pos(row, (x0 + width).min(max))?;
+        self.cursor.move_to(corner.pos, false);
+        self.begin_box_at(corner.x, false);
+        if corner.in_gap() {
+            self.set_free_x(Some(corner.x));
+        }
         Ok(edit)
     }
 
