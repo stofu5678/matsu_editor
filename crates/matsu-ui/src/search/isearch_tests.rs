@@ -17,7 +17,10 @@ pub(super) struct Fixture {
     pub(super) view: Entity<EditorView>,
 }
 
-pub(super) fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut VisualTestContext) {
+pub(super) fn setup<'a>(
+    cx: &'a mut TestAppContext,
+    text: &str,
+) -> (Fixture, &'a mut VisualTestContext) {
     cx.update(gpui_component::init);
     let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
     let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));

@@ -188,10 +188,10 @@ unsafe extern "C" fn char2int_utf8(input: *const c_uchar, out: *mut c_uint) -> c
         0xF0..=0xF7 => 4,
         _ => 1,
     };
-    for i in 1..wanted {
+    for (i, slot) in bytes.iter_mut().enumerate().take(wanted).skip(1) {
         // SAFETY: the byte before was not the NUL (a tail byte is not 0), so the next is there.
         let next = unsafe { *input.add(i) };
-        bytes[i] = next;
+        *slot = next;
         if next & 0xC0 != 0x80 {
             break;
         }
