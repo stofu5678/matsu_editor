@@ -51,3 +51,8 @@ fn last_error() -> String {
         .to_string_lossy()
         .into_owned()
 }
+
+/// The path as the library opens it: its bytes.
+pub(super) fn narrow_path(path: &Path) -> Option<Vec<u8>> {
+    Some(path.as_os_str().as_bytes().to_vec())
+}

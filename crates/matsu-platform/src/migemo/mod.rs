@@ -32,7 +32,7 @@ mod sys_windows;
 
 use std::path::{Path, PathBuf};
 
-pub use native::{Migemo, OpenError};
+pub use native::{DictionaryError, Migemo, OpenError, narrow_path};
 
 /// The file name the library has on this OS (`migemo.dll` in Sakura, `GetDllNameImp`).
 pub const fn library_file_name() -> &'static str {

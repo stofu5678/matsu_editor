@@ -180,3 +180,43 @@ fn a_file_that_is_not_a_library_is_an_error() {
     std::fs::write(&fake, b"not a library").unwrap();
     assert!(matches!(Migemo::open(&fake), Err(OpenError::Load(_))));
 }
+
+#[test]
+fn an_ascii_path_goes_to_the_library_as_it_is() {
+    let path = abs("data/dict/utf-8/migemo-dict");
+    assert_eq!(
+        narrow_path(&path),
+        Some(path.to_string_lossy().into_owned().into_bytes())
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn a_path_goes_to_the_library_in_the_system_code_page_or_is_refused() {
+    use windows_sys::Win32::Globalization::GetACP;
+    // SAFETY: reads the code page of the system.
+    let utf8 = unsafe { GetACP() } == 65001;
+    // A character that no code page has (an emoji): refused, unless the system code page is
+    // UTF-8, which has every character.
+    let emoji = Path::new("C:\\dict\\\u{1F600}");
+    match narrow_path(emoji) {
+        Some(bytes) => assert!(utf8, "{bytes:?}"),
+        None => assert!(!utf8),
+    }
+    // a path that the code page has is the bytes of the code page: ASCII is the same in all
+    assert_eq!(
+        narrow_path(Path::new("C:\\dict")),
+        Some(b"C:\\dict".to_vec())
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_unix_path_is_its_bytes_whatever_they_are() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let path = Path::new(std::ffi::OsStr::from_bytes(b"/d/\xff\xfe/\xe3\x81\x82"));
+    assert_eq!(
+        narrow_path(path),
+        Some(path.as_os_str().as_bytes().to_vec())
+    );
+}

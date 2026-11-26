@@ -7,11 +7,13 @@
 //!
 //! The library is behind [`MigemoEngine`], and the way it is opened behind an opener, so that the
 //! tests need no library: the real opener (`open_platform`) uses `matsu_platform::migemo`.
-//! [`MigemoHost`] is the one place that keeps the opened library for the whole application
-//! (Sakura's `CMigemo` is a singleton too); it is a GPUI global that holds nothing of a window.
-//! When the two paths of the settings change, the library is opened again at the next use.
+//! [`MigemoHost`] opens it for the whole application (Sakura's `CMigemo` is a singleton; here
+//! the library is shared by the searches that are running and closed with the last of them).
+//! Every incremental search holds its own [`Engine`], so that another window's settings never
+//! change what a running search finds.
 
 use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
 
 use gpui::{App, Global};
 
@@ -36,6 +38,10 @@ pub enum Unavailable {
     Library,
     /// The dictionary is not there or cannot be read (`STR_EDITVWISRCH_MIGEGO2`).
     Dictionary,
+    /// The path of the dictionary has a character that the system code page cannot write, and
+    /// the library reads the path in it. Sakura has no such message (its conversion of the path
+    /// throws); the text is MATSU's (型 F).
+    DictionaryPath,
 }
 
 impl Unavailable {
@@ -44,6 +50,9 @@ impl Unavailable {
         match self {
             Self::Library => "MIGEMO.DLLが使用できません。",
             Self::Dictionary => "MIGEMOは使用できません。",
+            Self::DictionaryPath => {
+                "MIGEMOの辞書の場所に、システムの文字コードで書けない文字があります。"
+            }
         }
     }
 }
@@ -82,13 +91,39 @@ impl MigemoPaths {
 }
 
 /// How the library is opened. A function so that a test gives a fake.
-type Opener = Box<dyn Fn(&MigemoPaths) -> Result<Box<dyn MigemoEngine>, Unavailable>>;
+type Opener = Box<dyn Fn(&MigemoPaths) -> Result<Rc<dyn MigemoEngine>, Unavailable>>;
 
-/// The library of Migemo for the whole application, once it is opened.
+/// The library of Migemo that one incremental search uses. It is shared by the searches that
+/// were opened for the same paths and closed (the library unloaded) when the last of them lets
+/// go, so a window never loses its library to another window's settings.
+#[derive(Clone)]
+pub struct Engine(Rc<dyn MigemoEngine>);
+
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Engine")
+    }
+}
+
+impl Engine {
+    /// The regular expression for `text` (`CMigemo::migemo_query_w`). `None` when the library
+    /// gives nothing (there is no pattern then, and the search ends).
+    pub fn pattern(&self, text: &str) -> Option<String> {
+        self.0.query(text)
+    }
+}
+
+/// Opens the library for the searches of the whole application.
+///
+/// It keeps no library of its own: it only remembers the one that a running search holds (a
+/// weak reference, with the paths it was opened for), so that a second window with the same
+/// settings uses it too. When the last search that holds it ends, the library is closed and
+/// unloaded, and the next search opens it again. A search that begins with other paths opens
+/// its own, so a change of the two boxes of 支援 reaches the next search and no running one.
+/// This is a GPUI global: the application has one, and it holds nothing of a window.
 pub struct MigemoHost {
     opener: Opener,
-    /// The library with the paths it was opened for: it is opened again when they change.
-    open: Option<(MigemoPaths, Box<dyn MigemoEngine>)>,
+    running: Option<(MigemoPaths, Weak<dyn MigemoEngine>)>,
 }
 
 impl Global for MigemoHost {}
@@ -101,37 +136,33 @@ impl Default for MigemoHost {
 
 impl MigemoHost {
     pub fn new(opener: Opener) -> Self {
-        Self { opener, open: None }
-    }
-
-    /// Opens the library for `paths` if it is not open for them yet (`CMigemo::InitDll` and
-    /// `migemo_load_all`, done at every start of the mode: a setting may have changed). When it
-    /// cannot be opened nothing is kept, so the next call tries again.
-    pub fn prepare(&mut self, paths: &MigemoPaths) -> Result<(), Unavailable> {
-        if self.open.as_ref().is_some_and(|(have, _)| have == paths) {
-            return Ok(());
+        Self {
+            opener,
+            running: None,
         }
-        // the old one is closed before the new one is opened
-        self.open = None;
-        let engine = (self.opener)(paths)?;
-        self.open = Some((paths.clone(), engine));
-        Ok(())
     }
 
-    /// The regular expression for `text`. When the library gives nothing, the text itself
-    /// (`migemo_query_w` returns the query when it cannot convert it).
-    pub fn pattern(&self, text: &str) -> String {
-        self.open
-            .as_ref()
-            .and_then(|(_, engine)| engine.query(text))
-            .unwrap_or_else(|| text.to_owned())
+    /// The library for a search that begins now (`CMigemo::InitDll` and `migemo_load_all`, done
+    /// at every start of the mode: a setting may have changed). A library that is open for the
+    /// same paths is shared; else it is opened. When it cannot be opened nothing is kept, so
+    /// the next search tries again.
+    pub fn open(&mut self, paths: &MigemoPaths) -> Result<Engine, Unavailable> {
+        if let Some((have, weak)) = &self.running
+            && have == paths
+            && let Some(engine) = weak.upgrade()
+        {
+            return Ok(Engine(engine));
+        }
+        let engine = (self.opener)(paths)?;
+        self.running = Some((paths.clone(), Rc::downgrade(&engine)));
+        Ok(Engine(engine))
     }
 }
 
 /// The real opener: the library of C/Migemo and its UTF-8 dictionary
 /// ([`matsu_platform::migemo`]).
-fn open_platform(paths: &MigemoPaths) -> Result<Box<dyn MigemoEngine>, Unavailable> {
-    use matsu_platform::migemo::{Migemo, dictionary_dir, library_path};
+fn open_platform(paths: &MigemoPaths) -> Result<Rc<dyn MigemoEngine>, Unavailable> {
+    use matsu_platform::migemo::{DictionaryError, Migemo, dictionary_dir, library_path};
     let ini_dir = paths.ini_dir.as_deref();
     let library = library_path(
         &paths.library,
@@ -143,20 +174,20 @@ fn open_platform(paths: &MigemoPaths) -> Result<Box<dyn MigemoEngine>, Unavailab
     let mut migemo = Migemo::open(&library).map_err(|_| Unavailable::Library)?;
     let dictionary =
         dictionary_dir(&paths.dictionary, ini_dir, Path::is_file).ok_or(Unavailable::Dictionary)?;
-    if !migemo.load_dictionary(&dictionary) {
-        return Err(Unavailable::Dictionary);
+    match migemo.load_dictionary(&dictionary) {
+        Ok(true) => Ok(Rc::new(migemo)),
+        Ok(false) => Err(Unavailable::Dictionary),
+        Err(DictionaryError::PathNotRepresentable) => Err(Unavailable::DictionaryPath),
     }
-    Ok(Box::new(migemo))
 }
 
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::rc::Rc;
 
     use super::*;
 
-    struct Fixed;
+    struct Fixed(Rc<Cell<u32>>);
 
     impl MigemoEngine for Fixed {
         fn query(&self, text: &str) -> Option<String> {
@@ -164,19 +195,30 @@ mod tests {
         }
     }
 
-    fn counting(opens: &Rc<Cell<u32>>, fail: Option<Unavailable>) -> MigemoHost {
-        let opens = opens.clone();
+    impl Drop for Fixed {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    /// A host whose library counts how often it was opened (`opens`) and closed (`closes`).
+    fn counting(
+        opens: &Rc<Cell<u32>>,
+        closes: &Rc<Cell<u32>>,
+        fail: Option<Unavailable>,
+    ) -> MigemoHost {
+        let (opens, closes) = (opens.clone(), closes.clone());
         MigemoHost::new(Box::new(move |_| {
             opens.set(opens.get() + 1);
             match fail {
                 Some(why) => Err(why),
-                None => Ok(Box::new(Fixed)),
+                None => Ok(Rc::new(Fixed(closes.clone())) as Rc<dyn MigemoEngine>),
             }
         }))
     }
 
     #[test]
-    fn the_messages_are_sakuras() {
+    fn the_messages_are_sakuras_and_the_one_of_the_path_is_matsus() {
         assert_eq!(
             Unavailable::Library.message(),
             "MIGEMO.DLLが使用できません。"
@@ -185,41 +227,60 @@ mod tests {
             Unavailable::Dictionary.message(),
             "MIGEMOは使用できません。"
         );
+        assert!(Unavailable::DictionaryPath.message().contains("辞書の場所"));
     }
 
     #[test]
-    fn the_library_is_opened_once_for_the_same_paths_and_again_when_they_change() {
-        let opens = Rc::new(Cell::new(0));
-        let mut host = counting(&opens, None);
-        let mut paths = MigemoPaths::default();
-        host.prepare(&paths).unwrap();
-        host.prepare(&paths).unwrap();
+    fn searches_with_the_same_paths_share_one_library_and_it_closes_with_the_last() {
+        let (opens, closes) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        let mut host = counting(&opens, &closes, None);
+        let paths = MigemoPaths::default();
+        let first = host.open(&paths).unwrap();
+        let second = host.open(&paths).unwrap();
         assert_eq!(opens.get(), 1);
-        paths.dictionary = "other".to_owned();
-        host.prepare(&paths).unwrap();
+        drop(first);
+        assert_eq!(closes.get(), 0, "another search still uses it");
+        assert_eq!(second.pattern("a").as_deref(), Some("(a|あ)"));
+        drop(second);
+        assert_eq!(closes.get(), 1, "the last search closed it");
+        // nothing is kept: the next search opens it again
+        let _third = host.open(&paths).unwrap();
         assert_eq!(opens.get(), 2);
+    }
+
+    #[test]
+    fn other_paths_open_their_own_library_and_leave_the_running_one_alone() {
+        let (opens, closes) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        let mut host = counting(&opens, &closes, None);
+        let mut paths = MigemoPaths::default();
+        let a = host.open(&paths).unwrap();
+        paths.dictionary = "other".to_owned();
+        let b = host.open(&paths).unwrap();
+        assert_eq!(opens.get(), 2);
+        // the first search still has its library
+        assert_eq!(closes.get(), 0);
+        assert_eq!(a.pattern("a").as_deref(), Some("(a|あ)"));
+        drop(b);
+        assert_eq!(closes.get(), 1);
+        assert_eq!(a.pattern("a").as_deref(), Some("(a|あ)"));
     }
 
     #[test]
     fn a_library_that_cannot_be_opened_is_tried_again_next_time() {
-        let opens = Rc::new(Cell::new(0));
-        let mut host = counting(&opens, Some(Unavailable::Library));
+        let (opens, closes) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        let mut host = counting(&opens, &closes, Some(Unavailable::Library));
         let paths = MigemoPaths::default();
-        assert_eq!(host.prepare(&paths), Err(Unavailable::Library));
-        assert_eq!(host.prepare(&paths), Err(Unavailable::Library));
+        assert_eq!(host.open(&paths).err(), Some(Unavailable::Library));
+        assert_eq!(host.open(&paths).err(), Some(Unavailable::Library));
         assert_eq!(opens.get(), 2);
     }
 
     #[test]
-    fn the_pattern_is_the_one_of_the_library_or_else_the_text() {
-        let opens = Rc::new(Cell::new(0));
-        let mut host = counting(&opens, None);
-        // not open yet: the text
-        assert_eq!(host.pattern("a"), "a");
-        host.prepare(&MigemoPaths::default()).unwrap();
-        assert_eq!(host.pattern("a"), "(a|あ)");
-        // the library gives nothing for this one
-        assert_eq!(host.pattern("zz"), "zz");
+    fn a_text_the_library_gives_nothing_for_has_no_pattern() {
+        let (opens, closes) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        let mut host = counting(&opens, &closes, None);
+        let engine = host.open(&MigemoPaths::default()).unwrap();
+        assert_eq!(engine.pattern("zz"), None);
     }
 
     #[test]

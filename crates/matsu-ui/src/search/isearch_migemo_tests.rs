@@ -5,11 +5,13 @@
 //! `sakura_core/view/CEditView_Cmdisrch.cpp`. None of the tests touches a path or a line ending
 //! of the OS (the texts use `\r\n` in the document itself, and the library is a fake).
 
+use std::rc::Rc;
+
 use gpui::{TestAppContext, VisualTestContext};
 use matsu_core::buffer::Pos;
 
 use super::isearch_tests::{Fixture, range, setup};
-use super::migemo::{MigemoEngine, MigemoHost, Unavailable};
+use super::migemo::{MigemoEngine, MigemoHost, MigemoPaths, Unavailable};
 
 /// What the fake library answers with.
 type Answer = Box<dyn Fn(&str) -> Option<String>>;
@@ -27,7 +29,7 @@ impl MigemoEngine for FakeMigemo {
 fn install(cx: &mut TestAppContext, open: impl Fn() -> Result<FakeMigemo, Unavailable> + 'static) {
     cx.update(|app| {
         app.set_global(MigemoHost::new(Box::new(move |_| {
-            open().map(|engine| Box::new(engine) as Box<dyn MigemoEngine>)
+            open().map(|engine| Rc::new(engine) as Rc<dyn MigemoEngine>)
         })));
     });
 }
@@ -201,14 +203,49 @@ fn a_missing_dictionary_says_so_and_the_mode_does_not_begin(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn a_library_that_gives_nothing_makes_the_text_the_pattern(cx: &mut TestAppContext) {
+fn a_library_that_gives_nothing_ends_the_search_and_says_so(cx: &mut TestAppContext) {
+    // no silent search for the typed romaji as a regular expression: a text like `a.b(` could
+    // even be an invalid pattern
     install(cx, || Ok(FakeMigemo(Box::new(|_| None))));
     let (f, cx) = setup(cx, "a.c abc");
     f.run(cx, "F_ISEARCH_MIGEMO_NEXT");
-    // `migemo_query_w` returns the query itself when it cannot convert it
-    cx.simulate_input("a.c");
-    assert_eq!(f.pattern(cx), "a.c");
-    assert_eq!(f.selection(cx), range((0, 0), (0, 3)));
+    assert!(f.active(cx));
+    cx.simulate_input("a");
+    assert!(!f.active(cx));
+    let notice = f.view.read_with(cx, |v, cx| v.status(cx).notice);
+    assert_eq!(notice.as_deref(), Some("MIGEMOは使用できません。"));
+}
+
+#[gpui::test]
+fn another_windows_settings_do_not_change_a_running_search(cx: &mut TestAppContext) {
+    // The library is opened per paths: the paths "broken" give none, the others the dictionary.
+    cx.update(|app| {
+        app.set_global(MigemoHost::new(Box::new(|paths: &MigemoPaths| {
+            if paths.dictionary == "broken" {
+                return Err(Unavailable::Dictionary);
+            }
+            Ok(Rc::new(FakeMigemo(Box::new(words))) as Rc<dyn MigemoEngine>)
+        })));
+    });
+    let (f, cx) = setup(cx, "ka あ か");
+    f.run(cx, "F_ISEARCH_MIGEMO_NEXT");
+    cx.simulate_input("k");
+    assert_eq!(f.selected(cx).as_deref(), Some("か"));
+    // Another window changes the setting and begins its own search with it: that fails, and
+    // must not touch the library of the search that is running.
+    cx.update(|_, app| {
+        app.set_global(crate::support::prefs::HelperPrefs {
+            migemo_dict: "broken".to_owned(),
+            ..Default::default()
+        });
+        let paths = MigemoPaths::current(app);
+        assert!(app.default_global::<MigemoHost>().open(&paths).is_err());
+    });
+    cx.simulate_input("a");
+    assert_eq!(f.key(cx).as_deref(), Some("ka"));
+    assert_eq!(f.pattern(cx), "(ka|\u{ff4b}\u{ff41}|か|カ|ｶ|柿)");
+    assert_eq!(f.selected(cx).as_deref(), Some("ka"));
+    assert!(f.active(cx));
 }
 
 /// The syntax C/Migemo writes: groups, alternatives, classes and the backslash before each

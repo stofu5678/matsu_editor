@@ -29,6 +29,20 @@ pub enum OpenError {
     Init,
 }
 
+/// Why the dictionary could not be loaded.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DictionaryError {
+    /// The path of the dictionary has a character that the narrow encoding of the OS (the
+    /// system code page on Windows) cannot write, so the library could not open the file.
+    PathNotRepresentable,
+}
+
+/// A path as the narrow functions of the C runtime read it: the bytes of the path on Unix, and
+/// the system code page (ANSI) on Windows. `None` when a character does not fit.
+pub fn narrow_path(path: &Path) -> Option<Vec<u8>> {
+    sys::narrow_path(path)
+}
+
 type OpenFn = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type CloseFn = unsafe extern "C" fn(*mut c_void);
 type QueryFn = unsafe extern "C" fn(*mut c_void, *const c_uchar) -> *mut c_uchar;
@@ -122,10 +136,16 @@ impl Migemo {
     /// `CMigemo::migemo_load_all` does when no dictionary is loaded yet, and tells whether the
     /// library has a dictionary now. The functions that turn a char into a number and back are
     /// set after the load, because the load puts the library's own back.
-    pub fn load_dictionary(&mut self, dir: &Path) -> bool {
+    ///
+    /// The library opens the files with the narrow functions of the C runtime, so a path goes
+    /// out in the narrow encoding of the OS ([`narrow_path`]): Sakura's `_migemo_load` passes
+    /// `std::filesystem::path::string()`, which is the same on Windows (the system code page).
+    /// A path that cannot be written in it is an error, and nothing is loaded.
+    pub fn load_dictionary(&mut self, dir: &Path) -> Result<bool, DictionaryError> {
         if self.is_enabled() {
-            return true;
+            return Ok(true);
         }
+        let mut files = Vec::new();
         for (id, name) in [
             (DICT_MIGEMO, "migemo-dict"),
             (DICT_HAN2ZEN, "han2zen.dat"),
@@ -133,20 +153,21 @@ impl Migemo {
             (DICT_ROMA2HIRA, "roma2hira.dat"),
             (DICT_ZEN2HAN, "zen2han.dat"),
         ] {
-            // The library opens the file with the narrow functions of the C runtime: a path
-            // that holds characters outside the system code page cannot be given on Windows.
-            let Ok(file) = CString::new(dir.join(name).to_string_lossy().into_owned()) else {
-                continue;
-            };
+            let bytes =
+                narrow_path(&dir.join(name)).ok_or(DictionaryError::PathNotRepresentable)?;
+            let file = CString::new(bytes).map_err(|_| DictionaryError::PathNotRepresentable)?;
+            files.push((id, file));
+        }
+        for (id, file) in &files {
             // SAFETY: a live object, and a NUL-terminated path that lives until the call returns.
-            unsafe { (self.api.load)(self.handle.as_ptr(), id, file.as_ptr()) };
+            unsafe { (self.api.load)(self.handle.as_ptr(), *id, file.as_ptr()) };
         }
         // SAFETY: a live object, and functions with the signatures the library calls them with.
         unsafe {
             (self.api.setproc_char2int)(self.handle.as_ptr(), char2int_utf8);
             (self.api.setproc_int2char)(self.handle.as_ptr(), int2char_utf8);
         }
-        self.is_enabled()
+        Ok(self.is_enabled())
     }
 
     /// The regular expression for `text` (`CMigemo::migemo_query_w`). `None` when the library

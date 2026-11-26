@@ -21,7 +21,7 @@ use matsu_commands::command::Arg;
 use matsu_core::buffer::Pos;
 use matsu_core::search::{Control, Direction, find, start_after};
 
-use super::migemo::{MigemoHost, MigemoPaths};
+use super::migemo::{Engine, MigemoHost, MigemoPaths, Unavailable};
 use crate::view::EditorView;
 
 /// Sakura's `ESearchMode`.
@@ -69,6 +69,10 @@ pub struct ISearch {
     history: Vec<Step>,
     /// The status bar text (`ISearchSetStatusMsg`, plus the no match note).
     message: String,
+    /// The library of the Migemo search, opened when the mode began. This search holds it to the
+    /// end, so another window's settings or search never change what this one finds. `None` in
+    /// the other modes.
+    engine: Option<Engine>,
 }
 
 impl ISearch {
@@ -93,6 +97,19 @@ impl ISearch {
     /// The text of the status bar.
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// `ISearchWordMake`: the pattern to search for, from the text typed. The Migemo search asks
+    /// its library for it; the others search for the text itself. `None` when the library gives
+    /// nothing (Migemo mode without a library does not exist: the mode needs one to begin).
+    fn pattern(&self) -> Option<String> {
+        match (&self.mode, &self.engine) {
+            (ISearchMode::Migemo, Some(engine)) if !self.key.is_empty() => {
+                engine.pattern(&self.key)
+            }
+            (ISearchMode::Migemo, None) => None,
+            _ => Some(self.key.clone()),
+        }
     }
 
     /// The status bar text without the no match note (`ISearchSetStatusMsg`).
@@ -226,14 +243,18 @@ impl EditorView {
         if mode == ISearchMode::Normal {
             options.whole_word = false;
         }
+        let mut engine = None;
         if mode == ISearchMode::Migemo {
             // Sakura checks the library after the selection has gone and before it changes
             // anything else: the mode does not begin, the status bar says why (and Sakura beeps).
             let paths = MigemoPaths::current(cx);
-            if let Err(why) = cx.default_global::<MigemoHost>().prepare(&paths) {
-                self.notice = Some(why.message().to_owned());
-                cx.notify();
-                return;
+            match cx.default_global::<MigemoHost>().open(&paths) {
+                Ok(opened) => engine = Some(opened),
+                Err(why) => {
+                    self.notice = Some(why.message().to_owned());
+                    cx.notify();
+                    return;
+                }
             }
         }
         self.search.set_options(options);
@@ -258,6 +279,7 @@ impl EditorView {
                 next: false,
             }],
             message: String::new(),
+            engine,
         };
         a.message = a.status();
         self.isearch = Some(a);
@@ -276,13 +298,13 @@ impl EditorView {
         cx.notify();
     }
 
-    /// `ISearchWordMake`: the pattern to search for, from the text typed. The Migemo search asks
-    /// the library for it; the others search for the text itself.
-    fn search_pattern(&self, mode: ISearchMode, key: &str, cx: &Context<Self>) -> String {
-        match (mode, cx.try_global::<MigemoHost>()) {
-            (ISearchMode::Migemo, Some(host)) if !key.is_empty() => host.pattern(key),
-            _ => key.to_owned(),
-        }
+    /// The search has no library to ask (it gave nothing for the text typed): the mode ends and
+    /// the status bar says that Migemo cannot be used, as when it cannot begin
+    /// (`STR_EDITVWISRCH_MIGEGO2`).
+    fn isearch_migemo_failed(&mut self, cx: &mut Context<Self>) {
+        self.isearch_exit(cx);
+        self.notice = Some(Unavailable::Dictionary.message().to_owned());
+        cx.notify();
     }
 
     /// `ISearchExec(DWORD)`: adds one character to the pattern and searches. A line break ends
@@ -318,9 +340,12 @@ impl EditorView {
         if a.key.is_empty() {
             return;
         }
-        let (direction, wrapping, key) = (a.direction, a.wrap && next, a.key.clone());
+        let (direction, wrapping) = (a.direction, a.wrap && next);
         // `ISearchWordMake`: the options were set when the mode began.
-        let pattern = self.search_pattern(a.mode, &key, cx);
+        let Some(pattern) = a.pattern() else {
+            self.isearch_migemo_failed(cx);
+            return;
+        };
         self.search.set_pattern(&pattern);
         self.search.set_mark(true);
         let selection = self.cursor.selection();
@@ -416,8 +441,11 @@ impl EditorView {
         let range = a.history[a.count()].range.clone();
         let at_start = a.count() == 0;
         a.message = a.status();
-        let (mode, key) = (a.mode, a.key.clone());
-        let pattern = self.search_pattern(mode, &key, cx);
+        let pattern = a.pattern();
+        let Some(pattern) = pattern else {
+            self.isearch_migemo_failed(cx);
+            return;
+        };
         self.search.set_pattern(&pattern);
         self.search.set_mark(mark);
         self.run_with(cx, |c| {
