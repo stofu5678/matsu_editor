@@ -192,6 +192,18 @@ impl CommandContext<'_> {
         }
     }
 
+    /// `Command_DELETE` and `Command_DELETE_BACK` with a box just begun: it is selected text for
+    /// Sakura, so the delete goes to `DeleteData`, which has nothing to delete in a box that covers
+    /// nothing and only ends the selection. Returns whether it did (the caller then deletes
+    /// nothing).
+    pub fn end_begun_box(&mut self) -> Result<bool> {
+        if !self.cursor.box_just_begun() {
+            return Ok(false);
+        }
+        self.end_box_in_place()?;
+        Ok(true)
+    }
+
     /// Ends the box selection (and any other selection) where the caret is: the caret does not
     /// move, and one in the gap after a wrapped row stays on that row. The one place that every
     /// command that drops a box in place goes through (`F_CANCEL_MODE`, a copy that disables the
@@ -296,9 +308,8 @@ impl CommandContext<'_> {
     /// replaces the next char. For a plain caret in the gap that is what Sakura does
     /// (`DelCharForOverwrite`: `nIdxTo >= GetLengthWithoutEOL`, then `Command_DELETE`, "行終端が
     /// 折り返し": pad with spaces, delete the next char; `cmd/CViewCommander_Edit.cpp`; measured
-    /// on 2026-11-26). Typing into a box that was just begun there differs from Sakura, which
-    /// inserts: MATSU overwrites, as it does for such a box anywhere (a difference that is older
-    /// than the gap corners, left for another change).
+    /// on 2026-11-26). A box that was just begun there is not typed into this way: it counts as
+    /// selected text and takes the box input, which inserts (see `insert_in_begun_box`).
     pub(super) fn caret_is_in_empty_space(&self) -> Result<bool> {
         // The row of the caret: at the end of a wrapped row (or right of it) it is that row.
         let row = self.caret_row_pos()?;

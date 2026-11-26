@@ -319,6 +319,56 @@ impl CommandContext<'_> {
         Ok(edit)
     }
 
+    /// `Command_WCHAR` with a box that was just begun (`F_BEGIN_BOX`, no corner moved since): it
+    /// covers nothing, but `BeginSelectArea` made a range that `IsTextSelected` counts, so the
+    /// char takes the box input, `Command_INDENT`, which inserts in both modes
+    /// (`cmd/CViewCommander_Edit.cpp`, `view/CViewSelect.cpp`). A box of one row and no width
+    /// inserts at its column, padding the row with spaces when the column is right of the text.
+    /// The box stays begun, at the end of the text, as `Command_INDENT` leaves it moved right.
+    pub(super) fn insert_in_begun_box(&mut self, text: &str) -> Result<Edit> {
+        self.refuse_in_view_mode()?;
+        let first = text.split(['\r', '\n']).next().unwrap_or_default();
+        let caret = self.caret();
+        if first.is_empty() {
+            return Ok(Edit {
+                start: caret,
+                end: caret,
+            });
+        }
+        // The row and the column of the box before the insertion: the box stays on its row and
+        // moves right by the width of the char, as `insert_into_box_rows` does (a char that
+        // reaches the wrap ends on the next row: the width is then to the right edge).
+        let row = self.layout.row_start(self.doc(), self.caret_row_pos()?)?;
+        let x0 = self.box_caret_x()?;
+        let edit = if self.caret_is_in_empty_space()? {
+            self.insert_in_empty_space(first)?
+        } else {
+            // (the padding reads the mark of the caret, so it comes before the box ends)
+            self.pad_free_caret()?;
+            self.cursor.clear_selection();
+            let at = self.caret();
+            let edit = self.replace(at, at, first)?;
+            self.cursor.move_to(edit.end, false);
+            edit
+        };
+        // `Command_INDENT` ends the selection (`DisableSelectArea` also drops the lock of the
+        // plain moves) and selects the box again, moved right.
+        let end_x = self.layout.display_x(self.doc(), edit.end)?;
+        let max = self.max_box_x();
+        let width = if end_x >= x0 {
+            end_x - x0
+        } else {
+            max.saturating_sub(x0)
+        };
+        let corner = self.box_corner_pos(row, (x0 + width).min(max))?;
+        self.cursor.move_to(corner.pos, false);
+        self.begin_box_at(corner.x, false);
+        if corner.in_gap() {
+            self.set_free_x(Some(corner.x));
+        }
+        Ok(edit)
+    }
+
     /// `Command_INSTEXT` and `Command_WCHAR` with a box selected: the first line of `text` (up to
     /// the first line ending) goes before the box in every row. An empty first line does
     /// nothing. The box moves right by the width of the text.

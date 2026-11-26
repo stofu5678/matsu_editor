@@ -58,6 +58,11 @@ struct BoxCols {
     /// The column of the anchor. Equal to `caret` while there is no anchor.
     anchor: usize,
     caret: usize,
+    /// No corner has moved since [`Cursor::begin_box`]: Sakura's `BeginSelectArea` made a range
+    /// that `IsTextSelected` counts, until a move of the caret clears it
+    /// (`ChangeSelectAreaByCurrentCursorTEST`, `view/CViewSelect.cpp`, when the caret is on the
+    /// start of the range).
+    begun: bool,
 }
 
 /// The caret and the selection of a view.
@@ -115,6 +120,31 @@ impl Cursor {
         self.mode == SelectionMode::Rectangular
     }
 
+    /// Whether a box was begun and no corner has moved since, so that it covers nothing but
+    /// Sakura still counts it as selected text (`IsTextSelected`, see `BoxCols::begun`). A box
+    /// that a move made empty again is not. Typing goes into the box in the first case and
+    /// follows the typing mode in the second.
+    pub fn box_just_begun(&self) -> bool {
+        self.anchor.is_none() && self.box_cols.is_some_and(|c| c.begun)
+    }
+
+    /// Whether a typed char is box input (`Command_INDENT`): a box that covers something, or one
+    /// just begun (`IsTextSelected` and `IsBoxSelecting` in `Command_WCHAR`). The one place that
+    /// says it; a box that a move made empty again is not.
+    pub fn box_input_applies(&self) -> bool {
+        self.is_box() && (self.has_selection() || self.box_just_begun())
+    }
+
+    /// Records that a box move was asked for, whether or not a corner moved. Every cursor command
+    /// ends with `ChangeSelectAreaByCurrentCursor`, and its `...TEST` clears an empty range when
+    /// the caret is on its start, also when the caret did not move (`view/CViewSelect.cpp`, the
+    /// `ptCaretPos==m_sSelectBgn.GetFrom()` branch), so the box is no longer selected text.
+    pub fn box_moved(&mut self) {
+        if let Some(cols) = self.box_cols.as_mut() {
+            cols.begun = false;
+        }
+    }
+
     /// Whether plain moves extend the selection (Sakura: `m_bSelectingLock`).
     pub fn selecting_lock(&self) -> bool {
         self.selecting_lock
@@ -147,6 +177,7 @@ impl Cursor {
         self.box_cols = Some(BoxCols {
             anchor: col,
             caret: col,
+            begun: true,
         });
         self.selecting_lock = lock;
     }
@@ -178,6 +209,7 @@ impl Cursor {
         let cols = self.box_cols.unwrap_or(BoxCols {
             anchor: col,
             caret: col,
+            begun: false,
         });
         // The anchor stays where it is with its mark; a box that has no anchor yet starts at the
         // caret, and the caret's mark goes with it (`BeginSelectArea` copies the caret's point).
@@ -192,7 +224,10 @@ impl Cursor {
         self.box_cols = Some(BoxCols {
             anchor: cols.anchor,
             caret: col,
+            begun: cols.begun,
         });
+        // a corner that moved: the one writer of the flag clears it
+        self.box_moved();
         self.goal_col = None;
         self.free_col = in_gap.then_some(col);
     }

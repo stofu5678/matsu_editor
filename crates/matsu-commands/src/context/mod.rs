@@ -821,6 +821,11 @@ impl<'a> CommandContext<'a> {
     /// replaces the chars after the caret (see [`overwrite_replacement`](Self::overwrite_replacement)).
     /// A selection is replaced in both modes. The caret ends after the text.
     pub fn type_text(&mut self, text: &str) -> Result<Edit> {
+        // A box that was just begun counts as selected text for Sakura, so typing into it is the
+        // box input in both modes (`Command_WCHAR`: `IsTextSelected` and `IsBoxSelecting`).
+        if self.cursor.box_just_begun() {
+            return self.insert_in_begun_box(text);
+        }
         // In a box the typing mode does not matter (see `box_edit`).
         if self.cursor.is_box()
             && (self.cursor.has_selection() || self.caret_is_in_empty_space()?)

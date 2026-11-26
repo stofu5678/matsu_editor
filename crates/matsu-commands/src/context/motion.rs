@@ -27,8 +27,33 @@ pub const LINE_TOP_LINE_UNIT: i64 = 8;
 impl CommandContext<'_> {
     /// Whether a move extends the selection: it was asked to, or the selection is locked
     /// (Sakura passes `m_bSelectingLock` as `bSelect` for the plain moves, `HandleCommand`).
-    pub fn extends(&self, extend: bool) -> bool {
-        extend || self.cursor.selecting_lock()
+    ///
+    /// Also the one place that every caret-motion command passes through before it decides
+    /// whether the caret can move, so it is where a box that was just begun stops being selected
+    /// text: every cursor command in Sakura ends in `ChangeSelectAreaByCurrentCursor` (when it
+    /// extends), whose `...TEST` clears an empty range whether or not the caret moved, or in
+    /// `DisableSelectArea` (when it does not) (`view/CViewSelect.cpp`, `cmd/CViewCommander_Cursor.cpp`,
+    /// `view/CCaret.cpp`). A move that cannot move (the end of the document, the top of the file)
+    /// is no different.
+    pub fn extends(&mut self, extend: bool) -> bool {
+        let extend = extend || self.cursor.selecting_lock();
+        if extend {
+            self.cursor.box_moved();
+        } else if self.cursor.box_just_begun() {
+            self.cursor.clear_selection();
+        }
+        extend
+    }
+
+    /// `Command_LEFT` and `Command_RIGHT` without a selecting move, with a box just begun: it is
+    /// selected text, so `Command_CANCEL_MODE` ends it and uses up the move (`continue` in
+    /// `cmd/CViewCommander_Cursor.cpp`: "選択のキャンセルで ... 移動を 1消費"). The caret stays.
+    /// Call before [`extends`](Self::extends). Returns whether it did.
+    fn cancel_begun_box_for_move(&mut self, extend: bool) -> Result<bool> {
+        if extend || self.cursor.selecting_lock() {
+            return Ok(false);
+        }
+        self.end_begun_box()
     }
 
     /// Moves the caret to `pos` (clamped). With `extend` the selection follows the caret; in a
@@ -67,6 +92,9 @@ impl CommandContext<'_> {
     /// right of the text (Sakura: `Command_LEFT`, which does not wrap to the previous row while a
     /// box is selected).
     pub fn move_left(&mut self, extend: bool) -> Result<()> {
+        if self.cancel_begun_box_for_move(extend)? {
+            return Ok(());
+        }
         let extend = self.extends(extend);
         if extend && self.cursor.is_box() {
             return self.box_left();
@@ -93,6 +121,9 @@ impl CommandContext<'_> {
     /// In a box selection the caret goes on through the empty space to the right of the text, up
     /// to [`max_box_x`](CommandContext::max_box_x) (Sakura: `Command_RIGHT`).
     pub fn move_right(&mut self, extend: bool) -> Result<()> {
+        if self.cancel_begun_box_for_move(extend)? {
+            return Ok(());
+        }
         let extend = self.extends(extend);
         if extend && self.cursor.is_box() {
             return self.box_right();

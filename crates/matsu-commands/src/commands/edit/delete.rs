@@ -35,6 +35,10 @@ impl Command for Delete {
         if cx.delete_selection()? {
             return Ok(());
         }
+        // (`Command_DELETE` and `Command_DELETE_BACK` test `IsTextSelected` first)
+        if cx.end_begun_box()? {
+            return Ok(());
+        }
         cx.pad_free_caret()?;
         let caret = cx.caret();
         if let Some(next) = char_right(cx.doc(), caret)? {

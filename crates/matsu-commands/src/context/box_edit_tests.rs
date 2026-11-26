@@ -408,12 +408,12 @@ fn typing_in_a_box_that_covers_nothing_pads_the_row_to_the_caret() {
     // a box one row high from column 2 to 4 of "cd" is empty space only; type into it
     typed(&mut e, 'X');
     assert_eq!(text_of(&e), "ab\ncdX");
-    // a box of no width on text: the char goes at the caret and the box ends
+    // a box of no width on text: the char goes at the caret and the box stays begun
     let mut e = Editor::new("ab|cd");
     e.run("begin_box");
     typed(&mut e, 'X');
     e.assert_marked("abX|cd");
-    assert!(!e.cursor().is_box());
+    assert!(e.cursor().is_box() && e.cursor().box_just_begun());
 }
 
 #[test]
@@ -846,7 +846,7 @@ fn cut_then_paste_moves_a_box() {
 
 /// A layout that wraps every line after `n` ASCII chars. Rows of a line are `[0, n)`, `[n, 2n)`,
 /// and so on; positions are always buffer positions.
-pub(super) struct Wrap(pub(super) usize);
+pub(super) struct Wrap(pub(super) usize, pub(super) bool);
 
 impl Wrap {
     fn rows(&self, doc: &Document) -> Vec<Pos> {
@@ -878,6 +878,15 @@ impl Wrap {
 type R<T> = matsu_core::buffer::Result<T>;
 
 impl Layout for Wrap {
+    /// With the second field the width of a box is the width of a row, as in a real layout.
+    fn max_line_x(&self) -> X {
+        let columns = if self.1 {
+            self.0 as u32
+        } else {
+            crate::context::MAX_BOX_COLUMNS
+        };
+        self.column_x().saturating_mul(columns)
+    }
     fn edited(&mut self, _: &Document, _: &crate::context::TextChange) {}
     fn reset(&mut self, _: &Document) {}
     fn tab_width(&self) -> usize {
@@ -945,7 +954,7 @@ fn run_wrapped(
 ) -> (String, Option<(String, ClipKind)>, Cursor) {
     let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
     model.set_new_line(Eol::Lf); // the document has no line ending; not the OS default
-    let mut layout = Wrap(3);
+    let mut layout = Wrap(3, false);
     let rows = layout.rows(model.doc());
     let corner = |(row, col): (usize, usize)| {
         layout
@@ -1010,7 +1019,7 @@ fn copy_addcrlf_ends_the_wrapped_rows_with_the_line_ending_of_the_document() {
         let mut model = DocumentModel::new(Document::from_utf8(b"abcdef\r\nxy".to_vec()).unwrap());
         let mut cursor = Cursor::default();
         cursor.select(Pos::new(0, 1), Pos::new(1, 2));
-        let mut layout = Wrap(3);
+        let mut layout = Wrap(3, false);
         let mut mem = MemoryClipboard::default();
         {
             let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None)
@@ -1082,7 +1091,7 @@ fn overwrite_padding_uses_the_widths_of_the_layout() {
             DocumentModel::new(Document::from_utf8("a\u{3b1}bc".as_bytes().to_vec()).unwrap());
         let mut cursor = Cursor::default();
         cursor.move_to(Pos::new(0, 1), false);
-        let mut layout = Wrap(100);
+        let mut layout = Wrap(100, false);
         {
             let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
             cx.set_overwrite(true);
@@ -1111,7 +1120,7 @@ fn run_wrapped_ids(text: &str, caret: Pos, free: bool, ids: &[&str]) -> (String,
         let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
         let mut cursor = Cursor::default();
         cursor.move_to(caret, false);
-        let mut layout = Wrap(3);
+        let mut layout = Wrap(3, false);
         for id in ids {
             let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
             Registry::global().run(id, &mut cx, &[]).unwrap();
