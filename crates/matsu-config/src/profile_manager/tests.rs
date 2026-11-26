@@ -362,8 +362,7 @@ fn a_portable_profile_with_only_the_old_file_is_settled_beside_the_executable_an
     let exe = dir.path().join("exe");
     std::fs::create_dir_all(exe.join("work")).unwrap();
     std::fs::write(
-        exe.join("work")
-            .join(crate::migrate_old_name::OLD_FILE_NAME),
+        crate::migrate_old_name::legacy_settings_file(&exe.join("work")),
         "[Common]\nkey=7\n",
     )
     .unwrap();
@@ -392,4 +391,38 @@ fn a_portable_profile_with_only_the_old_file_is_settled_beside_the_executable_an
         Profile::load(&file).unwrap().get("Common", "key"),
         Some("7")
     );
+}
+
+#[test]
+fn the_current_settings_win_over_an_old_file_in_every_place() {
+    // the old file is left beside the executable, and the current one is in the user's own folder
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join("exe");
+    let user = dir.path().join("appdata").join("matsu-editor").join("work");
+    std::fs::create_dir_all(exe.join("work")).unwrap();
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::write(
+        crate::migrate_old_name::legacy_settings_file(&exe.join("work")),
+        "[Common]\nkey=old\n",
+    )
+    .unwrap();
+    std::fs::write(user.join("matsu.ini"), "[Common]\nkey=new\n").unwrap();
+    let env = Environment {
+        exe_dir: Some(exe.clone()),
+        app_data: Some(dir.path().join("appdata")),
+        profile_name: Some("work".to_owned()),
+        ..Environment::default()
+    };
+    let settled = profile_dir(Os::Windows, &env, "work").unwrap();
+    assert_eq!(settled, user, "the current file decides, not the old one");
+    // the migration follows the same rule: nothing to do, and nothing is copied beside the executable
+    let pinned = Environment {
+        profile_dir: Some(settled),
+        ..env
+    };
+    assert_eq!(
+        crate::migrate_old_name::migrate(Os::Windows, &pinned),
+        crate::migrate_old_name::Outcome::NotNeeded
+    );
+    assert!(!exe.join("work").join("matsu.ini").exists());
 }
