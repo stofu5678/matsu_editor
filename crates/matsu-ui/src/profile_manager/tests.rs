@@ -1017,3 +1017,97 @@ fn the_picking_process_reports_its_answer_on_one_line() {
     assert_eq!(parse_report(b""), None);
     assert_eq!(parse_report(b"crashed\n"), None);
 }
+
+/// A Windows-like environment in a temporary folder: a portable program folder and the user's own.
+fn windows_env(dir: &Path) -> matsu_config::location::Environment {
+    matsu_config::location::Environment {
+        exe_dir: Some(dir.join("exe")),
+        app_data: Some(dir.join("appdata")),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_name_whose_settings_are_in_the_other_root_is_taken() {
+    use matsu_config::location::Os;
+    // `old` lives under the user's folder; an unlisted `new` has its settings beside the executable
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("appdata").join("matsu-editor");
+    std::fs::create_dir_all(user.join("old")).unwrap();
+    std::fs::write(user.join("old").join("matsu.ini"), b"x").unwrap();
+    std::fs::create_dir_all(dir.path().join("exe").join("new")).unwrap();
+    std::fs::write(dir.path().join("exe").join("new").join("matsu.ini"), b"x").unwrap();
+    let store = Store::for_env(Os::Windows, windows_env(dir.path())).unwrap();
+    assert_eq!(
+        store.plan_rename("old", "new").unwrap_err(),
+        super::store::MoveError::Taken
+    );
+    // a name that is free anywhere is fine, and the folder goes beside the old one
+    let plan = store.plan_rename("old", "free").unwrap().expect("a folder");
+    store.move_dir(&plan).unwrap();
+    assert!(user.join("free").join("matsu.ini").is_file());
+}
+
+#[gpui::test]
+fn a_rename_onto_a_name_of_the_other_root_is_refused_with_the_name_taken_text(
+    cx: &mut TestAppContext,
+) {
+    use matsu_config::location::Os;
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("appdata").join("matsu-editor");
+    std::fs::create_dir_all(user.join("old")).unwrap();
+    std::fs::write(user.join("old").join("matsu.ini"), b"x").unwrap();
+    std::fs::create_dir_all(dir.path().join("exe").join("new")).unwrap();
+    std::fs::write(dir.path().join("exe").join("new").join("matsu.ini"), b"x").unwrap();
+    let store = Store::for_env(Os::Windows, windows_env(dir.path())).unwrap();
+    let ini = matsu_config::profile_manager::settings_path(Os::Windows, &windows_env(dir.path()))
+        .unwrap();
+    profile_manager::write(&ini, &settings(&["old"], -1)).unwrap();
+    cx.update(gpui_component::init);
+    cx.update(|app| open(app, store, Box::new(|_, _| {})));
+    cx.run_until_parked();
+    with_dialog(cx, |d, window, dcx| d.rename(1, "new", window, dcx));
+    assert!(error_box(cx));
+    assert_eq!(rows(cx), ["(default)", "old"]);
+    assert!(user.join("old").is_dir());
+}
+
+/// The old settings file of a profile under the user's old folder, and nothing current.
+fn legacy_only_profile(dir: &Path) -> std::path::PathBuf {
+    let old = dir.join("appdata").join("ume-editor").join("work");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(
+        matsu_config::migrate_old_name::legacy_settings_file(&old),
+        "[Common]\nkey=7\n",
+    )
+    .unwrap();
+    old
+}
+
+#[gpui::test]
+fn renaming_a_profile_that_has_only_old_settings_carries_them(cx: &mut TestAppContext) {
+    use matsu_config::location::Os;
+    let dir = tempfile::tempdir().unwrap();
+    legacy_only_profile(dir.path());
+    let user = dir.path().join("appdata").join("matsu-editor");
+    let env = windows_env(dir.path());
+    let store = Store::for_env(Os::Windows, env.clone()).unwrap();
+    let ini = matsu_config::profile_manager::settings_path(Os::Windows, &env).unwrap();
+    profile_manager::write(&ini, &settings(&["work"], -1)).unwrap();
+    cx.update(gpui_component::init);
+    cx.update(|app| open(app, store, Box::new(|_, _| {})));
+    cx.run_until_parked();
+    with_dialog(cx, |d, window, dcx| d.rename(1, "renamed", window, dcx));
+    assert!(!error_box(cx));
+    assert_eq!(rows(cx), ["(default)", "renamed"]);
+    // the settings went with the profile: the renamed profile has its `matsu.ini` with the old content
+    let file = user.join("renamed").join("matsu.ini");
+    assert!(file.is_file(), "the settings were carried");
+    assert_eq!(
+        matsu_config::Profile::load(&file)
+            .unwrap()
+            .get("Common", "key"),
+        Some("7")
+    );
+    assert!(!user.join("work").exists());
+}

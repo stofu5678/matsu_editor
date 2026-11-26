@@ -61,7 +61,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::location::{self, Environment, Os};
+use crate::location::{Environment, Os};
 use crate::profile::{Profile, ProfileError};
 
 /// The name of the manager's file (`GetProfileMgrFileName`: the ini name without its extension, and
@@ -292,14 +292,15 @@ pub fn write(path: &Path, settings: &ProfileSettings) -> io::Result<()> {
 }
 
 /// The folder of the manager's file and of the profiles' folders: the folder of the settings file that the
-/// process would use without `-PROF` (`GetProfileMgrFileName` goes up one folder when a profile is on).
+/// process would use without `-PROF` (`GetProfileMgrFileName` goes up one folder when a profile is on), by
+/// the same rule as [`profile_dir`] (the old product name's file counts when it is the only one).
 pub fn base_dir(os: Os, env: &Environment) -> Option<PathBuf> {
     let without_profile = Environment {
         profile_name: None,
         profile_dir: None,
         ..env.clone()
     };
-    location::settings_file(os, &without_profile)?
+    crate::migrate_old_name::settings_file(os, &without_profile)?
         .parent()
         .map(Path::to_path_buf)
 }
@@ -309,10 +310,11 @@ pub fn settings_path(os: Os, env: &Environment) -> Option<PathBuf> {
     base_dir(os, env).map(|dir| dir.join(FILE_NAME))
 }
 
-/// `GetProfileDirectory`: the folder where the settings of a profile are. It is the folder of the
-/// settings file that a process started with `-PROF=name` uses ([`location::settings_file`], the same
-/// choice as `UserSettings`). On Windows with a `matsu.ini` next to the program that is the folder next
-/// to the program only if `name\matsu.ini` is there already, else the user's own folder.
+/// `GetProfileDirectory`: the folder where the settings of a profile are, or will be after the migration
+/// from the old product name. It is the folder of the settings file that a process started with
+/// `-PROF=name` uses ([`crate::migrate_old_name::settings_file`], the same choice as `UserSettings` after
+/// the migration). On Windows with a `matsu.ini` next to the program that is the folder next to the program
+/// only if `name\matsu.ini` (or its old file) is there already, else the user's own folder.
 pub fn profile_dir(os: Os, env: &Environment, name: &str) -> Option<PathBuf> {
     // another profile than the one of this process: its own places, not the folder that was settled
     let with_profile = Environment {

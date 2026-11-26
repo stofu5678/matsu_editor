@@ -44,8 +44,7 @@ pub(crate) fn legacy_candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> 
 }
 
 /// The old settings file in `dir`, for the tests that make one.
-#[cfg(test)]
-pub(crate) fn legacy_settings_file(dir: &Path) -> PathBuf {
+pub fn legacy_settings_file(dir: &Path) -> PathBuf {
     dir.join(OLD_FILE_NAME)
 }
 
@@ -73,14 +72,15 @@ pub(crate) fn need(os: Os, env: &Environment) -> Need {
         .map_or(Need::NothingToMigrate, Need::From)
 }
 
-/// The settings file of the profile in `env`, by the rule of [`need`]: the current file where there is
-/// one; else the place of the old file (where [`migrate`] will write `matsu.ini`); else the place a new file
-/// would be written. This is what the folder of a profile is settled from.
+/// The settings file of the profile in `env`, by the rule of [`need`]: the place of the old file when only
+/// an old file exists (where [`migrate`] will write `matsu.ini`); otherwise [`location::settings_file`]
+/// (the current file where there is one, else the place a new one is written). The one entry point for
+/// where the settings of a profile are, also before the migration has run: the folders of the profile
+/// manager (`profile_manager::base_dir`, `profile_dir`) are settled from it.
 pub(crate) fn settings_file(os: Os, env: &Environment) -> Option<PathBuf> {
-    let new = location::candidate_paths(os, env);
     match need(os, env) {
-        Need::From(index) => new.get(index).cloned(),
-        _ => location::write_path(&new).map(Path::to_path_buf),
+        Need::From(index) => location::candidate_paths(os, env).get(index).cloned(),
+        _ => location::settings_file(os, env),
     }
 }
 

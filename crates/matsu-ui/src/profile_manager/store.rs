@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use matsu_platform::file_lock::{FileLock, ShareMode};
 
 use matsu_config::location::{Environment, Os};
+use matsu_config::migrate_old_name;
 use matsu_config::profile_manager::{self, ProfileSettings};
 
 /// Why a profile folder cannot be renamed (checked before anything is written).
@@ -23,6 +24,9 @@ pub(crate) enum MoveError {
     /// The old name was a file, not a folder, and the new name is a file too
     /// (`STR_DLGPROFILE_ERR_FILE`).
     FileInTheWay,
+    /// The settings of the new name are somewhere else than where the folder would go (the other root of
+    /// a portable `matsu.ini`): a profile of that name does exist (`STR_DLGPROFILE_ERR_ALREADY`).
+    Taken,
 }
 
 /// A folder to move, decided by [`Store::plan_rename`].
@@ -38,11 +42,16 @@ pub(crate) struct Move {
 /// Where the folder of a profile is, by the name of the profile.
 type DirOf = Box<dyn Fn(&str) -> Option<PathBuf>>;
 
+/// Brings the settings of the old product name of a profile over to the current files.
+type CarryFn = Box<dyn Fn(&str) -> io::Result<()>>;
+
 /// The manager's file and the places of the profiles' folders.
 pub(crate) struct Store {
     ini: PathBuf,
     /// The folder of the settings of a profile (`matsu_config::profile_manager::profile_dir`).
     dir_of: DirOf,
+    /// The migration of one profile (`matsu_config::migrate_old_name::migrate`).
+    carry: CarryFn,
     /// How long an action waits for the lock of the file.
     wait: Duration,
 }
@@ -59,11 +68,28 @@ impl Store {
     /// and the folder of a profile where a process with that `-PROF` keeps its settings file.
     /// `None` when the OS has no place for the settings file.
     pub(crate) fn for_process() -> Option<Self> {
-        let (os, env) = (Os::current(), Environment::from_process());
+        Self::for_env(Os::current(), Environment::from_process())
+    }
+
+    /// The places of an environment (the tests give their own).
+    pub(crate) fn for_env(os: Os, env: Environment) -> Option<Self> {
         let ini = profile_manager::settings_path(os, &env)?;
+        let for_dirs = env.clone();
         Some(Self {
             ini,
-            dir_of: Box::new(move |name| profile_manager::profile_dir(os, &env, name)),
+            dir_of: Box::new(move |name| profile_manager::profile_dir(os, &for_dirs, name)),
+            carry: Box::new(move |name| {
+                // the places of that profile, not the folder that this process settled for its own
+                let profile = Environment {
+                    profile_name: Some(name.to_owned()),
+                    profile_dir: None,
+                    ..env.clone()
+                };
+                match migrate_old_name::migrate(os, &profile) {
+                    migrate_old_name::Outcome::Failed { error, .. } => Err(io::Error::other(error)),
+                    _ => Ok(()),
+                }
+            }),
             wait: LOCK_WAIT,
         })
     }
@@ -75,6 +101,7 @@ impl Store {
         Self {
             ini: base.join(profile_manager::FILE_NAME),
             dir_of: Box::new(move |name| Some(base.join(name))),
+            carry: Box::new(|_| Ok(())),
             wait: LOCK_WAIT,
         }
     }
@@ -88,6 +115,7 @@ impl Store {
         Self {
             ini: base.join(profile_manager::FILE_NAME),
             dir_of: Box::new(dir_of),
+            carry: Box::new(|_| Ok(())),
             wait: LOCK_WAIT,
         }
     }
@@ -152,6 +180,14 @@ impl Store {
         self.dir(name).is_some_and(|dir| is_file(&dir))
     }
 
+    /// Before a rename: a profile that has only the settings of the old product name gets its current
+    /// `matsu.ini` now (the migration of that profile), so that the folder that is moved holds the
+    /// settings. Without it the old files stay under the old name, and the renamed profile starts empty.
+    /// A profile that has current settings is left as it is.
+    pub(crate) fn carry_legacy(&self, name: &str) -> io::Result<()> {
+        (self.carry)(name)
+    }
+
     /// `RenameProf`, before anything is written: what has to be moved, if anything. A profile that has
     /// no folder (never used) is only renamed in the list.
     pub(crate) fn plan_rename(&self, old: &str, new: &str) -> Result<Option<Move>, MoveError> {
@@ -164,6 +200,14 @@ impl Store {
         let Some(to) = from.parent().map(|parent| parent.join(new)) else {
             return Ok(None);
         };
+        // The settings of the new name may be in the other root (a portable `matsu.ini`): the name is taken
+        // then, whatever is at the place where the folder would go.
+        if self
+            .dir(new)
+            .is_some_and(|found| found != to && found.exists())
+        {
+            return Err(MoveError::Taken);
+        }
         if !from.exists() {
             return Ok(None);
         }

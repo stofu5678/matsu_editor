@@ -472,11 +472,17 @@ impl ProfileManagerDialog {
                 if in_use_of(store, &old) {
                     return Err(Failure::new(ERR_IN_USE));
                 }
+                // settings of the old product name only: bring them over first, so that they move too
+                // (refused with the write error when that cannot be done; nothing is changed yet)
+                store
+                    .carry_legacy(&old)
+                    .map_err(|error| Failure::because(ERR_WRITE, &error))?;
                 let plan = store.plan_rename(&old, name).map_err(|error| match error {
                     MoveError::Exists => {
                         Failure::because(ERR_RENAME, &"同じ名前のフォルダーがあります")
                     }
                     MoveError::FileInTheWay => Failure::new(ERR_FILE),
+                    MoveError::Taken => Failure::new(ERR_ALREADY),
                 })?;
                 list.rename(row, name);
                 Ok(plan)

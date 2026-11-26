@@ -199,10 +199,10 @@ pub fn find_existing(candidates: &[PathBuf]) -> Option<&Path> {
         .find(|p| p.is_file())
 }
 
-/// The settings file of the process: the one that exists among [`candidate_paths`], else the one
-/// [`write_path`] gives. This is the one rule for where a profile's settings live: `UserSettings` reads
-/// it, and the profile manager (`crate::profile_manager`) looks for the folder of a profile with it.
-/// `env.profile_name` says the profile.
+/// The settings file among [`candidate_paths`]: the one that exists, else the one [`write_path`] gives.
+/// `env.profile_name` says the profile. This is the rule for the current file only. What a caller needs to
+/// know about "the settings file of a profile" is [`crate::migrate_old_name::settings_file`], which follows
+/// the old product name's file too and delegates here when there is none; use that one.
 pub fn settings_file(os: Os, env: &Environment) -> Option<PathBuf> {
     let candidates = candidate_paths(os, env);
     write_path(&candidates).map(Path::to_path_buf)
