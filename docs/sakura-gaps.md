@@ -69,7 +69,7 @@
 
 ### コマンドと関数
 
-関数表（`crates/matsu-commands/src/sakura/functions.rs`）の「コマンド」477 個のうち、`SAKURA` 定数のあるコマンドは 474 個（2026-11-22 に、`kind: Command` の名前と `const SAKURA` の文字列を突き合わせて数えた）。差の 3 個は、SQL*Plus の `F_ACTIVATE_SQLPLUS` `F_PLSQL_COMPILE_ON_SQLPLUS` は ADR-0023 で実装し、残りは「止まっているもの」に書いた。`F_PROFILEMGR` は #596（2026-11-27）で入った。477 個のコマンドは、すべて登録した。ほかの種類（`MacroFunction` 59、`MacroOnly` 23）は、次の「マクロ」の表で。
+関数表（`crates/matsu-commands/src/sakura/functions.rs`）の「コマンド」477 個のうち、`SAKURA` 定数のあるコマンドは 474 個（2026-11-22 に、`kind: Command` の名前と `const SAKURA` の文字列を突き合わせて数えた）。2026-11-22 の数えでは、477 個のうち 474 個に `SAKURA` 定数があり、未登録の 3 個は `F_PROFILEMGR` と Migemo のコマンド 2 つだった。Migemo のコマンドは #595（2026-11-26）で、`F_PROFILEMGR` は #596（2026-11-27）で入ったので、477 個のコマンドはすべて登録した（SQL*Plus の `F_ACTIVATE_SQLPLUS` `F_PLSQL_COMPILE_ON_SQLPLUS` は、ADR-0023 で実装済み）。ほかの種類（`MacroFunction` 59、`MacroOnly` 23）は、次の「マクロ」の表で。
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
