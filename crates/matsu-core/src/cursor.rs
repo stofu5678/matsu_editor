@@ -224,8 +224,10 @@ impl Cursor {
         self.box_cols = Some(BoxCols {
             anchor: cols.anchor,
             caret: col,
-            begun: false,
+            begun: cols.begun,
         });
+        // a corner that moved: the one writer of the flag clears it
+        self.box_moved();
         self.goal_col = None;
         self.free_col = in_gap.then_some(col);
     }

@@ -79,6 +79,92 @@ mod tests {
         assert!(!e.cursor().is_box());
     }
 
+    /// Begins a box, optionally types `x` (which leaves it begun and unlocked), runs the moves
+    /// that cannot move, and then runs `then`.
+    fn after_a_move_that_cannot_move(text: &str, typed: bool, moves: &[&str]) -> Editor {
+        let mut e = Editor::new(text);
+        e.run("begin_box");
+        if typed {
+            e.run_with("input_char", &[Arg::Char('x')]);
+            assert!(e.cursor().box_just_begun() && !e.cursor().selecting_lock());
+        }
+        for id in moves {
+            e.run(id);
+        }
+        e
+    }
+
+    #[test]
+    fn a_move_that_cannot_move_ends_the_just_begun_state() {
+        // `Command_RIGHT` / `Command_LEFT` (`cmd/CViewCommander_Cursor.cpp`), `Cursor_UPDOWN`
+        // (`view/CCaret.cpp`) and the box moves end in `DisableSelectArea` or in
+        // `ChangeSelectAreaByCurrentCursor`, whether or not the caret moves. So the box no longer
+        // counts as selected text: overwrite mode replaces, Backspace deletes.
+        for typed in [false, true] {
+            for (text, id, after) in [
+                // Right at the end of the document, Left at the start of the file
+                ("ab|", "cursor_right", "ab|"),
+                ("|ab", "cursor_left", "|ab"),
+                // Up on the first row, Down on the last
+                ("a|b", "cursor_up", "a|b"),
+                ("a|b", "cursor_down", "a|b"),
+            ] {
+                let mut e = after_a_move_that_cannot_move(text, typed, &[id]);
+                assert!(!e.cursor().box_just_begun(), "{id} typed={typed}");
+                // the move did not move the caret
+                let (caret, text) = (e.cursor().caret(), e.marked().replace(['|', '['], ""));
+                assert_eq!(text.contains('x'), typed, "{id}");
+                assert_eq!(
+                    caret.col,
+                    after.find('|').unwrap() + usize::from(typed),
+                    "{id}"
+                );
+                let before = e.marked();
+                // (Left at the start of the file has nothing before it: Delete is the key there)
+                e.run(if id == "cursor_left" {
+                    "delete"
+                } else {
+                    "delete_back"
+                });
+                assert_ne!(e.marked(), before, "{id} typed={typed}: it deletes");
+            }
+        }
+    }
+
+    #[test]
+    fn a_plain_move_that_cannot_move_ends_a_begun_box_without_moving_the_caret() {
+        // The scenario of the review: an empty document, begin a box, type `x`, Right (nothing to
+        // go to), Backspace. The Right uses itself up ending the box and Backspace deletes `x`.
+        let mut e = Editor::new("|");
+        e.run("begin_box");
+        e.run_with("input_char", &[Arg::Char('x')]);
+        e.assert_marked("x|");
+        e.run("cursor_right");
+        assert!(!e.cursor().is_box());
+        e.run("delete_back");
+        e.assert_marked("|");
+        // `Command_RIGHT` / `Command_LEFT` only end the box and keep the caret, also where the
+        // caret could move (`Command_CANCEL_MODE`, "移動を 1消費")
+        let mut e = Editor::new("a|bc");
+        e.run("begin_box");
+        e.run_with("input_char", &[Arg::Char('x')]);
+        e.run("cursor_right");
+        e.assert_marked("ax|bc");
+        assert!(!e.cursor().is_box());
+        let mut e = Editor::new("a|bc");
+        e.run("begin_box");
+        e.run_with("input_char", &[Arg::Char('x')]);
+        e.run("cursor_left");
+        e.assert_marked("ax|bc");
+        // Up and Down end the box (`DisableSelectArea`) and then move
+        let mut e = Editor::new("ab\nc|d");
+        e.run("begin_box");
+        e.run_with("input_char", &[Arg::Char('x')]);
+        e.run("cursor_up");
+        assert!(!e.cursor().is_box());
+        assert_eq!(e.cursor().caret().line, 0);
+    }
+
     #[test]
     fn a_move_that_drops_the_selection_ends_the_box() {
         let mut e = Editor::new("ab|cd");

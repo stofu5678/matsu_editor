@@ -1119,7 +1119,8 @@ mod box_corners_in_the_gap {
         });
         r.run("cursor_left");
         assert_eq!((r.caret(), r.col()), (Pos::new(0, 1), None));
-        // a box with nothing in it is only a mode: the move goes on from the gap (to the next row)
+        // a box just begun is selected text for `Command_RIGHT`: `Command_CANCEL_MODE( 2 )` ends it
+        // and uses up the move, so the caret stays in the gap
         let mut r = Rig::new("abcdefgh");
         r.cx(|cx| {
             cx.mouse_begin_box_at(P1, Pos::new(0, 0), X::from_raw(3))
@@ -1127,6 +1128,9 @@ mod box_corners_in_the_gap {
         });
         r.run("cursor_right");
         assert!(!r.cursor.is_box());
+        assert_eq!((r.caret(), r.col()), (P1, Some(3)));
+        // a box that a move made empty again is only a mode: the move goes on from the gap
+        r.run("cursor_right");
         assert_eq!((r.caret(), r.col()), (P1, None));
     }
 
