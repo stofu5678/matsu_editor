@@ -14,14 +14,14 @@
 | 後方インクリメンタルサーチ | `F_ISEARCH_PREV` | 文字列、前へ |
 | 正規表現前方インクリメンタルサーチ | `F_ISEARCH_REGEXP_NEXT` | 正規表現、後ろへ |
 | 正規表現後方インクリメンタルサーチ | `F_ISEARCH_REGEXP_PREV` | 正規表現、前へ |
-| MIGEMO前方インクリメンタルサーチ | `F_ISEARCH_MIGEMO_NEXT` | まだない |
-| MIGEMO後方インクリメンタルサーチ | `F_ISEARCH_MIGEMO_PREV` | まだない |
+| MIGEMO前方インクリメンタルサーチ | `F_ISEARCH_MIGEMO_NEXT` | Migemo、後ろへ |
+| MIGEMO後方インクリメンタルサーチ | `F_ISEARCH_MIGEMO_PREV` | Migemo、前へ |
 
-MIGEMO の 2 つは、メニューに名前がありますが、動きません。Migemo の辞書と DLL の扱いを、ライセンスの面で決めてからになります（`docs/sakura-gaps.md`）。
+MIGEMO の 2 つは、打った文字（ローマ字）を Migemo のライブラリに渡し、返ってきた正規表現で探します。ライブラリと辞書は、MATSU Editor には付いていません。利用者が [支援](../common-settings/page-support.md) の「migemo 設定」で場所を指定します。ライブラリか辞書が使えないときは、モードに入らず、ステータスバーに「MIGEMO.DLLが使用できません。」（ライブラリ）か「MIGEMOは使用できません。」（辞書）と出ます。
 
 ## 使い方
 
-1. メニューで開始する。ステータスバーに `I-Search:`（正規表現は `[RegExp] I-Search:`、後方は `I-Search Backward:`）と出る。
+1. メニューで開始する。ステータスバーに `I-Search:`（正規表現は `[RegExp] I-Search:`、Migemo は `[Migemo] I-Search:`、後方は `I-Search Backward:`）と出る。
 2. 文字を打つ。打った文字が探す文字列に足され、そのたびに、いまの一致から探し直す。
 3. 一致が見つからないと、ステータスバーの文字列の後ろに「 (見つかりません)」が付く。
 4. 同じ機能をもう一度呼ぶと、次の一致へ進む（前方 / 後方の機能を替えれば向きが変わる）。見つからないまま、もう一度呼ぶと、文書の反対の端から探し直す。
@@ -42,6 +42,8 @@ MIGEMO の 2 つは、メニューに名前がありますが、動きません�
 
 - IME の入力途中の文字は、モードの間は画面に出ません。確定した文字だけが探す文字列に足されます。
 - ポインタをインクリメンタルサーチの形に変えません。
+- Migemo のライブラリが使えないとき、サクラは警告音を鳴らします。MATSU Editor は、ステータスバーに出すだけです。
+- Migemo の辞書は、`utf-8` フォルダーにあるものだけを使います（サクラは `cp932` フォルダーのものも使います）。
 
 ## 根拠
 
@@ -49,4 +51,6 @@ MIGEMO の 2 つは、メニューに名前がありますが、動きません�
 - MATSU のコード: `crates/matsu-ui/src/search/isearch.rs`（ファイル先頭の説明、`translate`、`isearch_enter`、`isearch_exec`、`isearch_back`）、`crates/matsu-ui/src/ui_commands/search/isearch_next.rs` ほか
 - 試験: `crates/matsu-ui/src/search/isearch_tests.rs`
 - 既定のキー: `crates/matsu-commands/src/sakura/key_bindings.rs` に、これらの機能の割り当てはない
+- Migemo: `crates/matsu-ui/src/search/migemo.rs`、`crates/matsu-platform/src/migemo/`、試験は `crates/matsu-ui/src/search/isearch_migemo_tests.rs`
+- サクラのソース（Migemo）: `sakura_core/extmodule/CMigemo.cpp`、`sakura_core/view/CEditView_Cmdisrch.cpp`
 - 差: `docs/sakura-gaps.md`（Migemo）

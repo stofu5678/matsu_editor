@@ -14,7 +14,7 @@
 //! the print portal on Linux. `unsafe` code is in the OS modules `print::windows`, `print::mac`, `caret_width::windows`,
 //! `window::windows`, `window::mac`, `reconvert::windows`, `ime_mode::windows`, `doc_icon::windows`, `clipboard_html::windows`, `clipboard_html::mac`, `shell::windows`, `instance::windows`, `instance::unix`,
 //! `dialog::windows`, `dialog::mac`, `dialog_title::windows`, `font_dialog::windows`, `folders::windows`, `free_space::windows`, `free_space::unix`, `long_path::windows`, `help::windows` and
-//! `exec::unix` only.
+//! `exec::unix`, `migemo::native`, `migemo::sys_unix` and `migemo::sys_windows` only.
 //!
 //! [ADR-0011]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0011-printing.md
 //! [ADR-0013]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0013-module-structure.md
@@ -37,6 +37,7 @@ pub mod instance;
 pub mod login_path;
 pub mod long_path;
 pub mod menu_icons;
+pub mod migemo;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod portal;
 pub mod print;

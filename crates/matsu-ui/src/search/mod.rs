@@ -11,6 +11,7 @@ pub mod highlight;
 pub mod history;
 pub mod isearch;
 pub(crate) mod macro_args;
+pub mod migemo;
 pub mod modified_lines;
 pub mod ops;
 pub mod panel;
@@ -26,6 +27,8 @@ pub use state::{SearchOptions, SearchState};
 mod bookmarks_tests;
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod isearch_migemo_tests;
 #[cfg(test)]
 mod isearch_tests;
 #[cfg(test)]

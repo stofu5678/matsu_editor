@@ -9,25 +9,31 @@
 //! mode is on, the functions that Sakura translates ([`translate`]) are taken over by the mode,
 //! and any other function ends it first.
 //!
-//! Not like Sakura: the migemo search is not here (it needs a dictionary and a library); an IME
-//! composition is not shown while the mode is on (the text that the IME commits is added to the
-//! pattern, as Sakura's `F_IME_CHAR` does); the pointer does not change into the incremental
-//! search icon.
+//! The Migemo search passes what is typed through the library of C/Migemo and searches for the
+//! regular expression that comes back ([`super::migemo`]).
+//!
+//! Not like Sakura: an IME composition is not shown while the mode is on (the text that the IME
+//! commits is added to the pattern, as Sakura's `F_IME_CHAR` does); the pointer does not change
+//! into the incremental search icon.
 
 use gpui::Context;
 use matsu_commands::command::Arg;
 use matsu_core::buffer::Pos;
 use matsu_core::search::{Control, Direction, find, start_after};
 
+use super::migemo::{MigemoHost, MigemoPaths};
 use crate::view::EditorView;
 
-/// Sakura's `ESearchMode` without the migemo search.
+/// Sakura's `ESearchMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ISearchMode {
     /// `SEARCH_NORMAL`: the pattern is plain text.
     Normal,
     /// `SEARCH_REGEXP`: the pattern is a regular expression.
     Regexp,
+    /// `SEARCH_MIGEMO`: the pattern is romaji that the library of Migemo turns into a regular
+    /// expression.
+    Migemo,
 }
 
 /// The most history entries (`m_sISearchHistory[256]`).
@@ -94,6 +100,7 @@ impl ISearch {
         let mut text = String::from(match self.mode {
             ISearchMode::Normal => "I-Search",
             ISearchMode::Regexp => "[RegExp] I-Search",
+            ISearchMode::Migemo => "[Migemo] I-Search",
         });
         text.push_str(if self.direction == Direction::Backward {
             " Backward: "
@@ -214,10 +221,20 @@ impl EditorView {
         // The options of the search panel, with the incremental search's own case and word
         // rules: it ignores case, and the plain search is not by word.
         let mut options = self.search.options();
-        options.regex = mode == ISearchMode::Regexp;
+        options.regex = mode != ISearchMode::Normal;
         options.match_case = false;
         if mode == ISearchMode::Normal {
             options.whole_word = false;
+        }
+        if mode == ISearchMode::Migemo {
+            // Sakura checks the library after the selection has gone and before it changes
+            // anything else: the mode does not begin, the status bar says why (and Sakura beeps).
+            let paths = MigemoPaths::current(cx);
+            if let Err(why) = cx.default_global::<MigemoHost>().prepare(&paths) {
+                self.notice = Some(why.message().to_owned());
+                cx.notify();
+                return;
+            }
         }
         self.search.set_options(options);
         let key = match self.isearch.take() {
@@ -251,11 +268,21 @@ impl EditorView {
     /// them). A pattern that was never searched for is dropped.
     pub fn isearch_exit(&mut self, cx: &mut Context<Self>) {
         let Some(a) = self.isearch.take() else { return };
+        // The key stays as typed, whatever the mode: `ISearchExit` keeps `m_strCurSearchKey`.
         self.search
             .set_pattern(if a.count() == 0 { "" } else { &a.key });
         // `ISearchExit` puts the key in the history and keeps the window's sequence up to date.
         self.publish_search_key(cx);
         cx.notify();
+    }
+
+    /// `ISearchWordMake`: the pattern to search for, from the text typed. The Migemo search asks
+    /// the library for it; the others search for the text itself.
+    fn search_pattern(&self, mode: ISearchMode, key: &str, cx: &Context<Self>) -> String {
+        match (mode, cx.try_global::<MigemoHost>()) {
+            (ISearchMode::Migemo, Some(host)) if !key.is_empty() => host.pattern(key),
+            _ => key.to_owned(),
+        }
     }
 
     /// `ISearchExec(DWORD)`: adds one character to the pattern and searches. A line break ends
@@ -293,7 +320,8 @@ impl EditorView {
         }
         let (direction, wrapping, key) = (a.direction, a.wrap && next, a.key.clone());
         // `ISearchWordMake`: the options were set when the mode began.
-        self.search.set_pattern(&key);
+        let pattern = self.search_pattern(a.mode, &key, cx);
+        self.search.set_pattern(&pattern);
         self.search.set_mark(true);
         let selection = self.cursor.selection();
         let caret = self.cursor.caret();
@@ -388,8 +416,9 @@ impl EditorView {
         let range = a.history[a.count()].range.clone();
         let at_start = a.count() == 0;
         a.message = a.status();
-        let key = a.key.clone();
-        self.search.set_pattern(&key);
+        let (mode, key) = (a.mode, a.key.clone());
+        let pattern = self.search_pattern(mode, &key, cx);
+        self.search.set_pattern(&pattern);
         self.search.set_mark(mark);
         self.run_with(cx, |c| {
             if at_start || range.start == range.end {

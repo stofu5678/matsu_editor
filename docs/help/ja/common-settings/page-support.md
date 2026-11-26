@@ -32,13 +32,21 @@
 
 | 項目 | キー | 状態 |
 |---|---|---|
-| DLL | `szMigemoDll` | 未対応 |
-| 辞書 | `szMigemoDict` | 未対応 |
+| 項目 | キー | 動き |
+|---|---|---|
+| DLL | `szMigemoDll` | Migemo のライブラリ（C/Migemo）の場所。「...」で選びます。空のときは、設定ファイルのフォルダーと、プログラムのフォルダーの `migemo.dll`（macOS は `libmigemo.dylib`、Linux は `libmigemo.so`）を探します |
+| 辞書 | `szMigemoDict` | 辞書のフォルダー。「...」で選びます。空のときは、設定ファイルのフォルダーの `dict` です。その下の `utf-8/migemo-dict` を使います |
 
-MATSU Editor には、migemo がありません。ライセンスの事情で、まだ組み込んでいません（`docs/sakura-gaps.md`）。
+ライブラリと辞書は、MATSU Editor には付いていません。利用者が置きます。相対パスは、設定ファイルのフォルダーを基準にします（DLL は、そこになければプログラムのフォルダー）。
+
+- ライブラリは、フルパスにして読み込みます。カレントフォルダーと `PATH` は探しません。
+- Windows では、ライブラリの種類が MATSU Editor と同じでなければ読めません（ARM64 版には ARM64 の DLL、x64 版には x64 の DLL）。
+- 辞書の場所に、システムのコードページで書けない文字があると、読めないことがあります（Windows）。
+- 使い方は [インクリメンタルサーチ](../search/incremental-search.md) にあります。
 
 ## 根拠
 
 - サクラのソース: `sakura_core/prop/CPropComHelper.cpp`、`IDD_PROP_HELPER`
 - MATSU のコード: `crates/matsu-ui/src/common_settings/pages/support.rs`、`crates/matsu-ui/src/support/completion`、`crates/matsu-ui/src/support/help`、`crates/matsu-ui/src/key_help/`
 - `docs/sakura-gaps.md`（migemo の行）
+- Migemo: `crates/matsu-platform/src/migemo/`、`crates/matsu-ui/src/search/migemo.rs`

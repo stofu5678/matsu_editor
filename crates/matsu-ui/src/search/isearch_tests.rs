@@ -12,12 +12,12 @@ use super::isearch::{Translation, translate};
 use crate::document::SharedDocument;
 use crate::view::EditorView;
 
-struct Fixture {
-    document: Entity<SharedDocument>,
-    view: Entity<EditorView>,
+pub(super) struct Fixture {
+    pub(super) document: Entity<SharedDocument>,
+    pub(super) view: Entity<EditorView>,
 }
 
-fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut VisualTestContext) {
+pub(super) fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut VisualTestContext) {
     cx.update(gpui_component::init);
     let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
     let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
@@ -31,7 +31,7 @@ fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut Visual
 }
 
 impl Fixture {
-    fn text(&self, cx: &mut VisualTestContext) -> String {
+    pub(super) fn text(&self, cx: &mut VisualTestContext) -> String {
         self.document.read_with(cx, |shared, _| {
             let doc = shared.doc();
             doc.text_between(Pos::new(0, 0), Pos::new(doc.line_count(), 0))
@@ -39,46 +39,46 @@ impl Fixture {
         })
     }
 
-    fn selection(&self, cx: &mut VisualTestContext) -> Option<(Pos, Pos)> {
+    pub(super) fn selection(&self, cx: &mut VisualTestContext) -> Option<(Pos, Pos)> {
         self.view.read_with(cx, |v, _| v.cursor.selection())
     }
 
-    fn caret(&self, cx: &mut VisualTestContext) -> Pos {
+    pub(super) fn caret(&self, cx: &mut VisualTestContext) -> Pos {
         self.view.read_with(cx, |v, _| v.cursor.caret())
     }
 
-    fn caret_to(&self, cx: &mut VisualTestContext, pos: Pos) {
+    pub(super) fn caret_to(&self, cx: &mut VisualTestContext, pos: Pos) {
         self.view.update(cx, |v, _| v.cursor.select(pos, pos));
     }
 
-    fn run(&self, cx: &mut VisualTestContext, name: &str) {
+    pub(super) fn run(&self, cx: &mut VisualTestContext, name: &str) {
         let code = FUNCTIONS.iter().find(|f| f.name == name).unwrap().code;
         self.view
             .update_in(cx, |v, window, cx| v.run_function(code, &[], window, cx));
     }
 
     /// The status bar text of the mode, if it is on.
-    fn message(&self, cx: &mut VisualTestContext) -> Option<String> {
+    pub(super) fn message(&self, cx: &mut VisualTestContext) -> Option<String> {
         self.view
             .read_with(cx, |v, _| v.isearch().map(|a| a.message().to_owned()))
     }
 
-    fn key(&self, cx: &mut VisualTestContext) -> Option<String> {
+    pub(super) fn key(&self, cx: &mut VisualTestContext) -> Option<String> {
         self.view
             .read_with(cx, |v, _| v.isearch().map(|a| a.key().to_owned()))
     }
 
-    fn active(&self, cx: &mut VisualTestContext) -> bool {
+    pub(super) fn active(&self, cx: &mut VisualTestContext) -> bool {
         self.view.read_with(cx, |v, _| v.isearch().is_some())
     }
 
-    fn pattern(&self, cx: &mut VisualTestContext) -> String {
+    pub(super) fn pattern(&self, cx: &mut VisualTestContext) -> String {
         self.view
             .read_with(cx, |v, _| v.search_state().pattern().to_owned())
     }
 }
 
-fn range(a: (usize, usize), b: (usize, usize)) -> Option<(Pos, Pos)> {
+pub(super) fn range(a: (usize, usize), b: (usize, usize)) -> Option<(Pos, Pos)> {
     Some((Pos::new(a.0, a.1), Pos::new(b.0, b.1)))
 }
 
@@ -485,6 +485,8 @@ fn the_ui_commands_are_registered_under_sakuras_functions(cx: &mut TestAppContex
         ("isearch_prev", "F_ISEARCH_PREV"),
         ("isearch_regexp_next", "F_ISEARCH_REGEXP_NEXT"),
         ("isearch_regexp_prev", "F_ISEARCH_REGEXP_PREV"),
+        ("isearch_migemo_next", "F_ISEARCH_MIGEMO_NEXT"),
+        ("isearch_migemo_prev", "F_ISEARCH_MIGEMO_PREV"),
     ] {
         let reg = registry.get(id).unwrap();
         assert_eq!(reg.sakura, name);

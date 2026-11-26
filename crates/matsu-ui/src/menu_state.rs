@@ -187,6 +187,8 @@ const CHECKABLE: &[&str] = &[
     "F_ISEARCH_PREV",
     "F_ISEARCH_REGEXP_NEXT",
     "F_ISEARCH_REGEXP_PREV",
+    "F_ISEARCH_MIGEMO_NEXT",
+    "F_ISEARCH_MIGEMO_PREV",
     "F_OUTLINE_TOGGLE",
     "F_SELECT_COUNT_MODE",
     "F_TOGGLE_KEY_SEARCH",
@@ -296,10 +298,13 @@ impl FuncStates {
             "F_BIND_WINDOW" => self.tab_bar && self.grouped,
             "F_TOPMOST" => self.topmost,
             // `IsISearchEnabled( nId )`: the mode of the function is the one that is on. The
-            // direction is not looked at. The Migemo search is not built.
+            // direction is not looked at.
             "F_ISEARCH_NEXT" | "F_ISEARCH_PREV" => self.isearch == Some(ISearchMode::Normal),
             "F_ISEARCH_REGEXP_NEXT" | "F_ISEARCH_REGEXP_PREV" => {
                 self.isearch == Some(ISearchMode::Regexp)
+            }
+            "F_ISEARCH_MIGEMO_NEXT" | "F_ISEARCH_MIGEMO_PREV" => {
+                self.isearch == Some(ISearchMode::Migemo)
             }
             "F_OUTLINE_TOGGLE" => self.outline,
             "F_SELECT_COUNT_MODE" => self.select_count_by_byte,

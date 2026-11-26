@@ -81,3 +81,37 @@ pub(crate) fn browse_into_filtered(
     })
     .detach();
 }
+
+/// The button beside a box that holds a folder name, in the place of [`browse_into`]: chooses a
+/// folder, starting where the box says (`SelectDir`), and puts it in the box relative to the
+/// folder of the settings file when it is under it (`GetRelPath`).
+pub(crate) fn browse_folder_into(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+    id: &'static str,
+    title: &'static str,
+) {
+    let text = dialog.input_text(id, cx).unwrap_or_default();
+    let ini_dir: Option<PathBuf> = crate::doc_types::with_user(cx, |user| {
+        crate::settings::history_file(user).and_then(|path| path.parent().map(Path::to_owned))
+    });
+    let typed = Path::new(&text);
+    let full = match (&ini_dir, typed.is_relative()) {
+        (Some(dir), true) => dir.join(typed),
+        _ => typed.to_owned(),
+    };
+    let start = Some(full)
+        .filter(|path| !text.is_empty() && path.is_dir())
+        .or_else(|| ini_dir.clone());
+    let receiver = file_dialog::ask(window, cx, Ask::folder().start(start).titled(title, "選択"));
+    cx.spawn_in(window, async move |this, cx| {
+        let chosen = receiver.await.ok().flatten();
+        if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
+            let text = path_for_box(&path, ini_dir.as_deref());
+            this.update_in(cx, |this, window, cx| this.set_input(id, &text, window, cx))
+                .ok();
+        }
+    })
+    .detach();
+}
