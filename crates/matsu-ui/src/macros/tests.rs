@@ -622,10 +622,10 @@ fn run_function_says_whether_the_command_succeeded(cx: &mut TestAppContext) {
         .view
         .update_in(cx, |v, window, cx| v.run_function(30200, &[], window, cx));
     assert!(!failed);
-    // a function that has no command here yet (F_ISEARCH_MIGEMO_NEXT: Migemo is not in MATSU Editor)
+    // a function that has no command (a code that is in no table)
     let missing = f
         .view
-        .update_in(cx, |v, window, cx| v.run_function(30985, &[], window, cx));
+        .update_in(cx, |v, window, cx| v.run_function(29999, &[], window, cx));
     assert!(!missing);
     assert_eq!(f.lines(cx), ["A"]);
 }

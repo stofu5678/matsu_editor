@@ -187,17 +187,13 @@ fn the_profile_manager_function_opens_its_dialog_once(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_function_without_a_command_says_so(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
-    // the MIGEMO incremental search has no command (Migemo is not in MATSU Editor yet, docs/sakura-gaps.md)
-    let code = matsu_commands::sakura::FUNCTIONS
-        .iter()
-        .find(|function| function.name == "F_ISEARCH_MIGEMO_NEXT")
-        .unwrap()
-        .code;
+    // every function of the table has a command now; a code that is in no table says so by its number
+    let code = 29999;
     f.view.update_in(cx, |view, window, cx| {
         view.run_function(code, &[], window, cx)
     });
     let notice = f.view.read_with(cx, |v, _| v.notice.clone());
-    assert!(notice.unwrap().contains("F_ISEARCH_MIGEMO_NEXT"));
+    assert!(notice.unwrap().contains("29999"));
     // and the text is untouched
     assert_eq!(f.lines(cx), ["abc"]);
 }
