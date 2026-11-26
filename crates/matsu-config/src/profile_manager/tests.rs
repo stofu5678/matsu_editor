@@ -356,11 +356,17 @@ fn one_rule_for_the_names_of_the_manager_and_of_prof() {
 
 #[test]
 fn a_portable_profile_with_only_the_old_file_is_settled_beside_the_executable_and_migrated_there() {
-    // `<exe>\work\ume.ini` (the name before ADR-0021) and no `matsu.ini` anywhere
+    // the old settings file beside the executable (the name before the rename of the product) and no
+    // `matsu.ini` anywhere
     let dir = tempfile::tempdir().unwrap();
     let exe = dir.path().join("exe");
     std::fs::create_dir_all(exe.join("work")).unwrap();
-    std::fs::write(exe.join("work").join("ume.ini"), "[Common]\nkey=7\n").unwrap();
+    std::fs::write(
+        exe.join("work")
+            .join(crate::migrate_old_name::OLD_FILE_NAME),
+        "[Common]\nkey=7\n",
+    )
+    .unwrap();
     let env = Environment {
         exe_dir: Some(exe.clone()),
         app_data: Some(dir.path().join("appdata")),

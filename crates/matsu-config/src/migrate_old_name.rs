@@ -30,7 +30,7 @@ use crate::location::{self, Environment, Os};
 const OLD_APP_DIR: &str = "ume-editor";
 
 /// The name of UME Editor's settings file.
-const OLD_FILE_NAME: &str = "ume.ini";
+pub(crate) const OLD_FILE_NAME: &str = "ume.ini";
 
 /// The start of the header comment of UME Editor's file (`; ume.ini ...`), and of MATSU Editor's.
 const OLD_HEADER_START: &[u8] = b"; ume.ini";
