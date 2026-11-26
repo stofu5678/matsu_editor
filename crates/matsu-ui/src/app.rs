@@ -231,19 +231,23 @@ pub(crate) fn run(
         cx.on_action(|a: &SelectWindow, cx| crate::window_ops::menu_list::select(cx, a.id));
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
-            // The processes of the plugins end first: none is left running behind the editor.
-            crate::macros::plugin_call::shutdown_all(cx);
-            // The shells are asked to end now, on their own threads, while the copies are written below.
-            crate::terminal::shutdown_all(cx);
-            crate::history::view::record_all(cx);
-            crate::saved_state::window::flush(cx);
-            // The copies of the unsaved documents have their latest content when the process ends, however
-            // it was asked to end (ADR-0022).
-            let settled = crate::unsaved::settle_at_quit(cx);
-            // A shell whose closing is cut short by the end of the process is left behind on Windows
-            // (`matsu_terminal::wait_for_closing`); the time is bounded (`terminal::QUIT_WAIT`).
-            matsu_terminal::wait_for_closing(crate::terminal::QUIT_WAIT);
-            settled
+            // The profile stays marked as in use until every write below is done: they write to the
+            // folder of the profile, which another process must not move before (`release_after`).
+            crate::profile_manager::in_use::release_after(|| {
+                // The processes of the plugins end first: none is left running behind the editor.
+                crate::macros::plugin_call::shutdown_all(cx);
+                // The shells are asked to end now, on their own threads, while the copies are written below.
+                crate::terminal::shutdown_all(cx);
+                crate::history::view::record_all(cx);
+                crate::saved_state::window::flush(cx);
+                // The copies of the unsaved documents have their latest content when the process ends, however
+                // it was asked to end (ADR-0022).
+                let settled = crate::unsaved::settle_at_quit(cx);
+                // A shell whose closing is cut short by the end of the process is left behind on Windows
+                // (`matsu_terminal::wait_for_closing`); the time is bounded (`terminal::QUIT_WAIT`).
+                matsu_terminal::wait_for_closing(crate::terminal::QUIT_WAIT);
+                settled
+            })
         })
         .detach();
         cx.on_window_closed(|cx, _| {

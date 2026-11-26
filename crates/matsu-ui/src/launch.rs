@@ -124,6 +124,12 @@ pub(crate) fn path_of_file_url(url: &str) -> Option<PathBuf> {
 /// Runs MATSU Editor for a command line (the arguments after the program name) until the last window
 /// closes. Returns at once if the arguments were handed to a MATSU Editor that is running already.
 pub fn launch(args: Vec<OsString>) {
+    // The process that shows the profile manager alone, for the launch that waits for it
+    // (`profile_manager::startup`).
+    if crate::profile_manager::startup::is_picker(&args) {
+        crate::profile_manager::startup::run_picker();
+        return;
+    }
     // Before anything that GPUI logs: `MATSU_FONT_DIAGNOSTICS` installs the logger (and nothing
     // otherwise).
     let diagnostics = crate::font_diagnostics::install_from_env();
@@ -149,8 +155,18 @@ pub fn launch(args: Vec<OsString>) {
     // A Grep to the standard output (`-GOPT=U`) writes to the standard output of this process: it is not
     // handed to the MATSU Editor that is running, whose output is somewhere else.
     let separate = separate || first.options.greps_to_stdout();
+    // The profile: `-PROF=`, or the default one of `matsu_prof.ini`, or the one the user picks in the profile
+    // manager (`-PROFMGR`). Closing the manager ends the launch, as in Sakura.
+    let headless = first.options.greps_to_stdout();
+    if !crate::profile_manager::startup::settle(&mut first.options, headless) {
+        return;
+    }
     // `-PROF=`: before anything looks for the settings file.
     choose_profile(&first.options);
+    // A profile with a name is marked as in use while this process runs (the profile manager refuses to
+    // rename or delete it). Before the settings of the profile or anything else of it is read: the mark
+    // is made under the lock that a rename holds, so the two are ordered (`in_use::mark_ordered`).
+    crate::profile_manager::in_use::mark_this_process();
     // The settings of the old name are copied to the new places before the file is read.
     crate::settings::migrate_old_settings();
     // The one-liners that were marked for a generative AI move to `[AI]` (ADR-0035), still before the file is read.
@@ -169,6 +185,7 @@ pub fn launch(args: Vec<OsString>) {
                          diagnostics are printed (end it first, or add --separate-process)"
                     );
                 }
+                crate::profile_manager::in_use::release();
                 return;
             }
             Some(Joined::Receiver(receiver)) => Some(receiver),
@@ -189,7 +206,7 @@ pub fn launch(args: Vec<OsString>) {
 
 /// `-PROF=name`: the settings file of the profile, a sub folder of the places for `matsu.ini`
 /// (`matsu_config::location`). A name that is empty is the default profile; one that would leave
-/// the folder is refused. `-PROFMGR` (the profile manager) is not in MATSU Editor.
+/// the folder is refused. `-PROFMGR` was read before this (`profile_manager::startup::settle`).
 fn choose_profile(options: &CommandLine) {
     match options.profile.as_deref() {
         None | Some("") => {}

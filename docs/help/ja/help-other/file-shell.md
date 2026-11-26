@@ -55,11 +55,40 @@
 
 ## プロファイルマネージャ
 
-`F_PROFILEMGR` は、まだ動きません。動かすと、ステータスバーに「F_PROFILEMGR はまだ使えない」と出ます。設定ファイル `matsu.ini` の置き場所の決め方に、ユーザーの判断が要るためです。起動のときに `-PROF=名前` で設定ファイルを選ぶ機能は、すでにあります（「仕様等と正規表現」の章の、コマンドラインの説明を見てください）。
+`F_PROFILEMGR` は、プロファイル（名前をつけた設定のまとまり）を選ぶ画面を開きます。起動のとき `-PROFMGR` を付けても、同じ画面が開きます。画面はサクラエディタの「プロファイルマネージャ」と同じ作りで、別のウィンドウです。
+
+| 部品 | 動き |
+|---|---|
+| 一覧 | 先頭の「(default)」は、名前のないプロファイル（設定ファイルを置く場所そのもの）です。起動時に使うデフォルトの行には、名前のあとに `*` が付きます。上下キー、Home、End と、クリックで選びます |
+| 起動(S) | 選んだプロファイルで、新しい MATSU Editor を始めます（始める前に、そのプロファイルが今の一覧にあるか確かめます。別のプロファイルマネージャが名前を変えたり消したりしていたら、「選んだプロファイルは、一覧にありません」と出て、一覧を読み直し、画面は開いたままです）。プロファイルはプロセスごとに決まるので、新しいプロセスで始まります（`-PROF=名前` を付けた起動と同じ）。画面は閉じます |
+| 閉じる(X) | 何もせずに閉じます（Esc とウィンドウの閉じるボタンも同じ）。起動のときに開いていたなら、起動をやめます |
+| 新規作成(N) | 名前を入力して、一覧の終わりに足します。同じ名前の「ファイル」があると、作れません |
+| 名前変更(R) | 選んだ名前を変えます。そのプロファイルのフォルダーがあれば、フォルダーも、今ある場所の隣で新しい名前に移します（場所は変わりません。大文字と小文字だけの変更もできます）。使用中のプロファイルは、変えられません。移せなければ、OS の理由つきで「名前の変更に失敗しました」と出ます。「(default)」には使えません |
+| 削除(D) | 選んだ名前を一覧から消します。プロファイルのフォルダーと、その中の設定は消さずに、そのまま残します。使用中のプロファイルは、消せません。「(default)」には使えません |
+| デフォルト設定(F)、デフォルト解除(C) | 選んだ行を、起動時に使うデフォルトにします。解除は、デフォルトを決めていない状態に戻します |
+| デフォルト設定にして起動(E) | 起動(S) を押したとき、選んだ行をデフォルトにします |
+| ヘルプ(H)、F1 | このページを開きます |
+
+名前に使えない文字は、`/` `\` `*` `?` `<` `>` `&` `|` `:` `"` `'` とタブと、`..` です。一覧にある名前（「(default)」を含む）と、大文字と小文字の違いだけの名前も、使えません。名前の長さは 259 文字までです。
+
+一覧は、変えるたびに `matsu_prof.ini` に書かれます。書くときは、`matsu_prof.ini.lock` をロックして（ほかのウィンドウや起動のときの画面が同時に書かないように。数秒待っても取れなければ、箱で知らせます）、ファイルを読み直して、その 1 つの変更だけを足します。ほかのウィンドウや、起動のときの画面が変えた内容を、古い一覧で上書きすることはありません。書けなかったときは、箱で知らせて、何も変えません。名前変更は、一覧を先に書いてからフォルダーを移し、移せなければ、そのときの一覧の、その行の名前だけを元に戻します。
+
+「デフォルト設定にして起動」のチェックは、この画面で変えたときだけ書かれます（変えていなければ、ファイルにある値のままです）。
+
+「使用中」は、名前のあるプロファイルで動いている MATSU Editor が、そのプロファイルのフォルダーの `in-use-プロセス番号.lock`（プロセスごとに 1 つ）をロックしていること。同じプロファイルで複数の MATSU Editor が動いているときは、どれか 1 つでも動いていれば使用中ですです。MATSU Editor は、起動のとき、プロファイルの設定を読む前に、`matsu_prof.ini.lock` をロックして、そのロックの中でプロファイルのフォルダーの場所を決め、印を付けます（設定は、その決めた場所から読みます）。名前変更も同じロックの中で印を確かめてフォルダーを移すので、起動と名前変更のどちらかが先に済みます。ロックが取れなければ、ロックなしで印を付けて、そのことをログに出します。ロックはプロセスのものなので、MATSU Editor が終われば、異常終了しても、OS が放します（残ったファイルは何も押さえません。同じ番号のプロセスが、また使います）。macOS と Linux のロックは、ロックを使うプログラム（MATSU Editor）にだけ効きます。
+
+プロファイルのフォルダーは、`-PROF=名前` で起動した MATSU Editor が `matsu.ini` を探す場所と同じです。Windows で実行ファイルの隣に `matsu.ini` を置いているときは、`名前\matsu.ini` が実行ファイルの隣にあれば、そこです。なければ `%APPDATA%\matsu-editor\名前` です。起動のときに画面が開くのは、次のとおりです。
+
+- `-PROFMGR` を付けたとき。
+- `-PROF=` がなく、`matsu_prof.ini` があって、そのデフォルトが決まっていない（`nDefaultIndex` が -1、または名前の数より大きい）とき。
+
+`matsu_prof.ini` がないとき、または、デフォルトが決まっているときは、画面を出さずに、そのデフォルトのプロファイル（なければ名前のないプロファイル）で起動します。
+
+`matsu_prof.ini` の場所と形式は、[設定ファイル matsu.ini](../intro/settings-file.md) にあります。サクラエディタとの違いは、「(default)」をデフォルトにした場合も、画面を出さずに起動する点です（サクラエディタは、毎回画面を出します）。
 
 ## 根拠
 
 - サクラのソース: `sakura_core/cmd/CViewCommander_File.cpp` の `Command_FILESAVE`、`Command_OPEN_FOLDER_IN_EXPLORER`、`Command_OPEN_COMMAND_PROMPT`、`Command_OPEN_POWERSHELL`
 - MATSU のコード: `crates/matsu-ui/src/ui_commands/file/` の `file_save_quiet.rs`、`open_folder_in_explorer.rs`、`open_command_prompt.rs`、`open_command_prompt_as_admin.rs`、`open_powershell.rs`、`open_powershell_as_admin.rs`。`crates/matsu-ui/src/file_ops/external.rs`（ファイルがないとき、エラーの文）、`crates/matsu-ui/src/file_ops/save.rs`（`SaveRequest::quiet`）、`crates/matsu-platform/src/shell/mod.rs`
-- 未対応: `crates/matsu-ui/src/view/mod.rs` の `run_function`（コマンドがない機能の知らせ）、`docs/sakura-gaps.md` のプロファイルの行
-- 試験: `crates/matsu-ui/src/file_ops/external.rs` の `the_folder_of_a_file`、`errors_are_told_in_japanese`、`crates/matsu-ui/src/view/tests.rs` の `a_function_without_a_command_says_so`
+- プロファイルマネージャ: サクラのソースは `sakura_core/dlg/CDlgProfileMgr.cpp`、`sakura_core/cmd/CViewCommander_File.cpp` の `Command_PROFILEMGR`、`sakura_core/_main/CProcessFactory.cpp` の `ProfileSelect`。MATSU のコードは `crates/matsu-config/src/profile_manager.rs`（ファイルと名前の規則、起動の判断）、`crates/matsu-ui/src/profile_manager/`（画面、起動）、`crates/matsu-ui/src/ui_commands/file/profilemgr.rs`
+- 試験: `crates/matsu-ui/src/file_ops/external.rs` の `the_folder_of_a_file`、`errors_are_told_in_japanese`、`crates/matsu-config/src/profile_manager/tests.rs`、`crates/matsu-ui/src/profile_manager/tests.rs`

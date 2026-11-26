@@ -36,6 +36,69 @@ const OLD_FILE_NAME: &str = "ume.ini";
 const OLD_HEADER_START: &[u8] = b"; ume.ini";
 const NEW_HEADER_START: &[u8] = b"; matsu.ini";
 
+/// The places of the old settings file for the same profile, in the order of [`location::candidate_paths`]
+/// (the one at an index is the old file of the new place at that index). The only place that spells out the
+/// old names and places. Delete with the module (version 1.0).
+pub(crate) fn legacy_candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
+    location::candidate_paths_named(os, env, OLD_APP_DIR, OLD_FILE_NAME)
+}
+
+/// The old settings file in `dir`, for the tests of this crate that make one.
+#[cfg(test)]
+pub(crate) fn legacy_settings_file(dir: &Path) -> PathBuf {
+    dir.join(OLD_FILE_NAME)
+}
+
+/// For the tests of other crates: writes `contents` as the old settings file of the profile in `env`
+/// (`env.profile_name`), in the last of the old places (the user's own folder), where [`migrate`] looks for
+/// it. Not for the program; it goes with this module at version 1.0.
+#[doc(hidden)]
+pub fn plant_legacy_settings(os: Os, env: &Environment, contents: &str) -> io::Result<()> {
+    let Some(file) = legacy_candidate_paths(os, env).pop() else {
+        return Err(io::Error::other("the OS has no place for the settings"));
+    };
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(file, contents)
+}
+
+/// Whether settings of the old name have to come over, by the one rule that [`migrate`] and the profile
+/// manager's choice of the folder of a profile ([`settings_file`]) both follow: the current settings win.
+/// Only when no current `matsu.ini` is in any of its places is an old file looked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Need {
+    /// A current file is in one of its places (or the OS has no place): nothing to do.
+    NotNeeded,
+    /// No current file and no old file.
+    NothingToMigrate,
+    /// No current file; the old file is at this index of [`legacy_candidate_paths`].
+    From(usize),
+}
+
+pub(crate) fn need(os: Os, env: &Environment) -> Need {
+    let new = location::candidate_paths(os, env);
+    if new.is_empty() || location::find_existing(&new).is_some() {
+        return Need::NotNeeded;
+    }
+    legacy_candidate_paths(os, env)
+        .iter()
+        .position(|old| old.is_file())
+        .map_or(Need::NothingToMigrate, Need::From)
+}
+
+/// The settings file of the profile in `env`, by the rule of [`need`]: the place of the old file when only
+/// an old file exists (where [`migrate`] will write `matsu.ini`); otherwise [`location::settings_file`]
+/// (the current file where there is one, else the place a new one is written). The one entry point for
+/// where the settings of a profile are, also before the migration has run: the folders of the profile
+/// manager (`profile_manager::base_dir`, `profile_dir`) are settled from it.
+pub(crate) fn settings_file(os: Os, env: &Environment) -> Option<PathBuf> {
+    match need(os, env) {
+        Need::From(index) => location::candidate_paths(os, env).get(index).cloned(),
+        _ => location::settings_file(os, env),
+    }
+}
+
 /// What [`migrate`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -79,46 +142,42 @@ impl Outcome {
 
 /// Copies UME Editor's settings to MATSU Editor's places when they are needed (see the module).
 pub fn migrate(os: Os, env: &Environment) -> Outcome {
-    let new = location::candidate_paths(os, env);
-    if new.is_empty() || location::find_existing(&new).is_some() {
-        return Outcome::NotNeeded;
-    }
-    let old = location::candidate_paths_named(os, env, OLD_APP_DIR, OLD_FILE_NAME);
+    let index = match need(os, env) {
+        Need::NotNeeded => return Outcome::NotNeeded,
+        Need::NothingToMigrate => return Outcome::NothingToMigrate,
+        Need::From(index) => index,
+    };
     // The same places without the profile: the folders that are copied as a whole.
     let no_profile = Environment {
         profile_name: None,
         ..env.clone()
     };
-    let old_roots = location::candidate_paths_named(os, &no_profile, OLD_APP_DIR, OLD_FILE_NAME);
+    let old_files = legacy_candidate_paths(os, env);
+    let old_roots = legacy_candidate_paths(os, &no_profile);
     let new_roots = location::candidate_paths(os, &no_profile);
-    for ((old_file, old_root), new_root) in old.iter().zip(&old_roots).zip(&new_roots) {
-        if !old_file.is_file() {
-            continue;
-        }
-        let (Some(from), Some(to)) = (old_root.parent(), new_root.parent()) else {
-            continue;
-        };
-        // Next to the executable only the settings file is copied: the folder holds the program.
-        let portable = env.exe_dir.as_deref() == Some(from);
-        let result = if portable {
-            let target = with_new_name(old_file, from, to);
-            copy_settings_file(old_file, &target).map(|()| 0)
-        } else {
-            copy_folder(from, to, old_file)
-        };
-        return match result {
-            Ok(skipped) => Outcome::Migrated {
-                from: from.to_path_buf(),
-                to: to.to_path_buf(),
-                skipped,
-            },
-            Err(e) => Outcome::Failed {
-                from: from.to_path_buf(),
-                error: e.to_string(),
-            },
-        };
+    let (old_file, old_root, new_root) = (&old_files[index], &old_roots[index], &new_roots[index]);
+    let (Some(from), Some(to)) = (old_root.parent(), new_root.parent()) else {
+        return Outcome::NothingToMigrate;
+    };
+    // Next to the executable only the settings file is copied: the folder holds the program.
+    let portable = env.exe_dir.as_deref() == Some(from);
+    let result = if portable {
+        let target = with_new_name(old_file, from, to);
+        copy_settings_file(old_file, &target).map(|()| 0)
+    } else {
+        copy_folder(from, to, old_file)
+    };
+    match result {
+        Ok(skipped) => Outcome::Migrated {
+            from: from.to_path_buf(),
+            to: to.to_path_buf(),
+            skipped,
+        },
+        Err(e) => Outcome::Failed {
+            from: from.to_path_buf(),
+            error: e.to_string(),
+        },
     }
-    Outcome::NothingToMigrate
 }
 
 /// Where `old_file` (under `from`) goes under `to`, with `ume.ini` named `matsu.ini`.

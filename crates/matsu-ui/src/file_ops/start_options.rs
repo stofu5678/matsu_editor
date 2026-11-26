@@ -27,7 +27,7 @@
 //! The options that have nothing to do in MATSU Editor are read and dropped: `-NOWIN` (MATSU Editor has
 //! no process in the tray: the launch opens its window as any launch does), `-GROUP=` (the groups
 //! of the tabs are not numbered), `-DEBUGMODE` (no output window for `OutputDebugString`),
-//! `-PROFMGR` (no profile manager), and from `-GOPT=` the letters `H`
+//! and from `-GOPT=` the letters `H`
 //! (no heading; the engine always writes it) and `X` (MATSU Editor does not change its current
 //! folder).
 

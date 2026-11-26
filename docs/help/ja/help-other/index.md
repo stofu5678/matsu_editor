@@ -34,15 +34,7 @@
 | 検索系 | `F_REPLACE`、`F_REPLACE_ALL`、`F_SEARCH_BOX` | [置換の実行、検索ボックス、そのほかの検索系](search-others.md) |
 | モード切り替え系、設定系 | `F_CHGMOD_EOL_NEL` `F_CHGMOD_EOL_LS` `F_CHGMOD_EOL_PS`、フォントサイズの 3 つ、`F_TYPE_*` の 6 つ | [設定まわりのメニューにない機能](settings-others.md) |
 
-### まだ動かない機能
-
-メニューにない機能のうち、MATSU Editor にコマンドがないのは、次の 1 つだけです。
-
-| 機能名 | 表示名 | 理由 |
-|---|---|---|
-| `F_PROFILEMGR` | プロファイルマネージャ | 設定ファイル `matsu.ini` の置き場所をどう決めるか、判断が要るため（詳しくは [ファイルの場所とシェル、保存、プロファイル](file-shell.md)） |
-
-動かすと、ステータスバーに「F_PROFILEMGR はまだ使えない」と出ます。
+メニューにない機能は、すべて MATSU Editor にコマンドがあります。
 
 ## ほかの章にある、メニューにない機能
 
@@ -65,7 +57,7 @@
 
 ## 根拠
 
-- 機能の一覧と、メニューにあるかどうか: `crates/matsu-commands/src/sakura/functions.rs`（`FUNCTIONS`）、`crates/matsu-commands/src/sakura/main_menu.rs`（`MAIN_MENU`）。メニューにない「コマンド」の機能は 165 個で、機能名を `SAKURA` 定数に持つコマンドを `crates/` で探して、`F_PROFILEMGR` 以外のすべてにあることを確かめた
+- 機能の一覧と、メニューにあるかどうか: `crates/matsu-commands/src/sakura/functions.rs`（`FUNCTIONS`）、`crates/matsu-commands/src/sakura/main_menu.rs`（`MAIN_MENU`）。メニューにない「コマンド」の機能は 165 個で、機能名を `SAKURA` 定数に持つコマンドを `crates/` で探して、すべてにあることを確かめた
 - グループの分け方: `crates/matsu-commands/src/sakura/function_lists.rs`（`FUNCTION_LISTS`）、`crates/matsu-commands/src/sakura/functions.rs`（`FUNCTION_GROUPS`）
 - 既定のキー: `crates/matsu-commands/src/sakura/key_bindings.rs`
 - 動かないもの: `docs/sakura-gaps.md`（「コマンドと関数」の表）、`crates/matsu-ui/src/view/mod.rs` の `run_function`

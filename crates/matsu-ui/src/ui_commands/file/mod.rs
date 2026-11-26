@@ -41,6 +41,7 @@ pub mod plsql_compile_on_sqlplus;
 pub mod print;
 pub mod print_pagesetup;
 pub mod print_preview;
+pub mod profilemgr;
 pub mod property_file;
 pub mod uudecode;
 pub mod view_mode;

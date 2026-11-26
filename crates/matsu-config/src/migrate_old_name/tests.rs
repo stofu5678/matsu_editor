@@ -39,6 +39,7 @@ impl Sandbox {
             app_data: Some(self.path("appdata")),
             xdg_config_home: None,
             profile_name: None,
+            profile_dir: None,
         }
     }
 }

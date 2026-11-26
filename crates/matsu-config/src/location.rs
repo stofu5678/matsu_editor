@@ -66,6 +66,10 @@ pub struct Environment {
     pub xdg_config_home: Option<PathBuf>,
     /// The profile name of `-PROF`; Sakura uses a sub folder with this name.
     pub profile_name: Option<String>,
+    /// The folder of the profile of this process, when it was settled at the start
+    /// ([`set_process_profile_dir`]): the settings file is looked for there and nowhere else. `None`
+    /// looks for the file in the usual places.
+    pub profile_dir: Option<PathBuf>,
 }
 
 /// The profile of this process (`-PROF=`), set once at the start.
@@ -76,6 +80,16 @@ static PROCESS_PROFILE: std::sync::OnceLock<String> = std::sync::OnceLock::new()
 /// counts (the profile is chosen when the process starts); returns whether this call was it.
 pub fn set_process_profile_name(name: &str) -> bool {
     PROCESS_PROFILE.set(name.to_owned()).is_ok()
+}
+
+/// The folder of the profile of this process, set once at the start.
+static PROCESS_PROFILE_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Settles the folder of the profile of this process: [`Environment::from_process`] has it, and the
+/// settings file is looked for there only (the folder depends on which files exist, so it is looked up
+/// once, under the lock of the profile manager, and kept). Only the first call counts.
+pub fn set_process_profile_dir(dir: PathBuf) -> bool {
+    PROCESS_PROFILE_DIR.set(dir).is_ok()
 }
 
 impl Environment {
@@ -96,6 +110,7 @@ impl Environment {
             app_data: var("APPDATA"),
             xdg_config_home: var("XDG_CONFIG_HOME").filter(|p| p.is_absolute()),
             profile_name: PROCESS_PROFILE.get().cloned(),
+            profile_dir: PROCESS_PROFILE_DIR.get().cloned(),
         }
     }
 }
@@ -124,6 +139,13 @@ pub(crate) fn candidate_paths_named(
     app_dir: &str,
     file_name: &str,
 ) -> Vec<PathBuf> {
+    // a profile whose folder was settled at the start has no other place
+    if app_dir == APP_DIR
+        && let (Some(name), Some(dir)) = (env.profile_name.as_deref(), &env.profile_dir)
+        && !name.is_empty()
+    {
+        return vec![dir.join(file_name)];
+    }
     let mut out = Vec::new();
     match os {
         Os::Windows => {
@@ -177,6 +199,15 @@ pub fn find_existing(candidates: &[PathBuf]) -> Option<&Path> {
         .find(|p| p.is_file())
 }
 
+/// The settings file among [`candidate_paths`]: the one that exists, else the one [`write_path`] gives.
+/// `env.profile_name` says the profile. This is the rule for the current file only. What a caller needs to
+/// know about "the settings file of a profile" is `migrate_old_name::settings_file`, which follows
+/// the old product name's file too and delegates here when there is none; use that one.
+pub fn settings_file(os: Os, env: &Environment) -> Option<PathBuf> {
+    let candidates = candidate_paths(os, env);
+    write_path(&candidates).map(Path::to_path_buf)
+}
+
 /// The file to write: the one that exists, or else the last candidate, which is the user's own folder
 /// (a file next to the executable may be in a folder the user cannot write to).
 pub fn write_path(candidates: &[PathBuf]) -> Option<&Path> {
@@ -194,7 +225,27 @@ mod tests {
             app_data: Some(PathBuf::from("/appdata")),
             xdg_config_home: None,
             profile_name: None,
+            profile_dir: None,
         }
+    }
+
+    #[test]
+    fn a_settled_profile_folder_is_the_only_place() {
+        let mut e = env();
+        e.profile_name = Some("work".to_owned());
+        e.profile_dir = Some(PathBuf::from("/settled/work"));
+        for os in [Os::Windows, Os::MacOs, Os::Linux] {
+            assert_eq!(
+                candidate_paths(os, &e),
+                [PathBuf::from("/settled/work/matsu.ini")]
+            );
+        }
+        // without a profile name the folder means nothing
+        e.profile_name = None;
+        assert_ne!(
+            candidate_paths(Os::Linux, &e),
+            [PathBuf::from("/settled/work/matsu.ini")]
+        );
     }
 
     #[test]

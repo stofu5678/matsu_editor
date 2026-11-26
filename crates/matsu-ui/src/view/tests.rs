@@ -154,20 +154,46 @@ fn undo_and_redo_by_key_and_by_menu_action(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_function_without_a_command_says_so(cx: &mut TestAppContext) {
+fn the_profile_manager_function_opens_its_dialog_once(cx: &mut TestAppContext) {
+    // `F_PROFILEMGR` (docs/sakura-gaps.md): the dialog is a window of its own; a second call brings it
+    // to the front and makes no second window
+    cx.update(gpui_component::init);
     let (f, cx) = setup(cx, "abc");
-    // the profile manager (プロファイルマネージャ) has no command yet (it needs a decision about
-    // where the settings file is, docs/sakura-gaps.md)
     let code = matsu_commands::sakura::FUNCTIONS
         .iter()
         .find(|function| function.name == "F_PROFILEMGR")
         .unwrap()
         .code;
+    for _ in 0..2 {
+        let ran = f.view.update_in(cx, |view, window, cx| {
+            view.run_function(code, &[], window, cx)
+        });
+        assert!(ran);
+        cx.run_until_parked();
+    }
+    let windows = cx.update(|_, app| app.windows().len());
+    assert_eq!(windows, 2, "the editor window and the dialog");
+    let dialog = cx.update(|_, app| crate::profile_manager::current(app));
+    let (_, handle) = dialog.expect("the dialog is open");
+    cx.update(|_, app| {
+        handle
+            .update(app, |_, window, _| window.remove_window())
+            .ok();
+    });
+    // the text is untouched
+    assert_eq!(f.lines(cx), ["abc"]);
+}
+
+#[gpui::test]
+fn a_function_without_a_command_says_so(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    // every function of the table has a command now; a code that is in no table says so by its number
+    let code = 29999;
     f.view.update_in(cx, |view, window, cx| {
         view.run_function(code, &[], window, cx)
     });
     let notice = f.view.read_with(cx, |v, _| v.notice.clone());
-    assert!(notice.unwrap().contains("F_PROFILEMGR"));
+    assert!(notice.unwrap().contains("29999"));
     // and the text is untouched
     assert_eq!(f.lines(cx), ["abc"]);
 }
