@@ -176,7 +176,9 @@ impl ProfileSettings {
         if name.is_empty() {
             return Err(NameError::Empty);
         }
-        if name.chars().any(|c| RESERVED.contains(c)) || name == ".." {
+        // Sakura's list, and what `-PROF=` cannot select (`.`, control characters): the launcher would
+        // silently start the profile without a name for such a name
+        if name.chars().any(|c| RESERVED.contains(c)) || name == ".." || !valid_folder_name(name) {
             return Err(NameError::InvalidChar);
         }
         let taken = (0..self.rows())
@@ -296,8 +298,7 @@ pub fn base_dir(os: Os, env: &Environment) -> Option<PathBuf> {
         profile_name: None,
         ..env.clone()
     };
-    let candidates = location::candidate_paths(os, &without_profile);
-    location::write_path(&candidates)?
+    location::settings_file(os, &without_profile)?
         .parent()
         .map(Path::to_path_buf)
 }
@@ -307,9 +308,31 @@ pub fn settings_path(os: Os, env: &Environment) -> Option<PathBuf> {
     base_dir(os, env).map(|dir| dir.join(FILE_NAME))
 }
 
-/// `GetProfileDirectory`: the folder where the settings of a profile are.
+/// `GetProfileDirectory`: the folder where the settings of a profile are. It is the folder of the
+/// settings file that a process started with `-PROF=name` uses ([`location::settings_file`], the same
+/// choice as `UserSettings`). On Windows with a `matsu.ini` next to the program that is the folder next
+/// to the program only if `name\matsu.ini` is there already, else the user's own folder.
 pub fn profile_dir(os: Os, env: &Environment, name: &str) -> Option<PathBuf> {
-    base_dir(os, env).map(|dir| dir.join(name))
+    let with_profile = Environment {
+        profile_name: Some(name.to_owned()),
+        ..env.clone()
+    };
+    location::settings_file(os, &with_profile)?
+        .parent()
+        .map(Path::to_path_buf)
+}
+
+/// Whether `name` can be the name of a profile folder, for `-PROF=` and for the manager (one rule for
+/// both): not empty, not `.` or `..`, shorter than 260 characters, no control character, and none of
+/// `/ \ : * ? " < > |`.
+pub fn valid_folder_name(name: &str) -> bool {
+    !(name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.chars().count() >= 260
+        || name
+            .chars()
+            .any(|c| c.is_control() || "/\\:*?\"<>|".contains(c)))
 }
 
 /// What the start of a process does about the profile (`CDlgProfileMgr::TrySelectProfile`).

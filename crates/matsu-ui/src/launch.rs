@@ -196,6 +196,9 @@ pub fn launch(args: Vec<OsString>) {
     };
     // The `PATH` of the login shell is read while the window is made (macOS, not from a terminal).
     matsu_platform::login_path::start();
+    // A profile with a name is marked as in use while this process runs (the profile manager refuses to
+    // rename or delete it).
+    crate::profile_manager::in_use::mark_this_process();
     crate::app::run(user, tx, rx);
 }
 

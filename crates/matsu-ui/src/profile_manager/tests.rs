@@ -13,7 +13,7 @@ use gpui::{TestAppContext, VisualTestContext};
 use matsu_config::profile_manager::{self, ProfileSettings};
 
 use super::startup::{Picked, parse_report, report};
-use super::{ProfileManagerDialog, Store, current, open};
+use super::{ProfileManagerDialog, Store, current, in_use, open};
 
 type Answers = Rc<RefCell<Vec<Option<String>>>>;
 
@@ -246,6 +246,8 @@ fn rename_that_cannot_move_the_folder_is_told(cx: &mut TestAppContext) {
     assert!(error_box(cx));
     assert_eq!(rows(cx), ["(default)", "a"]);
     assert!(dir.path().join("a").is_dir());
+    // nothing was written
+    assert_eq!(on_disk(dir.path()).unwrap().profiles, ["a"]);
 }
 
 #[gpui::test]
@@ -497,6 +499,177 @@ fn the_name_panel_limits_the_length(cx: &mut TestAppContext) {
     with_dialog(cx, |d, _, dcx| {
         assert_eq!(entry_text(d, dcx).encode_utf16().count(), 259);
     });
+}
+
+/// Changes the file as another process (a second dialog, the picker of a start-up) would.
+fn change_elsewhere(dir: &Path, change: impl FnOnce(&mut ProfileSettings)) {
+    let mut list = on_disk(dir).unwrap_or_default();
+    change(&mut list);
+    profile_manager::write(&file_of(dir), &list).unwrap();
+}
+
+#[gpui::test]
+fn a_change_of_another_window_is_not_written_over(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let _a = open_dialog(cx, dir.path(), Some(&settings(&["a"], 1)));
+    // another process makes "work" while this window is open with the old list
+    change_elsewhere(dir.path(), |list| {
+        list.add("work");
+    });
+    // the check box and 閉じる write the file: "work" stays
+    with_dialog(cx, |d, window, dcx| {
+        d.set_default_start(true, dcx);
+        d.close(window, dcx);
+    });
+    let file = on_disk(dir.path()).unwrap();
+    assert_eq!(file.profiles, ["a", "work"]);
+    assert!(file.default_select);
+}
+
+#[gpui::test]
+fn every_action_starts_from_the_file_and_shows_the_result(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let _a = open_dialog(cx, dir.path(), Some(&settings(&["a", "b"], -1)));
+    change_elsewhere(dir.path(), |list| {
+        list.add("work");
+    });
+    with_dialog(cx, |d, window, dcx| d.create("new", window, dcx));
+    assert_eq!(
+        on_disk(dir.path()).unwrap().profiles,
+        ["a", "b", "work", "new"]
+    );
+    assert_eq!(rows(cx), ["(default)", "a", "b", "work", "new"]);
+    // a profile that another window deleted is not found by the action: nothing is written
+    change_elsewhere(dir.path(), |list| {
+        list.remove(2);
+    });
+    with_dialog(cx, |d, window, dcx| {
+        d.select(2, dcx);
+        d.make_default(window, dcx);
+    });
+    assert!(!error_box(cx));
+    assert_eq!(on_disk(dir.path()).unwrap().profiles, ["a", "work", "new"]);
+    assert_eq!(on_disk(dir.path()).unwrap().default_index, -1);
+    assert_eq!(rows(cx), ["(default)", "a", "work", "new"]);
+}
+
+/// Makes the file impossible to write: a folder has its name.
+fn break_the_file(dir: &Path) {
+    let file = file_of(dir);
+    let _ = std::fs::remove_file(&file);
+    std::fs::create_dir(&file).unwrap();
+}
+
+#[gpui::test]
+fn an_action_that_cannot_write_says_so_and_changes_nothing(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("a")).unwrap();
+    let _a = open_dialog(cx, dir.path(), Some(&settings(&["a", "b"], 1)));
+    break_the_file(dir.path());
+    with_dialog(cx, |d, window, dcx| {
+        d.create("c", window, dcx);
+    });
+    assert!(error_box(cx), "create");
+    with_dialog(cx, |d, window, dcx| {
+        d.select(2, dcx);
+        d.delete(window, dcx);
+    });
+    assert!(error_box(cx), "delete");
+    with_dialog(cx, |d, window, dcx| d.make_default(window, dcx));
+    assert!(error_box(cx), "make_default");
+    with_dialog(cx, |d, window, dcx| d.clear_default(window, dcx));
+    assert!(error_box(cx), "clear_default");
+    // the folder is not moved when the list cannot be written
+    with_dialog(cx, |d, window, dcx| d.rename(1, "z", window, dcx));
+    assert!(error_box(cx), "rename");
+    assert!(dir.path().join("a").is_dir());
+    assert!(!dir.path().join("z").exists());
+}
+
+#[gpui::test]
+fn a_profile_in_use_cannot_be_renamed_or_deleted(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let _a = open_dialog(cx, dir.path(), Some(&settings(&["a", "b"], -1)));
+    // a second holder in this process: the mark of the profile "a"
+    let held = in_use::hold(&dir.path().join("a")).unwrap();
+    with_dialog(cx, |d, window, dcx| d.rename(1, "z", window, dcx));
+    assert!(error_box(cx), "rename");
+    with_dialog(cx, |d, window, dcx| {
+        d.select(1, dcx);
+        d.delete(window, dcx);
+    });
+    assert!(error_box(cx), "delete");
+    assert_eq!(rows(cx), ["(default)", "a", "b"]);
+    assert!(dir.path().join("a").is_dir());
+    // "b" is not in use
+    with_dialog(cx, |d, window, dcx| d.rename(2, "c", window, dcx));
+    assert!(!error_box(cx));
+    // the mark goes with the holder
+    drop(held);
+    with_dialog(cx, |d, window, dcx| d.rename(1, "z", window, dcx));
+    assert!(!error_box(cx));
+    assert!(dir.path().join("z").is_dir());
+    assert_eq!(rows(cx), ["(default)", "z", "c"]);
+}
+
+#[test]
+fn the_mark_is_held_by_one_and_goes_with_the_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("p");
+    // a folder that was never marked is free, and the file of a holder that is gone holds nothing
+    assert!(!in_use::is_held(&folder));
+    let first = in_use::hold(&folder).unwrap();
+    assert!(in_use::is_held(&folder));
+    assert!(in_use::hold(&folder).is_err(), "a second holder is refused");
+    drop(first);
+    assert!(!in_use::is_held(&folder), "the lock went with its holder");
+    assert!(in_use::hold(&folder).is_ok());
+}
+
+#[gpui::test]
+fn a_case_only_rename_moves_the_folder(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("work")).unwrap();
+    std::fs::write(dir.path().join("work").join("matsu.ini"), b"x").unwrap();
+    let _a = open_dialog(cx, dir.path(), Some(&settings(&["work"], -1)));
+    with_dialog(cx, |d, window, dcx| d.rename(1, "Work", window, dcx));
+    assert!(!error_box(cx));
+    assert_eq!(rows(cx), ["(default)", "Work"]);
+    // the folder has the new case, with its content (on a file system that ignores case, `exists`
+    // cannot tell: the names that the folder lists can)
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(names.contains(&"Work".to_owned()), "{names:?}");
+    assert!(!names.contains(&"work".to_owned()), "{names:?}");
+    assert!(dir.path().join("Work").join("matsu.ini").is_file());
+    // and nothing was left under the temporary name
+    assert!(
+        names.iter().all(|n| !n.contains(".matsu-rename-")),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn a_case_only_rename_of_one_folder_is_not_taken_for_a_clash() {
+    // On a file system that ignores case `work` and `Work` are one folder; on another they are two.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("work")).unwrap();
+    let store = Store::in_folder(dir.path());
+    let plan = store.plan_rename("work", "Work");
+    let ignores_case = dir.path().join("WORK").exists();
+    if ignores_case {
+        assert!(matches!(plan, Ok(Some(_))), "the same folder: {plan:?}");
+    } else {
+        // the new name is free: a plain move
+        assert!(matches!(plan, Ok(Some(_))), "{plan:?}");
+        std::fs::create_dir(dir.path().join("Work")).unwrap();
+        assert_eq!(
+            store.plan_rename("work", "Work").unwrap_err(),
+            super::store::MoveError::Exists
+        );
+    }
 }
 
 #[test]

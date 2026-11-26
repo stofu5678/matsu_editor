@@ -608,14 +608,7 @@ fn windows_drive_path(path: PathBuf) -> PathBuf {
 /// The profile name as a folder name: none when it would leave the settings folder (a separator,
 /// a drive, `.` or `..`) or is too long (`CDlgProfileMgr::m_ProfileName` is `_MAX_PATH`).
 pub(crate) fn valid_profile_name(name: &str) -> Option<&str> {
-    let bad = name.is_empty()
-        || name == "."
-        || name == ".."
-        || name.chars().count() >= 260
-        || name
-            .chars()
-            .any(|c| c.is_control() || "/\\:*?\"<>|".contains(c));
-    (!bad).then_some(name)
+    matsu_config::profile_manager::valid_folder_name(name).then_some(name)
 }
 
 /// The text of a response file (`-@=`): UTF-8 with a BOM, else Shift_JIS (the help says "SJIS か

@@ -177,6 +177,15 @@ pub fn find_existing(candidates: &[PathBuf]) -> Option<&Path> {
         .find(|p| p.is_file())
 }
 
+/// The settings file of the process: the one that exists among [`candidate_paths`], else the one
+/// [`write_path`] gives. This is the one rule for where a profile's settings live: `UserSettings` reads
+/// it, and the profile manager (`crate::profile_manager`) looks for the folder of a profile with it.
+/// `env.profile_name` says the profile.
+pub fn settings_file(os: Os, env: &Environment) -> Option<PathBuf> {
+    let candidates = candidate_paths(os, env);
+    write_path(&candidates).map(Path::to_path_buf)
+}
+
 /// The file to write: the one that exists, or else the last candidate, which is the user's own folder
 /// (a file next to the executable may be in a folder the user cannot write to).
 pub fn write_path(candidates: &[PathBuf]) -> Option<&Path> {

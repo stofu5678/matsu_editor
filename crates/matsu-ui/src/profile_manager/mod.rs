@@ -46,6 +46,7 @@ use gpui_component::{Disableable as _, Root, h_flex, v_flex};
 use matsu_config::profile_manager::{MAX_NAME_LEN, NameError, ProfileSettings};
 use matsu_plugin::functions::window::truncate_utf16;
 
+pub(crate) mod in_use;
 pub(crate) mod startup;
 mod store;
 
@@ -80,6 +81,8 @@ pub(crate) const ERR_ALREADY: &str = "すでに同じ名前のプロファイル
 pub(crate) const ERR_FILE: &str = "同名のファイルがあるため作成できません。";
 const RENAME_TITLE: &str = "プロファイル名の変更";
 const RENAME_MESSAGE: &str = "プロファイル名を入力してください";
+pub(crate) const ERR_IN_USE: &str =
+    "このプロファイルは使用中です。\n使用中のプロファイルの名前変更と削除はできません。";
 pub(crate) const ERR_RENAME: &str =
     "名前の変更に失敗しました。\nプロファイルは利用中の可能性があります。";
 
@@ -209,16 +212,77 @@ impl ProfileManagerDialog {
         cx.notify();
     }
 
-    /// `UpdateIni`: the list, the star and the check box go to the file.
-    fn persist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.store.write(&self.settings).is_err() {
-            self.tell(ERR_WRITE, window, cx);
+    /// `ErrorMessage`: a box with the text and OK. A refusal without a text says nothing (Sakura
+    /// ignores an empty name).
+    fn tell(&self, failure: &Failure, window: &mut Window, cx: &mut Context<Self>) {
+        if !failure.message.is_empty() {
+            crate::boxes::tell(
+                window,
+                PromptLevel::Critical,
+                failure.message,
+                failure.detail.as_deref(),
+                cx,
+            );
         }
     }
 
-    /// `ErrorMessage`: a box with the text and OK.
-    fn tell(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
-        crate::boxes::tell(window, PromptLevel::Critical, message, None, cx);
+    /// The list as it is on the disk now, with the check box of this window (`UpdateIni` writes the
+    /// check box with every change). The window keeps no list of its own to write back: other windows
+    /// and processes change the file too.
+    fn fresh(&self) -> ProfileSettings {
+        // A file that cannot be read (it is gone, or something is in its place) leaves the window's own
+        // list: the window does not turn into an empty list that the next action would write.
+        let mut list = self.store.read().unwrap_or_else(|| self.settings.clone());
+        list.default_select = self.settings.default_select;
+        list
+    }
+
+    /// Shows `list`: the chosen row stays on the same profile when it is still there, else on the
+    /// same place.
+    fn adopt(&mut self, list: ProfileSettings, cx: &mut Context<Self>) {
+        let name = self.settings.profile_of(self.selected).to_owned();
+        self.selected = row_named(&list, &name)
+            .unwrap_or(self.selected)
+            .min(list.rows() - 1);
+        self.settings = list;
+        self.scroll.scroll_to_item(self.selected);
+        cx.notify();
+    }
+
+    /// One action on the list: reads the file, `edit` changes the one thing, the file is written, and
+    /// the result is what the window shows. When it fails, nothing was written, the reason is told, and
+    /// the window shows what the disk has. Returns whether the change was made.
+    fn change(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        edit: impl FnOnce(&Store, &mut ProfileSettings) -> Result<(), Failure>,
+    ) -> bool {
+        let mut list = self.fresh();
+        let done = edit(&self.store, &mut list).and_then(|()| {
+            self.store
+                .write(&list)
+                .map_err(|error| Failure::because(ERR_WRITE, &error))
+        });
+        match done {
+            Ok(()) => {
+                self.adopt(list, cx);
+                true
+            }
+            Err(failure) => {
+                self.tell(&failure, window, cx);
+                let disk = self.fresh();
+                self.adopt(disk, cx);
+                false
+            }
+        }
+    }
+
+    /// Whether an editor runs with the profile (`in_use`).
+    fn in_use(&self, name: &str) -> bool {
+        self.store
+            .dir(name)
+            .is_some_and(|dir| in_use::is_held(&dir))
     }
 
     // The panel that asks for a name
@@ -320,22 +384,19 @@ impl ProfileManagerDialog {
 
     /// `CreateProf`, after the name was asked. The chosen row stays.
     pub(crate) fn create(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        match self.settings.check_name(name, None) {
-            Ok(()) => {}
-            Err(NameError::Empty) => return,
-            Err(NameError::InvalidChar) => return self.tell(ERR_INVALID_CHAR, window, cx),
-            Err(NameError::Duplicate) => return self.tell(ERR_ALREADY, window, cx),
-        }
-        if self.store.file_in_the_way(name) {
-            return self.tell(ERR_FILE, window, cx);
-        }
-        self.settings.add(name);
-        self.persist(window, cx);
-        cx.notify();
+        self.change(window, cx, |store, list| {
+            check_name(list, name, None)?;
+            if store.file_in_the_way(name) {
+                return Err(Failure::new(ERR_FILE));
+            }
+            list.add(name);
+            Ok(())
+        });
     }
 
-    /// `RenameProf`, after the name was asked: the name is checked, the folder of the profile is
-    /// moved if there is one, and the row keeps its star.
+    /// `RenameProf`, after the name was asked: the name is checked, a profile in use is refused, the new
+    /// list is written, and only then the folder of the profile is moved. If the move fails the old list
+    /// is written back, so the file never says more than the folders have. The row keeps its star.
     pub(crate) fn rename(
         &mut self,
         row: usize,
@@ -348,57 +409,109 @@ impl ProfileManagerDialog {
         if row == 0 || name.is_empty() || name == old {
             return;
         }
-        match self.settings.check_name(name, Some(row)) {
-            Ok(()) | Err(NameError::Empty) => {}
-            Err(NameError::InvalidChar) => return self.tell(ERR_INVALID_CHAR, window, cx),
-            Err(NameError::Duplicate) => return self.tell(ERR_ALREADY, window, cx),
+        let before = self.fresh();
+        let outcome = self.rename_in(&before, &old, name);
+        match outcome {
+            Ok(after) => self.adopt(after, cx),
+            Err(failure) => {
+                self.tell(&failure, window, cx);
+                let disk = self.fresh();
+                self.adopt(disk, cx);
+            }
         }
-        match self.store.rename_dir(&old, name) {
-            Ok(()) => {}
-            Err(MoveError::Failed) => return self.tell(ERR_RENAME, window, cx),
-            Err(MoveError::FileInTheWay) => return self.tell(ERR_FILE, window, cx),
-        }
-        self.settings.rename(row, name);
-        self.persist(window, cx);
-        cx.notify();
     }
 
-    /// `DeleteProf`: the chosen row leaves the list (its folder stays on the disk).
+    /// The steps of [`Self::rename`]; the list to show when it was done.
+    fn rename_in(
+        &self,
+        before: &ProfileSettings,
+        old: &str,
+        name: &str,
+    ) -> Result<ProfileSettings, Failure> {
+        let row = row_named(before, old).filter(|row| *row != 0);
+        let Some(row) = row else {
+            // another window took the profile out of the list meanwhile
+            return Err(Failure::none());
+        };
+        check_name(before, name, Some(row))?;
+        if self.in_use(old) {
+            return Err(Failure::new(ERR_IN_USE));
+        }
+        let plan = self
+            .store
+            .plan_rename(old, name)
+            .map_err(|error| match error {
+                MoveError::Exists => {
+                    Failure::because(ERR_RENAME, &"同じ名前のフォルダーがあります")
+                }
+                MoveError::FileInTheWay => Failure::new(ERR_FILE),
+            })?;
+        let mut after = before.clone();
+        after.rename(row, name);
+        self.store
+            .write(&after)
+            .map_err(|error| Failure::because(ERR_WRITE, &error))?;
+        if let Some(plan) = plan
+            && let Err(error) = self.store.move_dir(&plan)
+        {
+            let mut failure = Failure::because(ERR_RENAME, &error);
+            if let Err(undo) = self.store.write(before) {
+                failure.detail = Some(format!("{error}\n{ERR_WRITE}({undo})"));
+            }
+            return Err(failure);
+        }
+        Ok(after)
+    }
+
+    /// `DeleteProf`: the chosen row leaves the list (its folder stays on the disk). A profile in use is
+    /// refused.
     pub(crate) fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.rename_usable() {
+        let name = self.settings.profile_of(self.selected).to_owned();
+        if name.is_empty() {
             return;
         }
-        self.selected = self.settings.remove(self.selected);
-        self.scroll.scroll_to_item(self.selected);
-        self.persist(window, cx);
-        cx.notify();
+        if self.in_use(&name) {
+            self.tell(&Failure::new(ERR_IN_USE), window, cx);
+            return;
+        }
+        self.change(window, cx, |_, list| {
+            let row = row_named(list, &name).ok_or_else(Failure::none)?;
+            list.remove(row);
+            Ok(())
+        });
     }
 
     /// デフォルト設定: the chosen row is the one that starts.
     pub(crate) fn make_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.settings.set_default(self.selected);
-        self.persist(window, cx);
-        cx.notify();
+        let name = self.settings.profile_of(self.selected).to_owned();
+        self.change(window, cx, |_, list| {
+            let row = row_named(list, &name).ok_or_else(Failure::none)?;
+            list.set_default(row);
+            Ok(())
+        });
     }
 
     /// デフォルト解除.
     pub(crate) fn clear_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.settings.clear_default();
-        self.persist(window, cx);
-        cx.notify();
+        self.change(window, cx, |_, list| {
+            list.clear_default();
+            Ok(())
+        });
     }
 
     /// 起動 (`GetData(true)`): the chosen profile goes to whoever opened the dialog. With the check
     /// box checked the row becomes the default one first.
     pub(crate) fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.settings.profile_of(self.selected).to_owned();
-        let mut write = self.check_box_changed();
-        if self.settings.default_select {
-            self.settings.set_default(self.selected);
-            write = true;
-        }
-        if write {
-            self.persist(window, cx);
+        let checked = self.settings.default_select;
+        let on_disk = self.store.read().is_some_and(|s| s.default_select);
+        if checked || on_disk != checked {
+            self.change(window, cx, |_, list| {
+                if checked && let Some(row) = row_named(list, &name) {
+                    list.set_default(row);
+                }
+                Ok(())
+            });
         }
         self.answer(Some(name), cx);
         window.remove_window();
@@ -415,16 +528,11 @@ impl ProfileManagerDialog {
         if self.on_done.is_none() {
             return;
         }
-        if self.check_box_changed() {
-            self.persist(window, cx);
+        let on_disk = self.store.read().is_some_and(|s| s.default_select);
+        if on_disk != self.settings.default_select {
+            self.change(window, cx, |_, _| Ok(()));
         }
         self.answer(None, cx);
-    }
-
-    /// Whether the check box is not what the file says (`m_bDefaultSelect != bDefaultSelect`).
-    fn check_box_changed(&self) -> bool {
-        let on_disk = self.store.read().is_some_and(|s| s.default_select);
-        on_disk != self.settings.default_select
     }
 
     fn answer(&mut self, chosen: Option<String>, cx: &mut Context<Self>) {
@@ -751,6 +859,51 @@ impl ProfileManagerDialog {
             .justify_center()
             .child(panel)
     }
+}
+
+/// Why an action did not happen: the text of the box (empty: nothing is said) and the cause.
+struct Failure {
+    message: &'static str,
+    detail: Option<String>,
+}
+
+impl Failure {
+    fn new(message: &'static str) -> Self {
+        Self {
+            message,
+            detail: None,
+        }
+    }
+
+    /// A refusal that says nothing (an empty name, a profile that is gone).
+    fn none() -> Self {
+        Self::new("")
+    }
+
+    /// With the cause that the OS gave.
+    fn because(message: &'static str, cause: &dyn std::fmt::Display) -> Self {
+        Self {
+            message,
+            detail: Some(cause.to_string()),
+        }
+    }
+}
+
+/// The checks of `CreateProf` and `RenameProf` on the list as it is on the disk, with their texts.
+fn check_name(list: &ProfileSettings, name: &str, skip: Option<usize>) -> Result<(), Failure> {
+    list.check_name(name, skip).map_err(|error| match error {
+        NameError::Empty => Failure::none(),
+        NameError::InvalidChar => Failure::new(ERR_INVALID_CHAR),
+        NameError::Duplicate => Failure::new(ERR_ALREADY),
+    })
+}
+
+/// The row of the profile of this name (the empty name is 「(default)」).
+fn row_named(list: &ProfileSettings, name: &str) -> Option<usize> {
+    if name.is_empty() {
+        return Some(0);
+    }
+    list.profiles.iter().position(|p| p == name).map(|i| i + 1)
 }
 
 /// The dialog that is open and its window.

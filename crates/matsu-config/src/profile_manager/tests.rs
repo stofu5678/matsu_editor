@@ -314,8 +314,41 @@ fn the_folder_of_an_existing_settings_file_is_the_one_used() {
         settings_path(Os::Windows, &e).unwrap(),
         dir.path().join(FILE_NAME)
     );
+    // a profile that has no `matsu.ini` yet starts in the user's own folder, as `UserSettings` does,
+    // and the manager looks there (the folder next to the program has none of it)
+    assert_eq!(
+        profile_dir(Os::Windows, &e, "p").unwrap(),
+        PathBuf::from("/appdata/matsu-editor/p")
+    );
+    // a profile that has its `matsu.ini` next to the program is there
+    std::fs::create_dir(dir.path().join("p")).unwrap();
+    std::fs::write(dir.path().join("p").join("matsu.ini"), "").unwrap();
     assert_eq!(
         profile_dir(Os::Windows, &e, "p").unwrap(),
         dir.path().join("p")
     );
+    // and it is the folder of the file `UserSettings` reads for that profile
+    let with_profile = Environment {
+        profile_name: Some("p".to_owned()),
+        ..e.clone()
+    };
+    assert_eq!(
+        crate::location::settings_file(Os::Windows, &with_profile).unwrap(),
+        dir.path().join("p").join("matsu.ini")
+    );
+}
+
+#[test]
+fn one_rule_for_the_names_of_the_manager_and_of_prof() {
+    let s = settings(&[], -1);
+    for name in [".", "..", "a\u{7}b", "a/b", "", "x".repeat(260).as_str()] {
+        assert!(!valid_folder_name(name), "{name:?}");
+    }
+    // the manager refuses what `-PROF=` cannot select
+    assert_eq!(s.check_name(".", None), Err(NameError::InvalidChar));
+    assert_eq!(s.check_name("a\u{7}b", None), Err(NameError::InvalidChar));
+    for name in ["work", "a.b", "執筆用 2", "x y"] {
+        assert!(valid_folder_name(name), "{name:?}");
+        assert_eq!(s.check_name(name, None), Ok(()), "{name:?}");
+    }
 }

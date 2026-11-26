@@ -45,7 +45,7 @@ use std::sync::Arc;
 use matsu_commands::keymap::user::parse_entries;
 use matsu_commands::keymap::{KeyMap, Platform, UserRow};
 use matsu_config::Profile;
-use matsu_config::location::{Environment, Os, candidate_paths, find_existing, write_path};
+use matsu_config::location::{Environment, Os, candidate_paths, find_existing};
 use matsu_config::settings::DocumentTypes;
 
 pub use mac_key_layout::MacKeyLayout;
@@ -422,11 +422,7 @@ pub fn function_code_of_name(name: &str) -> Option<u16> {
 /// `matsu-config` writes a new one. `None` if the OS has no such place.
 pub fn history_file(user: &UserSettings) -> Option<PathBuf> {
     user.path().map(Path::to_owned).or_else(|| {
-        write_path(&candidate_paths(
-            Os::current(),
-            &Environment::from_process(),
-        ))
-        .map(Path::to_owned)
+        matsu_config::location::settings_file(Os::current(), &Environment::from_process())
     })
 }
 

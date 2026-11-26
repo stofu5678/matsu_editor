@@ -97,16 +97,44 @@ pub(crate) fn settle(options: &mut CommandLine, headless: bool) -> bool {
     }
 }
 
+/// The picking process. It belongs to the launch that waits for it: when the launch ends in any way that
+/// runs destructors (a panic, an early return), the picker is killed and waited for, so that no dialog
+/// stays open without a launch behind it.
+struct Picker(std::process::Child);
+
+impl Picker {
+    fn start(program: &std::path::Path) -> std::io::Result<Self> {
+        Command::new(program)
+            .arg(PICK_ARG)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map(Self)
+    }
+
+    /// Waits until the dialog is closed and returns what it said.
+    fn answer(&mut self) -> Option<Picked> {
+        use std::io::Read as _;
+        let mut said = Vec::new();
+        self.0.stdout.take()?.read_to_end(&mut said).ok()?;
+        let _ = self.0.wait();
+        parse_report(&said)
+    }
+}
+
+impl Drop for Picker {
+    fn drop(&mut self) {
+        // after a normal end this finds the process gone, and both calls only say so
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 /// Runs this program with [`PICK_ARG`] and waits for the answer. `None` when it could not run.
 fn pick() -> Option<Picked> {
     let exe = std::env::current_exe().ok()?;
-    let output = Command::new(exe)
-        .arg(PICK_ARG)
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output()
-        .ok()?;
-    parse_report(&output.stdout)
+    Picker::start(&exe).ok()?.answer()
 }
 
 /// The process of [`PICK_ARG`]: shows the dialog alone, writes the answer to the standard output and
@@ -173,4 +201,35 @@ pub(crate) fn start_editor(profile: &str) {
     std::thread::spawn(move || {
         let _ = child.wait();
     });
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_the_picker_kills_its_process() {
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = child.id();
+        drop(Picker(child));
+        // the process was killed and waited for: no process has the number now
+        let alive = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        assert!(!alive);
+    }
+
+    #[test]
+    fn the_picker_gives_the_answer_its_process_wrote() {
+        let child = Command::new("sh")
+            .args(["-c", "echo profile:work"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut picker = Picker(child);
+        assert_eq!(picker.answer(), Some(Picked::Profile("work".to_owned())));
+    }
 }

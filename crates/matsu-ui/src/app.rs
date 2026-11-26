@@ -231,6 +231,8 @@ pub(crate) fn run(
         cx.on_action(|a: &SelectWindow, cx| crate::window_ops::menu_list::select(cx, a.id));
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
+            // the profile is no longer in use
+            crate::profile_manager::in_use::release();
             // The processes of the plugins end first: none is left running behind the editor.
             crate::macros::plugin_call::shutdown_all(cx);
             // The shells are asked to end now, on their own threads, while the copies are written below.
