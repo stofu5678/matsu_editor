@@ -11,8 +11,11 @@ use matsu_core::buffer::Pos;
 use super::isearch_tests::{Fixture, range, setup};
 use super::migemo::{MigemoEngine, MigemoHost, Unavailable};
 
+/// What the fake library answers with.
+type Answer = Box<dyn Fn(&str) -> Option<String>>;
+
 /// A library that answers from a function.
-struct FakeMigemo(Box<dyn Fn(&str) -> Option<String>>);
+struct FakeMigemo(Answer);
 
 impl MigemoEngine for FakeMigemo {
     fn query(&self, text: &str) -> Option<String> {
