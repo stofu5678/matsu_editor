@@ -193,9 +193,7 @@ fn an_ascii_path_goes_to_the_library_as_it_is() {
 #[cfg(windows)]
 #[test]
 fn a_path_goes_to_the_library_in_the_system_code_page_or_is_refused() {
-    use windows_sys::Win32::Globalization::GetACP;
-    // SAFETY: reads the code page of the system.
-    let utf8 = unsafe { GetACP() } == 65001;
+    let utf8 = native::system_code_page_is_utf8();
     // A character that no code page has (an emoji): refused, unless the system code page is
     // UTF-8, which has every character.
     let emoji = Path::new("C:\\dict\\\u{1F600}");

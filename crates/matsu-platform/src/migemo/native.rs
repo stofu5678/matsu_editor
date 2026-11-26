@@ -37,6 +37,12 @@ pub enum DictionaryError {
     PathNotRepresentable,
 }
 
+/// Whether the system code page is UTF-8 (Windows only; for the tests, which hold no `unsafe`).
+#[cfg(all(windows, test))]
+pub(super) fn system_code_page_is_utf8() -> bool {
+    sys::system_code_page_is_utf8()
+}
+
 /// A path as the narrow functions of the C runtime read it: the bytes of the path on Unix, and
 /// the system code page (ANSI) on Windows. `None` when a character does not fit.
 pub fn narrow_path(path: &Path) -> Option<Vec<u8>> {

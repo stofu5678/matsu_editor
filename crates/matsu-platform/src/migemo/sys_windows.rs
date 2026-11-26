@@ -11,28 +11,67 @@ use windows_sys::Win32::Foundation::{FreeLibrary, GetLastError, HMODULE};
 use windows_sys::Win32::Globalization::{
     CP_ACP, GetACP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
 };
-use windows_sys::Win32::System::LibraryLoader::{
-    GetProcAddress, LOAD_WITH_ALTERED_SEARCH_PATH, LoadLibraryExW,
+use windows_sys::Win32::System::Diagnostics::Debug::{
+    SEM_FAILCRITICALERRORS, SEM_NOOPENFILEERRORBOX, SetThreadErrorMode,
 };
+use windows_sys::Win32::System::LibraryLoader::{
+    GetProcAddress, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
+    LoadLibraryExW,
+};
+
+/// While it lives, the thread shows no box for a load that fails (the "Bad Image" box of the
+/// loader for a file that is not a library for this machine waits for a click, and the load
+/// call with it). The old mode comes back when it is dropped, on every path out of the load.
+struct QuietLoadErrors(u32);
+
+impl QuietLoadErrors {
+    fn new() -> Self {
+        let mut old = 0u32;
+        // SAFETY: only this thread's error mode is read and set; `old` lives through the call.
+        unsafe {
+            SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, &mut old);
+        }
+        Self(old)
+    }
+}
+
+impl Drop for QuietLoadErrors {
+    fn drop(&mut self) {
+        // SAFETY: puts back the mode this thread had; the old mode is not asked for again.
+        unsafe { SetThreadErrorMode(self.0, std::ptr::null_mut()) };
+    }
+}
+
+/// Whether the system code page is UTF-8 (65001).
+pub(super) fn system_code_page_is_utf8() -> bool {
+    // SAFETY: reads the code page of the system.
+    unsafe { GetACP() == CP_UTF8 }
+}
 
 /// A library loaded by `LoadLibraryExW`, unloaded by `FreeLibrary` when it is dropped.
 pub(super) struct Library(HMODULE);
 
 impl Library {
-    /// Loads the library at `path`, which is absolute. `LOAD_WITH_ALTERED_SEARCH_PATH` looks for
-    /// the DLLs the library needs in its own folder first, and not in the folder of the program.
+    /// Loads the library at `path`, which is absolute. The DLLs that the library itself needs
+    /// are looked for in its own folder (`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`), then in the folder
+    /// of the program, the system folder and the folders added with `AddDllDirectory`
+    /// (`LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`). The current folder and `PATH` are not searched, so a
+    /// DLL in the folder where MATSU Editor was started is not loaded in their place.
+    /// (`LOAD_WITH_ALTERED_SEARCH_PATH` would search them.)
     pub(super) fn open(path: &Path) -> Result<Self, String> {
         debug_assert!(path.is_absolute());
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let quiet = QuietLoadErrors::new();
         // SAFETY: a NUL-terminated full path that lives until the call returns, and no file
         // handle (it must be null).
         let module = unsafe {
             LoadLibraryExW(
                 wide.as_ptr(),
                 std::ptr::null_mut(),
-                LOAD_WITH_ALTERED_SEARCH_PATH,
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
             )
         };
+        drop(quiet);
         if module.is_null() {
             // SAFETY: reads the error code of this thread.
             let code = unsafe { GetLastError() };
@@ -67,8 +106,7 @@ pub(super) fn narrow_path(path: &Path) -> Option<Vec<u8>> {
         return Some(Vec::new());
     }
     let length = i32::try_from(wide.len()).ok()?;
-    // SAFETY: reads the code page of the system.
-    if unsafe { GetACP() } == CP_UTF8 {
+    if system_code_page_is_utf8() {
         // The conversion with a "used default" flag is refused for UTF-8, and nothing is lost.
         return String::from_utf16(&wide).ok().map(String::into_bytes);
     }
