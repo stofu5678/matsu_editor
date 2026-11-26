@@ -13,8 +13,13 @@ use crate::file_dialog::{self, Ask};
 /// The path the file dialog gives, as the box takes it: relative to the folder of the settings
 /// file when it is under it.
 pub(crate) fn path_for_box(path: &Path, ini_dir: Option<&Path>) -> String {
+    // The folder itself stays absolute: an empty box means something else (for the dictionary
+    // of Migemo, `dict` under that folder). Sakura's `GetRelPath` keeps it as it is too: it cuts
+    // the folder *with* its closing `\` (`GetInidir(.., L"")`), which the path of a chosen folder
+    // does not have (`sakura_core/util/file.cpp` 621-639).
     let shown = ini_dir
         .and_then(|dir| path.strip_prefix(dir).ok())
+        .filter(|rest| !rest.as_os_str().is_empty())
         .unwrap_or(path);
     shown.to_string_lossy().into_owned()
 }
@@ -114,4 +119,28 @@ pub(crate) fn browse_folder_into(
         }
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_settings_folder_chosen_as_a_folder_stays_absolute() {
+        let dir = std::env::temp_dir();
+        // a folder under it is relative, as `GetRelPath` makes it
+        assert_eq!(
+            path_for_box(&dir.join("dict"), Some(&dir)),
+            Path::new("dict").to_string_lossy()
+        );
+        // the folder itself would be an empty box, which means `dict` under it
+        let shown = path_for_box(&dir, Some(&dir));
+        assert_eq!(shown, dir.to_string_lossy());
+        // and what the box holds is a dictionary root that the resolver takes as it is
+        let has = |p: &Path| p == dir.join("utf-8").join("migemo-dict");
+        assert_eq!(
+            matsu_platform::migemo::dictionary_dir(&shown, Some(&dir), has),
+            Some(dir.join("utf-8"))
+        );
+    }
 }

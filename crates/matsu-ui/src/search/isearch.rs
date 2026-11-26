@@ -246,11 +246,19 @@ impl EditorView {
         let mut engine = None;
         if mode == ISearchMode::Migemo {
             // Sakura checks the library after the selection has gone and before it changes
-            // anything else: the mode does not begin, the status bar says why (and Sakura beeps).
+            // anything else: the mode does not begin, the status bar says why (and Sakura
+            // beeps). A search that is on stays on, as in Sakura: its `return`
+            // (`CEditView_Cmdisrch.cpp` 204-205 and 214-215) leaves `m_nISearchMode` as it was.
+            // The message is shown at once (`SendStatusMessage`) and is replaced by the next
+            // status of that search.
             let paths = MigemoPaths::current(cx);
             match cx.default_global::<MigemoHost>().open(&paths) {
                 Ok(opened) => engine = Some(opened),
                 Err(why) => {
+                    // `status()` shows the message of a search that is on before the notice
+                    if let Some(a) = &mut self.isearch {
+                        a.message = why.message().to_owned();
+                    }
                     self.notice = Some(why.message().to_owned());
                     cx.notify();
                     return;

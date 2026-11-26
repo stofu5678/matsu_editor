@@ -287,3 +287,26 @@ fn migemo_groups_classes_and_wide_letters_work_together(cx: &mut TestAppContext)
     f.run(cx, "F_ISEARCH_MIGEMO_NEXT");
     assert_eq!(f.selected(cx).as_deref(), Some("[-"));
 }
+
+#[gpui::test]
+fn a_switch_to_migemo_that_cannot_begin_shows_why_and_leaves_the_search_on(
+    cx: &mut TestAppContext,
+) {
+    install(cx, || Err(Unavailable::Library));
+    let (f, cx) = setup(cx, "ka かき");
+    f.run(cx, "F_ISEARCH_NEXT");
+    cx.simulate_input("ka");
+    // Sakura's `ISearchEnter` returns before it changes the mode: the plain search stays, and
+    // the status bar shows the message (it would hide behind the message of the search)
+    f.run(cx, "F_ISEARCH_MIGEMO_NEXT");
+    assert!(f.active(cx));
+    let status = f.view.read_with(cx, |v, cx| v.status(cx).notice);
+    assert_eq!(status.as_deref(), Some("MIGEMO.DLLが使用できません。"));
+    // typing goes on in the plain search, and its message is back
+    cx.simulate_input("k");
+    assert_eq!(
+        f.message(cx).as_deref(),
+        Some("I-Search: kak (見つかりません)")
+    );
+    assert_eq!(f.pattern(cx), "kak");
+}
