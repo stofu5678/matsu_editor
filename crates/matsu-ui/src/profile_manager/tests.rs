@@ -591,7 +591,7 @@ fn a_profile_in_use_cannot_be_renamed_or_deleted(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let _a = open_dialog(cx, dir.path(), Some(&settings(&["a", "b"], -1)));
     // a second holder in this process: the mark of the profile "a"
-    let held = in_use::hold(&dir.path().join("a")).unwrap();
+    let held = in_use::hold_as(&dir.path().join("a"), 1).unwrap();
     with_dialog(cx, |d, window, dcx| d.rename(1, "z", window, dcx));
     assert!(error_box(cx), "rename");
     with_dialog(cx, |d, window, dcx| {
@@ -616,14 +616,95 @@ fn a_profile_in_use_cannot_be_renamed_or_deleted(cx: &mut TestAppContext) {
 fn the_mark_is_held_by_one_and_goes_with_the_lock() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("p");
-    // a folder that was never marked is free, and the file of a holder that is gone holds nothing
+    // a folder that was never marked is free
     assert!(!in_use::is_held(&folder));
-    let first = in_use::hold(&folder).unwrap();
+    let first = in_use::hold_as(&folder, 1).unwrap();
     assert!(in_use::is_held(&folder));
-    assert!(in_use::hold(&folder).is_err(), "a second holder is refused");
+    assert!(
+        in_use::hold_as(&folder, 1).is_err(),
+        "the same holder twice is refused"
+    );
     drop(first);
     assert!(!in_use::is_held(&folder), "the lock went with its holder");
-    assert!(in_use::hold(&folder).is_ok());
+    assert!(in_use::hold_as(&folder, 1).is_ok());
+}
+
+#[test]
+fn the_profile_is_in_use_while_any_of_its_editors_runs() {
+    // two processes with one profile (`--separate-process`, a Grep to the standard output)
+    let dir = tempfile::tempdir().unwrap();
+    let first = in_use::hold_as(dir.path(), 1).unwrap();
+    let second = in_use::hold_as(dir.path(), 2).unwrap();
+    drop(first);
+    assert!(in_use::is_held(dir.path()), "the second is still running");
+    drop(second);
+    assert!(!in_use::is_held(dir.path()));
+}
+
+#[test]
+fn the_files_of_gone_processes_are_cleaned_and_the_others_are_not_touched() {
+    let dir = tempfile::tempdir().unwrap();
+    // a process that crashed left its file: nobody holds the lock
+    let gone = in_use::hold_as(dir.path(), 7).unwrap();
+    drop(gone);
+    let live = in_use::hold_as(dir.path(), 8).unwrap();
+    std::fs::write(dir.path().join("matsu.ini"), b"x").unwrap();
+    assert!(in_use::is_held(dir.path()));
+    let mut names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["in-use-8.lock", "matsu.ini"], "the stale file went");
+    drop(live);
+}
+
+#[gpui::test]
+fn an_action_waits_for_the_lock_of_the_list_and_gives_up_with_a_message(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    profile_manager::write(&file_of(dir.path()), &settings(&["a"], -1)).unwrap();
+    // another process is in the middle of an action: it holds the lock of the file
+    let other = Store::in_folder(dir.path());
+    let held = other.lock().unwrap();
+    assert!(
+        Store::in_folder(dir.path())
+            .waiting(std::time::Duration::ZERO)
+            .lock()
+            .is_err(),
+        "a second holder is refused"
+    );
+    cx.update(gpui_component::init);
+    let store = Store::in_folder(dir.path()).waiting(std::time::Duration::from_millis(50));
+    cx.update(|app| open(app, store, Box::new(|_, _| {})));
+    cx.run_until_parked();
+    with_dialog(cx, |d, window, dcx| d.create("new", window, dcx));
+    assert!(error_box(cx), "told, and not written");
+    assert_eq!(on_disk(dir.path()).unwrap().profiles, ["a"]);
+    drop(held);
+    with_dialog(cx, |d, window, dcx| d.create("new", window, dcx));
+    assert!(!error_box(cx));
+    assert_eq!(on_disk(dir.path()).unwrap().profiles, ["a", "new"]);
+    // the lock was let go after the action
+    assert!(
+        Store::in_folder(dir.path())
+            .waiting(std::time::Duration::ZERO)
+            .lock()
+            .is_ok()
+    );
+}
+
+#[test]
+fn undoing_a_rename_changes_only_that_row_of_the_list_as_it_is_now() {
+    use super::undo_rename;
+    // another process added "x" and removed "other" after the rename was written
+    let mut list = settings(&["new", "x"], 1);
+    undo_rename(&mut list, "new", "old");
+    assert_eq!(list.profiles, ["old", "x"]);
+    assert_eq!(list.default_index, 1);
+    // the new name is gone: the list is left alone
+    let mut list = settings(&["x"], -1);
+    undo_rename(&mut list, "new", "old");
+    assert_eq!(list.profiles, ["x"]);
 }
 
 #[gpui::test]

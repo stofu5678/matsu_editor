@@ -8,6 +8,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use matsu_platform::file_lock::{FileLock, ShareMode};
 
 use matsu_config::location::{Environment, Os};
 use matsu_config::profile_manager::{self, ProfileSettings};
@@ -41,7 +44,16 @@ pub(crate) struct Store {
     ini: PathBuf,
     /// The folder of the settings of a profile (`matsu_config::profile_manager::profile_dir`).
     dir_of: DirOf,
+    /// How long an action waits for the lock of the file.
+    wait: Duration,
 }
+
+/// The lock of `matsu_prof.ini` for one action: let go when dropped.
+#[derive(Debug)]
+pub(crate) struct ListLock(#[allow(dead_code)] FileLock);
+
+/// The usual wait for the lock: an action holds it for a read, a write and a folder move.
+const LOCK_WAIT: Duration = Duration::from_secs(5);
 
 impl Store {
     /// The places of this process: the file next to the settings file it would use without `-PROF`,
@@ -53,6 +65,7 @@ impl Store {
         Some(Self {
             ini,
             dir_of: Rc::new(move |name| profile_manager::profile_dir(os, &env, name)),
+            wait: LOCK_WAIT,
         })
     }
 
@@ -63,6 +76,39 @@ impl Store {
         Self {
             ini: base.join(profile_manager::FILE_NAME),
             dir_of: Rc::new(move |name| Some(base.join(name))),
+            wait: LOCK_WAIT,
+        }
+    }
+
+    /// The same, with another wait for the lock.
+    #[cfg(test)]
+    pub(crate) fn waiting(mut self, wait: Duration) -> Self {
+        self.wait = wait;
+        self
+    }
+
+    /// Locks `matsu_prof.ini.lock` next to the file against every other action of every window and
+    /// process, for the whole of a read-change-write. Waits for the holder (a short time, the others
+    /// hold it for one action); an error when it does not come free.
+    pub(crate) fn lock(&self) -> io::Result<ListLock> {
+        let mut path = self.ini.clone().into_os_string();
+        path.push(".lock");
+        let path = PathBuf::from(path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        // the handle that makes the file is closed before the lock opens it (Windows shares nothing)
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        let start = Instant::now();
+        loop {
+            match FileLock::acquire(&path, ShareMode::DenyReadWrite) {
+                Ok(lock) => return Ok(ListLock(lock)),
+                Err(error) if start.elapsed() >= self.wait => return Err(error),
+                Err(_) => std::thread::sleep(Duration::from_millis(25)),
+            }
         }
     }
 

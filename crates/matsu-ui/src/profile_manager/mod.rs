@@ -249,23 +249,30 @@ impl ProfileManagerDialog {
         cx.notify();
     }
 
-    /// One action on the list: reads the file, `edit` changes the one thing, the file is written, and
-    /// the result is what the window shows. When it fails, nothing was written, the reason is told, and
-    /// the window shows what the disk has. Returns whether the change was made.
+    /// One action on the list, `change_with` without a second step.
     fn change(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
         edit: impl FnOnce(&Store, &mut ProfileSettings) -> Result<(), Failure>,
     ) -> bool {
-        let mut list = self.fresh();
-        let done = edit(&self.store, &mut list).and_then(|()| {
-            self.store
-                .write(&list)
-                .map_err(|error| Failure::because(ERR_WRITE, &error))
-        });
-        match done {
-            Ok(()) => {
+        self.change_with(window, cx, edit, |_, ()| Ok(()), |_| {})
+    }
+
+    /// One action on the list. The file is locked against the other windows and processes for the whole
+    /// of it (`transact`); then the result is what the window shows. When it fails, the reason is told
+    /// (after the lock is let go: no box is shown while it is held) and the window shows what the disk
+    /// has. Returns whether the action was done.
+    fn change_with<T>(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        edit: impl FnOnce(&Store, &mut ProfileSettings) -> Result<T, Failure>,
+        then: impl FnOnce(&Store, T) -> Result<(), Failure>,
+        undo: impl FnOnce(&mut ProfileSettings),
+    ) -> bool {
+        match self.transact(edit, then, undo) {
+            Ok(list) => {
                 self.adopt(list, cx);
                 true
             }
@@ -278,11 +285,36 @@ impl ProfileManagerDialog {
         }
     }
 
-    /// Whether an editor runs with the profile (`in_use`).
-    fn in_use(&self, name: &str) -> bool {
+    /// Under the lock of the file: reads it, `edit` changes the one thing (and may refuse), the list is
+    /// written, and `then` does what has to follow the write (a rename moves the folder). If `then` fails,
+    /// the file is read again and `undo` applies the inverse of this one change to it (never a copy of an
+    /// older list: another process cannot have written meanwhile because of the lock, but the rule does
+    /// not rest on that) and writes it. Returns the list that was written.
+    fn transact<T>(
+        &self,
+        edit: impl FnOnce(&Store, &mut ProfileSettings) -> Result<T, Failure>,
+        then: impl FnOnce(&Store, T) -> Result<(), Failure>,
+        undo: impl FnOnce(&mut ProfileSettings),
+    ) -> Result<ProfileSettings, Failure> {
+        let _lock = self
+            .store
+            .lock()
+            .map_err(|error| Failure::because(ERR_WRITE, &error))?;
+        let mut list = self.fresh();
+        let value = edit(&self.store, &mut list)?;
         self.store
-            .dir(name)
-            .is_some_and(|dir| in_use::is_held(&dir))
+            .write(&list)
+            .map_err(|error| Failure::because(ERR_WRITE, &error))?;
+        if let Err(mut failure) = then(&self.store, value) {
+            let mut back = self.fresh();
+            undo(&mut back);
+            if let Err(error) = self.store.write(&back) {
+                let cause = failure.detail.take().unwrap_or_default();
+                failure.detail = Some(format!("{cause}\n{ERR_WRITE}({error})"));
+            }
+            return Err(failure);
+        }
+        Ok(list)
     }
 
     // The panel that asks for a name
@@ -394,9 +426,10 @@ impl ProfileManagerDialog {
         });
     }
 
-    /// `RenameProf`, after the name was asked: the name is checked, a profile in use is refused, the new
-    /// list is written, and only then the folder of the profile is moved. If the move fails the old list
-    /// is written back, so the file never says more than the folders have. The row keeps its star.
+    /// `RenameProf`, after the name was asked, as one locked action (`transact`): the name is checked, a
+    /// profile in use is refused, the new list is written, and only then the folder of the profile is
+    /// moved. If the move fails, the rename is undone in the list as it is then (`undo_rename`), so the
+    /// file never says more than the folders have. The row keeps its star.
     pub(crate) fn rename(
         &mut self,
         row: usize,
@@ -409,58 +442,40 @@ impl ProfileManagerDialog {
         if row == 0 || name.is_empty() || name == old {
             return;
         }
-        let before = self.fresh();
-        let outcome = self.rename_in(&before, &old, name);
-        match outcome {
-            Ok(after) => self.adopt(after, cx),
-            Err(failure) => {
-                self.tell(&failure, window, cx);
-                let disk = self.fresh();
-                self.adopt(disk, cx);
-            }
-        }
-    }
-
-    /// The steps of [`Self::rename`]; the list to show when it was done.
-    fn rename_in(
-        &self,
-        before: &ProfileSettings,
-        old: &str,
-        name: &str,
-    ) -> Result<ProfileSettings, Failure> {
-        let row = row_named(before, old).filter(|row| *row != 0);
-        let Some(row) = row else {
-            // another window took the profile out of the list meanwhile
-            return Err(Failure::none());
-        };
-        check_name(before, name, Some(row))?;
-        if self.in_use(old) {
-            return Err(Failure::new(ERR_IN_USE));
-        }
-        let plan = self
-            .store
-            .plan_rename(old, name)
-            .map_err(|error| match error {
-                MoveError::Exists => {
-                    Failure::because(ERR_RENAME, &"同じ名前のフォルダーがあります")
+        self.change_with(
+            window,
+            cx,
+            |store, list| {
+                // a missing row: another window took the profile out of the list meanwhile
+                let row = row_named(list, &old)
+                    .filter(|row| *row != 0)
+                    .ok_or_else(Failure::none)?;
+                check_name(list, name, Some(row))?;
+                // The check and the move are two steps. An editor that starts with this profile
+                // between them (on macOS and Linux) runs in a folder that is moved under it; on Windows
+                // the move fails instead, because the folder is open. No lock can join the two steps:
+                // the editor that starts does not take the lock of the list, and Windows cannot move a
+                // folder that has a file open, so the check stays a courtesy that catches the usual case.
+                if in_use_of(store, &old) {
+                    return Err(Failure::new(ERR_IN_USE));
                 }
-                MoveError::FileInTheWay => Failure::new(ERR_FILE),
-            })?;
-        let mut after = before.clone();
-        after.rename(row, name);
-        self.store
-            .write(&after)
-            .map_err(|error| Failure::because(ERR_WRITE, &error))?;
-        if let Some(plan) = plan
-            && let Err(error) = self.store.move_dir(&plan)
-        {
-            let mut failure = Failure::because(ERR_RENAME, &error);
-            if let Err(undo) = self.store.write(before) {
-                failure.detail = Some(format!("{error}\n{ERR_WRITE}({undo})"));
-            }
-            return Err(failure);
-        }
-        Ok(after)
+                let plan = store.plan_rename(&old, name).map_err(|error| match error {
+                    MoveError::Exists => {
+                        Failure::because(ERR_RENAME, &"同じ名前のフォルダーがあります")
+                    }
+                    MoveError::FileInTheWay => Failure::new(ERR_FILE),
+                })?;
+                list.rename(row, name);
+                Ok(plan)
+            },
+            |store, plan| match plan {
+                Some(plan) => store
+                    .move_dir(&plan)
+                    .map_err(|error| Failure::because(ERR_RENAME, &error)),
+                None => Ok(()),
+            },
+            |list| undo_rename(list, name, &old),
+        );
     }
 
     /// `DeleteProf`: the chosen row leaves the list (its folder stays on the disk). A profile in use is
@@ -470,11 +485,10 @@ impl ProfileManagerDialog {
         if name.is_empty() {
             return;
         }
-        if self.in_use(&name) {
-            self.tell(&Failure::new(ERR_IN_USE), window, cx);
-            return;
-        }
-        self.change(window, cx, |_, list| {
+        self.change(window, cx, |store, list| {
+            if in_use_of(store, &name) {
+                return Err(Failure::new(ERR_IN_USE));
+            }
             let row = row_named(list, &name).ok_or_else(Failure::none)?;
             list.remove(row);
             Ok(())
@@ -896,6 +910,19 @@ fn check_name(list: &ProfileSettings, name: &str, skip: Option<usize>) -> Result
         NameError::InvalidChar => Failure::new(ERR_INVALID_CHAR),
         NameError::Duplicate => Failure::new(ERR_ALREADY),
     })
+}
+
+/// Whether an editor runs with the profile (`in_use`).
+fn in_use_of(store: &Store, name: &str) -> bool {
+    store.dir(name).is_some_and(|dir| in_use::is_held(&dir))
+}
+
+/// The inverse of a rename on the list as it is now: the row that has the new name gets the old one back.
+/// A list without the new name (another window changed it) is left alone.
+fn undo_rename(list: &mut ProfileSettings, new: &str, old: &str) {
+    if let Some(row) = row_named(list, new).filter(|row| *row != 0) {
+        list.rename(row, old);
+    }
 }
 
 /// The row of the profile of this name (the empty name is 「(default)」).
