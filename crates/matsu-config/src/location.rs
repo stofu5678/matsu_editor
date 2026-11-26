@@ -201,7 +201,7 @@ pub fn find_existing(candidates: &[PathBuf]) -> Option<&Path> {
 
 /// The settings file among [`candidate_paths`]: the one that exists, else the one [`write_path`] gives.
 /// `env.profile_name` says the profile. This is the rule for the current file only. What a caller needs to
-/// know about "the settings file of a profile" is [`crate::migrate_old_name::settings_file`], which follows
+/// know about "the settings file of a profile" is `migrate_old_name::settings_file`, which follows
 /// the old product name's file too and delegates here when there is none; use that one.
 pub fn settings_file(os: Os, env: &Environment) -> Option<PathBuf> {
     let candidates = candidate_paths(os, env);

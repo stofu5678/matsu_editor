@@ -1072,16 +1072,19 @@ fn a_rename_onto_a_name_of_the_other_root_is_refused_with_the_name_taken_text(
     assert!(user.join("old").is_dir());
 }
 
-/// The old settings file of a profile under the user's old folder, and nothing current.
-fn legacy_only_profile(dir: &Path) -> std::path::PathBuf {
-    let old = dir.join("appdata").join("ume-editor").join("work");
-    std::fs::create_dir_all(&old).unwrap();
-    std::fs::write(
-        matsu_config::migrate_old_name::legacy_settings_file(&old),
-        "[Common]\nkey=7\n",
-    )
-    .unwrap();
-    old
+/// The old settings file of the profile `work` in the user's own old folder (the second place of a
+/// Windows-like environment), and nothing current.
+fn legacy_only_profile(dir: &Path) {
+    use matsu_config::location::{Environment, Os};
+    let env = Environment {
+        profile_name: Some("work".to_owned()),
+        ..windows_env(dir)
+    };
+    let file = matsu_config::migrate_old_name::legacy_candidate_paths(Os::Windows, &env)
+        .pop()
+        .expect("the user's own folder");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, "[Common]\nkey=7\n").unwrap();
 }
 
 #[gpui::test]

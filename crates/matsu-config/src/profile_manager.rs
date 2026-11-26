@@ -312,7 +312,7 @@ pub fn settings_path(os: Os, env: &Environment) -> Option<PathBuf> {
 
 /// `GetProfileDirectory`: the folder where the settings of a profile are, or will be after the migration
 /// from the old product name. It is the folder of the settings file that a process started with
-/// `-PROF=name` uses ([`crate::migrate_old_name::settings_file`], the same choice as `UserSettings` after
+/// `-PROF=name` uses (`migrate_old_name::settings_file`, the same choice as `UserSettings` after
 /// the migration). On Windows with a `matsu.ini` next to the program that is the folder next to the program
 /// only if `name\matsu.ini` (or its old file) is there already, else the user's own folder.
 pub fn profile_dir(os: Os, env: &Environment, name: &str) -> Option<PathBuf> {

@@ -39,7 +39,7 @@ const NEW_HEADER_START: &[u8] = b"; matsu.ini";
 /// The places of the old settings file for the same profile, in the order of [`location::candidate_paths`]
 /// (the one at an index is the old file of the new place at that index). The only place that spells out the
 /// old names and places. Delete with the module (version 1.0).
-pub(crate) fn legacy_candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
+pub fn legacy_candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
     location::candidate_paths_named(os, env, OLD_APP_DIR, OLD_FILE_NAME)
 }
 
