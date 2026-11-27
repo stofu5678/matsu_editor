@@ -875,11 +875,9 @@ mod tests {
         let mut step = 0;
         while done < lines {
             let n = 512.min(lines - done);
-            if let Ahead::Random = ahead {
-                if step % 2 == 0 && done + n < lines {
-                    let at = done + n + rng.below(lines - done - n);
-                    seq.replace(at, 1, &[2]);
-                }
+            if matches!(ahead, Ahead::Random) && step % 2 == 0 && done + n < lines {
+                let at = done + n + rng.below(lines - done - n);
+                seq.replace(at, 1, &[2]);
             }
             seq.replace(done, n, &vec![2; n]);
             done += n;
