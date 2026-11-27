@@ -644,12 +644,12 @@ impl matsu_core::buffer::Source for CountingSource {
 
 /// A view over a document read by ranges ("a", a line of `long` bytes, "z") whose lines from 1000
 /// bytes are long, and the counter of the bytes read from the source.
-fn counted_view<'a>(
-    cx: &'a mut TestAppContext,
+fn counted_view(
+    cx: &mut TestAppContext,
     long: usize,
 ) -> (
     Entity<EditorView>,
-    &'a mut gpui::VisualTestContext,
+    &mut gpui::VisualTestContext,
     std::sync::Arc<std::sync::atomic::AtomicU64>,
 ) {
     use gpui::AppContext as _;
