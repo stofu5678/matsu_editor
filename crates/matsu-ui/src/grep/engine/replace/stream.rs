@@ -18,14 +18,16 @@
 //! as it is: the result says so (type C). A stop, a character that the encoding cannot write, a
 //! full disk and every other failure drop the new file and leave the old one as it was.
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::sync::atomic::Ordering;
 
 use matsu_core::buffer::Codec;
 use matsu_core::encoding::Encoding;
 use matsu_core::file::{FileError, Limited, LineReader, StreamWrite};
 
-use super::{LineEnv, LineOutcome, LineRef, LineWork, ReplaceInfo, Staged, content_edit};
+use super::{
+    LineEnv, LineOutcome, LineRef, LineWork, ReplaceInfo, Staged, content_edit, copy_stoppable,
+};
 use crate::grep::engine::{CANCEL_CHECK_LINES, Runner, Stopped, line_limit};
 use crate::grep::format::{self, FilePaths, PathInfoState};
 
@@ -52,13 +54,15 @@ struct Output {
 /// when it is begun (when it is not, the copy of the start of the file will have them).
 struct Spill<'a> {
     to: Option<&'a mut StreamWrite>,
-    /// The error of the write that failed, kept (a copy of it: the reader gets the error itself)
-    /// so that the caller can tell it from an error of the read or a stop.
-    error: Option<io::Error>,
+    /// The kind of the error of the write that failed. The reader gets the error itself and
+    /// returns it, and an `io::Error` cannot be copied whole; what the caller needs is that it
+    /// was the write to the new file that failed, and not the read or a stop (a write can fail
+    /// with the kind `Interrupted` too), so the kind is all that is kept.
+    error: Option<io::ErrorKind>,
 }
 
 impl Spill<'_> {
-    fn take_error(&mut self) -> Option<io::Error> {
+    fn take_error(&mut self) -> Option<io::ErrorKind> {
         self.error.take()
     }
 }
@@ -68,7 +72,7 @@ impl Write for Spill<'_> {
         if let Some(to) = &mut self.to
             && let Err(e) = to.write_all(buf)
         {
-            self.error = Some(io::Error::new(e.kind(), e.to_string()));
+            self.error = Some(e.kind());
             return Err(e);
         }
         Ok(buf.len())
@@ -287,7 +291,7 @@ impl Runner<'_> {
         output: &mut Output,
     ) -> Result<(), Abort> {
         if backup {
-            let Some(staged) = self.stage_backup(path) else {
+            let Some(staged) = self.stage_backup(path)? else {
                 return Err(Abort::Told);
             };
             output.staged = Some(staged);
@@ -300,10 +304,14 @@ impl Runner<'_> {
             }
         };
         let copied = std::fs::File::open(path)
-            .and_then(|file| io::copy(&mut file.take(prefix), &mut writer));
-        if !matches!(copied, Ok(n) if n == prefix) {
-            self.buffer.push_str(&format::file_write_error(path));
-            return Err(Abort::Told);
+            .and_then(|mut file| copy_stoppable(&mut file, &mut writer, prefix, self.cancel));
+        match copied {
+            Ok(n) if n == prefix => {}
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => return Err(Abort::Stopped),
+            _ => {
+                self.buffer.push_str(&format::file_write_error(path));
+                return Err(Abort::Told);
+            }
         }
         output.writer = Some(writer);
         Ok(())

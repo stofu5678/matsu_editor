@@ -355,6 +355,23 @@ enum ReadStop {
 /// so, and the search goes on with the next line.
 pub(super) const LONG_LINE_LIMIT: usize = 64 * 1024 * 1024;
 
+/// The bytes one read of a big copy of a file asks for (the backup, the start of the new file):
+/// the stop is looked at between the reads.
+const COPY_CHUNK: usize = 1024 * 1024;
+
+fn copy_chunk() -> usize {
+    #[cfg(test)]
+    return stream_probe::copy_chunk();
+    #[cfg(not(test))]
+    COPY_CHUNK
+}
+
+/// Called after each chunk of a big copy (the tests stop the search from it).
+fn copied_chunk() {
+    #[cfg(test)]
+    stream_probe::copied_chunk();
+}
+
 fn line_limit() -> usize {
     #[cfg(test)]
     return stream_probe::line_limit();
@@ -374,9 +391,9 @@ fn stream_chunk() -> usize {
 /// and what the readers held and read.
 #[cfg(test)]
 pub(super) mod stream_probe {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
 
-    use super::{DEFAULT_STREAM_CHUNK, LONG_LINE_LIMIT};
+    use super::{COPY_CHUNK, DEFAULT_STREAM_CHUNK, LONG_LINE_LIMIT};
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct Seen {
@@ -391,6 +408,9 @@ pub(super) mod stream_probe {
     thread_local! {
         static CHUNK: Cell<usize> = const { Cell::new(DEFAULT_STREAM_CHUNK) };
         static LINE_LIMIT: Cell<usize> = const { Cell::new(LONG_LINE_LIMIT) };
+        static COPY: Cell<usize> = const { Cell::new(COPY_CHUNK) };
+        #[allow(clippy::type_complexity)]
+        static COPY_HOOK: RefCell<Option<Box<dyn FnMut()>>> = const { RefCell::new(None) };
         static SEEN: Cell<Seen> = const { Cell::new(Seen { files: 0, peak: 0, bytes: 0 }) };
     }
 
@@ -423,6 +443,37 @@ pub(super) mod stream_probe {
 
     pub fn line_limit() -> usize {
         LINE_LIMIT.with(Cell::get)
+    }
+
+    pub fn copy_chunk() -> usize {
+        COPY.with(Cell::get)
+    }
+
+    pub fn copied_chunk() {
+        // taken out while it runs, so that a hook cannot start itself
+        if let Some(mut hook) = COPY_HOOK.with(|h| h.borrow_mut().take()) {
+            hook();
+            COPY_HOOK.with(|h| *h.borrow_mut() = Some(hook));
+        }
+    }
+
+    /// Runs `f` with big copies of `chunk` bytes, calling `hook` after each chunk.
+    pub fn with_copy_hook<R>(
+        chunk: usize,
+        hook: impl FnMut() + 'static,
+        f: impl FnOnce() -> R,
+    ) -> R {
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                COPY.with(|c| c.set(COPY_CHUNK));
+                COPY_HOOK.with(|h| *h.borrow_mut() = None);
+            }
+        }
+        let _restore = Restore;
+        COPY.with(|c| c.set(chunk));
+        COPY_HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+        f()
     }
 
     /// Runs `f` with `limit` as the longest line that is looked at.

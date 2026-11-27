@@ -514,3 +514,73 @@ fn an_edit_that_ends_between_the_characters_of_one_invalid_sequence_is_cut_as_th
         same_as_the_whole_read(&short, &job);
     }
 }
+
+#[test]
+fn a_stop_while_the_start_of_the_file_or_the_backup_is_copied_ends_the_replace_at_once() {
+    // The first change is in the last line: the 6000 bytes before it are copied (to the backup,
+    // 61 chunks, and to the new file, 60 chunks) in chunks of 100 bytes. The stop comes after the n-th chunk of any
+    // copy, so that it comes in the backup and in the start of the new file in turn.
+    let mut text = "plain line\r\n".repeat(500);
+    text.push_str("abc\r\n");
+    for backup in [true, false] {
+        let stops: &[usize] = if backup {
+            &[1, 5, 40, 61, 100]
+        } else {
+            &[1, 5, 40, 59]
+        };
+        for &after in stops {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("data.txt"), &text).unwrap();
+            std::fs::write(dir.path().join("data.txt.skrold"), b"old").unwrap();
+            let mut job = Job::new("abc", "d");
+            job.backup = backup;
+            let info = job.info(&dir, Some(1));
+            let cancel = std::rc::Rc::new(AtomicBool::new(false));
+            let seen = std::rc::Rc::new(std::cell::Cell::new(0usize));
+            let hook = {
+                let (cancel, seen) = (cancel.clone(), seen.clone());
+                move || {
+                    seen.set(seen.get() + 1);
+                    if seen.get() == after {
+                        cancel.store(true, Ordering::Relaxed);
+                    }
+                }
+            };
+            let mut sink = Collect {
+                text: String::new(),
+                stop_at: None,
+            };
+            let outcome = stream_probe::with_copy_hook(100, hook, || {
+                run(&info, &cancel, &mut sink).expect("the search starts")
+            });
+            let what = format!("backup {backup}, stop after chunk {after}");
+            assert!(outcome.stopped, "{what}");
+            assert_eq!(outcome.hits, 0, "{what}");
+            assert!(
+                seen.get() == after,
+                "{what}: the copy went on: {}",
+                seen.get()
+            );
+            assert_eq!(
+                std::fs::read(dir.path().join("data.txt")).unwrap(),
+                text.as_bytes(),
+                "{what}: the file is as it was"
+            );
+            assert_eq!(
+                std::fs::read(dir.path().join("data.txt.skrold")).unwrap(),
+                b"old",
+                "{what}: so is the old backup"
+            );
+            let mut names: Vec<String> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            assert_eq!(
+                names,
+                ["data.txt", "data.txt.skrold"],
+                "{what}: nothing is left"
+            );
+        }
+    }
+}

@@ -58,7 +58,7 @@
 //! replaced, not the old file renamed after the new one is written.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -471,7 +471,7 @@ impl Runner<'_> {
         backup: bool,
     ) -> Result<bool, Stopped> {
         let staged = if backup {
-            let Some(staged) = self.stage_backup(path) else {
+            let Some(staged) = self.stage_backup(path)? else {
                 return Ok(false);
             };
             Some(staged)
@@ -505,21 +505,24 @@ impl Runner<'_> {
 
     /// Copies the file that is about to be replaced to a name of its own next to its backup (an
     /// earlier backup stays until the new content is in place). `None` when it cannot be copied;
-    /// the result says so.
-    fn stage_backup(&mut self, path: &str) -> Option<Staged> {
+    /// the result says so. A stop while it is copied removes the copy and ends the search.
+    fn stage_backup(&mut self, path: &str) -> Result<Option<Staged>, Stopped> {
         let old = format!("{path}{BACKUP_SUFFIX}");
         let staged = staged_name(&old);
-        if copy_new(path, &staged).is_err() {
+        if let Err(e) = copy_new(path, &staged, self.cancel) {
+            if e.kind() == std::io::ErrorKind::Interrupted {
+                return Err(Stopped);
+            }
             self.buffer.push_str(&format::replace_replace_error(&old));
-            return None;
+            return Ok(None);
         }
         self.kept.insert(old.to_lowercase());
         self.kept.insert(staged.to_lowercase());
-        Some(Staged {
+        Ok(Some(Staged {
             old,
             staged,
             armed: true,
-        })
+        }))
     }
 
     /// Tells in the result why the new content could not be written (not for a stop).
@@ -619,18 +622,45 @@ fn content_edit<'a>(text: &str, eol: &str, new_whole: &'a str) -> Option<(usize,
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is
-/// left alone). A copy that fails half way is removed.
-fn copy_new(from: &str, to: &str) -> std::io::Result<()> {
+/// left alone). A copy that fails half way, or that is stopped (`Interrupted`), is removed.
+fn copy_new(from: &str, to: &str, cancel: &AtomicBool) -> std::io::Result<()> {
     let mut source = std::fs::File::open(from)?;
     let mut target = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(to)?;
-    let copied = std::io::copy(&mut source, &mut target)
+    let copied = copy_stoppable(&mut source, &mut target, u64::MAX, cancel)
         .and_then(|_| matsu_core::file::sync_file(&target))
         .and_then(|()| std::fs::set_permissions(to, source.metadata()?.permissions()));
     if copied.is_err() {
         let _ = std::fs::remove_file(to);
     }
     copied
+}
+
+/// Copies at most `limit` bytes of `from` to `to` in chunks, asking the stop flag before each:
+/// a copy of a huge file must not run on after a stop. Fails with `Interrupted` when it is set.
+/// Returns the bytes copied.
+fn copy_stoppable(
+    from: &mut impl std::io::Read,
+    to: &mut impl std::io::Write,
+    limit: u64,
+    cancel: &AtomicBool,
+) -> std::io::Result<u64> {
+    let mut buf = vec![0u8; super::copy_chunk()];
+    let mut total = 0u64;
+    while total < limit {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(std::io::ErrorKind::Interrupted.into());
+        }
+        let want = usize::try_from(limit - total).map_or(buf.len(), |n| n.min(buf.len()));
+        let n = from.read(&mut buf[..want])?;
+        if n == 0 {
+            break;
+        }
+        to.write_all(&buf[..n])?;
+        total += n as u64;
+        super::copied_chunk();
+    }
+    Ok(total)
 }
