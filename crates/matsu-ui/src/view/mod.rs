@@ -874,7 +874,7 @@ impl EditorView {
         let doc = self.document.read(cx).doc();
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         if let Some(anchor) = anchor {
-            self.restore_top_anchor(anchor);
+            self.restore_top_anchor(&anchor);
         }
         if !self.layout.is_complete() {
             window.request_animation_frame();
@@ -901,7 +901,7 @@ impl EditorView {
         })
     }
 
-    fn restore_top_anchor(&mut self, anchor: TopAnchor) {
+    fn restore_top_anchor(&mut self, anchor: &TopAnchor) {
         let in_line = self.layout.rows_in_line(anchor.line).unwrap_or(1).max(1);
         let row = self.layout.first_row_of_line(anchor.line) + anchor.row_in_line.min(in_line - 1);
         if row != anchor.row {

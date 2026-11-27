@@ -1052,7 +1052,7 @@ fn the_top_stays_on_its_line_while_lines_above_it_are_laid_out(cx: &mut TestAppC
         assert_eq!((anchor.line, anchor.row_in_line), (500, 0));
         v.layout.layout_chunk(doc, 300).unwrap();
         assert!(v.layout.first_row_of_line(500) > 500, "lines above wrapped");
-        v.restore_top_anchor(anchor);
+        v.restore_top_anchor(&anchor);
         let top = (v.scroll_y / lh).floor() as usize;
         let at = v.layout.locate_row(top);
         assert_eq!((at.line, at.row_in_line), (500, 0));
