@@ -89,11 +89,11 @@ impl Shown {
                 menu: s.menu,
                 default: s.default,
                 available: s.available,
-                note: if s.default {
-                    overridden_note(&s.overridden).map(Into::into)
-                } else {
-                    None
-                },
+                note: [overridden_note(&s.overridden), chosen_note(&s.chosen)]
+                    .into_iter()
+                    .flatten()
+                    .reduce(|a, b| format!("{a}\n{b}"))
+                    .map(Into::into),
             },
             Err(e) => Self {
                 menu: false,
@@ -103,6 +103,25 @@ impl Shown {
             },
         }
     }
+}
+
+/// What to tell the user about the extensions where the double click is off but Windows still
+/// opens MATSU because the user chose it in the default apps (a program cannot change that).
+/// `None` when there are none.
+pub(super) fn chosen_note(extensions: &[String]) -> Option<String> {
+    if extensions.is_empty() {
+        return None;
+    }
+    let list = extensions
+        .iter()
+        .map(|e| format!(".{e}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(format!(
+        "{list} は、Windows の「既定のアプリ」で MATSU Editor が選ばれているため、\
+         チェックを外しても、ダブルクリックでは MATSU Editor が開きます。変えるには、Windows の\
+         設定の「アプリ」の「既定のアプリ」で、拡張子ごとに別のアプリを選んでください。"
+    ))
 }
 
 /// What to tell the user about the extensions where Windows opens another program for the double

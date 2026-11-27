@@ -218,6 +218,12 @@ pub struct Status {
     pub default: bool,
 }
 
+/// Do two ProgIDs or verb names name the same thing? The registry does not care about case, so
+/// every check of what is ours (and what to back up and restore) must not either.
+fn same_name(a: &str, b: &str) -> bool {
+    a == b || a.to_lowercase() == b.to_lowercase()
+}
+
 fn nonempty(value: Option<String>) -> Option<String> {
     value.filter(|v| !v.is_empty())
 }
@@ -235,7 +241,9 @@ pub fn check(registry: &impl Registry, ext: &Ext) -> Status {
     };
     let shell = format!("{prog_id}\\shell");
     let default = registry.key_exists(&format!("{shell}\\{ACTION_NAME}"))
-        && registry.value(&shell, "").as_deref() == Some(ACTION_NAME);
+        && registry
+            .value(&shell, "")
+            .is_some_and(|v| same_name(&v, ACTION_NAME));
     Status { menu, default }
 }
 
@@ -259,10 +267,14 @@ pub fn register(
 
     // `.ext` names our ProgID; the previous default is kept.
     let current = registry.value(&dot, "").unwrap_or_default();
-    if current != prog_id {
+    // `.ext` may already name our ProgID with other letter case: that is ours, not a previous
+    // default to back up (a backup of it would be restored as a self-reference later).
+    if !same_name(&current, &prog_id) {
         if !current.is_empty() {
             registry.set_value(&dot, PROGID_BACKUP_NAME, &current)?;
         }
+        registry.set_value(&dot, "", &prog_id)?;
+    } else if current != prog_id {
         registry.set_value(&dot, "", &prog_id)?;
     }
 
@@ -286,7 +298,7 @@ pub fn register(
 
     let shell = ext.shell_key();
     let shell_value = registry.value(&shell, "").unwrap_or_default();
-    if shell_value != ACTION_NAME {
+    if !same_name(&shell_value, ACTION_NAME) {
         if !shell_value.is_empty() {
             registry.set_value(&ext.shell_backup_key(), "", &shell_value)?;
         }
@@ -308,7 +320,11 @@ fn keep_only_the_menu_item(registry: &mut impl Registry, ext: &Ext, exe: &str) -
     let dot = ext.dot_key();
     registry.set_value(&ext.system_command_key(), "", &command_line(exe))?;
     registry.set_value(&ext.system_action_key(), "", ACTION_LABEL)?;
-    if registry.value(&dot, "").as_deref() == Some(ext.prog_id().as_str()) {
+    let prog_id = ext.prog_id();
+    if registry
+        .value(&dot, "")
+        .is_some_and(|v| same_name(&v, &prog_id))
+    {
         match nonempty(registry.value(&dot, PROGID_BACKUP_NAME)) {
             Some(previous) => registry.set_value(&dot, "", &previous)?,
             None => registry.delete_value(&dot, "")?,
@@ -326,7 +342,10 @@ fn keep_only_the_menu_item(registry: &mut impl Registry, ext: &Ext, exe: &str) -
 pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
     let dot = ext.dot_key();
     let prog_id = ext.prog_id();
-    if registry.value(&dot, "").as_deref() == Some(prog_id.as_str()) {
+    if registry
+        .value(&dot, "")
+        .is_some_and(|v| same_name(&v, &prog_id))
+    {
         match nonempty(registry.value(&dot, PROGID_BACKUP_NAME)) {
             Some(previous) => registry.set_value(&dot, "", &previous)?,
             None => registry.delete_value(&dot, "")?,
@@ -355,6 +374,10 @@ pub struct TypeState {
     /// The extensions where the double click is MATSU's but the user's own choice of Windows
     /// names another program, so Windows opens that one.
     pub overridden: Vec<String>,
+    /// The extensions where the double click is off but the user's own choice of Windows names
+    /// MATSU (this one's ProgID, the installer's, or the program), so Windows still opens MATSU:
+    /// turning the check box off cannot change that.
+    pub chosen: Vec<String>,
 }
 
 /// What one click on a check box asks for.
@@ -377,17 +400,20 @@ pub fn type_state(registry: &impl Registry, type_exts: &str, exe_name: &str) -> 
         menu: true,
         default: true,
         overridden: Vec::new(),
+        chosen: Vec::new(),
     };
     for ext in &exts {
         let status = check(registry, ext);
         state.menu &= status.menu;
         state.default &= status.default;
-        if status.default
-            && registry
-                .user_choice(ext)
-                .is_some_and(|choice| !user_choice_is_ours(&choice, ext, exe_name))
-        {
+        let Some(choice) = registry.user_choice(ext) else {
+            continue;
+        };
+        let ours = user_choice_is_ours(&choice, ext, exe_name);
+        if status.default && !ours {
             state.overridden.push(ext.as_str().to_owned());
+        } else if status.menu && !status.default && ours {
+            state.chosen.push(ext.as_str().to_owned());
         }
     }
     state

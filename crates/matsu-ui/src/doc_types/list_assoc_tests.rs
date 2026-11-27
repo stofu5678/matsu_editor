@@ -39,6 +39,7 @@ impl Backend for Fake {
             menu: r.menu,
             default: r.default,
             overridden: Vec::new(),
+            chosen: Vec::new(),
         })
     }
 

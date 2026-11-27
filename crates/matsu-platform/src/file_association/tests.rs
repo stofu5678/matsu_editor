@@ -648,3 +648,65 @@ fn the_check_boxes_report_the_real_state_with_the_double_click_off() {
     let state = type_state(&r, "c h", "matsu.exe");
     assert!(state.menu && state.default);
 }
+
+#[test]
+fn a_choice_of_the_user_for_matsu_is_shown_when_the_double_click_is_off() {
+    let mut r = Fake::default();
+    apply(&mut r, "c h", EXE, Change::Menu(true)).unwrap();
+    // The user chose MATSU in the default apps for `.c` (our ProgID) and `.h` (the installer's).
+    r.choices.insert(".c".into(), "MatsuEditor_c".into());
+    r.choices.insert(".h".into(), "MATSU.Editor.h".into());
+    // The double click is on: nothing to say.
+    let state = type_state(&r, "c h", "matsu.exe");
+    assert!(state.default);
+    assert!(state.chosen.is_empty());
+    assert!(state.overridden.is_empty());
+    // Off: Windows still follows the choice to MATSU, and the state says so.
+    apply(&mut r, "c h", EXE, Change::Default(false)).unwrap();
+    let state = type_state(&r, "c h", "matsu.exe");
+    assert!(!state.default);
+    assert!(state.menu);
+    assert_eq!(state.chosen, ["c", "h"]);
+    // A choice for another program is not a reason to say that.
+    r.choices.insert(".c".into(), "txtfile".into());
+    assert_eq!(type_state(&r, "c h", "matsu.exe").chosen, ["h"]);
+    // Nothing is registered: nothing to say either.
+    let r = Fake::default();
+    assert!(type_state(&r, "c", "matsu.exe").chosen.is_empty());
+}
+
+#[test]
+fn the_progid_is_ours_whatever_its_letter_case() {
+    let mut r = Fake::default();
+    // `.mtest` names our ProgID with other letters, and no previous default exists.
+    r.put_user(".mtest", "", "matsueditor_MTEST");
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    // It is not taken for a previous default of another program.
+    assert_eq!(r.value(".mtest", PROGID_BACKUP_NAME), None);
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("MatsuEditor_mtest"));
+    // Removing it does not restore a self-reference.
+    r.put_user(".mtest", "", "MATSUEDITOR_mtest");
+    r.put_user(".mtest", PROGID_BACKUP_NAME, "othertype");
+    unregister(&mut r, &ext("mtest")).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("othertype"));
+    assert!(!r.key_exists("MatsuEditor_mtest"));
+}
+
+#[test]
+fn the_verb_and_the_default_are_compared_without_case() {
+    let mut r = Fake::default();
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    r.put_user(r"MatsuEditor_mtest\shell", "", "MATSUEDITOR");
+    assert!(check(&r, &ext("mtest")).default);
+    // Registering again does not back the verb up as if it were another program's.
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell\MatsuEditor\ShellBackup", ""),
+        None
+    );
+    // Turning the double click off with the `.ext` in other letters gives the previous one back.
+    r.put_user(".mtest", "", "MATSUEDITOR_MTEST");
+    r.put_user(".mtest", PROGID_BACKUP_NAME, "othertype");
+    register(&mut r, &ext("mtest"), EXE, false).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("othertype"));
+}

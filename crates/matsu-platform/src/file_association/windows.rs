@@ -8,11 +8,11 @@
 use std::io;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, ERROR_SUCCESS};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_READ, KEY_SET_VALUE,
-    KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCopyTreeW, RegCreateKeyExW,
-    RegDeleteKeyW, RegDeleteTreeW, RegDeleteValueW, RegOpenKeyExW, RegQueryInfoKeyW,
+    KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW,
+    RegDeleteTreeW, RegDeleteValueW, RegEnumKeyExW, RegEnumValueW, RegOpenKeyExW, RegQueryInfoKeyW,
     RegQueryValueExW, RegSetValueExW,
 };
 use windows_sys::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
@@ -47,13 +47,19 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-fn check(code: u32) -> io::Result<()> {
+/// The result of a registry call, with the call and the key it was for in the message (the
+/// functions return the error code itself): `RegSetValueExW Software\Classes\.txt: Access is denied.`
+fn check(code: u32, call: &str, path: &str) -> io::Result<()> {
     if code == ERROR_SUCCESS {
         Ok(())
     } else {
-        // The registry functions return the error code itself.
-        Err(io::Error::from_raw_os_error(code as i32))
+        Err(with_context(code, call, path))
     }
+}
+
+fn with_context(code: u32, call: &str, path: &str) -> io::Error {
+    let os = io::Error::from_raw_os_error(code as i32);
+    io::Error::new(os.kind(), format!("{call} {path}: {os}"))
 }
 
 /// An open key, closed at the end.
@@ -74,6 +80,7 @@ impl Key {
     }
 
     fn create(hive: HKEY, path: &str) -> io::Result<Self> {
+        let name = path;
         let path = wide(path);
         let mut key: HKEY = null_mut();
         // SAFETY: as in `open`; the class, the attributes and the disposition are not used.
@@ -90,8 +97,88 @@ impl Key {
                 null_mut(),
             )
         };
-        check(code)?;
+        check(code, "RegCreateKeyExW", name)?;
         Ok(Self(key))
+    }
+
+    /// The names of the subkeys.
+    fn subkeys(&self) -> io::Result<Vec<String>> {
+        let mut names = Vec::new();
+        for index in 0.. {
+            // A key name has at most 255 characters.
+            let mut buffer = [0u16; 256];
+            let mut length = buffer.len() as u32;
+            // SAFETY: `buffer` has `length` characters of room; the other outputs are not used.
+            let code = unsafe {
+                RegEnumKeyExW(
+                    self.0,
+                    index,
+                    buffer.as_mut_ptr(),
+                    &mut length,
+                    null(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                )
+            };
+            if code == ERROR_NO_MORE_ITEMS {
+                break;
+            }
+            check(code, "RegEnumKeyExW", "")?;
+            names.push(String::from_utf16_lossy(&buffer[..length as usize]));
+        }
+        Ok(names)
+    }
+
+    /// Copies every value of this key to `target`, as they are (name, type and bytes).
+    fn copy_values_to(&self, target: &Key) -> io::Result<()> {
+        for index in 0.. {
+            // A value name has at most 16383 characters.
+            let mut name = vec![0u16; 16384];
+            let mut name_length = name.len() as u32;
+            let (mut kind, mut size) = (0u32, 0u32);
+            // SAFETY: the first call only asks for the size (null data); `name` has room for
+            // `name_length` characters.
+            let code = unsafe {
+                RegEnumValueW(
+                    self.0,
+                    index,
+                    name.as_mut_ptr(),
+                    &mut name_length,
+                    null(),
+                    &mut kind,
+                    null_mut(),
+                    &mut size,
+                )
+            };
+            if code == ERROR_NO_MORE_ITEMS {
+                break;
+            }
+            check(code, "RegEnumValueW", "")?;
+            let mut data = vec![0u8; size as usize];
+            name_length = name.len() as u32;
+            // SAFETY: `data` has `size` bytes of room, and `name` room for `name_length`.
+            let code = unsafe {
+                RegEnumValueW(
+                    self.0,
+                    index,
+                    name.as_mut_ptr(),
+                    &mut name_length,
+                    null(),
+                    &mut kind,
+                    data.as_mut_ptr(),
+                    &mut size,
+                )
+            };
+            check(code, "RegEnumValueW", "")?;
+            name.truncate(name_length as usize);
+            name.push(0);
+            // SAFETY: `name` is NUL-terminated and `data` has `size` valid bytes.
+            let code =
+                unsafe { RegSetValueExW(target.0, name.as_ptr(), 0, kind, data.as_ptr(), size) };
+            check(code, "RegSetValueExW", "(a copied value)")?;
+        }
+        Ok(())
     }
 
     /// The string value `name` (`""` is the default value).
@@ -143,6 +230,22 @@ impl Drop for Key {
     }
 }
 
+/// Copies the values and the subkeys of `source` into the key `to` of `HKEY_CURRENT_USER`, which
+/// is made. Done by hand with the plain calls and the rights of `KEY_READ` and `KEY_WRITE`, not with
+/// `RegCopyTreeW`: that is the one call of the flow that the real-registry test reached and the
+/// Sandbox run did not (it needs a machine ProgID to copy), and the suspect for its "Access is
+/// denied".
+fn copy_tree(source: &Key, to: &str) -> io::Result<()> {
+    let target = Key::create(HKEY_CURRENT_USER, to)?;
+    source.copy_values_to(&target)?;
+    for name in source.subkeys()? {
+        let child = Key::open(source.0, &name, KEY_READ)
+            .map_err(|code| with_context(code, "RegOpenKeyExW", &name))?;
+        copy_tree(&child, &format!("{to}\\{name}"))?;
+    }
+    Ok(())
+}
+
 impl Registry for Real {
     fn key_exists(&self, path: &str) -> bool {
         Key::open(HKEY_CURRENT_USER, &self.user(path), KEY_READ).is_ok()
@@ -156,6 +259,7 @@ impl Registry for Real {
 
     fn set_value(&mut self, path: &str, name: &str, data: &str) -> io::Result<()> {
         let key = Key::create(HKEY_CURRENT_USER, &self.user(path))?;
+        let value_name = name;
         let name = wide(name);
         let data = wide(data);
         let bytes = u32::try_from(data.len() * 2)
@@ -163,36 +267,47 @@ impl Registry for Real {
         // SAFETY: `name` and `data` are NUL-terminated, and `bytes` is the size of `data`.
         let code =
             unsafe { RegSetValueExW(key.0, name.as_ptr(), 0, REG_SZ, data.as_ptr().cast(), bytes) };
-        check(code)
+        check(
+            code,
+            "RegSetValueExW",
+            &format!("{} [{value_name}]", self.user(path)),
+        )
     }
 
     fn delete_value(&mut self, path: &str, name: &str) -> io::Result<()> {
         let Ok(key) = Key::open(HKEY_CURRENT_USER, &self.user(path), KEY_SET_VALUE) else {
             return Ok(());
         };
+        let value_name = name;
         let name = wide(name);
         // SAFETY: `name` is NUL-terminated.
         let code = unsafe { RegDeleteValueW(key.0, name.as_ptr()) };
         if code == ERROR_FILE_NOT_FOUND {
             Ok(())
         } else {
-            check(code)
+            check(
+                code,
+                "RegDeleteValueW",
+                &format!("{} [{value_name}]", self.user(path)),
+            )
         }
     }
 
     fn delete_tree(&mut self, path: &str) -> io::Result<()> {
-        let path = wide(&self.user(path));
+        let full = self.user(path);
+        let path = wide(&full);
         // SAFETY: `path` is NUL-terminated.
         let code = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, path.as_ptr()) };
         if code == ERROR_FILE_NOT_FOUND {
             Ok(())
         } else {
-            check(code)
+            check(code, "RegDeleteTreeW", &full)
         }
     }
 
     fn delete_key_if_empty(&mut self, path: &str) -> io::Result<()> {
         let path = self.user(path);
+        let full = path.clone();
         let Ok(key) = Key::open(HKEY_CURRENT_USER, &path, KEY_QUERY_VALUE) else {
             return Ok(());
         };
@@ -214,7 +329,7 @@ impl Registry for Real {
                 null_mut(),
             )
         };
-        check(code)?;
+        check(code, "RegQueryInfoKeyW", &path)?;
         drop(key);
         if subkeys != 0 || values != 0 {
             return Ok(());
@@ -226,7 +341,7 @@ impl Registry for Real {
         if code == ERROR_FILE_NOT_FOUND {
             Ok(())
         } else {
-            check(code)
+            check(code, "RegDeleteKeyW", &full)
         }
     }
 
@@ -240,11 +355,8 @@ impl Registry for Real {
     fn copy_machine_tree(&mut self, from: &str, to: &str) -> io::Result<()> {
         let from = format!("{}\\{from}", self.machine.1);
         let source = Key::open(self.machine.0, &from, KEY_READ)
-            .map_err(|code| io::Error::from_raw_os_error(code as i32))?;
-        let target = Key::create(HKEY_CURRENT_USER, &self.user(to))?;
-        // SAFETY: both handles are open; no sub key name means the key itself.
-        let code = unsafe { RegCopyTreeW(source.0, null(), target.0) };
-        check(code)
+            .map_err(|code| with_context(code, "RegOpenKeyExW", &from))?;
+        copy_tree(&source, &self.user(to))
     }
 
     fn notify_changed(&mut self) {
