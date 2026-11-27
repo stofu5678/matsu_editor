@@ -239,14 +239,35 @@ mod fake_shell {
             dir.path(),
             "sleep 60 &\necho $! > \"$(dirname \"$0\")/child\"\nsleep 60",
         );
-        let started = Instant::now();
-        let result = run(&shell, Duration::from_millis(700), None);
-        assert_eq!(result, Err("timed out".to_owned()));
-        assert!(started.elapsed() < Duration::from_secs(15));
-        let pid = std::fs::read_to_string(dir.path().join("pid")).unwrap();
-        assert!(gone(pid.trim()), "the shell is still there");
-        let child = std::fs::read_to_string(dir.path().join("child")).unwrap();
-        assert!(gone(child.trim()), "its child is still there");
+        // The limit is short so that the test is quick, but a busy machine may not have started
+        // the shell (and its child) by then, and the shell writes its pids only when it has: a
+        // run whose limit was too short for that is made again with a limit four times as long,
+        // a bounded number of times.
+        let recorded = |name: &str| {
+            std::fs::read_to_string(dir.path().join(name))
+                .map(|text| text.trim().to_owned())
+                .ok()
+                .filter(|text| !text.is_empty())
+        };
+        let mut limit = Duration::from_millis(700);
+        let (pid, child) = 'attempts: {
+            for _ in 0..4 {
+                for name in ["pid", "child"] {
+                    let _ = std::fs::remove_file(dir.path().join(name));
+                }
+                let started = Instant::now();
+                let result = run(&shell, limit, None);
+                assert_eq!(result, Err("timed out".to_owned()));
+                assert!(started.elapsed() < limit + Duration::from_secs(15));
+                if let (Some(pid), Some(child)) = (recorded("pid"), recorded("child")) {
+                    break 'attempts (pid, child);
+                }
+                limit *= 4;
+            }
+            panic!("the shell did not write its pids within {limit:?}");
+        };
+        assert!(gone(&pid), "the shell is still there");
+        assert!(gone(&child), "its child is still there");
     }
 
     #[test]

@@ -140,17 +140,35 @@ fn overlapping_matches_become_their_union() {
     assert!(!mask_line(line, &found).contains("tail"));
 }
 
+/// The shortest of three runs of `find_secrets` over `unit` repeated `times` (the shortest is
+/// the one a busy machine disturbed least).
+fn best_of_three(unit: &str, times: usize) -> std::time::Duration {
+    let line = unit.repeat(times);
+    (0..3)
+        .map(|_| {
+            let start = std::time::Instant::now();
+            let _ = find_secrets(&line);
+            start.elapsed()
+        })
+        .min()
+        .unwrap()
+}
+
 #[test]
 fn a_long_line_of_candidates_is_scanned_in_linear_time() {
-    let start = std::time::Instant::now();
-    for line in [
-        "eyJabcdefghij.".repeat(300_000),
-        "https://".repeat(300_000),
-        "Bearer ".repeat(300_000),
-    ] {
-        let _ = find_secrets(&line);
+    // The proof is the growth, not the seconds: four times the line may take about four times as
+    // long (linear), where a quadratic scan takes sixteen times. The limit of ten is between them,
+    // and a slow or busy machine moves both times, not their ratio.
+    for unit in ["eyJabcdefghij.", "https://", "Bearer "] {
+        let small = best_of_three(unit, 50_000);
+        let large = best_of_three(unit, 200_000);
+        // A run too short to measure cannot show a quadratic scan; give it a floor.
+        let floor = std::time::Duration::from_millis(1);
+        assert!(
+            large <= small.max(floor) * 10,
+            "{unit:?}: {small:?} for 50 000 repeats, {large:?} for 200 000"
+        );
     }
-    assert!(start.elapsed().as_secs() < 5, "{:?}", start.elapsed());
 }
 
 #[test]

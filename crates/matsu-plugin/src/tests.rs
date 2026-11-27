@@ -1049,30 +1049,40 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    // The timeout is shorter than the wait. The timeout is long enough for the interpreter to
-    // start on a busy machine (its clock runs from the start, not from the first call).
+    // The window holds the clock from the start, and lets go only when the timeout has run out
+    // twice over by the wall clock. So the interpreter may start as slowly as a busy machine makes
+    // it (its start is held too), and the macro still has its whole timeout after the release for
+    // what is left of it.
+    let timeout = Duration::from_secs(3);
     let config = config_for(
         &dir,
         Language::JavaScript,
         "Editor.GetFilename(); console.log('after the wait');",
-        Duration::from_secs(2),
+        timeout,
     );
     let (tx, rx) = mpsc::channel();
     let sink: session::Sink = Arc::new(move |event| {
         let _ = tx.send(event);
     });
     let session = Arc::new(session::start(&config, sink).unwrap());
+    session.hold();
+    let held_since = Instant::now();
     let mut printed = Vec::new();
-    for event in rx {
+    // The macro that is stuck is given up after a bounded time, with a message.
+    let give_up = Instant::now() + Duration::from_secs(120);
+    loop {
+        let event = rx
+            .recv_timeout(give_up.saturating_duration_since(Instant::now()))
+            .expect("no Finished event");
         match event {
             HostEvent::Output { text, .. } => printed.push(text),
             HostEvent::Message(text) => {
-                // A dialog is open: the window holds the macro's clock, then answers.
-                session.hold();
+                // The macro asks the window: the answer comes after the timeout has passed.
                 let session = session.clone();
                 let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_secs(5));
+                    let until = held_since + timeout * 2;
+                    std::thread::sleep(until.saturating_duration_since(Instant::now()));
                     session.send(crate::protocol::response_ok(&id, &Value::from("")));
                     session.release();
                 });
@@ -1085,7 +1095,6 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
             }
         }
     }
-    panic!("no Finished event");
 }
 
 #[test]
