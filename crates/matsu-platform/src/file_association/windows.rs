@@ -41,6 +41,9 @@ impl Real {
     }
 
     fn user(&self, path: &str) -> String {
+        if path.is_empty() {
+            return self.user_classes.clone();
+        }
         format!("{}\\{path}", self.user_classes)
     }
 }
@@ -388,6 +391,13 @@ impl Registry for Real {
         // SAFETY: `SHCNE_ASSOCCHANGED` takes no items: both pointers are null.
         unsafe {
             SHChangeNotify(SHCNE_ASSOCCHANGED as i32, SHCNF_IDLIST, null(), null());
+        }
+    }
+
+    fn subkeys(&self, path: &str) -> io::Result<Vec<String>> {
+        match Key::open_if_present(HKEY_CURRENT_USER, &self.user(path), KEY_READ)? {
+            Some(key) => key.subkeys(),
+            None => Ok(Vec::new()),
         }
     }
 

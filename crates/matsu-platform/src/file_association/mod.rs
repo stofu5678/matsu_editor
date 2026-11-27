@@ -71,7 +71,7 @@ pub const SHELL_BACKUP_KEY: &str = "ShellBackup";
 const PROGID_PREFIX: &str = "MatsuEditor_";
 
 /// A file extension of a type, in lower case and without the dot (`CharLower` of the token).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ext(String);
 
 impl Ext {
@@ -203,6 +203,9 @@ pub trait Registry {
     /// Copies the key `from` of `HKEY_LOCAL_MACHINE\Software\Classes` with everything below it to
     /// the key `to` of `HKEY_CURRENT_USER` (`CopyRegistry`).
     fn copy_machine_tree(&mut self, from: &str, to: &str) -> io::Result<()>;
+    /// The names of the direct subkeys of a key (in `HKEY_CURRENT_USER`); `""` is
+    /// `Software\Classes` itself. A missing key has none.
+    fn subkeys(&self, path: &str) -> io::Result<Vec<String>>;
     /// The ProgID of the choice of the user for `.ext` (`UserChoice` of `FileExts`), read only.
     fn user_choice(&self, ext: &Ext) -> Option<String>;
     /// Tells the shell that associations changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)`).
@@ -350,6 +353,12 @@ fn keep_only_the_menu_item(registry: &mut impl Registry, ext: &Ext, exe: &str) -
 /// previous default back while it still names MATSU's ProgID; the key `.ext` goes only when it is
 /// empty then.
 pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
+    unregister_with(registry, ext, true)
+}
+
+/// [`unregister`], where `keep_chosen` says whether the ProgID that `UserChoice` names stays. The
+/// uninstaller passes `false`: the program goes away, and a ProgID that stayed would point to it.
+fn unregister_with(registry: &mut impl Registry, ext: &Ext, keep_chosen: bool) -> io::Result<()> {
     let dot = ext.dot_key();
     let prog_id = ext.prog_id();
     if registry
@@ -366,9 +375,10 @@ pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
     // from here, so the ProgID stays with its command (as the plain `open` verb) and the choice
     // keeps working. The right-click items and `.ext` go; the dialog then says that Windows' own
     // setting decides.
-    let chosen = registry
-        .user_choice(ext)
-        .is_some_and(|choice| same_name(&choice, &prog_id));
+    let chosen = keep_chosen
+        && registry
+            .user_choice(ext)
+            .is_some_and(|choice| same_name(&choice, &prog_id));
     if chosen {
         // What the double click needs stays, without the custom menu item: Explorer reads the
         // verbs from the chosen ProgID, so `shell\MatsuEditor` (with its label) would keep showing
@@ -395,6 +405,76 @@ pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
     registry.delete_key_if_empty(&format!("SystemFileAssociations\\{dot}"))?;
     registry.delete_key_if_empty("SystemFileAssociations")?;
     registry.delete_key_if_empty(&dot)
+}
+
+/// Every extension that MATSU associated for the current user: the ones with a ProgID
+/// `MatsuEditor_<ext>` and the ones with the verb `SystemFileAssociations\.<ext>\shell\MatsuEditor`.
+/// Sorted, without repeats. A name that [`Ext::from_token`] refuses is not ours to touch.
+fn associated_extensions(registry: &impl Registry) -> io::Result<Vec<Ext>> {
+    let mut names = std::collections::BTreeSet::new();
+    for name in registry.subkeys("")? {
+        if let Some(head) = name.get(..PROGID_PREFIX.len())
+            && head.eq_ignore_ascii_case(PROGID_PREFIX)
+            && let Some(ext) = Ext::from_token(&name[PROGID_PREFIX.len()..])
+        {
+            names.insert(ext);
+        }
+    }
+    for name in registry.subkeys("SystemFileAssociations")? {
+        let Some(token) = name.strip_prefix('.') else {
+            continue;
+        };
+        if let Some(ext) = Ext::from_token(token)
+            && registry.key_exists(&ext.system_action_key())
+        {
+            names.insert(ext);
+        }
+    }
+    Ok(names.into_iter().collect())
+}
+
+/// What [`remove_all`] did.
+#[derive(Debug, Default)]
+pub struct Removal {
+    /// The extensions whose association was removed.
+    pub removed: Vec<Ext>,
+    /// The extensions that failed, with the reason. The others were still done.
+    pub failed: Vec<(Ext, io::Error)>,
+}
+
+/// The uninstaller: removes the association of every extension that MATSU made, as the check box
+/// does (a backed up default comes back), except that a ProgID which `UserChoice` names goes too
+/// (`matsu.exe` is being removed). Nothing that MATSU did not write is touched. The shell is told
+/// once at the end, and not at all when there was nothing to remove. A failure for one extension
+/// does not stop the others; an error is returned only when the keys cannot be listed.
+pub fn remove_all(registry: &mut impl Registry) -> io::Result<Removal> {
+    let exts = associated_extensions(registry)?;
+    let mut report = Removal::default();
+    for ext in exts {
+        match unregister_with(registry, &ext, false) {
+            Ok(()) => report.removed.push(ext),
+            Err(error) => report.failed.push((ext, error)),
+        }
+    }
+    if !report.removed.is_empty() || !report.failed.is_empty() {
+        registry.notify_changed();
+    }
+    Ok(report)
+}
+
+/// [`remove_all`] on the real registry of Windows.
+pub fn remove_all_from_system() -> io::Result<Removal> {
+    #[cfg(windows)]
+    {
+        remove_all(&mut windows::Real::current_user())
+    }
+    #[cfg(not(windows))]
+    {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "file associations are removed on Windows only",
+        ))
+    }
 }
 
 /// What the check boxes of the type list show for one type (the AND over its extensions, as

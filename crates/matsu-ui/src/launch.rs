@@ -121,9 +121,40 @@ pub(crate) fn path_of_file_url(url: &str) -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf8_lossy(&bytes).into_owned()))
 }
 
+/// The internal argument that the uninstaller passes: removes the file associations that the type
+/// list made, for the current user, and ends. Not an option of the command line for users.
+pub const REMOVE_ASSOCIATIONS: &str = "--remove-associations";
+
+/// Whether the arguments are the uninstaller's call (the only argument).
+fn is_remove_associations(args: &[OsString]) -> bool {
+    matches!(args, [only] if only == REMOVE_ASSOCIATIONS)
+}
+
+/// [`REMOVE_ASSOCIATIONS`]: the exit code, 0 when everything went well and 1 otherwise. What failed goes to
+/// the standard error (the uninstaller logs the code only).
+fn remove_associations() -> i32 {
+    match matsu_platform::file_association::remove_all_from_system() {
+        Ok(report) if report.failed.is_empty() => 0,
+        Ok(report) => {
+            for (ext, error) in &report.failed {
+                eprintln!("{REMOVE_ASSOCIATIONS}: .{}: {error}", ext.as_str());
+            }
+            1
+        }
+        Err(error) => {
+            eprintln!("{REMOVE_ASSOCIATIONS}: {error}");
+            1
+        }
+    }
+}
+
 /// Runs MATSU Editor for a command line (the arguments after the program name) until the last window
 /// closes. Returns at once if the arguments were handed to a MATSU Editor that is running already.
 pub fn launch(args: Vec<OsString>) {
+    // The uninstaller's call (`packaging/windows/matsu.iss`): no window, no settings, no editor.
+    if is_remove_associations(&args) {
+        std::process::exit(remove_associations());
+    }
     // The process that shows the profile manager alone, for the launch that waits for it
     // (`profile_manager::startup`).
     if crate::profile_manager::startup::is_picker(&args) {
@@ -253,6 +284,21 @@ mod tests {
         let (separate, rest) = split_options(os(&["a.txt"]));
         assert!(!separate);
         assert_eq!(rest, os(&["a.txt"]));
+    }
+
+    #[test]
+    fn the_uninstallers_argument_is_the_only_argument() {
+        assert!(is_remove_associations(&os(&["--remove-associations"])));
+        assert!(!is_remove_associations(&os(&[])));
+        assert!(!is_remove_associations(&os(&[
+            "--remove-associations",
+            "a.txt"
+        ])));
+        assert!(!is_remove_associations(&os(&[
+            "a.txt",
+            REMOVE_ASSOCIATIONS
+        ])));
+        assert!(!is_remove_associations(&os(&["--remove-association"])));
     }
 
     #[test]

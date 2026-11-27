@@ -140,6 +140,23 @@ impl Registry for Fake {
         self.notified += 1;
     }
 
+    fn subkeys(&self, path: &str) -> io::Result<Vec<String>> {
+        let prefix = if path.is_empty() {
+            String::new()
+        } else {
+            format!("{}\\", key(path))
+        };
+        let mut names = std::collections::BTreeSet::new();
+        for k in self.user.keys() {
+            if let Some(rest) = k.strip_prefix(&prefix)
+                && let Some(name) = rest.split('\\').next().filter(|n| !n.is_empty())
+            {
+                names.insert(name.to_owned());
+            }
+        }
+        Ok(names.into_iter().collect())
+    }
+
     fn user_choice(&self, ext: &Ext) -> Option<String> {
         self.choices.get(&ext.dot_key()).cloned()
     }
@@ -896,4 +913,131 @@ fn a_kept_progid_gets_a_clean_open_verb_without_the_launch_mechanisms_it_inherit
         r.value(r"MatsuEditor_mtest\shell", "").as_deref(),
         Some("open")
     );
+}
+
+#[test]
+fn the_uninstaller_removes_every_extension_matsu_made_and_tells_the_shell_once() {
+    let mut r = Fake::default();
+    // Another program's keys, and a ProgID of another program that only looks alike.
+    r.put_user(".other", "", "otherapp");
+    r.put_user(r"otherapp\shell\open\command", "", "other.exe");
+    r.put_user(
+        r"SystemFileAssociations\.other\shell\Other\command",
+        "",
+        "o.exe",
+    );
+    r.put_user(r"MatsuEditorX_zzz\shell\open\command", "", "x.exe");
+    let others = r.snapshot();
+    // `.mtest` has a previous default; `.mlog` has none; `.menu` has the menu item only.
+    r.put_machine(".mtest", "", "othertype");
+    r.put_machine(r"othertype\shell\open\command", "", "other.exe %1");
+    apply(&mut r, "mtest", EXE, Change::Menu(true)).unwrap();
+    apply(&mut r, "mlog", EXE, Change::Menu(true)).unwrap();
+    apply(&mut r, "menu", EXE, Change::Default(false)).unwrap();
+    r.put_user(".mlog", "Unrelated", "kept");
+    r.notified = 0;
+
+    let report = remove_all(&mut r).unwrap();
+    let removed: Vec<_> = report.removed.iter().map(Ext::as_str).collect();
+    assert_eq!(removed, ["menu", "mlog", "mtest"]);
+    assert!(report.failed.is_empty());
+    assert_eq!(r.notified, 1);
+    // Nothing of MATSU is left; what was not MATSU's is as it was; `.mlog` keeps its own value.
+    for e in ["mtest", "mlog", "menu"] {
+        assert_eq!(check(&r, &ext(e)), Status::default(), "{e}");
+        assert!(!r.key_exists(&ext(e).prog_id()), "{e}");
+    }
+    assert_eq!(r.value(".mtest", ""), None);
+    assert_eq!(r.value(".mlog", "Unrelated").as_deref(), Some("kept"));
+    r.delete_tree(".mlog").unwrap();
+    assert_eq!(r.snapshot(), others);
+}
+
+#[test]
+fn the_uninstaller_gives_back_the_previous_default() {
+    let mut r = Fake::default();
+    r.put_user(".mtest", "", "olderprog");
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("MatsuEditor_mtest"));
+    remove_all(&mut r).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("olderprog"));
+    assert_eq!(r.value(".mtest", PROGID_BACKUP_NAME), None);
+}
+
+#[test]
+fn the_uninstaller_removes_the_progid_that_the_choice_of_the_user_names() {
+    let mut r = Fake::default();
+    apply(&mut r, "mtest", EXE, Change::Menu(true)).unwrap();
+    r.choices
+        .insert(".mtest".into(), "MatsuEditor_mtest".into());
+    // The check box keeps it for the choice of the user ...
+    let mut dialog = Fake::default();
+    apply(&mut dialog, "mtest", EXE, Change::Menu(true)).unwrap();
+    dialog
+        .choices
+        .insert(".mtest".into(), "MatsuEditor_mtest".into());
+    unregister(&mut dialog, &ext("mtest")).unwrap();
+    assert!(dialog.key_exists("MatsuEditor_mtest"));
+    // ... the uninstaller does not: the program is going away.
+    remove_all(&mut r).unwrap();
+    assert!(r.keys().is_empty(), "{:?}", r.keys());
+}
+
+#[test]
+fn the_uninstaller_does_nothing_when_matsu_wrote_nothing() {
+    let mut r = Fake::default();
+    r.put_user(".txt", "", "txtfile");
+    r.put_user(
+        r"SystemFileAssociations\.txt\shell\Edit\command",
+        "",
+        "e.exe",
+    );
+    r.put_user(
+        r"SystemFileAssociations\NotAnExtension\shell\MatsuEditor",
+        "",
+        "x",
+    );
+    let before = r.snapshot();
+    let report = remove_all(&mut r).unwrap();
+    assert!(report.removed.is_empty() && report.failed.is_empty());
+    assert_eq!(r.notified, 0);
+    assert_eq!(r.snapshot(), before);
+    assert!(remove_all(&mut Fake::default()).unwrap().removed.is_empty());
+}
+
+#[test]
+fn the_uninstaller_finds_an_extension_by_its_verb_alone() {
+    let mut r = Fake::default();
+    // The ProgID is gone (or never was) but the item under `SystemFileAssociations` is left.
+    r.put_user(
+        r"SystemFileAssociations\.mtest\shell\MatsuEditor\command",
+        "",
+        "m.exe",
+    );
+    let report = remove_all(&mut r).unwrap();
+    assert_eq!(report.removed.len(), 1);
+    assert!(r.keys().is_empty(), "{:?}", r.keys());
+}
+
+#[test]
+fn a_failure_for_one_extension_does_not_stop_the_others() {
+    let mut r = Fake::default();
+    apply(&mut r, "aaa", EXE, Change::Menu(true)).unwrap();
+    apply(&mut r, "bbb", EXE, Change::Menu(true)).unwrap();
+    r.notified = 0;
+    r.fail_delete_value = Some(".aaa".into());
+    let report = remove_all(&mut r).unwrap();
+    assert_eq!(report.failed.len(), 1);
+    assert_eq!(report.failed[0].0.as_str(), "aaa");
+    assert_eq!(report.removed.len(), 1);
+    assert!(!r.key_exists("MatsuEditor_bbb"));
+    assert_eq!(r.notified, 1);
+}
+
+#[test]
+fn only_windows_removes_from_the_system() {
+    if !cfg!(windows) {
+        let error = remove_all_from_system().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
 }

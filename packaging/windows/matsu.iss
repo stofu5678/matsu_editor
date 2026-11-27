@@ -14,6 +14,9 @@
 ; matsu.exe. It has no [UninstallDelete] section and no "remove the settings too" choice. Inno Setup's
 ; uninstaller removes only the files it installed (and their folders when they are empty), so a portable
 ; matsu.ini the user put next to matsu.exe stays, and so does the folder around it.
+;
+; One thing more is removed (ADR-0032, decision 10): the file associations that the type list of MATSU made. The
+; uninstaller runs "matsu.exe --remove-associations" before it removes the files (CurUninstallStepChanged).
 
 #ifndef Target
   #error Pass /DTarget=windows-x64 or /DTarget=windows-arm64.
@@ -214,8 +217,25 @@ begin
   end;
 end;
 
+// The file associations that the type list made (ADR-0032, decision 10): matsu.exe removes them itself, with the
+// same code as the check boxes (an internal argument, not an option for users; it shows no window and writes no
+// settings). Only for the user who runs the uninstaller. A failure is logged and does not stop the uninstall.
+procedure RemoveTypeAssociations;
+var
+  ResultCode: Integer;
+begin
+  if not FileExists(ExpandConstant('{app}\{#AppExe}')) then
+    Exit;
+  if not Exec(ExpandConstant('{app}\{#AppExe}'), '--remove-associations', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Log('--remove-associations could not run: ' + SysErrorMessage(ResultCode))
+  else if ResultCode <> 0 then
+    Log('--remove-associations failed with exit code ' + IntToStr(ResultCode));
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+  if CurUninstallStep = usUninstall then
+    RemoveTypeAssociations;
   if CurUninstallStep = usPostUninstall then
     RemoveFromPath(ExpandConstant('{app}'));
 end;
