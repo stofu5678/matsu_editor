@@ -5,6 +5,29 @@
 use std::time::Instant;
 
 use super::*;
+use crate::plugin_host::Ended;
+
+/// The cap that these tests give the host. A handler of these tests always gets its marker out, so
+/// the cap (250 ms in the product) never has to end a call; on a busy machine a marker that comes
+/// late must not be mistaken for a missing one. A call that does end at the cap still fails, here
+/// after this time, and `last_ended` says so.
+const TEST_CAP: Duration = Duration::from_secs(60);
+
+/// A resident host whose cap is [`TEST_CAP`].
+fn patient_host(dir: &Path, language: Language) -> PluginHost {
+    let mut host = host(dir, language, true);
+    host.set_settle_cap(TEST_CAP);
+    host
+}
+
+/// The last call ended because its marker had come, not because a time ran out.
+fn assert_ended_by_marker(host: &PluginHost, what: &str) {
+    assert!(
+        matches!(host.last_ended(), Some(Ended::Marker | Ended::Immediately)),
+        "{what}: {:?}",
+        host.last_ended()
+    );
+}
 
 /// Each call writes one line to standard error and answers at once. One resident process serves
 /// all the calls, so many rounds are cheap, and a line that arrives after its call shows up in
@@ -16,7 +39,7 @@ fn one_line_per_call(language: Language, name: &str, code: &str) {
         return;
     }
     let dir = plugin_dir(&[(name, code)]);
-    let mut host = host(dir.path(), language, true);
+    let mut host = patient_host(dir.path(), language);
     let mut world = World::new("");
     for round in 0..ROUNDS {
         let report = world.call_jack(&mut host, "Command", name, &json!({"n": round}), PATIENT);
@@ -27,6 +50,7 @@ fn one_line_per_call(language: Language, name: &str, code: &str) {
             "{language:?}, round {round}: {:?}",
             report.output
         );
+        assert_ended_by_marker(&host, &format!("{language:?}, round {round}"));
     }
 }
 
@@ -90,7 +114,7 @@ fn stderr_written_while_no_call_runs_is_still_delivered_with_the_next_call() {
 if (Plugin.args.n === 0) { setTimeout(() => process.stderr.write('idle\\n'), 50); }
 process.stderr.write('call' + Plugin.args.n + '\\n');";
     let dir = plugin_dir(&[("h.cjs", code)]);
-    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut host = patient_host(dir.path(), Language::JavaScript);
     let mut world = World::new("");
     let first = world.call_jack(&mut host, "Command", "h.cjs", &json!({"n": 0}), PATIENT);
     assert_eq!(first.outcome, Outcome::Ok);
@@ -108,25 +132,45 @@ fn a_call_that_writes_nothing_to_stderr_does_not_wait_for_a_quiet_time() {
         return;
     }
     // The marker ends the call as soon as it has come: no time is added to a call (the jacks
-    // that run on a key, such as SmartIndent, would show it). A wait of 20 ms per call would
-    // take 2 s for these calls alone.
+    // that run on a key, such as SmartIndent, would show it). A quiet-time wait would show as
+    // `Ended::Quiet`; the call must end by its marker. What is checked is how each call ended, not
+    // how long 100 calls took, which a busy machine changes.
     let dir = plugin_dir(&[("h.cjs", "const x = 1;")]);
-    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut host = patient_host(dir.path(), Language::JavaScript);
     let mut world = World::new("");
     // The process is started by the first call.
     let first = world.call(&mut host, "h.cjs");
     assert_eq!(first.outcome, Outcome::Ok);
-    let started = Instant::now();
-    for _ in 0..100 {
+    for round in 0..100 {
         let report = world.call(&mut host, "h.cjs");
         assert_eq!(report.outcome, Outcome::Ok);
         assert!(report.lines(Stream::Stderr).is_empty());
+        assert_ended_by_marker(&host, &format!("round {round}"));
     }
-    assert!(
-        started.elapsed() < Duration::from_millis(1500),
-        "100 calls took {:?}",
-        started.elapsed()
+}
+
+#[test]
+fn the_record_of_how_a_call_ended_is_not_kept_for_the_next_call() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    // A call that is cut off at its limit ends by no way the record knows: it must not show the
+    // `Marker` of the call before it.
+    let dir = plugin_dir(&[("ok.cjs", "1;"), ("loop.cjs", "for (;;) {}")]);
+    let mut host = patient_host(dir.path(), Language::JavaScript);
+    let mut world = World::new("");
+    let first = world.call(&mut host, "ok.cjs");
+    assert_eq!(first.outcome, Outcome::Ok);
+    assert_ended_by_marker(&host, "the first call");
+    let cut = world.call_jack(
+        &mut host,
+        "Command",
+        "loop.cjs",
+        &Value::Null,
+        Duration::from_secs(1),
     );
+    assert_eq!(cut.outcome, Outcome::TimedOut);
+    assert_eq!(host.last_ended(), None);
 }
 
 #[test]
@@ -141,7 +185,7 @@ const n = Plugin.args.n;
 for (const id of [n, n + 1000]) process.stderr.write('\\x1fmatsu-stderr-done ' + id + '\\n');
 process.stderr.write('e' + n + '\\n');";
     let dir = plugin_dir(&[("h.cjs", code)]);
-    let mut host = host(dir.path(), Language::JavaScript, true);
+    let mut host = patient_host(dir.path(), Language::JavaScript);
     let mut world = World::new("");
     for round in 0..100 {
         let args = json!({ "n": round });
@@ -153,6 +197,7 @@ process.stderr.write('e' + n + '\\n');";
             "round {round}: {:?}",
             report.output
         );
+        assert_ended_by_marker(&host, &format!("round {round}"));
     }
 }
 
@@ -165,11 +210,10 @@ fn a_stderr_text_without_a_line_break_is_output_and_the_marker_is_not_shown() {
     // is not shown, and the call does not wait for the cap.
     let code = "import sys\nsys.stderr.write('partial')\n";
     let dir = plugin_dir(&[("h.py", code)]);
-    let mut host = host(dir.path(), Language::Python, true);
+    let mut host = patient_host(dir.path(), Language::Python);
     let mut world = World::new("");
     let first = world.call(&mut host, "h.py");
     assert_eq!(first.outcome, Outcome::Ok);
-    let started = Instant::now();
     for round in 0..100 {
         let report = world.call(&mut host, "h.py");
         assert_eq!(report.outcome, Outcome::Ok);
@@ -179,13 +223,9 @@ fn a_stderr_text_without_a_line_break_is_output_and_the_marker_is_not_shown() {
             "round {round}: {:?}",
             report.output
         );
+        // Not the cap (which would add 250 ms to each call).
+        assert_ended_by_marker(&host, &format!("round {round}"));
     }
-    // The cap (250 ms) per call would take 25 s.
-    assert!(
-        started.elapsed() < Duration::from_millis(3000),
-        "100 calls took {:?}",
-        started.elapsed()
-    );
 }
 
 /// A handler that closes standard error: the marker cannot be written, but the answer is sent, the
