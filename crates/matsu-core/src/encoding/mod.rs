@@ -250,7 +250,8 @@ pub enum Encoding {
     Utf32Le,
     /// UTF-32 big endian, code page 12001.
     Utf32Be,
-    /// A Windows code page that `encoding_rs` has, such as 936 (GBK) or 950 (Big5).
+    /// A Windows code page that `encoding_rs` has, such as 936 (GBK) or 950 (Big5), or one of the
+    /// Japanese EUC code pages 51932 and 20932.
     CodePage(CodePage),
 }
 
@@ -446,7 +447,7 @@ impl Encoding {
             Encoding::Utf7 => &utf7::Utf7,
             Encoding::Cesu8 => &utf8::Cesu8,
             Encoding::Latin1 => &latin1::Latin1,
-            Encoding::CodePage(code_page) => code_page.info(),
+            Encoding::CodePage(code_page) => code_page.codec(),
         }
     }
 
@@ -477,6 +478,15 @@ impl CodePage {
     /// The Windows code page number, such as 936.
     pub fn number(self) -> u16 {
         self.0
+    }
+
+    /// The codec: 51932 and 20932 have their own (`euc.rs`), the others use the `encoding_rs` table.
+    fn codec(self) -> &'static dyn Codec {
+        match self.0 {
+            51932 => &euc::EucJp,
+            20932 => &euc::EucJp0212,
+            _ => self.info(),
+        }
     }
 
     fn info(self) -> &'static codepage::CodePageInfo {
@@ -546,5 +556,7 @@ pub(crate) fn encode_chars(
 
 #[cfg(test)]
 mod codepage_tests;
+#[cfg(test)]
+mod euc_tests;
 #[cfg(test)]
 mod tests;

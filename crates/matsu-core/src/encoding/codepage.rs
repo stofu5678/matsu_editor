@@ -63,7 +63,11 @@
 //! - 54936 is GB18030.
 //! - 10000 is `macintosh`. 10007 and 10017 are both `x-mac-cyrillic`, which is the Ukrainian
 //!   variant (it has U+0490 and U+0491). Windows 10007 differs from it at a few bytes.
-//! - No code page is added that `encoding_rs` lacks (437, 850, 1026, 20932, ISO-2022-KR, and so
+//! - 51932 and 20932 are Japanese EUC. `encoding_rs` has no table for them as Windows has (its
+//!   EUC-JP is the WHATWG one), so they are read and written by the codecs of `euc.rs`, which
+//!   build them from the CP932 and JIS X 0212 tables of `encoding_rs` (see there). The user decided
+//!   on 2026-11-25 to make these two savable, so they are the exception to the next rule.
+//! - No other code page is added that `encoding_rs` lacks (437, 850, 1026, ISO-2022-KR, and so
 //!   on). `CODE_CPACP` and `CODE_CPOEM` (the system code page) are not supported; on macOS and
 //!   Linux the system code page is UTF-8 anyway.
 //!
@@ -141,6 +145,7 @@ code_pages! {
     10007 X_MAC_CYRILLIC Single "Cyrillic (Mac)";
     10017 X_MAC_CYRILLIC Single "Ukrainian (Mac)";
     20866 KOI8_R Single "Cyrillic (KOI8-R)";
+    20932 EUC_JP Double "Japanese (JIS X 0208-1990 and 0212-1990)";
     21866 KOI8_U Single "Ukrainian (KOI8-U)";
     28592 ISO_8859_2 Single "Central European (ISO-8859-2)";
     28593 ISO_8859_3 Single "Latin 3 (ISO-8859-3)";
@@ -156,6 +161,7 @@ code_pages! {
     28605 ISO_8859_15 Single "Latin 9 (ISO-8859-15)";
     28606 ISO_8859_16 Single "South-Eastern European (ISO-8859-16)";
     38598 ISO_8859_8 Single "Hebrew (ISO-8859-8-I)";
+    51932 EUC_JP Double "Japanese (EUC)";
     51949 EUC_KR Double "Korean (EUC-KR)";
     54936 GB18030 Gb "Chinese (GB18030)";
 }
