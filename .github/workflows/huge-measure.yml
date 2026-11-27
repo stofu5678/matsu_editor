@@ -1,0 +1,175 @@
+name: huge-measure
+
+# Measures huge files on real disks (ADR-0020, 8.1 and 8.3): the time to the first window, the scan, memory, jumps,
+# search and save, for the block sizes 64 KiB and 256 KiB, and the checks of what the OS does to an open file. It
+# runs only by hand; it never runs on a push or a pull request:
+#
+#   gh workflow run huge-measure.yml --ref <branch> [-f size_mb=10240 -f kinds=s,c,t,l,j,w,e -f blocks=64,256]
+#   gh run watch
+#   gh run download <run id>
+#
+# The program is the example `huge_measure` of matsu-regex (crates/matsu-regex/examples/huge_measure/). How to run it
+# and how to read its report: docs/measurements/huge-files.md.
+#
+# The kinds are split over five jobs per system, so that each job makes and measures about one 10 GB file (a job
+# is meant to end within about 20 minutes, ADR-0018 type E; the limit below is 35 minutes, for a slow disk). A
+# kind that is not in the `kinds` input is left out of its job. Each file is deleted when it is measured.
+#
+# Only people with write access to the repository can start a manual run, and it runs the files of the branch they
+# name. The workflow takes no secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      kinds:
+        description: "Which files: s (UTF-8 LF), c (CRLF), t (1-byte lines), l (one line, 1 GB), j (Shift_JIS), w (UTF-16 LE), e (EUC-JP, 1 GB)"
+        required: false
+        default: "s,c,t,l,j,w,e"
+        type: string
+      size_mb:
+        description: "The size in MiB of the files (10240 is 10 GB; use 1024 for a quick run). L and E are at most 1 GB."
+        required: false
+        default: "10240"
+        type: string
+      blocks:
+        description: "The block sizes in KiB to compare, separated by commas"
+        required: false
+        default: "64,256"
+        type: string
+      search_limit_secs:
+        description: "A search that takes longer than this many seconds is stopped, and the report says how far it got"
+        required: false
+        default: "30"
+        type: string
+      windows_arm:
+        description: "Also run on windows-11-arm (the free space of that runner is not known; the job stops when it is too small)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  measure:
+    name: measure (${{ matrix.os }}, ${{ matrix.group }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.windows_arm && '["ubuntu-latest","windows-latest","windows-11-arm"]' || '["ubuntu-latest","windows-latest"]') }}
+        group: ["s,l", "c,e", "t", "j", "w"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      KINDS: ${{ inputs.kinds }}
+      SIZE_MB: ${{ inputs.size_mb }}
+      BLOCKS: ${{ inputs.blocks }}
+      SEARCH_LIMIT: ${{ inputs.search_limit_secs }}
+      GROUP: ${{ matrix.group }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The inputs are checked before they reach a command line, and the kinds of this job are
+      # the kinds of its group that the input asks for.
+      - name: Check the inputs
+        id: plan
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$KINDS" =~ ^[sctljweSCTLJWE0-9,\ ]*$ ]] || fail "kinds: only the letters s c t l j w e"
+          [[ "$SIZE_MB" =~ ^[0-9]{1,6}$ && "$SIZE_MB" -gt 0 ]] || fail "size_mb: a number of MiB"
+          [[ "$BLOCKS" =~ ^[0-9]{1,5}(,[0-9]{1,5})*$ ]] || fail "blocks: numbers of KiB separated by commas"
+          [[ "$SEARCH_LIMIT" =~ ^[0-9]{1,5}$ ]] || fail "search_limit_secs: a number"
+          wanted=","
+          IFS=',' read -ra asked <<< "$KINDS"
+          for k in "${asked[@]}"; do
+            k="$(echo "${k//[0-9 ]/}" | tr 'A-Z' 'a-z')"
+            wanted="$wanted$k,"
+          done
+          selected=""
+          need=0
+          IFS=',' read -ra mine <<< "$GROUP"
+          for k in "${mine[@]}"; do
+            if [[ "$wanted" == *",$k,"* ]]; then
+              selected="${selected:+$selected,}$k"
+              size="$SIZE_MB"
+              if [[ "$k" == "l" || "$k" == "e" ]] && [ "$size" -gt 1024 ]; then size=1024; fi
+              [ "$size" -gt "$need" ] && need="$size"
+            fi
+          done
+          echo "kinds=$selected" >> "$GITHUB_OUTPUT"
+          # The file and the temporary file of a save, and some room.
+          echo "need_mb=$((need * 21 / 10 + 512))" >> "$GITHUB_OUTPUT"
+          if [ -z "$selected" ]; then echo "No kind of the group '$GROUP' is asked for: nothing to do."; fi
+
+      - if: steps.plan.outputs.kinds != ''
+        uses: dtolnay/rust-toolchain@1.99.0
+      - if: steps.plan.outputs.kinds != ''
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: huge-measure
+
+      - name: Build the program
+        if: steps.plan.outputs.kinds != ''
+        run: cargo build --release --locked -p matsu-regex --example huge_measure
+
+      # Where the files go: on Linux the temporary disk (/mnt), on Windows C: (D: has little room).
+      - name: Choose the folder and check its free space
+        if: steps.plan.outputs.kinds != ''
+        id: where
+        env:
+          NEED_MB: ${{ steps.plan.outputs.need_mb }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo mkdir -p /mnt/huge-measure && sudo chown "$USER" /mnt/huge-measure
+            dir=/mnt/huge-measure
+          else
+            dir=C:/huge-measure
+            mkdir -p "$dir"
+          fi
+          df -Pm "$dir"
+          free_mb="$(df -Pm "$dir" | awk 'NR==2 {print $4}')"
+          echo "free: ${free_mb} MiB, needed: ${NEED_MB} MiB"
+          if [ "$free_mb" -lt "$NEED_MB" ]; then
+            echo "::error::Too little free space on this runner for size_mb=$SIZE_MB: use a smaller size"
+            exit 1
+          fi
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+      - name: Measure
+        if: steps.plan.outputs.kinds != ''
+        env:
+          DIR: ${{ steps.where.outputs.dir }}
+          RUN_KINDS: ${{ steps.plan.outputs.kinds }}
+        run: |
+          bin=target/release/examples/huge_measure
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          mkdir -p huge-measure-report
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # As root, so that the program can drop the OS cache before each run (a read then comes from the disk).
+            sudo "$bin" --kinds "$RUN_KINDS" --size-mb "$SIZE_MB" --blocks "$BLOCKS" \
+              --search-limit-secs "$SEARCH_LIMIT" --dir "$DIR" --out huge-measure-report
+            sudo chown -R "$USER" huge-measure-report
+          else
+            "$bin" --kinds "$RUN_KINDS" --size-mb "$SIZE_MB" --blocks "$BLOCKS" \
+              --search-limit-secs "$SEARCH_LIMIT" --dir "$DIR" --out huge-measure-report
+          fi
+
+      - name: Show the report
+        if: always() && steps.plan.outputs.kinds != ''
+        run: |
+          if [ -f huge-measure-report/report.md ]; then
+            cat huge-measure-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.plan.outputs.kinds != ''
+        with:
+          name: huge-measure-${{ strategy.job-index }}-${{ matrix.os }}
+          path: huge-measure-report/
+          if-no-files-found: warn
+          retention-days: 30

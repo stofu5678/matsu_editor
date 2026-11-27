@@ -111,6 +111,9 @@ pub struct OpenOptions {
     /// The sizes and the pace of the scan of a file opened by ranges.
     /// [`ext_eol`](Self::ext_eol) overrides the one in it.
     pub huge_scan: ScanOptions,
+    /// The block size and the cache of the file opened by ranges. Only the measuring program
+    /// (`matsu-regex`'s `huge_measure` example) and the tests set it; the editor takes the default.
+    pub huge_ranged: RangedOptions,
     /// When a file over [`huge_file_len`](Self::huge_file_len) is in an encoding that has to be
     /// read whole, fail with [`FileError::WholeReadNeeded`] instead of reading it (so that the
     /// caller can ask first, ADR-0020 9.9). Off by default: the file is read whole.
@@ -128,6 +131,7 @@ impl Default for OpenOptions {
             ext_eol: false,
             huge_file_len: None,
             huge_scan: ScanOptions::default(),
+            huge_ranged: RangedOptions::default(),
             ask_before_whole_read: false,
         }
     }
@@ -347,7 +351,7 @@ fn open_ranged(
     options: &OpenOptions,
     progress: Progress<'_>,
 ) -> Result<Option<TextFile>> {
-    let ranged = RangedFile::open(path)?;
+    let ranged = RangedFile::open_with(path, options.huge_ranged)?;
     let len = ranged.len();
     let head = ranged
         .read(0, len.min(DETECT_SAMPLE_LEN as u64))?
