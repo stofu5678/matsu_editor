@@ -64,6 +64,21 @@ pub struct SecretMatch {
     pub range: Range<usize>,
 }
 
+// Counts the bytes that the scanners look at, so that a test can check that the work grows with
+// the length of a line instead of timing it (tests only; the product has no counter).
+#[cfg(test)]
+thread_local! {
+    static STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Adds `n` bytes looked at to the counter of the test.
+#[inline]
+#[cfg_attr(not(test), allow(unused_variables))]
+fn step(n: usize) {
+    #[cfg(test)]
+    STEPS.with(|steps| steps.set(steps.get() + n));
+}
+
 /// A character that can be part of a token (`[A-Za-z0-9_-]`).
 fn is_token(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
@@ -76,6 +91,7 @@ fn words(line: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     let mut at = 0;
     std::iter::from_fn(move || {
         while at < bytes.len() && !is_token(bytes[at]) {
+            step(1);
             at += 1;
         }
         if at >= bytes.len() {
@@ -83,6 +99,7 @@ fn words(line: &str) -> impl Iterator<Item = Range<usize>> + '_ {
         }
         let start = at;
         while at < bytes.len() && is_token(bytes[at]) {
+            step(1);
             at += 1;
         }
         Some(start..at)
@@ -91,6 +108,7 @@ fn words(line: &str) -> impl Iterator<Item = Range<usize>> + '_ {
 
 /// The kind of the word, if it has a known prefix and is long enough to be a real token.
 fn word_kind(word: &str) -> Option<SecretKind> {
+    step(word.len());
     // (prefix, minimum number of characters after the prefix, kind)
     const PREFIXED: &[(&str, usize, SecretKind)] = &[
         ("sk_live_", 16, SecretKind::StripeKey),
@@ -177,6 +195,7 @@ fn find_jwt(line: &str) -> Vec<SecretMatch> {
     let mut from = 0;
     while let Some(i) = line[from..].find("eyJ") {
         let start = from + i;
+        step(i + 3);
         from = start + 3;
         if start > 0 && is_token(bytes[start - 1]) {
             continue;
@@ -186,6 +205,7 @@ fn find_jwt(line: &str) -> Vec<SecretMatch> {
         let mut part_len = 0;
         let mut ok = true;
         while end < bytes.len() && (is_token(bytes[end]) || bytes[end] == b'.') {
+            step(1);
             if bytes[end] == b'.' {
                 if part_len < 10 {
                     ok = false;
@@ -222,11 +242,13 @@ fn find_bearer(line: &str) -> Vec<SecretMatch> {
     let mut from = 0;
     while let Some(i) = line[from..].find(MARK) {
         let start = from + i + MARK.len();
+        step(i + MARK.len());
         from = start;
         let len = line.as_bytes()[start..]
             .iter()
             .take_while(|&&b| is_token(b) || matches!(b, b'.' | b'=' | b'+' | b'/'))
             .count();
+        step(len);
         let token = start..start + len;
         if token.len() >= 20 && looks_random(&line[token.clone()]) {
             out.push(SecretMatch {
@@ -254,10 +276,12 @@ fn find_url_password(line: &str) -> Vec<SecretMatch> {
         while !line.is_char_boundary(stop) {
             stop -= 1;
         }
+        step(i + 3);
         let rest = &line[start..stop];
         let end = rest
             .find(|c: char| c.is_whitespace() || matches!(c, '/' | '"' | '\''))
             .unwrap_or(rest.len());
+        step(end);
         let authority = &rest[..end];
         let Some(at) = authority.rfind('@') else {
             continue;

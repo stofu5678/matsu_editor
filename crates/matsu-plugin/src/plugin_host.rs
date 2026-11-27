@@ -237,6 +237,22 @@ enum Wait {
     Quiet(Instant),
 }
 
+/// Why a call ended after its answer. Kept only by tests, which check how a call ended
+/// (by the marker, not by a wait) instead of how long it took.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ended {
+    /// The marker had come before the answer, or the jack does not wait.
+    Immediately,
+    /// The marker of the call came while it settled.
+    Marker,
+    /// The quiet time ran out (a language without a marker).
+    Quiet,
+    /// The cap ran out.
+    Cap,
+    /// The process was gone.
+    Closed,
+}
+
 /// A call whose answer has come, kept open until the lines that the handler wrote to standard
 /// error before the answer have come (see [`PluginHost::settle`]).
 struct Settling {
@@ -304,6 +320,11 @@ pub struct PluginHost {
     current: Option<Current>,
     /// The call in `current` has been answered and waits for the late lines of its output.
     settling: Option<Settling>,
+    /// How long a call stays open after its answer at the longest ([`SETTLE_CAP`]).
+    settle_cap: Duration,
+    /// How the last call ended after its answer (tests only).
+    #[cfg(test)]
+    last_ended: Option<Ended>,
     /// [`shutdown`](Self::shutdown) ended a call that was running: the next [`poll`](Self::poll)
     /// says so, so that whoever follows the call can clean up.
     interrupted: bool,
@@ -319,7 +340,31 @@ impl PluginHost {
             next_id: 1,
             current: None,
             settling: None,
+            settle_cap: SETTLE_CAP,
+            #[cfg(test)]
+            last_ended: None,
             interrupted: false,
+        }
+    }
+
+    /// Gives the cap a different length, so that a test whose calls always get their marker is not
+    /// cut short by a busy machine (tests only).
+    #[cfg(test)]
+    pub(crate) fn set_settle_cap(&mut self, cap: Duration) {
+        self.settle_cap = cap;
+    }
+
+    /// How the last call ended after its answer (tests only).
+    #[cfg(test)]
+    pub(crate) fn last_ended(&self) -> Option<Ended> {
+        self.last_ended
+    }
+
+    #[cfg_attr(not(test), allow(unused_variables))]
+    fn note_ended(&mut self, why: Ended) {
+        #[cfg(test)]
+        {
+            self.last_ended = Some(why);
         }
     }
 
@@ -587,13 +632,14 @@ impl PluginHost {
                             wait_after_answer(language, &current.jack, now)
                         };
                         let Some(wait) = wait else {
+                            self.note_ended(Ended::Immediately);
                             return Some(self.finish(outcome));
                         };
                         self.settling = Some(Settling {
                             outcome,
                             id,
                             wait,
-                            cap: now + SETTLE_CAP,
+                            cap: now + self.settle_cap,
                         });
                         return self.settle(wait_for);
                     }
@@ -640,7 +686,8 @@ impl PluginHost {
                 Wait::Quiet(quiet_until) => now >= quiet_until,
             };
             if over || now >= settling.cap {
-                return Some(self.end_settling());
+                let why = if over { Ended::Quiet } else { Ended::Cap };
+                return Some(self.end_settling(why));
             }
             let mut stop = settling.cap;
             if let Wait::Quiet(quiet_until) = settling.wait {
@@ -663,7 +710,7 @@ impl PluginHost {
                 }
                 Ok(PluginEvent::StderrDone(done)) => {
                     if done == id {
-                        return Some(self.end_settling());
+                        return Some(self.end_settling(Ended::Marker));
                     }
                     ignored += 1;
                     if ignored >= MAX_DROPPED_IN_A_ROW {
@@ -680,7 +727,7 @@ impl PluginHost {
                 Ok(PluginEvent::Host(HostEvent::Finished(_)))
                 | Err(RecvTimeoutError::Disconnected) => {
                     // Everything the process wrote has been read (`Finished` is the last event).
-                    return Some(self.end_settling());
+                    return Some(self.end_settling(Ended::Closed));
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     if Instant::now() >= until {
@@ -691,7 +738,8 @@ impl PluginHost {
         }
     }
 
-    fn end_settling(&mut self) -> Progress {
+    fn end_settling(&mut self, why: Ended) -> Progress {
+        self.note_ended(why);
         let outcome = self
             .settling
             .take()
