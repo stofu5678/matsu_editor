@@ -241,7 +241,7 @@ pub fn check(registry: &impl Registry, ext: &Ext) -> Status {
 
 /// `RegistExt`: associates `ext` with the program `exe` (the path, unquoted). With `make_default`
 /// the item is also the default verb (the double click) and `.ext` names MATSU's ProgID; without
-/// it only the right-click item stays (see [`keep_only_the_menu_item`]).
+/// it only the right-click item stays (see `keep_only_the_menu_item`).
 pub fn register(
     registry: &mut impl Registry,
     ext: &Ext,
