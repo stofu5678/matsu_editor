@@ -4,7 +4,8 @@
 //   sakura_core/doc/layout/CLayoutMgr_DoLayout.cpp (_DoLayout, DoLayout_Range: lay out again only
 //   the lines an edit touched)
 // Modified: rewritten in Rust. Sakura keeps a linked list of `CLayout` rows and walks it; this
-// keeps one row count per line in a tree-indexed sequence and lays a line out on demand.
+// keeps the row counts in a tree-indexed sequence (runs of one-row lines are one entry) and lays
+// a line out on demand.
 //
 // Copyright (C) 2018-2022, Sakura Editor Organization
 //
@@ -33,8 +34,9 @@
 //!
 //! A *row* is a line on the screen. A logical line of the document has one row, or more when it
 //! wraps ([`layout_line`]). [`DocumentLayout`] keeps the **number of rows of every line** and
-//! nothing else per line (4 bytes), in a sequence that finds "the first row of line n" and "the
-//! line of row m" in O(log n) (`seq.rs`). The rows of a line itself (where it breaks, the columns)
+//! nothing else per line, in a sequence that finds "the first row of line n" and "the line of row
+//! m" in O(log n) (`seq.rs`). A run of lines of one row each is one entry of the sequence, so
+//! the memory follows the lines that wrap, not the lines of the document (ADR-0020, chapter 6). The rows of a line itself (where it breaks, the columns)
 //! are made when somebody asks for the line and kept in a small cache, so painting the visible
 //! lines does not lay them out again and a document of 100 MB does not hold millions of rows.
 //!
@@ -554,6 +556,12 @@ impl DocumentLayout {
     /// The number of logical lines.
     pub fn line_count(&self) -> usize {
         self.seq.len()
+    }
+
+    /// The bytes the row table holds on the heap (for tests of ADR-0020's memory bound).
+    #[cfg(test)]
+    pub(crate) fn seq_heap_bytes(&self) -> usize {
+        self.seq.heap_bytes()
     }
 
     /// The number of rows, the EOF row included ([`has_eof_row`](Self::has_eof_row)). Never 0.

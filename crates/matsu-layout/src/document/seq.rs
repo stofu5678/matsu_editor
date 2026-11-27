@@ -1,13 +1,22 @@
 //! The sequence of row counts, one per logical line: replace a range of lines, find the first
 //! row of a line, and find the line of a row, all without touching the lines that do not change.
 //!
-//! The counts sit in blocks of at most `2 * BLOCK` lines. Two Fenwick trees over the blocks
-//! (lines and rows) find the block of a line or of a row in O(log n); inside the block the
-//! counts are added up (at most `2 * BLOCK` of them). An edit that stays inside one block moves
-//! two Fenwick entries; one that reaches over blocks re-cuts the blocks it touches and builds the
-//! trees again, which is O(blocks) and happens when lines are pasted or deleted in bulk.
+//! The lines sit in blocks of two kinds. A `Ones` block is a run of lines of one row each and
+//! holds only its length; a `Counts` block holds the counts of at most `2 * BLOCK` lines, at least
+//! one of them not 1. So the memory follows the lines that have more than one row (or fewer),
+//! not the number of lines: a document in which no line wraps is a single block of a few bytes,
+//! whether it has a thousand lines or ten billion (ADR-0020, chapter 6, plan B). Runs of ones
+//! shorter than `BLOCK` inside a `Counts` block cost 4 bytes per line, so the blocks hold at
+//! most `BLOCK` ones for each exception, and the number of blocks is at most twice the number of
+//! exceptions plus one.
 //!
-//! The counts take 4 bytes per line (the 1M-line document of the performance report uses 4 MB).
+//! Two Fenwick trees over the blocks (lines and rows) find the block of a line or of a row in
+//! O(log n); inside a `Counts` block the counts are added up (at most `2 * BLOCK` of them), inside
+//! a `Ones` block the answer is arithmetic. An edit that stays inside one block moves two Fenwick
+//! entries; one that reaches over blocks or changes the kind of a block re-cuts the blocks it
+//! touches and their two neighbours (so that runs of ones join) and builds the trees again, which
+//! is O(blocks) and happens when lines are pasted or deleted in bulk, or when a line is found to
+//! wrap.
 
 /// The usual number of lines in a block.
 const BLOCK: usize = 256;
@@ -79,17 +88,105 @@ impl Fenwick {
     }
 }
 
-/// Up to `2 * BLOCK` counts and their sum.
+/// A part of the sequence: a run of lines of one row each, or a few lines with their counts.
+///
+/// A `Ones` block holds only its length, so a document in which no line wraps is one block
+/// whatever its number of lines. A `Counts` block always has at least one line of another row
+/// count (see [`Builder`]), so the number of blocks follows the number of exceptions.
 #[derive(Clone, Debug)]
-struct Block {
-    counts: Vec<u32>,
-    rows: u64,
+enum Block {
+    Ones(usize),
+    Counts { counts: Vec<u32>, rows: u64 },
 }
 
 impl Block {
-    fn new(counts: Vec<u32>) -> Self {
+    fn counts(counts: Vec<u32>) -> Self {
         let rows = sum(&counts);
-        Self { counts, rows }
+        Self::Counts { counts, rows }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Ones(n) => *n,
+            Self::Counts { counts, .. } => counts.len(),
+        }
+    }
+
+    fn rows(&self) -> u64 {
+        match self {
+            Self::Ones(n) => *n as u64,
+            Self::Counts { rows, .. } => *rows,
+        }
+    }
+
+    /// The rows of the first `off` lines.
+    fn rows_before(&self, off: usize) -> u64 {
+        match self {
+            Self::Ones(_) => off as u64,
+            Self::Counts { counts, .. } => sum(&counts[..off]),
+        }
+    }
+}
+
+/// Cuts a stream of counts into blocks: a run of `BLOCK` ones or more becomes a `Ones` block (and
+/// joins the ones next to it); everything else is cut into `Counts` blocks of at most `BLOCK`
+/// lines, and each of them holds an exception (a run of ones inside is shorter than `BLOCK`).
+#[derive(Default)]
+struct Builder {
+    out: Vec<Block>,
+    /// Counts that wait for a block. Ends with an exception.
+    buf: Vec<u32>,
+    /// Ones seen since the last exception.
+    run: usize,
+}
+
+impl Builder {
+    fn counts(&mut self, counts: &[u32]) {
+        for &c in counts {
+            if c == 1 {
+                self.run += 1;
+            } else {
+                self.exception(c);
+            }
+        }
+    }
+
+    fn exception(&mut self, c: u32) {
+        if self.run >= BLOCK {
+            self.flush();
+            self.out.push(Block::Ones(self.run));
+        } else {
+            self.buf.resize(self.buf.len() + self.run, 1);
+        }
+        self.run = 0;
+        self.buf.push(c);
+        while self.buf.len() >= BLOCK {
+            let rest = self.buf.split_off(BLOCK);
+            let full = std::mem::replace(&mut self.buf, rest);
+            self.out.push(Block::counts(full));
+        }
+    }
+
+    fn flush(&mut self) {
+        if !self.buf.is_empty() {
+            self.out.push(Block::counts(std::mem::take(&mut self.buf)));
+        }
+    }
+
+    /// Adds the lines `from..to` of `block`.
+    fn feed(&mut self, block: &Block, from: usize, to: usize) {
+        match block {
+            Block::Ones(_) => self.run += to - from,
+            Block::Counts { counts, .. } => self.counts(&counts[from..to]),
+        }
+    }
+
+    fn finish(mut self) -> Vec<Block> {
+        self.flush();
+        if self.run > 0 {
+            self.out.push(Block::Ones(self.run));
+        }
+        self.out
     }
 }
 
@@ -104,26 +201,21 @@ pub(crate) struct RowSeq {
 }
 
 impl RowSeq {
-    /// `lines` lines of one row each.
+    /// `lines` lines of one row each: one block.
     pub(crate) fn ones(lines: usize) -> Self {
-        let mut blocks = Vec::new();
-        let mut left = lines;
-        while left > 0 {
-            let n = left.min(BLOCK);
-            blocks.push(Block::new(vec![1; n]));
-            left -= n;
-        }
+        let blocks = if lines == 0 {
+            Vec::new()
+        } else {
+            vec![Block::Ones(lines)]
+        };
         Self::from_blocks(blocks)
     }
 
     #[cfg(test)]
     pub(crate) fn from_counts(counts: &[u32]) -> Self {
-        Self::from_blocks(
-            counts
-                .chunks(BLOCK)
-                .map(|c| Block::new(c.to_vec()))
-                .collect(),
-        )
+        let mut builder = Builder::default();
+        builder.counts(counts);
+        Self::from_blocks(builder.finish())
     }
 
     fn from_blocks(blocks: Vec<Block>) -> Self {
@@ -137,10 +229,10 @@ impl RowSeq {
 
     /// Builds the trees and the totals from the blocks: O(blocks), the lines are not visited.
     fn rebuild(&mut self) {
-        self.fen_lines = Fenwick::build(self.blocks.iter().map(|b| b.counts.len() as u64));
-        self.fen_rows = Fenwick::build(self.blocks.iter().map(|b| b.rows));
-        self.lines = self.blocks.iter().map(|b| b.counts.len()).sum();
-        self.rows = self.blocks.iter().map(|b| b.rows).sum();
+        self.fen_lines = Fenwick::build(self.blocks.iter().map(|b| b.len() as u64));
+        self.fen_rows = Fenwick::build(self.blocks.iter().map(Block::rows));
+        self.lines = self.blocks.iter().map(Block::len).sum();
+        self.rows = self.blocks.iter().map(Block::rows).sum();
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -152,13 +244,34 @@ impl RowSeq {
         self.rows
     }
 
+    /// The bytes this sequence holds on the heap (what its capacity reserves).
+    #[cfg(test)]
+    pub(crate) fn heap_bytes(&self) -> usize {
+        let blocks = self.blocks.capacity() * std::mem::size_of::<Block>();
+        let counts: usize = self
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Ones(_) => 0,
+                Block::Counts { counts, .. } => counts.capacity() * 4,
+            })
+            .sum();
+        blocks + counts + (self.fen_lines.tree.capacity() + self.fen_rows.tree.capacity()) * 8
+    }
+
+    /// The number of blocks (for tests).
+    #[cfg(test)]
+    pub(crate) fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
     /// The block and the index in it of line `line` (`line <= len()`; the end is the end of the
     /// last block).
     fn locate_line(&self, line: usize) -> (usize, usize) {
         let (b, off) = self.fen_lines.find(line as u64);
         if b >= self.blocks.len() {
             let last = self.blocks.len().saturating_sub(1);
-            (last, self.blocks.get(last).map_or(0, |b| b.counts.len()))
+            (last, self.blocks.get(last).map_or(0, Block::len))
         } else {
             (b, off as usize)
         }
@@ -169,7 +282,10 @@ impl RowSeq {
             return None;
         }
         let (b, off) = self.locate_line(line);
-        Some(self.blocks[b].counts[off])
+        Some(match &self.blocks[b] {
+            Block::Ones(_) => 1,
+            Block::Counts { counts, .. } => counts[off],
+        })
     }
 
     /// The number of the first row of `line`; `total_rows()` for `line >= len()`.
@@ -178,7 +294,7 @@ impl RowSeq {
             return self.rows;
         }
         let (b, off) = self.locate_line(line);
-        self.fen_rows.prefix(b) + sum(&self.blocks[b].counts[..off])
+        self.fen_rows.prefix(b) + self.blocks[b].rows_before(off)
     }
 
     /// The line that holds `row` and the index of the row in it, or `None` past the last row.
@@ -188,13 +304,18 @@ impl RowSeq {
         }
         let (b, mut rest) = self.fen_rows.find(row);
         let first = self.fen_lines.prefix(b) as usize;
-        for (line, &c) in (first..).zip(&self.blocks[b].counts) {
-            if rest < u64::from(c) {
-                return Some((line, rest as usize));
+        match &self.blocks[b] {
+            Block::Ones(_) => Some((first + rest as usize, 0)),
+            Block::Counts { counts, .. } => {
+                for (line, &c) in (first..).zip(counts) {
+                    if rest < u64::from(c) {
+                        return Some((line, rest as usize));
+                    }
+                    rest -= u64::from(c);
+                }
+                unreachable!("the Fenwick tree pointed at a block that does not hold the row")
             }
-            rest -= u64::from(c);
         }
-        unreachable!("the Fenwick tree pointed at a block that does not hold the row")
     }
 
     /// Replaces the counts of lines `first..first + old_count` with `new`. `first + old_count`
@@ -202,8 +323,10 @@ impl RowSeq {
     ///
     /// Three ways, from the cheapest: inside one block (two Fenwick updates); the same number of
     /// lines over several blocks, as when a chunk of the first layout is stored (one Fenwick
-    /// update per block); and the general case, which cuts the blocks again and builds the trees
-    /// from the block sums.
+    /// update per block); and the general case, which cuts the touched blocks and their two
+    /// neighbours again and builds the trees from the block sums. The first two only run when
+    /// every block stays valid (a `Ones` block gets ones only, a `Counts` block keeps an
+    /// exception); the general case is what turns a block into the other kind or joins blocks.
     pub(crate) fn replace(&mut self, first: usize, old_count: usize, new: &[u32]) {
         assert!(first + old_count <= self.lines, "range past the lines");
         if old_count == 0 && new.is_empty() {
@@ -211,54 +334,108 @@ impl RowSeq {
         }
         let (b0, off0) = self.locate_line(first);
         let (b1, off1) = self.locate_line(first + old_count);
-        if !self.blocks.is_empty() && b0 == b1 {
-            let block = &mut self.blocks[b0];
-            let new_len = block.counts.len() - old_count + new.len();
-            if (1..=2 * BLOCK).contains(&new_len) {
-                let removed = sum(&block.counts[off0..off0 + old_count]);
-                block
-                    .counts
-                    .splice(off0..off0 + old_count, new.iter().copied());
-                let delta_rows = sum(new) as i64 - removed as i64;
-                block.rows = block.rows.wrapping_add_signed(delta_rows);
-                self.fen_lines.add(b0, new.len() as i64 - old_count as i64);
-                self.fen_rows.add(b0, delta_rows);
-                self.lines = self.lines - old_count + new.len();
-                self.rows = self.rows.wrapping_add_signed(delta_rows);
-                return;
-            }
-        }
-        if new.len() == old_count {
-            // Overwrite in place, block by block.
-            let (mut b, mut off, mut done) = (b0, off0, 0);
-            while done < new.len() {
-                let block = &mut self.blocks[b];
-                let n = (block.counts.len() - off).min(new.len() - done);
-                let part = &new[done..done + n];
-                let delta_rows = sum(part) as i64 - sum(&block.counts[off..off + n]) as i64;
-                block.counts[off..off + n].copy_from_slice(part);
-                block.rows = block.rows.wrapping_add_signed(delta_rows);
-                self.fen_rows.add(b, delta_rows);
-                self.rows = self.rows.wrapping_add_signed(delta_rows);
-                done += n;
-                b += 1;
-                off = 0;
-            }
+        if !self.blocks.is_empty() && b0 == b1 && self.replace_in_block(b0, off0, old_count, new) {
             return;
         }
-        // The general case: cut the touched blocks again.
-        let mut joined: Vec<u32> = Vec::new();
+        if new.len() == old_count && self.overwrite(b0, off0, new) {
+            return;
+        }
+        // The general case: cut the touched blocks and their neighbours again.
+        let lo = b0.saturating_sub(1);
+        let hi = (b1 + 2).min(self.blocks.len());
+        let mut builder = Builder::default();
+        for block in self.blocks.get(lo..b0).unwrap_or_default() {
+            builder.feed(block, 0, block.len());
+        }
         if let Some(block) = self.blocks.get(b0) {
-            joined.extend_from_slice(&block.counts[..off0]);
+            builder.feed(block, 0, off0);
         }
-        joined.extend_from_slice(new);
+        builder.counts(new);
         if let Some(block) = self.blocks.get(b1) {
-            joined.extend_from_slice(&block.counts[off1..]);
+            builder.feed(block, off1, block.len());
         }
-        let end = (b1 + 1).min(self.blocks.len());
-        let pieces = joined.chunks(BLOCK).map(|c| Block::new(c.to_vec()));
-        self.blocks.splice(b0.min(end)..end, pieces);
+        for block in self.blocks.get(b1 + 1..hi).unwrap_or_default() {
+            builder.feed(block, 0, block.len());
+        }
+        let pieces = builder.finish();
+        self.blocks.splice(lo.min(hi)..hi, pieces);
         self.rebuild();
+    }
+
+    /// The edit inside block `b`, when the block stays valid. Returns whether it was done.
+    fn replace_in_block(&mut self, b: usize, off: usize, old_count: usize, new: &[u32]) -> bool {
+        let delta_lines = new.len() as i64 - old_count as i64;
+        let delta_rows = match &mut self.blocks[b] {
+            Block::Ones(len) => {
+                let new_len = *len - old_count + new.len();
+                if new_len == 0 || sum(new) != new.len() as u64 {
+                    return false;
+                }
+                *len = new_len;
+                delta_lines
+            }
+            Block::Counts { counts, rows } => {
+                let new_len = counts.len() - old_count + new.len();
+                let removed = sum(&counts[off..off + old_count]);
+                let new_rows = *rows - removed + sum(new);
+                if !(1..=2 * BLOCK).contains(&new_len) || new_rows == new_len as u64 {
+                    return false;
+                }
+                counts.splice(off..off + old_count, new.iter().copied());
+                let delta = new_rows as i64 - *rows as i64;
+                *rows = new_rows;
+                delta
+            }
+        };
+        self.fen_lines.add(b, delta_lines);
+        self.fen_rows.add(b, delta_rows);
+        self.lines = self.lines.wrapping_add_signed(delta_lines as isize);
+        self.rows = self.rows.wrapping_add_signed(delta_rows);
+        true
+    }
+
+    /// Writes `new` over the same number of lines from `(b0, off0)` on, block by block, when
+    /// every block stays valid. Returns whether it was done; nothing changes when not.
+    fn overwrite(&mut self, b0: usize, off0: usize, new: &[u32]) -> bool {
+        // First pass: would every block stay valid?
+        let (mut b, mut off, mut done) = (b0, off0, 0);
+        while done < new.len() {
+            let Some(block) = self.blocks.get(b) else {
+                return false;
+            };
+            let n = (block.len() - off).min(new.len() - done);
+            let part = &new[done..done + n];
+            let ok = match block {
+                Block::Ones(_) => sum(part) == n as u64,
+                Block::Counts { counts, rows } => {
+                    *rows - sum(&counts[off..off + n]) + sum(part) != counts.len() as u64
+                }
+            };
+            if !ok {
+                return false;
+            }
+            done += n;
+            b += 1;
+            off = 0;
+        }
+        // Second pass: write.
+        let (mut b, mut off, mut done) = (b0, off0, 0);
+        while done < new.len() {
+            let block = &mut self.blocks[b];
+            let n = (block.len() - off).min(new.len() - done);
+            let part = &new[done..done + n];
+            if let Block::Counts { counts, rows } = block {
+                let delta_rows = sum(part) as i64 - sum(&counts[off..off + n]) as i64;
+                counts[off..off + n].copy_from_slice(part);
+                *rows = rows.wrapping_add_signed(delta_rows);
+                self.fen_rows.add(b, delta_rows);
+                self.rows = self.rows.wrapping_add_signed(delta_rows);
+            }
+            done += n;
+            b += 1;
+            off = 0;
+        }
+        true
     }
 
     /// The counts, one by one (for tests).
@@ -266,7 +443,10 @@ impl RowSeq {
     pub(crate) fn to_vec(&self) -> Vec<u32> {
         self.blocks
             .iter()
-            .flat_map(|b| b.counts.iter().copied())
+            .flat_map(|b| match b {
+                Block::Ones(n) => vec![1; *n],
+                Block::Counts { counts, .. } => counts.clone(),
+            })
             .collect()
     }
 }
@@ -368,5 +548,123 @@ mod tests {
     fn ones_is_one_row_per_line() {
         let seq = RowSeq::ones(1000);
         check(&seq, &vec![1; 1000]);
+    }
+
+    /// The number of blocks stays within twice the exceptions plus one.
+    fn check_blocks(seq: &RowSeq, model: &[u32]) {
+        let exceptions = model.iter().filter(|&&c| c != 1).count();
+        assert!(
+            seq.block_count() <= 2 * exceptions + 1,
+            "{} blocks for {exceptions} exceptions",
+            seq.block_count()
+        );
+    }
+
+    /// A model with long runs of ones and a few lines of other counts.
+    fn sparse_model(rng: &mut Rng, len: usize, exceptions: usize) -> Vec<u32> {
+        let mut model = vec![1; len];
+        for _ in 0..exceptions {
+            let at = rng.below(len.max(1));
+            if at < model.len() {
+                model[at] = 2 + rng.below(4) as u32;
+            }
+        }
+        model
+    }
+
+    #[test]
+    fn random_replacements_over_long_runs_of_ones() {
+        for seed in 1..=4u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+            let mut model = sparse_model(&mut rng, 12_000, 12);
+            let mut seq = RowSeq::from_counts(&model);
+            check(&seq, &model);
+            check_blocks(&seq, &model);
+            for step in 0..400 {
+                let first = rng.below(model.len() + 1);
+                let max_old = (model.len() - first).min(match step % 11 {
+                    0 => 6000,
+                    1..=4 => 300,
+                    _ => 5,
+                });
+                let old = rng.below(max_old + 1);
+                // Mostly ones; sometimes a lone exception; sometimes a long run.
+                let n = match step % 7 {
+                    0 => rng.below(2000),
+                    1 => 1,
+                    _ => rng.below(10),
+                };
+                let new: Vec<u32> = (0..n)
+                    .map(|_| {
+                        if rng.below(40) == 0 {
+                            2 + rng.below(3) as u32
+                        } else {
+                            1
+                        }
+                    })
+                    .collect();
+                model.splice(first..first + old, new.iter().copied());
+                seq.replace(first, old, &new);
+                if step % 5 == 0 || model.len() < 50 {
+                    check(&seq, &model);
+                }
+                check_blocks(&seq, &model);
+            }
+            check(&seq, &model);
+            // Back to one row each everywhere: one block again.
+            let n = model.len();
+            let ones = vec![1; n];
+            seq.replace(0, n, &ones);
+            check(&seq, &ones);
+            assert_eq!(seq.block_count(), 1.min(n));
+        }
+    }
+
+    #[test]
+    fn same_length_overwrite_keeps_blocks_valid() {
+        let mut model = vec![1u32; 5000];
+        model[2000] = 3;
+        let mut seq = RowSeq::from_counts(&model);
+        let before = seq.block_count();
+        // The same ones over the runs: nothing changes.
+        seq.replace(100, 1500, &[1; 1500]);
+        assert_eq!(seq.block_count(), before);
+        check(&seq, &model);
+        // An exception inside a run of ones splits it.
+        seq.replace(100, 3, &[1, 4, 1]);
+        model[101] = 4;
+        check(&seq, &model);
+        // Taking the only exception of a block away turns it into ones and joins the neighbours.
+        seq.replace(2000, 1, &[1]);
+        model[2000] = 1;
+        check(&seq, &model);
+        check_blocks(&seq, &model);
+    }
+
+    #[test]
+    fn ones_hold_no_memory_per_line() {
+        // 10^8 lines, none of them wraps: the sequence is one block.
+        let mut seq = RowSeq::ones(100_000_000);
+        assert!(seq.heap_bytes() < 1024, "{} bytes", seq.heap_bytes());
+        assert_eq!(seq.block_count(), 1);
+        assert_eq!(seq.total_rows(), 100_000_000);
+        assert_eq!(seq.first_row(99_999_999), 99_999_999);
+        assert_eq!(seq.locate_row(54_321), Some((54_321, 0)));
+        // A line in the middle wraps into 3 rows, and then it is edited and wraps no more.
+        seq.replace(50_000_000, 1, &[3]);
+        assert_eq!(seq.block_count(), 3);
+        assert!(seq.heap_bytes() < 4096, "{} bytes", seq.heap_bytes());
+        assert_eq!(seq.total_rows(), 100_000_002);
+        assert_eq!(seq.first_row(50_000_001), 50_000_003);
+        assert_eq!(seq.locate_row(50_000_002), Some((50_000_000, 2)));
+        assert_eq!(seq.locate_row(50_000_003), Some((50_000_001, 0)));
+        seq.replace(50_000_000, 1, &[1]);
+        assert_eq!(seq.block_count(), 1);
+        assert_eq!(seq.total_rows(), 100_000_000);
+        // Lines inserted and removed far from any exception.
+        seq.replace(7, 0, &[1; 100]);
+        seq.replace(0, 1_000_000, &[]);
+        assert_eq!(seq.len(), 99_000_100);
+        assert_eq!(seq.block_count(), 1);
     }
 }

@@ -839,7 +839,7 @@ mod long_lines {
 
     use super::super::{DocumentLayout, LONG_ROW_BYTES};
     use super::x;
-    use crate::config::LayoutConfig;
+    use crate::config::{LayoutConfig, Wrap};
 
     /// A source that counts the bytes it hands out.
     #[derive(Debug)]
@@ -1013,6 +1013,34 @@ mod long_lines {
             .map(|r| r.text())
             .collect();
         assert_eq!(joined, doc.line(1).unwrap().unwrap().text);
+    }
+
+    /// The row table of a ranged document holds no bytes per line (ADR-0020, chapter 6, plan B):
+    /// 300,000 lines took 1.2 MB before; now the table is one run of lines, and a line that wraps
+    /// adds a few entries. (`seq.rs` checks 10^8 lines.)
+    #[test]
+    fn the_row_table_does_not_grow_with_the_lines() {
+        let mut text = "a\n".repeat(300_000);
+        text.push_str(&"b".repeat(35));
+        text.push_str(&"\nc".repeat(100_000));
+        let (doc, _) = ranged(&text, 4096, 1 << 20);
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(10),
+            ..LayoutConfig::default()
+        };
+        let mut layout = DocumentLayout::new(&doc, cfg).unwrap();
+        let fresh = layout.seq_heap_bytes();
+        layout.layout_all(&doc).unwrap();
+        assert!(layout.is_complete());
+        assert_eq!(layout.line_count(), 400_001);
+        // 35 columns at 10 per row: 4 rows for the one line.
+        assert_eq!(layout.rows_in_line(300_000), Some(4));
+        assert_eq!(layout.row_count(), 400_001 + 3);
+        assert_eq!(layout.first_row_of_line(300_001), 300_004);
+        assert_eq!(layout.locate_row(300_003).line, 300_000);
+        for bytes in [fresh, layout.seq_heap_bytes()] {
+            assert!(bytes < 4096, "{bytes} bytes for 400,001 lines");
+        }
     }
 }
 

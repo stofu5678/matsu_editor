@@ -1015,3 +1015,47 @@ fn the_box_pages_take_the_number_of_rows_too(cx: &mut TestAppContext) {
     run_with_rows(&view, cx, F_1PAGE_DOWN_BOX, 3);
     assert_eq!(at(&view, cx), (109, 101));
 }
+
+/// Lines above the top of the view that turn out to wrap while the layout goes on do not move
+/// the text that is shown (ADR-0020, chapter 6: the top is kept as a line and a row in it).
+#[gpui::test]
+fn the_top_stays_on_its_line_while_lines_above_it_are_laid_out(cx: &mut TestAppContext) {
+    let text = (0..LINES)
+        .map(|i| {
+            if i % 4 == 0 {
+                "x".repeat(35)
+            } else {
+                format!("line {i}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let doc = Document::from_utf8(text.into_bytes()).unwrap();
+    let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
+    let (view, cx) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(document, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    cx.run_until_parked();
+    view.update(cx, |v, cx| {
+        let doc = v.document.read(cx).doc();
+        let cfg = matsu_layout::LayoutConfig {
+            wrap: matsu_layout::Wrap::Columns(10),
+            ..Default::default()
+        };
+        // Nothing is laid out: every line counts one row, and the top is at line 500.
+        v.layout = matsu_layout::DocumentLayout::new(doc, cfg).unwrap();
+        let lh = v.metrics.line_height;
+        v.scroll_y = 500.0 * lh + 3.0;
+        let anchor = v.top_anchor().unwrap();
+        assert_eq!((anchor.line, anchor.row_in_line), (500, 0));
+        v.layout.layout_chunk(doc, 300).unwrap();
+        assert!(v.layout.first_row_of_line(500) > 500, "lines above wrapped");
+        v.restore_top_anchor(anchor);
+        let top = (v.scroll_y / lh).floor() as usize;
+        let at = v.layout.locate_row(top);
+        assert_eq!((at.line, at.row_in_line), (500, 0));
+        assert!((v.scroll_y - top as f32 * lh - 3.0).abs() < 0.01);
+    });
+}

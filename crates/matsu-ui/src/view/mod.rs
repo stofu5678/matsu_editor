@@ -345,6 +345,14 @@ pub struct EditorView {
     _subscription: Subscription,
 }
 
+/// Where the top of the view is, by line, as [`EditorView::top_anchor`] finds it.
+struct TopAnchor {
+    row: usize,
+    line: usize,
+    row_in_line: usize,
+    cut_off: f32,
+}
+
 impl EditorView {
     pub fn new(document: Entity<SharedDocument>, cx: &mut Context<Self>) -> Self {
         let mut layout = DocumentLayout::new(document.read(cx).doc(), initial_layout_config())
@@ -859,10 +867,45 @@ impl EditorView {
         if self.layout.is_complete() {
             return;
         }
+        // The top of the view stays on its line: lines above it that turn out to wrap move the
+        // row numbers (ADR-0020, chapter 6), and the pixel offset has to move with them. A view
+        // that holds the top of a scan window does it itself (`hold_frame_top`).
+        let anchor = self.top_anchor();
         let doc = self.document.read(cx).doc();
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
+        if let Some(anchor) = anchor {
+            self.restore_top_anchor(anchor);
+        }
         if !self.layout.is_complete() {
             window.request_animation_frame();
+        }
+    }
+
+    /// The line at the top of the view, the row in it, and the pixels of the row that are cut
+    /// off. `None` when the view is past the end of the text, or holds the top of a scan window.
+    fn top_anchor(&self) -> Option<TopAnchor> {
+        let lh = self.metrics.line_height;
+        if self.scroll_past_end || self.frame_top.is_some() || self.scroll_y < 0.0 || lh <= 0.0 {
+            return None;
+        }
+        let row = (self.scroll_y / lh).floor() as usize;
+        if row >= self.layout.row_count() {
+            return None;
+        }
+        let at = self.layout.locate_row(row);
+        Some(TopAnchor {
+            row,
+            line: at.line,
+            row_in_line: at.row_in_line,
+            cut_off: self.scroll_y - row as f32 * lh,
+        })
+    }
+
+    fn restore_top_anchor(&mut self, anchor: TopAnchor) {
+        let in_line = self.layout.rows_in_line(anchor.line).unwrap_or(1).max(1);
+        let row = self.layout.first_row_of_line(anchor.line) + anchor.row_in_line.min(in_line - 1);
+        if row != anchor.row {
+            self.scroll_y = row as f32 * self.metrics.line_height + anchor.cut_off;
         }
     }
 
