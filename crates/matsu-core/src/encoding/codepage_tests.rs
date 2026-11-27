@@ -80,7 +80,7 @@ fn single_byte_code_pages_keep_every_byte() {
         let Encoding::CodePage(code_page) = encoding else {
             continue;
         };
-        if [936, 949, 950, 51949, 54936].contains(&code_page.number()) {
+        if [936, 949, 950, 20932, 51932, 51949, 54936].contains(&code_page.number()) {
             continue;
         }
         let bytes: Vec<u8> = (0..=255).collect();

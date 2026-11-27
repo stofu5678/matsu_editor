@@ -41,6 +41,17 @@
 //! supported: the `0x8F` is an invalid byte and the two bytes after it are read as a new char.
 //! Sakura's own test (`test-ccodebase.cpp`, `codeEucJp`) writes `森鷗外` as `森?外` for this
 //! reason.
+//!
+//! # Code page 51932
+//!
+//! The code page number 51932 (`CP51932`, `Encoding::CodePage`) uses this codec too. Windows does
+//! not have it as a code page that `IsValidCodePage` accepts, so Sakura 2.4.2 ignores
+//! `FileSaveAs(..., 51932, ...)` and keeps the code of the document (measured 2026-11-27, see
+//! `known_differences.txt`). MATSU Editor saves in it, as the user decided on 2026-11-25: the
+//! characters of this codec are Sakura's `CODE_EUC` ones, built from the CP932 table of
+//! `encoding_rs` (NEC row 13 and the IBM extensions included, JIS X 0212 not). There is no
+//! Windows table to compare with, so the bytes of the ranges outside JIS X 0208 follow Sakura's
+//! `CEuc`. The code page 20932 is a different codec (`cp20932.rs`).
 
 use super::cp932::{
     self, Mapped, hankata_char, ibm_to_nec, is_hankata, jis_to_sjis, nec_to_ibm, sjis_to_jis,

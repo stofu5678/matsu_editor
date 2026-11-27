@@ -81,7 +81,7 @@ pub(in crate::type_settings) fn code_uses_bom(code: i32) -> bool {
 /// The code pages the combo box gets after C&P is checked (`CCodePage::AddComboCodePages`):
 /// those MATSU Editor can read and write, by their number, with the name and the description.
 /// Sakura lists the code pages installed in Windows; the ones MATSU Editor has no table for
-/// (437, 850, 20932, ISO-2022-KR and the like) are not in the list, so they cannot be chosen (see
+/// (437, 850, ISO-2022-KR and the like) are not in the list, so they cannot be chosen (see
 /// [`CODE_PAGE_NOTE`]).
 pub(in crate::type_settings) fn code_page_options() -> &'static [(&'static str, i32)] {
     static OPTIONS: OnceLock<Vec<(&'static str, i32)>> = OnceLock::new();
