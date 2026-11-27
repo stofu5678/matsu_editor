@@ -150,6 +150,30 @@ fn a_call_that_writes_nothing_to_stderr_does_not_wait_for_a_quiet_time() {
 }
 
 #[test]
+fn the_record_of_how_a_call_ended_is_not_kept_for_the_next_call() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    // A call that is cut off at its limit ends by no way the record knows: it must not show the
+    // `Marker` of the call before it.
+    let dir = plugin_dir(&[("ok.cjs", "1;"), ("loop.cjs", "for (;;) {}")]);
+    let mut host = patient_host(dir.path(), Language::JavaScript);
+    let mut world = World::new("");
+    let first = world.call(&mut host, "ok.cjs");
+    assert_eq!(first.outcome, Outcome::Ok);
+    assert_ended_by_marker(&host, "the first call");
+    let cut = world.call_jack(
+        &mut host,
+        "Command",
+        "loop.cjs",
+        &Value::Null,
+        Duration::from_secs(1),
+    );
+    assert_eq!(cut.outcome, Outcome::TimedOut);
+    assert_eq!(host.last_ended(), None);
+}
+
+#[test]
 fn a_marker_like_line_of_the_plugin_is_not_the_marker_of_another_call() {
     if !available(Language::JavaScript) {
         return;

@@ -500,6 +500,11 @@ impl PluginHost {
             process.files_sent |= node;
             process.session.send(line);
         }
+        // Each call's record is its own: a call that ends by another path leaves none.
+        #[cfg(test)]
+        {
+            self.last_ended = None;
+        }
         self.current = Some(Current {
             id,
             jack: jack.to_owned(),
