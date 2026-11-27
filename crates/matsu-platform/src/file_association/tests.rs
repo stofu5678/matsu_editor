@@ -17,6 +17,10 @@ struct Fake {
     notified: u32,
     /// A path whose `set_value` fails, to test a failure half way.
     fail_on: Option<String>,
+    /// `copy_machine_tree` fails (the machine's ProgID is missing or cannot be read).
+    fail_copy: bool,
+    /// `delete_value` fails for this key (an access denied that must not be taken for "missing").
+    fail_delete_value: Option<String>,
 }
 
 fn key(path: &str) -> String {
@@ -77,6 +81,9 @@ impl Registry for Fake {
     }
 
     fn delete_value(&mut self, path: &str, name: &str) -> io::Result<()> {
+        if self.fail_delete_value.as_deref() == Some(path) {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
         if let Some(values) = self.user.get_mut(&key(path)) {
             values.remove(&key(name));
         }
@@ -107,6 +114,9 @@ impl Registry for Fake {
     }
 
     fn copy_machine_tree(&mut self, from: &str, to: &str) -> io::Result<()> {
+        if self.fail_copy {
+            return Err(io::Error::from(io::ErrorKind::NotFound));
+        }
         let from = key(from);
         let prefix = format!("{from}\\");
         let copies: Vec<_> = self
@@ -709,4 +719,41 @@ fn the_verb_and_the_default_are_compared_without_case() {
     r.put_user(".mtest", PROGID_BACKUP_NAME, "othertype");
     register(&mut r, &ext("mtest"), EXE, false).unwrap();
     assert_eq!(r.value(".mtest", "").as_deref(), Some("othertype"));
+}
+
+#[test]
+fn a_failure_while_the_progid_is_built_leaves_the_extension_as_it_was() {
+    let mut r = Fake {
+        fail_copy: true,
+        ..Fake::default()
+    };
+    // The machine's `.mtest` names a ProgID that cannot be copied; the user had a default too.
+    r.put_machine(".mtest", "", "missingtype");
+    r.put_user(".mtest", "", "othertype");
+    assert!(register(&mut r, &ext("mtest"), EXE, true).is_err());
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("othertype"));
+    assert_eq!(r.value(".mtest", PROGID_BACKUP_NAME), None);
+    // Nothing says MATSU is associated, so the dialog can try again.
+    assert_eq!(check(&r, &ext("mtest")), Status::default());
+    // And once the copy works, the same call completes.
+    r.fail_copy = false;
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    assert!(check(&r, &ext("mtest")).default);
+}
+
+#[test]
+fn a_delete_that_fails_stops_the_removal_before_the_progid_goes() {
+    let mut r = Fake::default();
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    r.fail_delete_value = Some(".mtest".into());
+    let error = unregister(&mut r, &ext("mtest")).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    // `.mtest` still names MATSU's ProgID, and the ProgID is still there: no dangling association.
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("MatsuEditor_mtest"));
+    assert!(r.key_exists(r"MatsuEditor_mtest\shell\MatsuEditor\command"));
+    // It can be removed once the key can be written.
+    r.fail_delete_value = None;
+    unregister(&mut r, &ext("mtest")).unwrap();
+    assert!(!r.key_exists(".mtest"));
+    assert!(!r.key_exists("MatsuEditor_mtest"));
 }

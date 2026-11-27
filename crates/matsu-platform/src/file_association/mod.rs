@@ -265,19 +265,6 @@ pub fn register(
     // The ProgID the extension has on the machine (`keyExt_HKLM`).
     let machine_prog_id = nonempty(registry.machine_default(&dot));
 
-    // `.ext` names our ProgID; the previous default is kept.
-    let current = registry.value(&dot, "").unwrap_or_default();
-    // `.ext` may already name our ProgID with other letter case: that is ours, not a previous
-    // default to back up (a backup of it would be restored as a self-reference later).
-    if !same_name(&current, &prog_id) {
-        if !current.is_empty() {
-            registry.set_value(&dot, PROGID_BACKUP_NAME, &current)?;
-        }
-        registry.set_value(&dot, "", &prog_id)?;
-    } else if current != prog_id {
-        registry.set_value(&dot, "", &prog_id)?;
-    }
-
     // The verbs of the program the machine had for `.ext` stay available in our ProgID.
     if !registry.key_exists(&prog_id)
         && let Some(machine) = machine_prog_id
@@ -303,6 +290,21 @@ pub fn register(
             registry.set_value(&ext.shell_backup_key(), "", &shell_value)?;
         }
         registry.set_value(&shell, "", ACTION_NAME)?;
+    }
+
+    // Last: `.ext` names our ProgID only when the ProgID is complete. A failure above leaves
+    // `.ext` as it was, not pointing at a handler that has no command.
+    // `.ext` names our ProgID; the previous default is kept.
+    let current = registry.value(&dot, "").unwrap_or_default();
+    // `.ext` may already name our ProgID with other letter case: that is ours, not a previous
+    // default to back up (a backup of it would be restored as a self-reference later).
+    if !same_name(&current, &prog_id) {
+        if !current.is_empty() {
+            registry.set_value(&dot, PROGID_BACKUP_NAME, &current)?;
+        }
+        registry.set_value(&dot, "", &prog_id)?;
+    } else if current != prog_id {
+        registry.set_value(&dot, "", &prog_id)?;
     }
     Ok(())
 }

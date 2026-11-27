@@ -8,7 +8,9 @@
 use std::io;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, ERROR_SUCCESS};
+use windows_sys::Win32::Foundation::{
+    ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
+};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_READ, KEY_SET_VALUE,
     KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW,
@@ -49,12 +51,17 @@ fn wide(s: &str) -> Vec<u16> {
 
 /// The result of a registry call, with the call and the key it was for in the message (the
 /// functions return the error code itself): `RegSetValueExW Software\Classes\.txt: Access is denied.`
-fn check(code: u32, call: &str, path: &str) -> io::Result<()> {
+fn check(code: u32, call: &str, path: impl FnOnce() -> String) -> io::Result<()> {
     if code == ERROR_SUCCESS {
         Ok(())
     } else {
-        Err(with_context(code, call, path))
+        Err(with_context(code, call, &path()))
     }
+}
+
+/// A key or value that is not there (the only failure a delete may ignore).
+fn is_missing(code: u32) -> bool {
+    code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND
 }
 
 fn with_context(code: u32, call: &str, path: &str) -> io::Error {
@@ -79,6 +86,16 @@ impl Key {
         }
     }
 
+    /// The key, or `None` when it is not there. Any other failure (access denied ...) is an error:
+    /// a key that exists but cannot be opened must not be taken for one that needs no work.
+    fn open_if_present(hive: HKEY, path: &str, access: u32) -> io::Result<Option<Self>> {
+        match Self::open(hive, path, access) {
+            Ok(key) => Ok(Some(key)),
+            Err(code) if is_missing(code) => Ok(None),
+            Err(code) => Err(with_context(code, "RegOpenKeyExW", path)),
+        }
+    }
+
     fn create(hive: HKEY, path: &str) -> io::Result<Self> {
         let name = path;
         let path = wide(path);
@@ -97,7 +114,7 @@ impl Key {
                 null_mut(),
             )
         };
-        check(code, "RegCreateKeyExW", name)?;
+        check(code, "RegCreateKeyExW", || name.to_owned())?;
         Ok(Self(key))
     }
 
@@ -124,40 +141,42 @@ impl Key {
             if code == ERROR_NO_MORE_ITEMS {
                 break;
             }
-            check(code, "RegEnumKeyExW", "")?;
+            check(code, "RegEnumKeyExW", String::new)?;
             names.push(String::from_utf16_lossy(&buffer[..length as usize]));
         }
         Ok(names)
     }
 
-    /// Copies every value of this key to `target`, as they are (name, type and bytes).
+    /// Copies every value of this key to `target`, as they are (name, type and bytes). The two
+    /// buffers are sized once from the longest name and the longest data of the key.
     fn copy_values_to(&self, target: &Key) -> io::Result<()> {
+        let (mut longest_name, mut longest_data) = (0u32, 0u32);
+        // SAFETY: only the two lengths are asked for; the other outputs are null.
+        let code = unsafe {
+            RegQueryInfoKeyW(
+                self.0,
+                null_mut(),
+                null_mut(),
+                null(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                &mut longest_name,
+                &mut longest_data,
+                null_mut(),
+                null_mut(),
+            )
+        };
+        check(code, "RegQueryInfoKeyW", || "(the key to copy)".to_owned())?;
+        // The name length does not count the NUL that the call writes.
+        let mut name = vec![0u16; longest_name as usize + 1];
+        let mut data = vec![0u8; longest_data as usize];
         for index in 0.. {
-            // A value name has at most 16383 characters.
-            let mut name = vec![0u16; 16384];
             let mut name_length = name.len() as u32;
-            let (mut kind, mut size) = (0u32, 0u32);
-            // SAFETY: the first call only asks for the size (null data); `name` has room for
-            // `name_length` characters.
-            let code = unsafe {
-                RegEnumValueW(
-                    self.0,
-                    index,
-                    name.as_mut_ptr(),
-                    &mut name_length,
-                    null(),
-                    &mut kind,
-                    null_mut(),
-                    &mut size,
-                )
-            };
-            if code == ERROR_NO_MORE_ITEMS {
-                break;
-            }
-            check(code, "RegEnumValueW", "")?;
-            let mut data = vec![0u8; size as usize];
-            name_length = name.len() as u32;
-            // SAFETY: `data` has `size` bytes of room, and `name` room for `name_length`.
+            let mut size = data.len() as u32;
+            let mut kind = 0u32;
+            // SAFETY: `name` has `name_length` characters of room and `data` has `size` bytes.
             let code = unsafe {
                 RegEnumValueW(
                     self.0,
@@ -170,13 +189,19 @@ impl Key {
                     &mut size,
                 )
             };
-            check(code, "RegEnumValueW", "")?;
-            name.truncate(name_length as usize);
-            name.push(0);
-            // SAFETY: `name` is NUL-terminated and `data` has `size` valid bytes.
+            if code == ERROR_NO_MORE_ITEMS {
+                break;
+            }
+            check(code, "RegEnumValueW", || format!("(value {index})"))?;
+            // SAFETY: the call NUL-terminated `name`, and `data` has `size` valid bytes.
             let code =
                 unsafe { RegSetValueExW(target.0, name.as_ptr(), 0, kind, data.as_ptr(), size) };
-            check(code, "RegSetValueExW", "(a copied value)")?;
+            check(code, "RegSetValueExW", || {
+                format!(
+                    "(a copied value, {})",
+                    String::from_utf16_lossy(&name[..name_length as usize])
+                )
+            })?;
         }
         Ok(())
     }
@@ -267,48 +292,44 @@ impl Registry for Real {
         // SAFETY: `name` and `data` are NUL-terminated, and `bytes` is the size of `data`.
         let code =
             unsafe { RegSetValueExW(key.0, name.as_ptr(), 0, REG_SZ, data.as_ptr().cast(), bytes) };
-        check(
-            code,
-            "RegSetValueExW",
-            &format!("{} [{value_name}]", self.user(path)),
-        )
+        check(code, "RegSetValueExW", || {
+            format!("{} [{value_name}]", self.user(path))
+        })
     }
 
     fn delete_value(&mut self, path: &str, name: &str) -> io::Result<()> {
-        let Ok(key) = Key::open(HKEY_CURRENT_USER, &self.user(path), KEY_SET_VALUE) else {
+        let Some(key) = Key::open_if_present(HKEY_CURRENT_USER, &self.user(path), KEY_SET_VALUE)?
+        else {
             return Ok(());
         };
         let value_name = name;
         let name = wide(name);
         // SAFETY: `name` is NUL-terminated.
         let code = unsafe { RegDeleteValueW(key.0, name.as_ptr()) };
-        if code == ERROR_FILE_NOT_FOUND {
+        if is_missing(code) {
             Ok(())
         } else {
-            check(
-                code,
-                "RegDeleteValueW",
-                &format!("{} [{value_name}]", self.user(path)),
-            )
+            check(code, "RegDeleteValueW", || {
+                format!("{} [{value_name}]", self.user(path))
+            })
         }
     }
 
     fn delete_tree(&mut self, path: &str) -> io::Result<()> {
         let full = self.user(path);
-        let path = wide(&full);
-        // SAFETY: `path` is NUL-terminated.
-        let code = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, path.as_ptr()) };
-        if code == ERROR_FILE_NOT_FOUND {
+        let wide_path = wide(&full);
+        // SAFETY: `wide_path` is NUL-terminated.
+        let code = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, wide_path.as_ptr()) };
+        if is_missing(code) {
             Ok(())
         } else {
-            check(code, "RegDeleteTreeW", &full)
+            check(code, "RegDeleteTreeW", || full)
         }
     }
 
     fn delete_key_if_empty(&mut self, path: &str) -> io::Result<()> {
-        let path = self.user(path);
-        let full = path.clone();
-        let Ok(key) = Key::open(HKEY_CURRENT_USER, &path, KEY_QUERY_VALUE) else {
+        let full = self.user(path);
+        let Some(key) = Key::open_if_present(HKEY_CURRENT_USER, &full, KEY_QUERY_VALUE)? else {
             return Ok(());
         };
         let (mut subkeys, mut values) = (0u32, 0u32);
@@ -329,19 +350,19 @@ impl Registry for Real {
                 null_mut(),
             )
         };
-        check(code, "RegQueryInfoKeyW", &path)?;
+        check(code, "RegQueryInfoKeyW", || full.clone())?;
         drop(key);
         if subkeys != 0 || values != 0 {
             return Ok(());
         }
-        let path = wide(&path);
-        // SAFETY: `path` is NUL-terminated. `RegDeleteKeyW` fails for a key with subkeys, which it
-        // does not have.
-        let code = unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, path.as_ptr()) };
-        if code == ERROR_FILE_NOT_FOUND {
+        let wide_path = wide(&full);
+        // SAFETY: `wide_path` is NUL-terminated. `RegDeleteKeyW` fails for a key with subkeys,
+        // which it does not have.
+        let code = unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, wide_path.as_ptr()) };
+        if is_missing(code) {
             Ok(())
         } else {
-            check(code, "RegDeleteKeyW", &full)
+            check(code, "RegDeleteKeyW", || full)
         }
     }
 
