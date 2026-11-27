@@ -1370,14 +1370,92 @@ fn typing_into_a_box_over_separate_lines_is_not_changed() {
     // rows of different lines that do not wrap: the columns of the box, no places kept
     let (text, mut cursor) = type_into_wrapped_box("abc\ndef", 6, ((0, 1), (1, 1)), "xy", false);
     assert_eq!(text, "axybc\ndxyef");
-    assert!(cursor.take_box_places().is_empty());
+    assert!(cursor.take_box_places().is_none());
+}
+
+#[test]
+fn places_that_the_text_has_left_behind_are_not_used() {
+    // typing, then a change of the text that does not go through the cursor (another view, a
+    // reload): the places are for the older text, and the box input starts from the box again
+    let mut model = DocumentModel::new(Document::from_utf8(b"abcdefghi".to_vec()).unwrap());
+    model.set_new_line(Eol::Lf);
+    let mut layout = Wrap(3, false);
+    let mut cursor = Cursor::default();
+    cursor.move_to(Pos::new(0, 1), false);
+    cursor.begin_box(1, false);
+    cursor.move_box_to(Pos::new(0, 4), 1);
+    let mut type_x = |model: &mut DocumentModel, cursor: &mut Cursor| {
+        let mut cx = CommandContext::new(model, cursor, &mut layout, None);
+        Registry::global()
+            .run("input_char", &mut cx, &[Arg::Char('x')])
+            .unwrap();
+    };
+    type_x(&mut model, &mut cursor);
+    assert_eq!(model.doc().line(0).unwrap().unwrap().text, "axbcdxefghi");
+    // the line gets shorter than the places, behind the cursor's back
+    model.replace(Pos::new(0, 3), Pos::new(0, 11), "").unwrap();
+    type_x(&mut model, &mut cursor);
+    // no panic, and no char inside another or past the end
+    let text = model.doc().line(0).unwrap().unwrap().text;
+    assert!(text.contains('x'), "{text}");
+}
+
+#[test]
+fn the_places_are_not_part_of_what_a_cursor_is() {
+    let (_, with) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
+    let mut without = with.clone();
+    let _ = without.take_box_places();
+    assert_eq!(with, without);
+}
+
+#[test]
+fn the_places_after_typing_are_found_in_one_step_per_place() {
+    use super::box_edit::places_after_typing;
+    // 20,000 texts of 2 bytes into the same line, then 20,000 into other lines: each place is
+    // pushed by the texts before it in its own line, and by nothing in the others
+    let places: Vec<Pos> = (0..20_000)
+        .map(|i| Pos::new(0, i * 3))
+        .chain((1..=20_000).map(|line| Pos::new(line, 5)))
+        .collect();
+    let lengths = vec![2; places.len()];
+    let starts = places_after_typing(&places, &lengths);
+    assert_eq!(starts[0], Pos::new(0, 0));
+    assert_eq!(starts[19_999], Pos::new(0, 19_999 * 3 + 19_999 * 2));
+    assert_eq!(starts[20_000], Pos::new(1, 5));
+    assert_eq!(starts[39_999], Pos::new(20_000, 5));
+}
+
+#[test]
+fn typing_into_a_box_of_many_separate_lines_keeps_no_places() {
+    // 20,000 lines that do not wrap: the box input works by the columns, as before
+    let text: String = (0..20_000).map(|_| "abc\n").collect();
+    let (out, mut cursor) = {
+        let mut model = DocumentModel::new(Document::from_utf8(text.into_bytes()).unwrap());
+        model.set_new_line(Eol::Lf);
+        let mut layout = PlainLayout::default();
+        let mut cursor = Cursor::default();
+        cursor.move_to(Pos::new(0, 1), false);
+        cursor.begin_box(1, false);
+        cursor.move_box_to(Pos::new(19_999, 1), 1);
+        let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
+        Registry::global()
+            .run("input_char", &mut cx, &[Arg::Char('x')])
+            .unwrap();
+        let doc = model.doc();
+        let out = doc
+            .text_between(Pos::new(0, 0), doc.end_pos().unwrap())
+            .unwrap();
+        (out, cursor)
+    };
+    assert_eq!(out.matches("axbc\n").count(), 20_000);
+    assert!(cursor.take_box_places().is_none());
 }
 
 #[test]
 fn a_change_of_the_box_ends_the_places_of_the_box_input() {
     let (_, mut cursor) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
     cursor.box_moved();
-    assert!(cursor.take_box_places().is_empty());
+    assert!(cursor.take_box_places().is_none());
     let (_, mut cursor) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
-    assert_eq!(cursor.take_box_places().len(), 2);
+    assert_eq!(cursor.take_box_places().expect("places").1.len(), 2);
 }

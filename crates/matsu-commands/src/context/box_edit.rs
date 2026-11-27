@@ -71,6 +71,28 @@ struct Insertion {
     x: X,
 }
 
+/// Where the texts of `lengths` (bytes, none with a line break) start in the text after they
+/// went in at `places` (top to bottom, the places of the text before): a text is pushed right by
+/// the ones before it in the same line. One step for each place, however the places are spread
+/// over the lines.
+pub(super) fn places_after_typing(places: &[Pos], lengths: &[usize]) -> Vec<Pos> {
+    let mut pushed = 0;
+    let mut line = None;
+    places
+        .iter()
+        .zip(lengths)
+        .map(|(place, len)| {
+            if line != Some(place.line) {
+                line = Some(place.line);
+                pushed = 0;
+            }
+            let start = Pos::new(place.line, place.col + pushed);
+            pushed += len;
+            start
+        })
+        .collect()
+}
+
 /// Whether Sakura's `Command_INDENT` skips a char when it checks the left side of the box
 /// (`IsIndentCharSpaceTab`).
 fn is_space_or_tab(c: char) -> bool {
@@ -447,12 +469,19 @@ impl CommandContext<'_> {
         soft_tab: bool,
     ) -> Result<()> {
         self.refuse_in_view_mode()?;
-        // The places that the last typing left (see `Cursor::take_box_places`); only typing keeps
-        // them, an indent starts from the box.
-        let mut places = self.cursor.take_box_places();
-        if indent.is_some() {
-            places.clear();
-        }
+        // The places that the last typing left (see `Cursor::take_box_places`). Only typing uses
+        // them (an indent starts from the box), only while the text is the one they were made
+        // for, and only if each of them is still a place in it.
+        let mut places = match self.cursor.take_box_places() {
+            Some((version, places))
+                if indent.is_none()
+                    && version == self.model.text_version()
+                    && self.places_are_valid(&places)? =>
+            {
+                places
+            }
+            _ => Vec::new(),
+        };
         // `Command_INDENT` (typing, the tab and space indents, `InsText`): with
         // `m_bOverWriteBoxDelete` a box typed over in overwrite mode is deleted first and stays
         // selected.
@@ -494,10 +523,13 @@ impl CommandContext<'_> {
             (plan, aligned) = self.plan_box_insertions(&rect, indent, false)?;
         }
         places = plan.iter().map(|ins| ins.at).collect();
-        // the length of what went into each place, to find where it started
+        // the length of what went into each place
         let mut lengths = vec![0; plan.len()];
+        // a text that broke the line (a line break that the first line of the text did not cut)
+        // moves the places below it onto another line: they are not kept then
+        let mut broken = false;
         self.cursor.clear_selection();
-        // From the bottom up: the rows above do not move.
+        // From the bottom up: the rows above do not move, and neither do the places above.
         // `shift` is how far the text pushed the chars right, the least over the rows (0 if a
         // row was left alone for the alignment); the box moves by it.
         let mut shift = if aligned { Some(X::ZERO) } else { None };
@@ -510,14 +542,8 @@ impl CommandContext<'_> {
             };
             let padded = format!("{}{text}", " ".repeat(ins.pad));
             let edit = self.replace(places[i], places[i], &padded)?;
-            // The text went in before the places below it in the same line.
-            for later in &mut places[i + 1..] {
-                if later.line == edit.start.line {
-                    later.col += padded.len();
-                }
-            }
-            places[i] = edit.end;
             lengths[i] = padded.len();
+            broken |= edit.end.line != places[i].line;
             let end_x = self.layout.display_x(self.doc(), edit.end)?;
             // The text reached the wrap point: the end is on the next row. Sakura then counts
             // the width to the right edge (`GetMaxLineLayout()` minus the start).
@@ -528,27 +554,34 @@ impl CommandContext<'_> {
             };
             shift = Some(shift.map_or(width, |s: X| s.min(width)));
         }
+        // Where each text starts and ends in the text as it is now.
+        let starts = places_after_typing(&places, &lengths);
         let shift = shift.unwrap_or(X::ZERO);
         let max = self.max_box_x();
         let (left, right) = ((rect.left + shift).min(max), (rect.right + shift).min(max));
         // A tracked box covers the rows of the first and the last place: where the rows start now.
-        let (top, bottom) =
-            if tracked && let (Some(&first), Some(&last)) = (places.first(), places.last()) {
-                let start = |at: Pos, len: usize| Pos::new(at.line, at.col - len);
-                (
-                    self.layout
-                        .row_start(self.doc(), start(first, lengths[0]))?,
-                    self.layout
-                        .row_start(self.doc(), start(last, lengths[places.len() - 1]))?,
-                )
-            } else {
-                (rect.rows[0], rect.rows[rect.rows.len() - 1])
-            };
+        let (top, bottom) = if tracked
+            && !broken
+            && let (Some(&first), Some(&last)) = (starts.first(), starts.last())
+        {
+            (
+                self.layout.row_start(self.doc(), first)?,
+                self.layout.row_start(self.doc(), last)?,
+            )
+        } else {
+            (rect.rows[0], rect.rows[rect.rows.len() - 1])
+        };
         let caret = self.box_corner_pos(top, left)?;
         let anchor = self.box_corner_pos(bottom, right)?;
         self.set_box(anchor, caret, lock);
-        if tracked {
-            self.cursor.set_box_places(places);
+        if tracked && !broken {
+            // the places are the ends of the texts
+            let ends = starts
+                .iter()
+                .zip(&lengths)
+                .map(|(start, len)| Pos::new(start.line, start.col + len))
+                .collect();
+            self.cursor.set_box_places(self.model.text_version(), ends);
         }
         Ok(())
     }
@@ -565,6 +598,18 @@ impl CommandContext<'_> {
             }
         }
         Ok(false)
+    }
+
+    /// Whether every one of `places` is a place in the text (inside it, on a char boundary), and
+    /// they are in the order of the text, one for each row: the places of an older text cannot
+    /// be trusted to be.
+    fn places_are_valid(&self, places: &[Pos]) -> Result<bool> {
+        for (i, &place) in places.iter().enumerate() {
+            if self.doc().clamp_pos(place)? != place || (i > 0 && places[i - 1] >= place) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// The insertions that go right at the places that the last typing left, without padding.
