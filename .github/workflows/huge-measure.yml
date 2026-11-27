@@ -87,7 +87,8 @@ jobs:
           wanted=","
           IFS=',' read -ra asked <<< "$KINDS"
           for k in "${asked[@]}"; do
-            k="$(echo "${k//[0-9 ]/}" | tr 'A-Z' 'a-z')"
+            k="${k//[0-9 ]/}"
+            k="${k,,}"
             wanted="$wanted$k,"
           done
           selected=""
