@@ -14,9 +14,10 @@
 //! third type on, ↓ for every type but 基本 and the last, 削除 for every type but 基本; 追加 and
 //! 複製 while there are less than 60 types (`SetData`).
 //!
+//! The file association (the two check boxes and `AlertFileAssociation`, which write to the
+//! registry of Windows) is in `list_assoc`; only Windows shows it.
+//!
 //! Drawn over the editor view, like the window list: the dialog of Sakura is a Windows dialog.
-//! Not here: the file association (the two check boxes and `AlertFileAssociation`, which write to the
-//! registry of Windows).
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
@@ -88,6 +89,17 @@ pub(crate) struct TypeList {
     pub(super) scroll: ScrollHandle,
     /// The question of the import (`CDlgTypeAscertain`), while it is open.
     pub(super) ascertain: Option<Ascertain>,
+    /// What the association check boxes show for the selected type (`m_bExtRMenu`,
+    /// `m_bExtDblClick`); `None` where this OS has no association. See `list_assoc`.
+    pub(super) association: Option<super::list_assoc::Shown>,
+    /// Where the association is read and written.
+    pub(super) backend: Box<dyn super::list_assoc::Backend>,
+    /// The focus of the two check boxes (tab stops while they are not grey).
+    pub(super) menu_focus: FocusHandle,
+    pub(super) default_focus: FocusHandle,
+    /// Whether the warning before the first change of an association was answered with はい
+    /// (`m_bAlertFileAssociation`, negated).
+    pub(super) alerted: bool,
 }
 
 impl TypeList {
@@ -97,14 +109,21 @@ impl TypeList {
         current: usize,
         cx: &mut App,
     ) -> Self {
-        Self {
+        let mut list = Self {
             view,
             selected: current.min(labels.len().saturating_sub(1)),
             labels,
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             ascertain: None,
-        }
+            association: None,
+            backend: Box::new(super::list_assoc::System),
+            menu_focus: cx.focus_handle().tab_stop(true),
+            default_focus: cx.focus_handle().tab_stop(true),
+            alerted: false,
+        };
+        list.read_association(cx);
+        list
     }
 
     /// Closes the list and gives the focus back to the editor.
@@ -207,6 +226,7 @@ impl TypeList {
             "end" => self.selected = last,
             _ => return,
         }
+        self.read_association(cx);
         self.scroll.scroll_to_item(self.selected);
         cx.stop_propagation();
         cx.notify();
@@ -246,6 +266,7 @@ impl Render for TypeList {
                 item.child(text.clone()).on_click(cx.listener(
                     move |this, event: &ClickEvent, window, cx| {
                         this.selected = i;
+                        this.read_association(cx);
                         // A double click is 一時適用 (`OnLbnDblclk`).
                         if event.click_count() >= 2 {
                             this.apply(window, cx);
@@ -255,13 +276,17 @@ impl Render for TypeList {
                 ))
             })
             .collect();
+        let association = self.render_association(cx);
         let (has_room, can_up, can_down, can_delete) = (
             self.has_room(),
             self.can_move_up(),
             self.can_move_down(),
             self.can_delete(),
         );
-        let max_rows = (window.viewport_size().height - px(170.)).max(px(66.));
+        let max_rows = px(super::list_assoc::rows_budget(
+            f32::from(window.viewport_size().height),
+            self.association_height(),
+        ));
         let rows = div()
             .id("type-list-rows")
             .role(gpui::Role::ListBox)
@@ -364,6 +389,12 @@ impl Render for TypeList {
             .on_key_down(cx.listener(Self::on_key_down))
             .min_w(px(480.))
             .max_w(px(760.))
+            // A short window: the panel is at most as high as the area it is drawn over (the
+            // overlay, which has a margin above and below) and scrolls inside it, so that its
+            // bottom (the association section and its notes) can always be reached, and it does
+            // not go under the status bar. The list keeps its own scrolling.
+            .max_h(gpui::relative(1.))
+            .overflow_y_scroll()
             .p_4()
             .flex()
             .flex_col()
@@ -372,10 +403,16 @@ impl Render for TypeList {
             .border_color(rgb(0x888888))
             .text_color(rgb(TEXT))
             .text_size(px(14.))
-            .child(div().mb_2().child("タイプ別設定一覧"))
-            .child(div().mb_1().child("下からタイプを選択してください:"))
+            .child(div().flex_none().mb_2().child("タイプ別設定一覧"))
             .child(
                 div()
+                    .flex_none()
+                    .mb_1()
+                    .child("下からタイプを選択してください:"),
+            )
+            .child(
+                div()
+                    .flex_none()
                     .flex()
                     .child(
                         div()
@@ -387,9 +424,11 @@ impl Render for TypeList {
                             .child(rows),
                     )
                     .child(side),
-            );
+            )
+            .children(association);
         div()
             .id("type-list-overlay")
+            .py_4()
             .absolute()
             .top_0()
             .left_0()

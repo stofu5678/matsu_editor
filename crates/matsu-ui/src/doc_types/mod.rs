@@ -19,6 +19,7 @@ use crate::view::EditorView;
 
 mod edit;
 pub(crate) mod list;
+mod list_assoc;
 mod list_ops;
 mod transfer;
 
@@ -182,6 +183,8 @@ pub(crate) fn refresh_open_views(cx: &mut App, index: usize) {
 mod keep_tests;
 #[cfg(test)]
 mod list_access_key_tests;
+#[cfg(test)]
+mod list_assoc_tests;
 #[cfg(test)]
 mod list_tests;
 #[cfg(test)]
