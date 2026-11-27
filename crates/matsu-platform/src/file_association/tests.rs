@@ -115,6 +115,11 @@ impl Registry for Fake {
 
     fn copy_machine_tree(&mut self, from: &str, to: &str) -> io::Result<()> {
         if self.fail_copy {
+            // Half of the tree is written before it fails.
+            self.user
+                .entry(key(to))
+                .or_default()
+                .insert("partial".into(), ("partial".into(), "1".into()));
             return Err(io::Error::from(io::ErrorKind::NotFound));
         }
         let from = key(from);
@@ -757,5 +762,51 @@ fn a_delete_that_fails_stops_the_removal_before_the_progid_goes() {
     r.fail_delete_value = None;
     unregister(&mut r, &ext("mtest")).unwrap();
     assert!(!r.key_exists(".mtest"));
+    assert!(!r.key_exists("MatsuEditor_mtest"));
+}
+
+#[test]
+fn a_half_copied_progid_is_removed_so_that_a_retry_copies_again() {
+    let mut r = Fake {
+        fail_copy: true,
+        ..Fake::default()
+    };
+    r.put_machine(".mtest", "", "othertype");
+    r.put_machine(r"othertype\shell\open\command", "", "other.exe %1");
+    assert!(register(&mut r, &ext("mtest"), EXE, true).is_err());
+    assert!(!r.key_exists("MatsuEditor_mtest"));
+    // The retry copies the verbs of the machine's program.
+    r.fail_copy = false;
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell\open\command", "")
+            .as_deref(),
+        Some("other.exe %1")
+    );
+}
+
+#[test]
+fn removing_keeps_the_progid_that_the_choice_of_the_user_names() {
+    let mut r = Fake::default();
+    apply(&mut r, "mtest", EXE, Change::Menu(true)).unwrap();
+    r.choices
+        .insert(".mtest".into(), "matsueditor_MTEST".into());
+    apply(&mut r, "mtest", EXE, Change::Menu(false)).unwrap();
+    // The right-click item and `.mtest` are gone; the ProgID with its command stays.
+    assert!(!r.key_exists(r"SystemFileAssociations\.mtest"));
+    assert_eq!(r.value(".mtest", ""), None);
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell\MatsuEditor\command", "")
+            .as_deref(),
+        Some(r#""C:\Program Files\MATSU Editor\matsu.exe" "%1""#)
+    );
+    // The boxes say so: not associated, but Windows still opens MATSU by the user's choice.
+    let state = type_state(&r, "mtest", "matsu.exe");
+    assert!(!state.menu && !state.default);
+    assert_eq!(state.chosen, ["mtest"]);
+    // Without that choice the ProgID goes.
+    r.choices.clear();
+    apply(&mut r, "mtest", EXE, Change::Menu(true)).unwrap();
+    apply(&mut r, "mtest", EXE, Change::Menu(false)).unwrap();
     assert!(!r.key_exists("MatsuEditor_mtest"));
 }

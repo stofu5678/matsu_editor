@@ -283,7 +283,10 @@ impl Render for TypeList {
             self.can_move_down(),
             self.can_delete(),
         );
-        let max_rows = (window.viewport_size().height - px(170.)).max(px(66.));
+        let max_rows = px(super::list_assoc::rows_budget(
+            f32::from(window.viewport_size().height),
+            self.association_height(),
+        ));
         let rows = div()
             .id("type-list-rows")
             .role(gpui::Role::ListBox)

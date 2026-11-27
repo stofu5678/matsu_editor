@@ -269,7 +269,16 @@ pub fn register(
     if !registry.key_exists(&prog_id)
         && let Some(machine) = machine_prog_id
     {
-        registry.copy_machine_tree(&machine, &prog_id)?;
+        if let Err(error) = registry.copy_machine_tree(&machine, &prog_id) {
+            // A half-built ProgID would stand for "the copy is done" next time (the key exists).
+            return Err(match registry.delete_tree(&prog_id) {
+                Ok(()) => error,
+                Err(cleanup) => io::Error::new(
+                    error.kind(),
+                    format!("{error}; removing the half-built {prog_id} failed too: {cleanup}"),
+                ),
+            });
+        }
     }
 
     registry.set_value(&ext.command_key(), "", &command_line(exe))?;
@@ -338,7 +347,7 @@ fn keep_only_the_menu_item(registry: &mut impl Registry, ext: &Ext, exe: &str) -
 }
 
 /// `UnregistExt`: removes what [`register`] wrote for `ext` (also the item under
-/// `SystemFileAssociations`), and nothing else. `.ext` gets its
+/// `SystemFileAssociations`), and nothing else; MATSU's ProgID stays while `UserChoice` names it. `.ext` gets its
 /// previous default back while it still names MATSU's ProgID; the key `.ext` goes only when it is
 /// empty then.
 pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
@@ -354,7 +363,15 @@ pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
         }
     }
     registry.delete_value(&dot, PROGID_BACKUP_NAME)?;
-    registry.delete_tree(&prog_id)?;
+    // The protected choice of the user (`UserChoice`) may name our ProgID: it cannot be repaired
+    // from here, so the ProgID stays with its command and the choice keeps working. Only the
+    // right-click item and `.ext` go; the dialog then says that Windows' own setting decides.
+    let chosen = registry
+        .user_choice(ext)
+        .is_some_and(|choice| same_name(&choice, &prog_id));
+    if !chosen {
+        registry.delete_tree(&prog_id)?;
+    }
     registry.delete_tree(&ext.system_action_key())?;
     // The keys above it are removed only when MATSU's item was all they held.
     registry.delete_key_if_empty(&ext.system_shell_key())?;
@@ -414,7 +431,9 @@ pub fn type_state(registry: &impl Registry, type_exts: &str, exe_name: &str) -> 
         let ours = user_choice_is_ours(&choice, ext, exe_name);
         if status.default && !ours {
             state.overridden.push(ext.as_str().to_owned());
-        } else if status.menu && !status.default && ours {
+        } else if !status.default && ours && (status.menu || same_name(&choice, &ext.prog_id())) {
+            // Our own ProgID named by the choice counts without the menu item: removing the item
+            // leaves the ProgID, and Windows still opens MATSU for the double click.
             state.chosen.push(ext.as_str().to_owned());
         }
     }

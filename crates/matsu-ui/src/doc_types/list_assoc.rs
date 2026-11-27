@@ -82,6 +82,41 @@ pub(super) struct Shown {
     note: Option<gpui::SharedString>,
 }
 
+/// The height of a line of the note and the characters in one (12 px text in a 460 px column).
+const NOTE_LINE: f32 = 16.;
+const NOTE_CHARS_PER_LINE: usize = 36;
+/// The row of the two check boxes and the gap above it.
+const BOXES_HEIGHT: f32 = 32.;
+
+/// How much of the window the association section takes below the list: nothing where this OS has
+/// none, else the check boxes and the lines of the note that is shown (a long note wraps).
+pub(super) fn section_height(note: Option<&str>) -> f32 {
+    let lines = note.map_or(0, |text| {
+        text.split('\n')
+            .map(|line| line.chars().count().div_ceil(NOTE_CHARS_PER_LINE).max(1))
+            .sum::<usize>()
+    });
+    BOXES_HEIGHT + lines as f32 * NOTE_LINE
+}
+
+/// The most height the rows of the list may take: the window less what the dialog needs around
+/// the rows (`FIXED`: title, line of text, padding and the margins of the window) and the
+/// association section. The section grows with its note, so a small window keeps the dialog's
+/// bottom in view (the list scrolls instead).
+pub(super) fn rows_budget(viewport_height: f32, section: f32) -> f32 {
+    const FIXED: f32 = 170.;
+    (viewport_height - FIXED - section).max(66.)
+}
+
+impl TypeList {
+    /// The height the association section takes, for `rows_budget`.
+    pub(super) fn association_height(&self) -> f32 {
+        self.association
+            .as_ref()
+            .map_or(0., |shown| section_height(shown.note.as_deref()))
+    }
+}
+
 impl Shown {
     fn of(read: io::Result<TypeState>) -> Self {
         match read {
@@ -332,6 +367,21 @@ fn check_box(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_note_takes_rows_from_the_list_in_a_small_window() {
+        let none = section_height(None);
+        let note = overridden_note(&["c".to_owned(), "h".to_owned()]).unwrap();
+        let with_note = section_height(Some(&note));
+        assert!(with_note > none + 3. * NOTE_LINE, "{with_note} {none}");
+        // The budget of the rows shrinks by what the section takes, down to a floor.
+        assert_eq!(rows_budget(600., none), 600. - 170. - none);
+        assert!(rows_budget(600., with_note) < rows_budget(600., none));
+        assert_eq!(rows_budget(200., with_note), 66.);
+        // The dialog stays inside the window: rows + the rest <= the window (above the floor).
+        let rows = rows_budget(600., with_note);
+        assert!(rows + 170. + with_note <= 600.);
+    }
 
     #[test]
     fn the_note_names_the_extensions_and_says_where_to_change_it() {
