@@ -1418,6 +1418,37 @@ fn a_box_of_no_width_keeps_its_places_when_overwrite_would_delete_the_box() {
 }
 
 #[test]
+fn a_save_that_swaps_in_the_same_text_keeps_the_places() {
+    // type `x`, save (`replace_saved_document` puts a document with the same text in place),
+    // type `y`: `xy` in order in both segments
+    let mut model = DocumentModel::new(Document::from_utf8(b"abcdefghi".to_vec()).unwrap());
+    model.set_new_line(Eol::Lf);
+    let mut layout = Wrap(3, false);
+    let mut cursor = Cursor::default();
+    cursor.move_to(Pos::new(0, 1), false);
+    cursor.begin_box(1, false);
+    cursor.move_box_to(Pos::new(0, 4), 1);
+    let mut type_char = |model: &mut DocumentModel, cursor: &mut Cursor, c: char| {
+        let mut cx = CommandContext::new(model, cursor, &mut layout, None);
+        Registry::global()
+            .run("input_char", &mut cx, &[Arg::Char(c)])
+            .unwrap();
+    };
+    type_char(&mut model, &mut cursor, 'x');
+    let same = model
+        .doc()
+        .text_between(Pos::new(0, 0), model.doc().end_pos().unwrap())
+        .unwrap();
+    model.replace_saved_document(Document::from_utf8(same.into_bytes()).unwrap());
+    type_char(&mut model, &mut cursor, 'y');
+    let doc = model.doc();
+    let text = doc
+        .text_between(Pos::new(0, 0), doc.end_pos().unwrap())
+        .unwrap();
+    assert_eq!(text, "axybcdxyefghi");
+}
+
+#[test]
 fn a_cloned_cursor_does_not_carry_the_places() {
     let (_, cursor) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
     assert!(cursor.clone().take_box_places().is_none());

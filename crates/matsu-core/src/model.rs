@@ -72,7 +72,8 @@ impl DocumentModel {
     /// stay as they are.
     pub fn replace_scanned_document(&mut self, doc: Document) {
         self.doc = doc;
-        self.text_version += 1;
+        // No bump: the text that was shown is the same (it shows more of the file, and nothing
+        // was edited meanwhile), so places in it stay places.
     }
 
     /// Puts `doc` in place of the document after a save of a file read by ranges: `doc` has the
@@ -80,7 +81,8 @@ impl DocumentModel {
     /// document in its steps (and so the old file open); nothing else changes.
     pub fn replace_saved_document(&mut self, doc: Document) {
         self.doc = doc;
-        self.text_version += 1;
+        // No bump: `doc` has the text of the document, only read from the file that was written,
+        // so places in the text stay places.
     }
 
     /// Puts `doc` in place of the document and drops the undo history, after a save that wrote
@@ -88,6 +90,8 @@ impl DocumentModel {
     /// "保存の世代"). The bookmarks and marks stay: `doc` has the same lines.
     pub fn reload_saved_document(&mut self, doc: Document) {
         self.doc = doc;
+        // Bumped: the text that was written is not the text that the document had (another
+        // encoding or line endings), so places in the old text mean nothing.
         self.text_version += 1;
         self.history = History::new();
         self.bookmarks.truncate(self.doc.line_count());
