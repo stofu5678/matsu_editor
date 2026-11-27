@@ -187,18 +187,15 @@ impl CommandContext<'_> {
     }
 
     /// [`refuse_big_work`](Self::refuse_big_work) for the lines `first..end`: their bytes are
-    /// counted from the line index, without reading the text.
+    /// counted from the line index with their line endings, without reading the text.
     pub(crate) fn refuse_big_lines(&mut self, first: usize, end: usize, what: &str) -> Result<()> {
         if !self.doc().is_ranged() {
             return Ok(());
         }
-        let mut bytes = 0_usize;
-        for line in first..end {
-            bytes = bytes.saturating_add(self.doc().line_raw_len(line)?.unwrap_or(0));
-            if bytes >= copy_limit() {
-                break;
-            }
-        }
+        // the whole range, the line endings too (a line of only a line ending is bytes as well)
+        let bytes = self
+            .doc()
+            .raw_len_between(Pos::new(first, 0), Pos::new(end, 0))?;
         self.refuse_big_work(bytes, what)
     }
 
