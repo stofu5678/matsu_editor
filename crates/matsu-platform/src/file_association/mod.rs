@@ -268,17 +268,16 @@ pub fn register(
     // The verbs of the program the machine had for `.ext` stay available in our ProgID.
     if !registry.key_exists(&prog_id)
         && let Some(machine) = machine_prog_id
+        && let Err(error) = registry.copy_machine_tree(&machine, &prog_id)
     {
-        if let Err(error) = registry.copy_machine_tree(&machine, &prog_id) {
-            // A half-built ProgID would stand for "the copy is done" next time (the key exists).
-            return Err(match registry.delete_tree(&prog_id) {
-                Ok(()) => error,
-                Err(cleanup) => io::Error::new(
-                    error.kind(),
-                    format!("{error}; removing the half-built {prog_id} failed too: {cleanup}"),
-                ),
-            });
-        }
+        // A half-built ProgID would stand for "the copy is done" next time (the key exists).
+        return Err(match registry.delete_tree(&prog_id) {
+            Ok(()) => error,
+            Err(cleanup) => io::Error::new(
+                error.kind(),
+                format!("{error}; removing the half-built {prog_id} failed too: {cleanup}"),
+            ),
+        });
     }
 
     registry.set_value(&ext.command_key(), "", &command_line(exe))?;
