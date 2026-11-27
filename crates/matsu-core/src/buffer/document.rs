@@ -583,12 +583,6 @@ impl Document {
                         found = Some(raw);
                         return Ok(());
                     }
-                    // A place near the start of the piece is found from the table of its first
-                    // bytes, which is made once.
-                    if let Some(at) = st.head_raw_at(s, e, remaining)? {
-                        found = Some(raw + (at - s));
-                        return Ok(());
-                    }
                     // Read in parts, so that a place near the start of a huge piece does not read
                     // all of it. A part is read a few bytes long, to see a character at its end.
                     // The first parts are as long as the rest of the column needs (a decoded byte
