@@ -389,6 +389,12 @@ impl Render for TypeList {
             .on_key_down(cx.listener(Self::on_key_down))
             .min_w(px(480.))
             .max_w(px(760.))
+            // A short window: the whole panel scrolls, so that its bottom (the association
+            // section and its notes) can always be reached. The list keeps its own scrolling.
+            .max_h(px(super::list_assoc::panel_cap(f32::from(
+                window.viewport_size().height,
+            ))))
+            .overflow_y_scroll()
             .p_4()
             .flex()
             .flex_col()
@@ -397,10 +403,16 @@ impl Render for TypeList {
             .border_color(rgb(0x888888))
             .text_color(rgb(TEXT))
             .text_size(px(14.))
-            .child(div().mb_2().child("タイプ別設定一覧"))
-            .child(div().mb_1().child("下からタイプを選択してください:"))
+            .child(div().flex_none().mb_2().child("タイプ別設定一覧"))
             .child(
                 div()
+                    .flex_none()
+                    .mb_1()
+                    .child("下からタイプを選択してください:"),
+            )
+            .child(
+                div()
+                    .flex_none()
                     .flex()
                     .child(
                         div()

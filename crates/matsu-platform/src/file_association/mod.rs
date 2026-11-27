@@ -430,9 +430,9 @@ pub fn type_state(registry: &impl Registry, type_exts: &str, exe_name: &str) -> 
         let ours = user_choice_is_ours(&choice, ext, exe_name);
         if status.default && !ours {
             state.overridden.push(ext.as_str().to_owned());
-        } else if !status.default && ours && (status.menu || same_name(&choice, &ext.prog_id())) {
-            // Our own ProgID named by the choice counts without the menu item: removing the item
-            // leaves the ProgID, and Windows still opens MATSU for the double click.
+        } else if !status.default && ours {
+            // The choice names MATSU in any of its forms (`user_choice_is_ours`), with or without
+            // the menu item: Windows opens MATSU for the double click whatever the box says.
             state.chosen.push(ext.as_str().to_owned());
         }
     }

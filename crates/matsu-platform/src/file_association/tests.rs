@@ -810,3 +810,22 @@ fn removing_keeps_the_progid_that_the_choice_of_the_user_names() {
     apply(&mut r, "mtest", EXE, Change::Menu(false)).unwrap();
     assert!(!r.key_exists("MatsuEditor_mtest"));
 }
+
+#[test]
+fn a_choice_of_matsu_is_shown_in_every_form_with_the_menu_item_removed() {
+    for choice in ["MatsuEditor_c", "matsu.editor.C", r"Applications\matsu.exe"] {
+        let mut r = Fake::default();
+        apply(&mut r, "c", EXE, Change::Menu(true)).unwrap();
+        r.choices.insert(".c".into(), choice.into());
+        apply(&mut r, "c", EXE, Change::Menu(false)).unwrap();
+        let state = type_state(&r, "c", "matsu.exe");
+        assert!(!state.menu && !state.default, "{choice}");
+        assert_eq!(state.chosen, ["c"], "{choice}");
+        // Another program's choice is not MATSU's.
+        r.choices.insert(".c".into(), "txtfile".into());
+        assert!(
+            type_state(&r, "c", "matsu.exe").chosen.is_empty(),
+            "{choice}"
+        );
+    }
+}
