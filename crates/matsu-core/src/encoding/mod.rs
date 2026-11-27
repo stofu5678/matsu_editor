@@ -100,6 +100,7 @@
 
 mod char_code;
 mod codepage;
+mod cp20932;
 mod cp932;
 mod detect;
 mod euc;
@@ -480,11 +481,12 @@ impl CodePage {
         self.0
     }
 
-    /// The codec: 51932 and 20932 have their own (`euc.rs`), the others use the `encoding_rs` table.
+    /// The codec: 51932 (`euc.rs`) and 20932 (`cp20932.rs`) have their own, the others use the
+    /// `encoding_rs` table.
     fn codec(self) -> &'static dyn Codec {
         match self.0 {
             51932 => &euc::EucJp,
-            20932 => &euc::EucJp0212,
+            20932 => &cp20932::Cp20932,
             _ => self.info(),
         }
     }

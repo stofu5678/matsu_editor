@@ -1,10 +1,12 @@
-//! Tests of the code pages 51932 and 20932 (`euc.rs`). They run the same on every OS: nothing here
-//! reads a path or a Windows API.
+//! Tests of the code pages 51932 (`euc.rs`) and 20932 (`cp20932.rs`). They run the same on every
+//! OS: nothing here reads a path or calls a Windows API.
 //!
-//! The bytes of JIS X 0208 and JIS X 0212 were made with Python's `euc_jp` codec (independent of
-//! `encoding_rs`). NEC row 13 and the IBM extensions are not in that codec: their bytes follow from
-//! the CP932 code and the Shift_JIS to JIS arithmetic (CP932 `0x8740` is JIS `0x2D21`, EUC
-//! `0xADA1`; the NEC-selected form `0xEEE0` is JIS `0x7C62`, EUC `0xFCE2`).
+//! The bytes of JIS X 0208 were made with Python's `euc_jp` codec (independent of `encoding_rs`).
+//! The facts about 20932 are what Windows' `WideCharToMultiByte(20932, ...)` and
+//! `MultiByteToWideChar(20932, ...)` gave on 2026-11-27 (measured by the coordinator); the ranges
+//! outside JIS X 0208 of 51932 are the bytes of Sakura's `CEuc` (the CP932 code and the
+//! Shift_JIS to JIS arithmetic: CP932 `0x8740` is JIS `0x2D21`, EUC `0xADA1`; the NEC-selected
+//! form of `髙`, `0xEEE0`, is JIS `0x7C62`, EUC `0xFCE2`).
 
 use super::*;
 
@@ -69,16 +71,18 @@ const RANGES: &[Range] = &[
         cp20932: Some(b"\xAD\xA1"),
     },
     Range {
-        name: "IBM extension (written as the NEC-selected form)",
+        // 51932: the NEC-selected form (`SjisFilter_ibm2nec`). 20932: JIS X 0212 plane, row 0xF4.
+        name: "IBM extension",
         text: "\u{9AD9}",
         cp51932: Some(b"\xFC\xE2"),
-        cp20932: Some(b"\xFC\xE2"),
+        cp20932: Some(b"\xF4\x29"),
     },
     Range {
-        name: "JIS X 0212 (0x8F)",
+        // 20932 has no 0x8F prefix: the trail byte has no top bit.
+        name: "JIS X 0212",
         text: "\u{2D8}\u{4E02}",
         cp51932: None,
-        cp20932: Some(b"\x8F\xA2\xAF\x8F\xB0\xA1"),
+        cp20932: Some(b"\xA2\x2F\xB0\x21"),
     },
 ];
 
@@ -131,13 +135,15 @@ fn what_a_code_page_cannot_hold_is_a_question_mark() {
     let error = cp(51932).codec().encode(text, &mut out).unwrap_err();
     assert_eq!(out, b"\xBF\xB9?\xB3\xB0?");
     assert_eq!(error.offsets, vec![3, 9]);
+    // 20932: 鷗 is `0xEC 0x3F` (JIS X 0212 plane), and a character outside the BMP is two `?`
+    // (Windows writes `?` for each UTF-16 unit).
     let mut out = Vec::new();
     let error = cp(20932).codec().encode(text, &mut out).unwrap_err();
-    assert_eq!(out, b"\xBF\xB9\x8F\xEC\xBF\xB3\xB0?");
+    assert_eq!(out, b"\xBF\xB9\xEC\x3F\xB3\xB0??");
     assert_eq!(error.offsets, vec![9]);
-    // The same for a character of the user-defined area (no JIS X 0208 code).
+    // The user-defined area of CP932 (U+E000) has no JIS X 0208 code in 51932.
     let mut out = Vec::new();
-    assert!(cp(20932).codec().encode("a\u{E000}b", &mut out).is_err());
+    assert!(cp(51932).codec().encode("a\u{E000}b", &mut out).is_err());
     assert_eq!(out, b"a?b");
 }
 
@@ -159,20 +165,94 @@ fn line_endings_next_to_double_byte_characters() {
 }
 
 #[test]
-fn jis_x_0212_is_only_in_20932() {
-    // In 51932 the 0x8F is an invalid byte; 0xA2AF after it is no JIS X 0208 code either.
+fn code_page_51932_has_no_jis_x_0212() {
+    // The 0x8F is an invalid byte; 0xA2AF after it is no JIS X 0208 code either.
     assert_eq!(
         decode(cp(51932), b"\x8F\xA2\xAF"),
         format!("{}{}{}", s(0x8F), s(0xA2), s(0xAF))
     );
     assert_eq!(cp(51932).codec().char_len(b"\x8F\xA2\xAF", 0), 1);
-    assert_eq!(cp(20932).codec().char_len(b"\x8F\xA2\xAF", 0), 3);
-    // A JIS X 0212 code without a character is three stand-ins, and they are written back.
-    let text = decode(cp(20932), b"\x8F\xFE\xFE");
-    assert_eq!(text, format!("{}{}{}", s(0x8F), s(0xFE), s(0xFE)));
-    assert_eq!(encode_ok(cp(20932), &text), b"\x8F\xFE\xFE");
-    // A cut 0x8F at the end is one invalid byte.
-    assert_eq!(decode(cp(20932), b"a\x8F"), format!("a{}", s(0x8F)));
+}
+
+/// Windows' `WideCharToMultiByte(20932, ...)` and `MultiByteToWideChar(20932, ...)`, a few facts
+/// of each range.
+#[test]
+fn code_page_20932_follows_windows() {
+    let both = |text: &str, bytes: &[u8]| {
+        assert_eq!(encode_ok(cp(20932), text), bytes, "write {text:?}");
+        assert_eq!(decode(cp(20932), bytes), text, "read {bytes:02X?}");
+    };
+    // JIS X 0212 plane: the trail byte has no top bit.
+    both("\u{4E02}", b"\xB0\x21"); // 丂
+    both("\u{C0}", b"\xAA\x22"); // À
+    both("\u{A6}", b"\xA2\x43"); // ¦
+    both("\u{2122}", b"\xA2\x6F"); // ™
+    // The IBM extensions that JIS X 0212 has stay where it has them (纊), the others are in
+    // rows 0xF3 and 0xF4 of that plane in the order of CP932.
+    both("\u{7E8A}", b"\xD4\x63");
+    both("\u{2170}", b"\xF3\x21"); // ⅰ
+    both("\u{FF07}", b"\xF3\x35"); // ＇
+    both("\u{FF02}", b"\xF3\x36"); // ＂
+    both("\u{FA11}", b"\xF3\x49"); // 﨑
+    both("\u{9AD9}", b"\xF4\x29"); // 髙
+    both("\u{974D}", b"\xF4\x63");
+    // NEC row 13 and the half-width katakana.
+    both("\u{2460}", b"\xAD\xA1");
+    both("\u{FF71}", b"\x8E\xB1");
+    // JIS-style where CP932 is MS-style: the MS-style characters are `?`.
+    both("\u{301C}", b"\xA1\xC1");
+    both("\u{2016}", b"\xA1\xC2");
+    both("\u{2212}", b"\xA1\xDD");
+    both("\u{A2}", b"\xA1\xF1");
+    both("\u{A3}", b"\xA1\xF2");
+    both("\u{AC}", b"\xA2\xCC");
+    both("\u{2015}", b"\xA1\xBD");
+    for c in [
+        "\u{FF5E}", "\u{FF0D}", "\u{2225}", "\u{FFE0}", "\u{FFE1}", "\u{FFE2}", "\u{FFE4}",
+        "\u{2014}", "\u{A5}", "\u{203E}", "\u{663B}",
+    ] {
+        let mut out = Vec::new();
+        assert!(cp(20932).codec().encode(c, &mut out).is_err(), "{c:?}");
+        assert_eq!(out, b"?", "{c:?}");
+    }
+    // The user-defined area: JIS X 0208 plane first, then the JIS X 0212 plane.
+    both("\u{E000}", b"\xF5\xA1");
+    both("\u{E178}", b"\xF9\xA1");
+    both("\u{E3AB}", b"\xFE\xFE");
+    both("\u{E3AC}", b"\xF5\x21");
+    both("\u{E757}", b"\xFE\x7E");
+    // No best fit; U+0080..=U+009F are read (as C1 controls) but not written; outside the BMP
+    // is one `?` per UTF-16 unit.
+    assert_eq!(decode(cp(20932), b"\x80\x8F\x9F"), "\u{80}\u{8F}\u{9F}");
+    let mut out = Vec::new();
+    assert!(
+        cp(20932)
+            .codec()
+            .encode("\u{80}\u{1F600}", &mut out)
+            .is_err()
+    );
+    assert_eq!(out, b"???");
+}
+
+#[test]
+fn code_page_20932_reads_invalid_bytes_as_stand_ins() {
+    let codec = cp(20932).codec();
+    // 0xA0 and 0xFF are not in the code page; a lone 0x8E, a lead byte at the end, and a lead
+    // byte before a byte that is no trail byte are one stand-in, and the next byte goes on.
+    assert_eq!(
+        decode(cp(20932), b"\xA0\xFF"),
+        format!("{}{}", s(0xA0), s(0xFF))
+    );
+    assert_eq!(decode(cp(20932), b"\x8Ea"), format!("{}a", s(0x8E)));
+    assert_eq!(decode(cp(20932), b"\xB0"), s(0xB0));
+    assert_eq!(decode(cp(20932), b"\xB0 "), format!("{} ", s(0xB0)));
+    assert_eq!(codec.char_len(b"\xB0 ", 0), 1);
+    assert_eq!(codec.char_len(b"\xB0\x21", 0), 2);
+    // A pair with no character (JIS X 0212 plane, row 2, column 0x01): the lead is a stand-in,
+    // and the trail is read again (here as ASCII).
+    let text = decode(cp(20932), b"\xA2\x21");
+    assert_eq!(text, format!("{}!", s(0xA2)));
+    assert_eq!(encode_ok(cp(20932), &text), b"\xA2!");
 }
 
 #[test]

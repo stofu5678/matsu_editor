@@ -64,9 +64,10 @@
 //! - 10000 is `macintosh`. 10007 and 10017 are both `x-mac-cyrillic`, which is the Ukrainian
 //!   variant (it has U+0490 and U+0491). Windows 10007 differs from it at a few bytes.
 //! - 51932 and 20932 are Japanese EUC. `encoding_rs` has no table for them as Windows has (its
-//!   EUC-JP is the WHATWG one), so they are read and written by the codecs of `euc.rs`, which
-//!   build them from the CP932 and JIS X 0212 tables of `encoding_rs` (see there). The user decided
-//!   on 2026-11-25 to make these two savable, so they are the exception to the next rule.
+//!   EUC-JP is the WHATWG one), so they are read and written by the codecs of `euc.rs` (51932) and
+//!   `cp20932.rs` (20932), which build them from the CP932, JIS X 0208 and JIS X 0212 tables of
+//!   `encoding_rs` (see there). The user decided on 2026-11-25 to make these two savable, so they
+//!   are the exception to the next rule.
 //! - No other code page is added that `encoding_rs` lacks (437, 850, 1026, ISO-2022-KR, and so
 //!   on). `CODE_CPACP` and `CODE_CPOEM` (the system code page) are not supported; on macOS and
 //!   Linux the system code page is UTF-8 anyway.
