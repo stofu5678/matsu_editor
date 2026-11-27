@@ -31,7 +31,10 @@ fn slow_scan(cx: &mut TestAppContext) {
 
 /// Like `slow_scan`, with a pause of `step` after every window. The pause is real time (the scan
 /// is on its own thread), so a test that must look at the scan before it ends takes a pause that a
-/// busy machine cannot use up.
+/// busy machine cannot use up. The scan thread is not joined when its job is dropped and cannot
+/// be woken from its pause, so it may keep the file open for up to `step` after the test ends
+/// (longer if the test panics before the job is dropped): keep `step` small for a test that does
+/// not need a long one.
 pub(super) fn slow_scan_every(cx: &mut TestAppContext, step: Duration) {
     cx.update(|app| {
         app.set_global(FilePrefs {

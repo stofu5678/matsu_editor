@@ -253,6 +253,11 @@ mod fake_shell {
         let (pid, child) = 'attempts: {
             for _ in 0..4 {
                 for name in ["pid", "child"] {
+                    // what an earlier attempt recorded must be gone too, before the record is
+                    // removed
+                    if let Some(earlier) = recorded(name) {
+                        assert!(gone(&earlier), "{name} {earlier} of an earlier attempt");
+                    }
                     let _ = std::fs::remove_file(dir.path().join(name));
                 }
                 let started = Instant::now();
