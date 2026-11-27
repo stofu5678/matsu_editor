@@ -670,3 +670,33 @@ fn a_failing_spill_is_the_error_of_the_call() {
         .unwrap_err();
     assert_eq!(error.to_string(), "disk full");
 }
+
+#[test]
+fn the_raw_bytes_of_the_last_call_are_empty_when_it_gave_no_line() {
+    let bytes = format!("short\r\n{}\r\nnext", "x".repeat(300));
+    let mut r = reader(Counting::new(bytes.as_bytes()), Encoding::Utf8, false, 16);
+    let mut sink = Vec::new();
+    let first = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    assert!(matches!(first, Some(Limited::Line(_))));
+    assert_eq!(r.last_raw(), b"short\r\n");
+    let second = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    assert!(matches!(second, Some(Limited::TooLong { .. })));
+    assert_eq!(r.last_raw(), b"", "not the bytes of the line before");
+    let third = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    assert!(matches!(third, Some(Limited::Line(_))));
+    assert_eq!(r.last_raw(), b"next");
+    assert!(
+        r.next_line_spilling(100, &mut || false, &mut sink)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(r.last_raw(), b"", "nor after the end");
+    // nor after an error that is a stop
+    let mut r = reader(Counting::new(bytes.as_bytes()), Encoding::Utf8, false, 4);
+    let _ = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    let error = r
+        .next_line_spilling(100, &mut || true, &mut sink)
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert_eq!(r.last_raw(), b"");
+}

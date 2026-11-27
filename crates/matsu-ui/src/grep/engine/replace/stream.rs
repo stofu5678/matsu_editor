@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 
 use matsu_core::buffer::Codec;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{Limited, LineReader, StreamWrite};
+use matsu_core::file::{FileError, Limited, LineReader, StreamWrite};
 
 use super::{LineEnv, LineOutcome, LineRef, LineWork, ReplaceInfo, Staged, content_edit};
 use crate::grep::engine::{CANCEL_CHECK_LINES, Runner, Stopped, line_limit};
@@ -52,13 +52,24 @@ struct Output {
 /// when it is begun (when it is not, the copy of the start of the file will have them).
 struct Spill<'a> {
     to: Option<&'a mut StreamWrite>,
-    failed: bool,
+    /// The error of the write that failed, kept (a copy of it: the reader gets the error itself)
+    /// so that the caller can tell it from an error of the read or a stop.
+    error: Option<io::Error>,
+}
+
+impl Spill<'_> {
+    fn take_error(&mut self) -> Option<io::Error> {
+        self.error.take()
+    }
 }
 
 impl Write for Spill<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Some(to) = &mut self.to {
-            to.write_all(buf).inspect_err(|_| self.failed = true)?;
+        if let Some(to) = &mut self.to
+            && let Err(e) = to.write_all(buf)
+        {
+            self.error = Some(io::Error::new(e.kind(), e.to_string()));
+            return Err(e);
         }
         Ok(buf.len())
     }
@@ -117,13 +128,9 @@ impl Runner<'_> {
             }
             // Nothing is replaced: nothing was written.
             Ok(_) => Ok(()),
-            Err(abort) => {
-                self.discard_stream(output);
-                match abort {
-                    Abort::Stopped => Err(Stopped),
-                    Abort::Told => Ok(()),
-                }
-            }
+            // The new file and the copy of the old one go with `output`.
+            Err(Abort::Stopped) => Err(Stopped),
+            Err(Abort::Told) => Ok(()),
         }
     }
 
@@ -153,14 +160,14 @@ impl Runner<'_> {
             let before = reader.consumed();
             let mut spill = Spill {
                 to: output.writer.as_mut(),
-                failed: false,
+                error: None,
             };
             let next = reader.next_line_spilling(
                 limit,
                 &mut || cancel.load(Ordering::Relaxed),
                 &mut spill,
             );
-            let spill_failed = spill.failed;
+            let spill_error = spill.take_error();
             let line = match next {
                 Ok(Some(Limited::Line(line))) => line,
                 Ok(Some(Limited::TooLong { bytes, .. })) => {
@@ -175,16 +182,15 @@ impl Runner<'_> {
                     continue;
                 }
                 Ok(None) => break,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted && !spill_failed => {
+                Err(_) if spill_error.is_some() => {
+                    self.buffer.push_str(&format::file_write_error(path));
+                    return Err(Abort::Told);
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {
                     return Err(Abort::Stopped);
                 }
                 Err(_) => {
-                    let text = if spill_failed {
-                        format::file_write_error(path)
-                    } else {
-                        format::file_read_error(path)
-                    };
-                    self.buffer.push_str(&text);
+                    self.buffer.push_str(&format::file_read_error(path));
                     return Err(Abort::Told);
                 }
             };
@@ -243,7 +249,10 @@ impl Runner<'_> {
                     // for a document.
                     Err(e) if e.kind() == io::ErrorKind::InvalidData => {
                         refused = true;
+                        // The new file and the copy of the old one (as large as the file) are
+                        // not needed any more: they go now, not when the rest has been read.
                         output.writer = None;
+                        output.staged = None;
                     }
                     Err(_) => {
                         self.buffer.push_str(&format::file_write_error(path));
@@ -301,7 +310,8 @@ impl Runner<'_> {
     }
 
     /// Puts the new file in the place of the old one, and keeps the backup. Whether the file was
-    /// replaced; what went wrong is told in the result.
+    /// replaced; what went wrong is told in the result. A stop, also one that comes while the
+    /// new file is flushed, leaves the old file as it was.
     fn commit_stream(
         &mut self,
         path: &str,
@@ -311,30 +321,20 @@ impl Runner<'_> {
         let Some(writer) = output.writer.take() else {
             return Ok(false);
         };
-        if self.check_cancel().is_err() {
-            self.discard_stream(output);
-            return Err(Stopped);
-        }
-        match writer.commit() {
+        let cancel = self.cancel;
+        match writer.commit(&mut || cancel.load(Ordering::Relaxed)) {
             Ok(_) => {
                 if backup && let Some(staged) = output.staged.take() {
-                    self.keep_backup(&staged.staged, &staged.old);
+                    let (old, staged) = staged.release();
+                    self.keep_backup(&staged, &old);
                 }
                 Ok(true)
             }
+            Err(FileError::Cancelled) => Err(Stopped),
             Err(error) => {
-                self.discard_stream(output);
                 self.report_write_error(path, &error);
                 Ok(false)
             }
-        }
-    }
-
-    /// Drops the new file and the copy of the old one: the old file is as it was.
-    fn discard_stream(&mut self, mut output: Output) {
-        drop(output.writer.take());
-        if let Some(staged) = output.staged.take() {
-            let _ = std::fs::remove_file(&staged.staged);
         }
     }
 }
@@ -360,8 +360,9 @@ fn write_changed(
     scratch.clear();
     match content_edit(text, eol, new_whole) {
         Some((from, to, middle)) => {
+            // both ends from the start of the line, as the document finds the ends of an edit
             let head = raw_len_of(codec, raw, from);
-            let cut = head + raw_len_of(codec, &raw[head..], to - from);
+            let cut = raw_len_of(codec, raw, to);
             codec.encode(middle, scratch).map_err(|_| unmappable())?;
             out.write_all(&raw[..head])?;
             out.write_all(scratch)?;
@@ -374,15 +375,20 @@ fn write_changed(
     }
 }
 
-/// The bytes of `raw` that decode to the first `decoded` bytes of its text, character by
-/// character (the codec is stateless).
+/// The bytes of `raw` before the place `decoded` bytes into its text, found as the document does
+/// (`Document::raw_for_col`): character by character (the codec is stateless), at the start of
+/// the character that holds the place. A character of the file can decode to more than one
+/// character of the text (invalid bytes), and a place between them is rounded down, not up.
 fn raw_len_of(codec: &dyn Codec, raw: &[u8], decoded: usize) -> usize {
     let mut text = String::new();
     let (mut at, mut seen) = (0, 0);
-    while seen < decoded && at < raw.len() {
+    while at < raw.len() {
         let n = codec.char_len(raw, at).clamp(1, raw.len() - at);
         text.clear();
         codec.decode(&raw[at..at + n], &mut text);
+        if seen + text.len() > decoded {
+            break;
+        }
         seen += text.len();
         at += n;
     }

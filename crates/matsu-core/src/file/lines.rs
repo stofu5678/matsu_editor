@@ -113,8 +113,9 @@ impl LineReader {
     }
 
     /// The bytes of the source of the line that the last call gave as [`Limited::Line`], with its
-    /// ending, exactly as they are in the file. They are held until the next call. For a caller
-    /// that copies the lines it does not change.
+    /// ending, exactly as they are in the file. They are held until the next call. Empty when
+    /// the last call gave no line (the end, [`Limited::TooLong`] or an error). For a caller that
+    /// copies the lines it does not change.
     pub fn last_raw(&self) -> &[u8] {
         &self.buf[self.last.clone()]
     }
@@ -207,6 +208,8 @@ impl LineReader {
         stop: &mut dyn FnMut() -> bool,
         spill: &mut dyn Write,
     ) -> io::Result<Option<Limited>> {
+        // Nothing of an earlier line is kept for `last_raw`: the buffer is drained below.
+        self.last = 0..0;
         loop {
             let at_eof = self.pos >= self.source.len();
             if let Some((off, kind)) =

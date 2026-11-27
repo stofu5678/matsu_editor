@@ -489,14 +489,13 @@ impl Runner<'_> {
         });
         let Err(error) = saved else {
             if let Some(staged) = staged {
-                self.keep_backup(&staged.staged, &staged.old);
+                let (old, staged) = staged.release();
+                self.keep_backup(&staged, &old);
             }
             return Ok(true);
         };
-        if let Some(staged) = staged {
-            // The old file is as it was: the copy of it is not needed.
-            let _ = std::fs::remove_file(&staged.staged);
-        }
+        // The old file is as it was: the copy of it is not needed (`staged` removes it).
+        drop(staged);
         if matches!(error, FileError::Cancelled) {
             return Err(Stopped);
         }
@@ -516,7 +515,11 @@ impl Runner<'_> {
         }
         self.kept.insert(old.to_lowercase());
         self.kept.insert(staged.to_lowercase());
-        Some(Staged { old, staged })
+        Some(Staged {
+            old,
+            staged,
+            armed: true,
+        })
     }
 
     /// Tells in the result why the new content could not be written (not for a stop).
@@ -543,10 +546,32 @@ impl Runner<'_> {
 }
 
 /// The copy of the old file that is made before the file is replaced (`staged`), and the name of
-/// the backup it becomes (`old`).
+/// the backup it becomes (`old`). It is as large as the file, so it is removed when this is
+/// dropped, whatever way the replacement ends (a panic too), unless [`Staged::release`] hands it
+/// over to [`Runner::keep_backup`].
 struct Staged {
     old: String,
     staged: String,
+    armed: bool,
+}
+
+impl Staged {
+    /// Gives up the guard: the caller takes the names, and the copy stays where it is.
+    fn release(mut self) -> (String, String) {
+        self.armed = false;
+        (
+            std::mem::take(&mut self.old),
+            std::mem::take(&mut self.staged),
+        )
+    }
+}
+
+impl Drop for Staged {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.staged);
+        }
+    }
 }
 
 /// A name for the copy of a file that is about to be replaced, next to its backup. Nothing of

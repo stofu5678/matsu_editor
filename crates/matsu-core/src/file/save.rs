@@ -1121,12 +1121,15 @@ impl StreamWrite {
         self.out.written
     }
 
-    /// Puts the new file in the place of the target. Returns the bytes it has.
+    /// Puts the new file in the place of the target. Returns the bytes it has. `stop` is asked
+    /// after the flush to the disk, after the copy of the permissions and right before the
+    /// rename, as the save of a document does: when it says so the target is as it was
+    /// ([`FileError::Cancelled`]).
     ///
     /// # Errors
     ///
-    /// When a write, the flush or the rename fails; the target is as it was.
-    pub fn commit(mut self) -> Result<u64> {
+    /// When a write, the flush or the rename fails, or `stop` says so; the target is as it was.
+    pub fn commit(mut self, stop: &mut dyn FnMut() -> bool) -> Result<u64> {
         self.out.flush()?;
         let written = self.out.written;
         let file = self
@@ -1136,8 +1139,14 @@ impl StreamWrite {
             .map_err(io::IntoInnerError::into_error)?;
         super::sync_file(&file)?;
         drop(file);
+        if stop() {
+            return Err(FileError::Cancelled);
+        }
         if let Some(meta) = &self.existing {
             fs::set_permissions(&self.temp.path, meta.permissions())?;
+        }
+        if stop() {
+            return Err(FileError::Cancelled);
         }
         fs::rename(&self.temp.path, &self.real)?;
         self.temp.keep = true;

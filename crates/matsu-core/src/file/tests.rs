@@ -2343,7 +2343,7 @@ fn a_stream_write_replaces_the_target_only_when_it_is_committed() {
         b"old",
         "nothing changes before the commit"
     );
-    assert_eq!(out.commit().unwrap(), 11);
+    assert_eq!(out.commit(&mut || false).unwrap(), 11);
     assert_eq!(fs::read(&path).unwrap(), b"new content");
     assert_eq!(dir.names(), ["a.txt"], "the temporary file is gone");
 }
@@ -2388,4 +2388,27 @@ fn a_stream_write_is_refused_for_a_read_only_target_and_for_a_full_disk() {
     permissions.set_readonly(false);
     fs::set_permissions(&path, permissions).unwrap();
     assert_eq!(dir.names(), ["a.txt"]);
+}
+
+#[test]
+fn a_stop_that_comes_during_the_commit_of_a_stream_write_keeps_the_target() {
+    use std::io::Write;
+    // the stop is asked after the flush, after the permissions and before the rename: it comes at
+    // each of them in turn
+    for asked_at in 1..=2 {
+        let dir = TempDir::new();
+        let path = dir.write("a.txt", b"old");
+        let mut out = StreamWrite::create(&path, 10, None).unwrap();
+        out.write_all(b"new").unwrap();
+        let mut asked = 0;
+        let error = out
+            .commit(&mut || {
+                asked += 1;
+                asked == asked_at
+            })
+            .unwrap_err();
+        assert!(matches!(error, FileError::Cancelled), "{error:?}");
+        assert_eq!(fs::read(&path).unwrap(), b"old", "asked {asked_at}");
+        assert_eq!(dir.names(), ["a.txt"], "no temporary file");
+    }
 }

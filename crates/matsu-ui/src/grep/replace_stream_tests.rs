@@ -484,3 +484,33 @@ fn a_file_of_a_stateful_encoding_is_told_and_left_alone() {
     assert!(got.text.contains("file open error [<D>"), "{}", got.text);
     assert_eq!(got.names, ["data.txt"]);
 }
+
+#[test]
+fn an_edit_that_ends_between_the_characters_of_one_invalid_sequence_is_cut_as_the_document_cuts_it()
+{
+    // One step of the codec over these bytes can decode to two characters of the text (stand-ins
+    // for the invalid bytes): an edit that ends between them is rounded down, as the document
+    // does, in the new file too.
+    let sjis_bytes: Vec<&[u8]> = vec![
+        b"\xED\x40 abc\r\n",
+        b"\xED\x40\r\nab \xED\x40 c\r\n",
+        b"\x81\x20 abc\r\n\x81",
+        b"\xFD\xFE\xFF abc\r\n",
+    ];
+    for bytes in sjis_bytes {
+        for key in ["^.", "."] {
+            let job = Job::new(key, "X").regex().charset(Encoding::ShiftJis);
+            same_as_the_whole_read(bytes, &job);
+        }
+    }
+    // a lone surrogate in UTF-16, and one cut short at the end of the file
+    let mut utf16: Vec<u8> = vec![0xFF, 0xFE, 0x00, 0xD8, 0x41, 0x00, 0x20, 0x00];
+    utf16.extend(utf16le("abc\r\n", false));
+    utf16.extend([0x41, 0x00, 0x00, 0xDC, 0x42, 0x00]);
+    let short: Vec<u8> = vec![0x41, 0x00, 0x20, 0x00, 0x00, 0xD8];
+    for key in ["^.", "."] {
+        let job = Job::new(key, "X").regex().charset(Encoding::Utf16Le);
+        same_as_the_whole_read(&utf16, &job);
+        same_as_the_whole_read(&short, &job);
+    }
+}
