@@ -522,7 +522,9 @@ fn a_failure_stops_at_that_extension_and_the_state_tells_the_truth() {
     let error = apply(&mut r, "c h cpp", EXE, Change::Menu(true)).unwrap_err();
     assert_eq!(error.to_string(), "denied");
     assert!(check(&r, &ext("c")).menu);
-    assert!(!check(&r, &ext("h")).menu);
+    // `.h` failed at the last step (`.h` itself): its item was written, but it is not the default.
+    assert!(check(&r, &ext("h")).menu);
+    assert!(!check(&r, &ext("h")).default);
     assert!(!check(&r, &ext("cpp")).menu);
     assert!(!type_state(&r, "c h cpp", "matsu.exe").menu);
 }
