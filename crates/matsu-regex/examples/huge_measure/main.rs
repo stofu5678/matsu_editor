@@ -368,7 +368,11 @@ fn measure_steps(
 
     // The memory the process holds already (the allocator keeps what the earlier runs used): the
     // numbers below are to be read against it.
-    run.num("resident before opening", "MiB", sys::memory_mib().0.unwrap_or(f64::NAN));
+    run.num(
+        "resident before opening",
+        "MiB",
+        sys::memory_mib().0.unwrap_or(f64::NAN),
+    );
 
     // The first window: open the file (the first block of the scan is waited for) and read a screen.
     let t0 = Instant::now();
