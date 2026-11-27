@@ -99,20 +99,10 @@ pub(super) fn section_height(note: Option<&str>) -> f32 {
     BOXES_HEIGHT + lines as f32 * NOTE_LINE
 }
 
-/// The most height the whole panel may take: the window less a margin. The panel
-/// scrolls inside it, because the column of buttons beside the list sets a minimum height that
-/// shrinking the list cannot get under.
-pub(super) fn panel_cap(viewport_height: f32) -> f32 {
-    /// Room kept above and below the panel.
-    const MARGIN: f32 = 32.;
-    /// Never smaller than this, so that a tiny window still shows something to scroll.
-    const LEAST: f32 = 120.;
-    (viewport_height - MARGIN).max(LEAST)
-}
-
 /// The most height the rows of the list may take: the window less what the dialog needs around
 /// the rows (`FIXED`: title, line of text, padding and the margins of the window) and the
-/// association section. The section grows with its note, so a small window keeps the dialog's
+/// association section. (The panel as a whole scrolls inside the area it is drawn over, see
+/// `TypeList::render`; this keeps the list from being taller than that needs.) The section grows with its note, so a small window keeps the dialog's
 /// bottom in view (the list scrolls instead).
 pub(super) fn rows_budget(viewport_height: f32, section: f32) -> f32 {
     const FIXED: f32 = 170.;
@@ -393,15 +383,6 @@ mod tests {
         // The dialog stays inside the window: rows + the rest <= the window (above the floor).
         let rows = rows_budget(600., with_note);
         assert!(rows + 170. + with_note <= 600.);
-    }
-
-    #[test]
-    fn the_panel_is_capped_to_the_window() {
-        assert_eq!(panel_cap(600.), 568.);
-        // A short window: the panel is shorter than the 394 px its buttons need, so it scrolls.
-        assert_eq!(panel_cap(300.), 268.);
-        assert!(panel_cap(300.) < 394.);
-        assert_eq!(panel_cap(100.), 120.);
     }
 
     #[test]

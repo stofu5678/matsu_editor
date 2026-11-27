@@ -796,7 +796,7 @@ fn removing_keeps_the_progid_that_the_choice_of_the_user_names() {
     assert!(!r.key_exists(r"SystemFileAssociations\.mtest"));
     assert_eq!(r.value(".mtest", ""), None);
     assert_eq!(
-        r.value(r"MatsuEditor_mtest\shell\MatsuEditor\command", "")
+        r.value(r"MatsuEditor_mtest\shell\open\command", "")
             .as_deref(),
         Some(r#""C:\Program Files\MATSU Editor\matsu.exe" "%1""#)
     );
@@ -828,4 +828,35 @@ fn a_choice_of_matsu_is_shown_in_every_form_with_the_menu_item_removed() {
             "{choice}"
         );
     }
+}
+
+#[test]
+fn a_progid_kept_for_the_choice_of_the_user_has_no_menu_item_only_the_open_verb() {
+    let mut r = Fake::default();
+    apply(&mut r, "mtest", EXE, Change::Menu(true)).unwrap();
+    r.choices
+        .insert(".mtest".into(), "MatsuEditor_mtest".into());
+    apply(&mut r, "mtest", EXE, Change::Menu(false)).unwrap();
+    let command = r#""C:\Program Files\MATSU Editor\matsu.exe" "%1""#;
+    // The custom verb (with its label) is gone from the kept ProgID ...
+    assert!(!r.key_exists(r"MatsuEditor_mtest\shell\MatsuEditor"));
+    // ... and the double click goes on through the standard `open` verb, the default one.
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell\open\command", "")
+            .as_deref(),
+        Some(command)
+    );
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell", "").as_deref(),
+        Some("open")
+    );
+    // That is separate from the item under `SystemFileAssociations`, which is gone too.
+    assert!(!r.key_exists(r"SystemFileAssociations\.mtest"));
+    // Associating again works from that state, and removing it without the choice deletes it all.
+    apply(&mut r, "mtest", EXE, Change::Menu(true)).unwrap();
+    assert!(check(&r, &ext("mtest")).default);
+    r.choices.clear();
+    apply(&mut r, "mtest", EXE, Change::Menu(false)).unwrap();
+    assert!(!r.key_exists("MatsuEditor_mtest"));
+    assert!(!r.key_exists(".mtest"));
 }

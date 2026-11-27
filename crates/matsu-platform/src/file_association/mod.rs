@@ -363,12 +363,23 @@ pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
     }
     registry.delete_value(&dot, PROGID_BACKUP_NAME)?;
     // The protected choice of the user (`UserChoice`) may name our ProgID: it cannot be repaired
-    // from here, so the ProgID stays with its command and the choice keeps working. Only the
-    // right-click item and `.ext` go; the dialog then says that Windows' own setting decides.
+    // from here, so the ProgID stays with its command (as the plain `open` verb) and the choice
+    // keeps working. The right-click items and `.ext` go; the dialog then says that Windows' own
+    // setting decides.
     let chosen = registry
         .user_choice(ext)
         .is_some_and(|choice| same_name(&choice, &prog_id));
-    if !chosen {
+    if chosen {
+        // What the double click needs stays, without the custom menu item: Explorer reads the
+        // verbs from the chosen ProgID, so `shell\MatsuEditor` (with its label) would keep showing
+        // in the menu. The same command becomes the standard `open` verb, the default one.
+        if let Some(command) = registry.value(&format!("{}\\command", ext.action_key()), "") {
+            let shell = ext.shell_key();
+            registry.set_value(&format!("{shell}\\open\\command"), "", &command)?;
+            registry.set_value(&shell, "", "open")?;
+        }
+        registry.delete_tree(&ext.action_key())?;
+    } else {
         registry.delete_tree(&prog_id)?;
     }
     registry.delete_tree(&ext.system_action_key())?;

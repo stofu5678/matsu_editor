@@ -389,11 +389,11 @@ impl Render for TypeList {
             .on_key_down(cx.listener(Self::on_key_down))
             .min_w(px(480.))
             .max_w(px(760.))
-            // A short window: the whole panel scrolls, so that its bottom (the association
-            // section and its notes) can always be reached. The list keeps its own scrolling.
-            .max_h(px(super::list_assoc::panel_cap(f32::from(
-                window.viewport_size().height,
-            ))))
+            // A short window: the panel is at most as high as the area it is drawn over (the
+            // overlay, which has a margin above and below) and scrolls inside it, so that its
+            // bottom (the association section and its notes) can always be reached, and it does
+            // not go under the status bar. The list keeps its own scrolling.
+            .max_h(gpui::relative(1.))
             .overflow_y_scroll()
             .p_4()
             .flex()
@@ -428,6 +428,7 @@ impl Render for TypeList {
             .children(association);
         div()
             .id("type-list-overlay")
+            .py_4()
             .absolute()
             .top_0()
             .left_0()
