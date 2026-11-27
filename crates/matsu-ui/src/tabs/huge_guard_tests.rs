@@ -338,3 +338,271 @@ fn measure_the_long_line_paths() {
         other => panic!("no such step: {other}"),
     }
 }
+
+// ---- the IME and the line commands on a very long line (ADR-0020) ----
+
+/// "abc", a very long line (3 MiB) with a `(` at column 1 000 000 and its `)` at 2 000 000, an
+/// empty line, and two short lines.
+fn lines_around_a_long_one() -> String {
+    let mut long = long_text().into_bytes();
+    long[1_000_000] = b'(';
+    long[2_000_000] = b')';
+    format!(
+        "abc\n{}\n\nxyz\nlast\n",
+        String::from_utf8(long).expect("ASCII")
+    )
+}
+
+/// Runs `f`, and checks that no decode of it covered more than `limit` bytes.
+fn within(what: &str, limit: usize, f: impl FnOnce()) {
+    reset_largest_decode();
+    f();
+    let largest = largest_decode();
+    assert!(largest <= limit, "{what} decoded {largest} bytes at once");
+    reset_largest_decode();
+}
+
+fn go_and_clear(cx: &mut TestAppContext, view: &Entity<EditorView>, pos: Pos) {
+    view.update(cx, |v, cx| {
+        v.go_to(pos, cx);
+        v.cursor.clear_selection();
+    });
+}
+
+fn select_lines(cx: &mut TestAppContext, view: &Entity<EditorView>) {
+    view.update(cx, |v, cx| {
+        v.go_to(Pos::new(0, 0), cx);
+        v.run_with(cx, |c| c.select_range(Pos::new(0, 0), Pos::new(3, 1)))
+            .unwrap();
+    });
+}
+
+fn line_len_of(cx: &mut TestAppContext, view: &Entity<EditorView>, line: usize) -> usize {
+    view.read_with(cx, |v, a| {
+        v.document().read(a).doc().line_len(line).unwrap().unwrap()
+    })
+}
+
+#[gpui::test]
+fn the_ime_does_not_decode_a_very_long_line_when_composing_and_committing(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+
+    let (handle, view, dir) = open_file_of(cx, "huge-line-ime", &lines_around_a_long_one());
+    // insert mode, then overwrite mode (the chars after the composition are looked at)
+    for overwrite in [false, true] {
+        if overwrite {
+            view.update(cx, |v, cx| v.run_command("toggle_overwrite_mode", &[], cx));
+        }
+        let place = if overwrite { 1_700_000 } else { 1_500_000 };
+        go_and_clear(cx, &view, Pos::new(1, place));
+        let before = line_len_of(cx, &view, 1);
+        within("the IME", 64 * 1024, || {
+            handle
+                .update(cx, |_, window, cx| {
+                    view.update(cx, |v, cx| {
+                        let selected = v.selected_text_range(false, window, cx).unwrap();
+                        let at = selected.range.start;
+                        v.replace_and_mark_text_in_range(None, "に", None, window, cx);
+                        v.replace_and_mark_text_in_range(
+                            Some(at..at + 1),
+                            "にほ",
+                            None,
+                            window,
+                            cx,
+                        );
+                        let marked = v.marked_text_range(window, cx).unwrap();
+                        assert_eq!(marked, at..at + 2);
+                        let mut actual = None;
+                        let seen = v.text_for_range(0..usize::MAX, &mut actual, window, cx);
+                        assert!(seen.unwrap().len() <= 5000);
+                        v.replace_text_in_range(Some(marked), "日本", window, cx);
+                    })
+                })
+                .unwrap();
+        });
+        let after = line_len_of(cx, &view, 1);
+        // the text has 6 bytes; overwrite mode also replaces the 2 chars after it
+        let expected = if overwrite { before + 4 } else { before + 6 };
+        assert_eq!(after, expected, "overwrite {overwrite}");
+        let near = view.read_with(cx, |v, a| {
+            let doc = v.document().read(a).doc();
+            doc.line_slice(1, place - 2, place + 10)
+                .unwrap()
+                .unwrap()
+                .text
+        });
+        assert!(near.contains("日本"), "{near}");
+    }
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn line_commands_do_not_decode_a_very_long_line(cx: &mut TestAppContext) {
+    use matsu_commands::command::Arg;
+
+    let (handle, view, dir) = open_file_of(cx, "huge-line-commands", &lines_around_a_long_one());
+    let limit = 64 * 1024;
+    let caret = |cx: &mut TestAppContext| view.read_with(cx, |v, _| v.cursor.caret());
+    // the paragraph commands look at the start of the line only
+    go_and_clear(cx, &view, Pos::new(1, 1_500_000));
+    within("the next paragraph", limit, || {
+        run(cx, handle, "F_GONEXTPARAGRAPH")
+    });
+    assert_eq!(caret(cx).line, 3, "past the empty line, to the next text");
+    within("the previous paragraph", limit, || {
+        run(cx, handle, "F_GOPREVPARAGRAPH")
+    });
+    assert!(caret(cx).line < 3, "{:?}", caret(cx));
+    // the bracket at the caret and its pair, 1 000 000 bytes away
+    go_and_clear(cx, &view, Pos::new(1, 1_000_000));
+    within("the bracket pair", 2 * limit, || {
+        run(cx, handle, "F_BRACKETPAIR")
+    });
+    assert_eq!(caret(cx), Pos::new(1, 2_000_000));
+    // the row of the caret is trimmed and duplicated: a row, not the line
+    go_and_clear(cx, &view, Pos::new(1, 1_500_000));
+    let before = line_len_of(cx, &view, 1);
+    for function in ["F_LTRIM", "F_RTRIM"] {
+        within(function, limit, || run(cx, handle, function));
+    }
+    assert_eq!(line_len_of(cx, &view, 1), before, "nothing to trim");
+    within("the duplicate of a row", limit, || {
+        run(cx, handle, "F_DUPLICATELINE")
+    });
+    // a row of the long line is copied into the line (it has no line ending of its own)
+    let grown = line_len_of(cx, &view, 1) - before;
+    assert!(grown > 0 && grown <= 4096, "the line grew by {grown} bytes");
+    // the macro MoveCursor counts in units and does not decode the line
+    within("MoveCursor", limit, || {
+        view.update(cx, |v, cx| {
+            v.run_command(
+                "movecursor",
+                &[Arg::Int(2), Arg::Int(1_234_568), Arg::Int(0)],
+                cx,
+            )
+        });
+    });
+    let at = caret(cx);
+    assert_eq!(at.line, 1);
+    assert!(at.col.abs_diff(1_234_567) <= 4096, "{at:?}");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn indent_and_unindent_over_a_very_long_line_read_only_its_start(cx: &mut TestAppContext) {
+    let (handle, view, dir) = open_file_of(cx, "huge-line-indent", &lines_around_a_long_one());
+    let start = |cx: &mut TestAppContext| {
+        view.read_with(cx, |v, a| {
+            let doc = v.document().read(a).doc();
+            doc.line_slice(1, 0, 3).unwrap().unwrap().text
+        })
+    };
+    select_lines(cx, &view);
+    within("indent", 64 * 1024, || run(cx, handle, "F_INDENT_TAB"));
+    assert_eq!(start(cx), "\t01");
+    select_lines(cx, &view);
+    within("unindent", 64 * 1024, || run(cx, handle, "F_UNINDENT_TAB"));
+    assert_eq!(start(cx), "012");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn commands_that_need_the_whole_text_refuse_over_the_limit_and_change_nothing(
+    cx: &mut TestAppContext,
+) {
+    let (handle, view, dir) = open_file_of(cx, "huge-line-refuse", &lines_around_a_long_one());
+    let raw =
+        |cx: &mut TestAppContext| view.read_with(cx, |v, a| v.document().read(a).doc().raw_len());
+    let size = raw(cx);
+    // a limit of 1 MB: the line of 3 MiB is over it
+    with_copy_limit(1024 * 1024, || {
+        for (function, said) in [
+            ("F_SORT_ASC", "並べ替え"),
+            ("F_SORT_DESC", "並べ替え"),
+            ("F_MERGE", "マージ"),
+            ("F_LTRIM", "トリム"),
+            ("F_RTRIM", "トリム"),
+            ("F_TOUPPER", "変換"),
+            ("F_TABTOSPACE", "変換"),
+        ] {
+            select_lines(cx, &view);
+            within(function, 64 * 1024, || run(cx, handle, function));
+            let text = shown_box(cx, handle).unwrap_or_else(|| panic!("{function}: no message"));
+            assert!(
+                text.contains(said) && text.contains("上限は 1 MB"),
+                "{function}: {text}"
+            );
+            assert_eq!(raw(cx), size, "{function} changed the text");
+        }
+    });
+    // under the limit a sort of the same lines goes on (the text is decoded as a whole)
+    select_lines(cx, &view);
+    run(cx, handle, "F_SORT_ASC");
+    assert!(shown_box(cx, handle).is_none());
+    assert_eq!(raw(cx), size);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// Not a test: the time and the peak memory of a sort over a very long line, for the PR. Run it
+/// alone: `MATSU_LINE_MB=100 cargo test -p matsu-ui --lib measure_the_sort_of_a_long_line --
+/// --ignored --nocapture` (the peak is read from `/proc/self/status`, so on Linux only).
+#[gpui::test]
+#[ignore = "a measurement for the PR, not a test"]
+fn measure_the_sort_of_a_long_line(cx: &mut TestAppContext) {
+    let mb: usize = std::env::var("MATSU_LINE_MB")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let peak = || {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("VmHWM:"))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_default()
+    };
+    let text = format!(
+        "b\n{}\na\n",
+        "0123456789abcdef".repeat(mb * 1024 * 1024 / 16)
+    );
+    // like `open_file_of_with`, with more patience: the scan of a big line takes a while in a
+    // debug build
+    let dir = temp_dir("huge-line-measure");
+    let path = dir.join("one.txt");
+    std::fs::write(&path, &text).unwrap();
+    drop(text);
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            ..FilePrefs::default()
+        });
+    });
+    open_file(cx, handle, &path);
+    let mut view = active_view(cx, handle);
+    for _ in 0..60_000 {
+        view = active_view(cx, handle);
+        let scanned = view.read_with(cx, |v, a| {
+            let shared = v.document().read(a);
+            shared.doc().raw_len() > 0 && !shared.is_scanning()
+        });
+        if scanned {
+            break;
+        }
+        cx.executor().advance_clock(Duration::from_millis(150));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    eprintln!("after the open: {}", peak());
+    view.update(cx, |v, cx| {
+        v.go_to(Pos::new(0, 0), cx);
+        v.run_with(cx, |c| c.select_range(Pos::new(0, 0), Pos::new(3, 0)))
+            .unwrap();
+    });
+    let started = std::time::Instant::now();
+    run(cx, handle, "F_SORT_ASC");
+    eprintln!("sort of {mb} MiB: {:?}, {}", started.elapsed(), peak());
+    std::fs::remove_dir_all(dir).ok();
+}

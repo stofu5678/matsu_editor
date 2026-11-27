@@ -16,10 +16,8 @@ impl CommandContext<'_> {
     /// line ending (`CDocLine::IsEmptyLine`, `sakura_core/doc/logic/CDocLine.cpp`). `None` when
     /// there is no such line: the empty text after the last line ending is not a line.
     fn is_empty_line(&self, line: usize) -> Result<Option<bool>> {
-        Ok(self
-            .doc()
-            .line(line)?
-            .map(|l| l.text.chars().all(|c| c == ' ' || c == '\t')))
+        // a very long line is read in parts, as far as its first char that is not white space
+        Ok(self.doc().line_all_chars(line, |c| c == ' ' || c == '\t')?)
     }
 
     /// How many rows down from the row of `from` the row of `to` is (negative: up), stopping at

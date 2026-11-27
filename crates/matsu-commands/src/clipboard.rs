@@ -62,6 +62,18 @@ pub fn too_big_message(bytes: usize, cut: bool) -> String {
     )
 }
 
+/// What the editor says when a command that needs the text of a range, to sort it or to convert
+/// it, is refused because the range has `bytes` bytes or more (the limit is the one of a copy,
+/// ADR-0020; Sakura has no limit and no text for it, ADR-0018 type F). `what` is the name of the
+/// work, for example `並べ替え`.
+pub fn too_big_to_work_on_message(bytes: usize, what: &str) -> String {
+    format!(
+        "対象の範囲が大きすぎる（{} MB。上限は {} MB）ので、{what}できません。文字は変更していません。範囲を小さくしてやり直してください。",
+        mib(bytes),
+        mib(copy_limit()),
+    )
+}
+
 /// How the text on the clipboard was copied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ClipKind {

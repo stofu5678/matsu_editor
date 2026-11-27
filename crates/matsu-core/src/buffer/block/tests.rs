@@ -1048,6 +1048,40 @@ fn slices_of_a_very_long_line_tile_the_line_and_agree_with_the_dense_document() 
 }
 
 #[test]
+fn a_very_long_line_is_asked_about_its_chars_in_parts() {
+    use crate::buffer::{LINE_PART, largest_decode, reset_largest_decode};
+
+    let blank = |c: char| c == ' ' || c == '\t';
+    // 400 KB of white space, then the same with a char at its end, then one that starts with it
+    let spaces = " \t".repeat(200_000);
+    let text = format!("{spaces}\n{spaces}x\nx{spaces}\nshort \n");
+    for enc in [Encoding::Utf8, Encoding::ShiftJis, Encoding::Utf16Le] {
+        let (ranged, dense) = long_and_dense(&encode(enc, &text), enc, 4096, 100_000);
+        for line in 0..5 {
+            reset_largest_decode();
+            let got = ranged.line_all_chars(line, blank).unwrap();
+            let largest = largest_decode();
+            assert_eq!(
+                got,
+                dense.line_all_chars(line, blank).unwrap(),
+                "{enc:?} {line}"
+            );
+            // never more than one part at a time, and a line that is refused at its start is
+            // read only as far as its first part
+            assert!(largest <= 4 * LINE_PART, "{enc:?} {line}: {largest}");
+            if line == 2 {
+                assert_eq!(got, Some(false));
+                assert!(largest <= 4 * LINE_PART, "{largest}");
+            }
+        }
+        assert_eq!(ranged.line_all_chars(0, blank).unwrap(), Some(true));
+        assert_eq!(ranged.line_all_chars(1, blank).unwrap(), Some(false));
+        assert_eq!(ranged.line_all_chars(3, blank).unwrap(), Some(false));
+        assert_eq!(ranged.line_all_chars(9, blank).unwrap(), None);
+    }
+}
+
+#[test]
 fn an_odd_byte_at_the_end_of_a_utf16_long_line_counts_as_an_invalid_byte() {
     let mut bytes = encode(Encoding::Utf16Le, &"abc日本語".repeat(120));
     bytes.push(0x41);

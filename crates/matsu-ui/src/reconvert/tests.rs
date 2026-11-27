@@ -13,7 +13,9 @@ use crate::document::SharedDocument;
 /// `plan` over a text with lines split at `\n`.
 fn plan_of(text: &str, caret: Pos, selection: Option<(Pos, Pos)>) -> Option<Plan> {
     let lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
-    plan(caret, selection, lines.len(), &|y| lines.get(y).cloned())
+    plan(caret, selection, lines.len(), &|y, _, _| {
+        lines.get(y).cloned().map(LineWindow::whole)
+    })
 }
 
 fn text_of(plan: &Plan) -> String {
@@ -294,4 +296,103 @@ fn the_function_is_a_command_and_does_nothing_without_a_window_handle(cx: &mut T
         .code;
     let ok = view.update_in(cx, |v, window, cx| v.run_function(code, &[], window, cx));
     assert!(ok);
+}
+
+// -- a very long line is not decoded as a whole (ADR-0020) --
+
+/// A document read by ranges in which the lines from 1000 bytes are long: "short", a line of
+/// 60 000 bytes (`x`, with the Japanese word at column 30 000), "end".
+fn ranged_doc() -> (Document, String) {
+    use matsu_core::buffer::{EncodingCodec, MemorySource, ScanOptions, scan_blocks};
+    use matsu_core::encoding::Encoding;
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+
+    let long = format!("{}日本語{}", "x".repeat(30_000), "y".repeat(30_000));
+    let text = format!("short\n{long}\nend");
+    let index = scan_blocks(
+        Arc::new(MemorySource::new(text.clone().into_bytes())),
+        Arc::new(EncodingCodec(Encoding::Utf8)),
+        ScanOptions {
+            block_size: 256,
+            long_line: 1000,
+            ..ScanOptions::default()
+        },
+        |_| ControlFlow::Continue(()),
+    )
+    .unwrap();
+    (Document::from_block_index(index).unwrap(), text)
+}
+
+#[test]
+fn the_plan_of_a_very_long_line_reads_only_a_window_of_it() {
+    use matsu_core::buffer::{largest_decode, reset_largest_decode};
+
+    let (doc, _) = ranged_doc();
+    assert!(doc.is_long_line(1));
+    let window = |y: usize, from: usize, to: usize| window_of(&doc, y, from, to);
+    // (the caret, the selection, the column that the range of the request starts at)
+    let cases = [
+        // the caret right after the Japanese word
+        (Pos::new(1, 30_009), None, 30_009),
+        // the word selected
+        (
+            Pos::new(1, 30_009),
+            Some((Pos::new(1, 30_000), Pos::new(1, 30_009))),
+            30_000,
+        ),
+        // a selection of several lines, cut to the long line (the caret is in it)
+        (
+            Pos::new(1, 30_000),
+            Some((Pos::new(0, 2), Pos::new(2, 1))),
+            0,
+        ),
+    ];
+    for (caret, selection, start_col) in cases {
+        reset_largest_decode();
+        let p = plan(caret, selection, doc.line_count(), &window).unwrap();
+        let largest = largest_decode();
+        assert!(largest <= 4 * MARGIN + 2000, "{largest}");
+        let text = String::from_utf16(&p.request.text).unwrap();
+        assert!(text.len() <= 3 * (2 * 200 + 3) + 10, "{}", text.len());
+        assert_eq!(p.line, 1);
+        // the unit that the range starts at is where the line has the column: the window is not
+        // the line
+        let win = window_of(&doc, p.line, p.asked.0, p.asked.1).unwrap();
+        let col = win.base + byte_at(&win.text, p.index + p.request.start);
+        assert_eq!(col, start_col, "{caret:?} {selection:?}");
+        if start_col == 30_000 {
+            assert_eq!(p.request.len, 3);
+            let word: String = text.chars().skip(p.request.start).take(3).collect();
+            assert_eq!(word, "日本語");
+        }
+    }
+}
+
+#[gpui::test]
+fn the_range_the_ime_settled_on_is_found_in_a_very_long_line(cx: &mut TestAppContext) {
+    use matsu_core::buffer::{largest_decode, reset_largest_decode};
+
+    let (doc, _) = ranged_doc();
+    let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
+    let (view, cx) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(document, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    view.update(cx, |v, _| v.cursor.move_to(Pos::new(1, 30_009), false));
+    // the IME widens the empty range at the caret to the word (units 0..3 of the request)
+    let before = view.read_with(cx, |v, _| v.cursor.caret());
+    assert_eq!(before, Pos::new(1, 30_009));
+    let ime = fake(Some((197, 3)), None);
+    reset_largest_decode();
+    start(&view, cx, ime.clone());
+    assert!(largest_decode() <= 10_000, "{}", largest_decode());
+    view.read_with(cx, |v, _| {
+        assert_eq!(
+            v.cursor.selection(),
+            Some((Pos::new(1, 30_000), Pos::new(1, 30_009)))
+        );
+    });
+    assert_eq!(*ime.calls.borrow(), ["query", "set"]);
 }

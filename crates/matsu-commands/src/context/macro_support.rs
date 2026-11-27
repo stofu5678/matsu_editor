@@ -26,20 +26,6 @@ pub(crate) mod move_option {
 /// 31 UTF-16 units and the terminator. `wcsncpy_s(.., _TRUNCATE)` keeps as many as fit.
 const QUOTE_UNITS: usize = 31;
 
-/// The byte offset in `line` of the UTF-16 unit `units` (counted from 0). A unit in the middle of
-/// a surrogate pair goes to the start of the character; one past the end goes to the end.
-fn byte_offset_for_utf16(line: &str, units: usize) -> usize {
-    let mut seen = 0;
-    for (offset, ch) in line.char_indices() {
-        let width = ch.len_utf16();
-        if seen + width > units {
-            return offset;
-        }
-        seen += width;
-    }
-    line.len()
-}
-
 impl CommandContext<'_> {
     // ---- moving by line and column ----
 
@@ -56,8 +42,10 @@ impl CommandContext<'_> {
         let pos = if line >= self.doc().line_count() {
             self.doc().end_pos()?
         } else {
-            let text = self.doc().line(line)?.map(|l| l.text).unwrap_or_default();
-            Pos::new(line, byte_offset_for_utf16(&text, unit))
+            // A unit in the middle of a surrogate pair goes to the start of the character, one
+            // past the end to the end of the line. A very long line is not decoded: its bytes
+            // stand for the units, as in the status bar (ADR-0020, 9.10).
+            Pos::new(line, self.doc().col_from_utf16_col(line, unit))
         };
         let row_start = self.layout.row_start(self.doc(), pos)?;
         let x = self.layout.display_x(self.doc(), pos)?;

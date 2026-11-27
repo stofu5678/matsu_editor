@@ -14,7 +14,7 @@
 use std::rc::Rc;
 
 use gpui::{AsyncWindowContext, Context, WeakEntity, Window};
-use matsu_core::buffer::Pos;
+use matsu_core::buffer::{Document, Pos};
 use matsu_platform::reconvert::{self, Error, Reconvert, Request};
 
 use crate::view::EditorView;
@@ -26,21 +26,58 @@ mod tests;
 /// (`nReconvMaxLen`, "$$マジックナンバー注意").
 const REACH: usize = 200;
 
+/// The bytes on each side of a range that are read of a very long line: the text handed over
+/// reaches [`REACH`] units from the range, and a unit is at most 3 bytes.
+pub(crate) const MARGIN: usize = 3 * REACH + 16;
+
 /// What is handed to the IME and where it came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Plan {
     /// The line (logical, from 0) the text is from. Reconversion stays in one line.
     pub line: usize,
-    /// Where `request.text` starts in the line, in UTF-16 units (`nReconvIndex`).
+    /// Where `request.text` starts in the window of the line (see [`LineWindow`]), in UTF-16 units
+    /// (`nReconvIndex`). For a line that is not very long the window is the line.
     pub index: usize,
+    /// The columns (bytes) that the window was asked for, to read the same window again.
+    pub asked: (usize, usize),
     pub request: Request,
+}
+
+/// The part of a line that the plan works on: the line itself, or, for a very long line (ADR-0020,
+/// 9.10) that is not decoded as a whole, the part around the range.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LineWindow {
+    pub text: String,
+    /// The column (bytes) of the line where `text` starts.
+    pub base: usize,
+    /// `text` reaches the end of the line.
+    pub to_end: bool,
+}
+
+impl LineWindow {
+    /// A window that is the whole line.
+    pub(crate) fn whole(text: String) -> Self {
+        Self {
+            text,
+            base: 0,
+            to_end: true,
+        }
+    }
+
+    /// The UTF-16 units of the window before the column `col` of the line (all of them when it is
+    /// past the end or inside a char).
+    fn units_before(&self, col: usize) -> usize {
+        units_before(&self.text, col.saturating_sub(self.base))
+    }
 }
 
 /// `SetReconvertStruct` for a reconversion: the text around the caret and the range to convert.
 ///
 /// * `caret` and `selection` (start, end) are positions of the document (`col` is a byte offset
-///   in the line, as everywhere in the core). `line` gives the text of a line without its line
-///   ending, `None` past the last.
+///   in the line, as everywhere in the core). `window` gives the window of a line for a range of
+///   its columns `(line, from, to)`, `None` past the last line; it has to reach [`MARGIN`] bytes
+///   on each side of the range, or the end of the line. A line that is not very long can be given
+///   whole.
 /// * Nothing selected: the caret alone, the IME takes the word before it. A selection in one
 ///   line: that range. A selection of several lines is cut to one line, the one the caret is in
 ///   (the next when the caret is at the end of the first line of the selection, the previous
@@ -53,40 +90,53 @@ pub(crate) fn plan(
     caret: Pos,
     selection: Option<(Pos, Pos)>,
     line_count: usize,
-    line: &dyn Fn(usize) -> Option<String>,
+    window: &dyn Fn(usize, usize, usize) -> Option<LineWindow>,
 ) -> Option<Plan> {
-    let length = |y: usize| line(y).map_or(0, |text| text.encode_utf16().count());
-    let at = |pos: Pos| line(pos.line).map_or(0, |text| units_before(&text, pos.col));
-    let (y, mut from, mut to) = match selection {
+    // the range as columns (bytes) of a line: `usize::MAX` is the end of the line
+    let (y, from_col, to_col) = match selection {
         Some((start, end)) if start != end && start.line == end.line => {
-            (start.line, at(start), at(end))
+            (start.line, start.col, end.col)
         }
         Some((start, end)) if start != end => {
             // limited to one logical line: the line of the caret
-            let caret_x = at(caret);
+            // where the caret is in its line (a line that is not there is empty: both are true)
+            let (at_end, at_start) = match window(caret.line, caret.col, caret.col) {
+                Some(w) => {
+                    let before = w.units_before(caret.col);
+                    (
+                        w.to_end && before == units(&w.text),
+                        w.base == 0 && before == 0,
+                    )
+                }
+                None => (true, true),
+            };
             let mut target = caret.line;
-            if start.line == caret.line && length(caret.line) == caret_x {
+            if start.line == caret.line && at_end {
                 // the caret is at the end of the upper line: the next line
                 target = (caret.line + 1).min(line_count);
-            } else if end.line == caret.line && caret_x == 0 {
+            } else if end.line == caret.line && at_start {
                 // the caret is at the start of the lower line: the previous line
                 target = caret.line.checked_sub(1)?;
             }
             if target == start.line {
-                (target, at(start), length(target))
+                (target, start.col, usize::MAX)
             } else if target == end.line {
-                (target, 0, at(end))
+                (target, 0, end.col)
             } else {
-                (target, 0, length(target))
+                (target, 0, usize::MAX)
             }
         }
-        _ => (caret.line, at(caret), at(caret)),
+        _ => (caret.line, caret.col, caret.col),
     };
-    let units: Vec<u16> = line(y)?.encode_utf16().collect();
+    // a range of many units is cut to what is handed over anyway
+    let to_col = to_col.min(from_col.saturating_add(MARGIN));
+    let win = window(y, from_col, to_col)?;
+    let units: Vec<u16> = win.text.encode_utf16().collect();
     let len = units.len();
     if len == 0 {
         return None;
     }
+    let (mut from, mut to) = (win.units_before(from_col), win.units_before(to_col));
     // a caret past the end of the line (free cursor) hands over the end of the line
     if len < from {
         from = len;
@@ -112,12 +162,41 @@ pub(crate) fn plan(
     Some(Plan {
         line: y,
         index,
+        asked: (from_col, to_col),
         request: Request {
             text: units[index..index + reconv_len].to_vec(),
             start: from - index,
             len: selected,
         },
     })
+}
+
+/// The window of line `y` for the columns `from..to`: the line, or, for a very long line, the part
+/// from [`MARGIN`] bytes before `from` to [`MARGIN`] bytes after `to`, so that the line is not
+/// decoded as a whole. `None` if there is no such line.
+fn window_of(doc: &Document, y: usize, from: usize, to: usize) -> Option<LineWindow> {
+    if !doc.is_long_line(y) {
+        return doc
+            .line(y)
+            .ok()
+            .flatten()
+            .map(|l| LineWindow::whole(l.text));
+    }
+    let len = doc.line_len(y).ok().flatten()?;
+    let slice = doc
+        .line_slice(y, from.saturating_sub(MARGIN), to.saturating_add(MARGIN))
+        .ok()
+        .flatten()?;
+    Some(LineWindow {
+        to_end: slice.start_col + slice.text.len() >= len,
+        base: slice.start_col,
+        text: slice.text,
+    })
+}
+
+/// The number of UTF-16 units of `text`.
+fn units(text: &str) -> usize {
+    text.chars().map(char::len_utf16).sum()
 }
 
 /// The number of UTF-16 units of `text` before the byte offset `col` (all of them when it is
@@ -184,12 +263,12 @@ impl EditorView {
             return;
         }
         let doc = self.document.read(cx).doc();
-        let line = |y: usize| doc.line(y).ok().flatten().map(|l| l.text);
+        let windows = |y: usize, from: usize, to: usize| window_of(doc, y, from, to);
         let Some(plan) = plan(
             self.cursor.caret(),
             self.cursor.selection(),
             doc.line_count(),
-            &line,
+            &windows,
         ) else {
             return;
         };
@@ -233,10 +312,12 @@ fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext, ime: &dyn Ime
     if let Some((start, len)) = reconvert.range() {
         view.update(cx, |view, cx| {
             let doc = view.document().read(cx).doc();
-            let Some(text) = doc.line(plan.line).ok().flatten().map(|l| l.text) else {
+            // the same window as the plan was made from
+            let Some(win) = window_of(doc, plan.line, plan.asked.0, plan.asked.1) else {
                 return;
             };
-            let at = |unit: usize| Pos::new(plan.line, byte_at(&text, plan.index + unit));
+            let at =
+                |unit: usize| Pos::new(plan.line, win.base + byte_at(&win.text, plan.index + unit));
             view.select_reconverted(at(start + len), at(start), cx);
         })
         .ok();

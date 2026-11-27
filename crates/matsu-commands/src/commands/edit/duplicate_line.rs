@@ -28,7 +28,11 @@ impl Command for DuplicateLine {
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
         cx.clear_selection()?;
         let caret = cx.caret();
-        let Some(line) = cx.doc().line(caret.line)? else {
+        // the length and the ending only: a very long line is not decoded for them
+        let (Some(line_len), eol) = (
+            cx.doc().line_len(caret.line)?,
+            cx.doc().line_eol(caret.line)?,
+        ) else {
             cx.beep();
             return Ok(());
         };
@@ -38,8 +42,8 @@ impl Command for DuplicateLine {
         let end = cx.layout().row_end(cx.doc(), row)?;
         let mut copy = cx.doc().text_between(start, end)?;
         // only the last row of a line has the line ending (a wrapped line has more rows)
-        if end.col == line.text.len() {
-            copy.push_str(eol_text(line.eol.unwrap_or_else(|| cx.new_line())));
+        if end.col == line_len {
+            copy.push_str(eol_text(eol.unwrap_or_else(|| cx.new_line())));
         }
         let inserted = cx.replace(start, start, &copy)?;
         // the text after `start` moved to `inserted.end`

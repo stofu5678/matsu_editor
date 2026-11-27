@@ -37,7 +37,7 @@ pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};
 #[cfg(test)]
 pub(crate) use document::with_chunk_len;
 pub use document::{
-    CHUNK_LEN, Chunk, Chunks, Document, Edit, Line, LineSlice, Lines, largest_decode,
+    CHUNK_LEN, Chunk, Chunks, Document, Edit, LINE_PART, Line, LineSlice, Lines, largest_decode,
     reset_largest_decode,
 };
 pub use error::{BufferError, Result};
