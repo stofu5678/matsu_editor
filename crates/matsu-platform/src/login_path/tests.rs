@@ -249,6 +249,24 @@ mod fake_shell {
                 .ok()
                 .filter(|text| !text.is_empty())
         };
+        // On every way out, panics included, whatever the shell recorded is waited for (bounded)
+        // and killed if it is still there, so that nothing the test started outlives it. Declared
+        // after `dir`, so it runs before the folder goes.
+        struct Ends(PathBuf);
+        impl Drop for Ends {
+            fn drop(&mut self) {
+                for name in ["pid", "child"] {
+                    let Ok(text) = std::fs::read_to_string(self.0.join(name)) else {
+                        continue;
+                    };
+                    let pid = text.trim();
+                    if !pid.is_empty() && !gone(pid) {
+                        let _ = std::process::Command::new("kill").arg(pid).status();
+                    }
+                }
+            }
+        }
+        let _ends = Ends(dir.path().to_owned());
         let mut limit = Duration::from_millis(700);
         let (pid, child) = 'attempts: {
             for _ in 0..4 {
