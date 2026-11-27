@@ -20,6 +20,8 @@ pub struct DocumentModel {
     bookmarks: Bookmarks,
     diff_marks: DiffMarks,
     funclist_marks: Bookmarks,
+    /// Counts every change of the text (see [`text_version`](Self::text_version)).
+    text_version: u64,
 }
 
 impl DocumentModel {
@@ -41,6 +43,7 @@ impl DocumentModel {
             bookmarks: Bookmarks::new(),
             diff_marks: DiffMarks::new(),
             funclist_marks: Bookmarks::new(),
+            text_version: 0,
         }
     }
 
@@ -55,6 +58,7 @@ impl DocumentModel {
             bookmarks: Bookmarks::new(),
             diff_marks: DiffMarks::new(),
             funclist_marks: Bookmarks::new(),
+            text_version: 0,
         }
     }
 
@@ -68,6 +72,8 @@ impl DocumentModel {
     /// stay as they are.
     pub fn replace_scanned_document(&mut self, doc: Document) {
         self.doc = doc;
+        // No bump: the text that was shown is the same (it shows more of the file, and nothing
+        // was edited meanwhile), so places in it stay places.
     }
 
     /// Puts `doc` in place of the document after a save of a file read by ranges: `doc` has the
@@ -75,6 +81,8 @@ impl DocumentModel {
     /// document in its steps (and so the old file open); nothing else changes.
     pub fn replace_saved_document(&mut self, doc: Document) {
         self.doc = doc;
+        // No bump: `doc` has the text of the document, only read from the file that was written,
+        // so places in the text stay places.
     }
 
     /// Puts `doc` in place of the document and drops the undo history, after a save that wrote
@@ -82,10 +90,20 @@ impl DocumentModel {
     /// "保存の世代"). The bookmarks and marks stay: `doc` has the same lines.
     pub fn reload_saved_document(&mut self, doc: Document) {
         self.doc = doc;
+        // Bumped: the text that was written is not the text that the document had (another
+        // encoding or line endings), so places in the old text mean nothing.
+        self.text_version += 1;
         self.history = History::new();
         self.bookmarks.truncate(self.doc.line_count());
         self.diff_marks.truncate(self.doc.line_count());
         self.funclist_marks.truncate(self.doc.line_count());
+    }
+
+    /// A number that changes whenever the text of the document does (an edit, an undo or redo, a
+    /// replaced document). Whoever remembers places in the text compares it with the number it
+    /// saw, instead of relying on being told of every change.
+    pub fn text_version(&self) -> u64 {
+        self.text_version
     }
 
     pub fn doc(&self) -> &Document {
@@ -210,6 +228,7 @@ impl DocumentModel {
         // The setting at the time of the edit decides what the new text breaks into.
         let inserted = TextBreaks::of(text, self.doc.ext_eol());
         let edit = self.doc.replace(from, to, text)?;
+        self.text_version += 1;
         self.history.note_edit();
         let (a, b) = (from.min(to), from.max(to));
         self.history.note_change(TextChange {
@@ -275,6 +294,7 @@ impl DocumentModel {
     /// is nothing to undo.
     pub fn undo_changes(&mut self, cursor: &mut Cursor) -> Option<Vec<TextChange>> {
         let Undone { lines, changes } = self.history.undo_lines(&mut self.doc, cursor)?;
+        self.text_version += 1;
         let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
         Some(changes)
@@ -288,6 +308,7 @@ impl DocumentModel {
     /// [`redo`](Self::redo) that gives the edits, like [`undo_changes`](Self::undo_changes).
     pub fn redo_changes(&mut self, cursor: &mut Cursor) -> Option<Vec<TextChange>> {
         let Undone { lines, changes } = self.history.redo_lines(&mut self.doc, cursor)?;
+        self.text_version += 1;
         let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
         Some(changes)
