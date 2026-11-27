@@ -39,7 +39,7 @@ impl EditorView {
             }
         };
         let top_row = if metrics.line_height > 0.0 {
-            (self.scroll_y / metrics.line_height).floor().max(0.0) as i64
+            i64::try_from(self.vscroll.row()).unwrap_or(i64::MAX)
         } else {
             0
         };

@@ -28,8 +28,8 @@ use matsu_commands::context::DragSelection;
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 use matsu_core::buffer::Pos;
 
-use super::{Drag, EditorView};
-use crate::geometry::{Scrollbar, clamp_scroll_y, row_at};
+use super::{Drag, EditorView, ThumbStart};
+use crate::geometry::{Scrollbar, clamp_scroll, row_at};
 use crate::hit::position_at;
 
 /// `F_SELECTWORD`, the default of the double click.
@@ -120,7 +120,7 @@ impl EditorView {
             &self.layout,
             self.document.read(cx).doc(),
             &self.metrics,
-            self.scroll_y,
+            self.vscroll,
             x,
             y,
         )
@@ -137,7 +137,7 @@ impl EditorView {
             &self.layout,
             self.document.read(cx).doc(),
             &self.metrics,
-            self.scroll_y,
+            self.vscroll,
             x,
             y,
         )
@@ -156,7 +156,7 @@ impl EditorView {
         let paint = self.paint?;
         let x = (f32::from(p.x) - paint.origin_x + self.scroll_x).max(0.0);
         let y = f32::from(p.y) - paint.origin_y;
-        let row = row_at(&self.metrics, self.scroll_y, y, self.layout.row_count());
+        let row = row_at(&self.metrics, self.vscroll, y, self.layout.row_count());
         let start = self
             .layout
             .row_to_pos(self.document.read(cx).doc(), row, matsu_layout::X::ZERO)
@@ -701,24 +701,24 @@ impl EditorView {
             Drag::HThumb { start_x, start_col } => {
                 self.h_scroll_drag(f32::from(event.position.x), start_x, start_col, cx);
             }
-            Drag::Thumb {
-                start_y,
-                start_scroll,
-            } => {
+            Drag::Thumb { start_y, start } => {
                 let dy = f32::from(event.position.y) - start_y;
-                if self.scan_thumb_drag {
-                    // The scan ended while the thumb was held: the drag was in the pixels of
-                    // that bar, which the bar of the document does not use.
-                    match self.scan_scrollbar(&self.metrics, cx) {
-                        Some(bar) => self.drag_scan_thumb(&bar, start_scroll + dy, cx),
-                        None => self.set_drag(Drag::None),
+                let start = match start {
+                    ThumbStart::Top(top) => top,
+                    ThumbStart::ScanBar(thumb_top) => {
+                        // The scan ended while the thumb was held: the drag was in the pixels
+                        // of that bar, which the bar of the document does not use.
+                        match self.scan_scrollbar(&self.metrics, cx) {
+                            Some(bar) => self.drag_scan_thumb(&bar, thumb_top + dy, cx),
+                            None => self.set_drag(Drag::None),
+                        }
+                        return;
                     }
-                    return;
-                }
+                };
                 let rows = self.layout.row_count();
-                let bar = Scrollbar::new(&self.metrics, rows, self.scroll_y);
+                let bar = Scrollbar::new(&self.metrics, rows, self.vscroll);
                 self.scroll_past_end = false;
-                self.scroll_y = bar.scroll_for_drag(&self.metrics, rows, start_scroll, dy);
+                self.vscroll = bar.scroll_for_drag(&self.metrics, rows, start, dy);
                 cx.notify();
             }
         }
@@ -845,7 +845,11 @@ impl EditorView {
     pub fn scroll_by(&mut self, dx: f32, dy: f32) {
         let rows = self.layout.row_count();
         self.scroll_past_end = false;
-        self.scroll_y = clamp_scroll_y(&self.metrics, rows, self.scroll_y - dy);
+        self.vscroll = clamp_scroll(
+            &self.metrics,
+            rows,
+            self.vscroll.shifted_px(-dy, self.metrics.line_height),
+        );
         // `ScrollAtH`: the text can scroll right until the right edge of the scroll range is at
         // the edge of the view (a position past it stays where it is).
         let max_x = self.h_max_left_col() * self.metrics.cell_width;

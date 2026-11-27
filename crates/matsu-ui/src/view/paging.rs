@@ -17,7 +17,8 @@ use matsu_commands::context::BoxLock;
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 
 use super::EditorView;
-use crate::geometry::clamp_scroll_y;
+use crate::geometry::clamp_scroll;
+use crate::scroll_pos::VScroll;
 
 /// Rows (or columns) that one notch of the wheel scrolls: Windows' `WheelScrollLines`, which
 /// Sakura reads from the registry (`OnMOUSEWHEEL2`: `nRollLineNum = 3` when there is none).
@@ -44,16 +45,16 @@ const CARET_MARGIN_RATE: usize = 20;
 impl EditorView {
     /// The row at the top of the view (Sakura's `GetViewTopLine`).
     pub fn top_row(&self) -> usize {
-        (self.scroll_y / self.metrics.line_height).round().max(0.0) as usize
+        self.vscroll.nearest_row(self.metrics.line_height)
     }
 
     /// Sakura's `ScrollAtV`: the top row becomes `row`, kept between the first row and the end of
     /// the scroll range. Returns how many rows the view scrolled (positive: down).
     pub fn scroll_top_to(&mut self, row: isize, cx: &mut Context<Self>) -> isize {
         let before = self.top_row() as isize;
-        let wanted = row.max(0) as f32 * self.metrics.line_height;
+        let wanted = VScroll::at_row(row.max(0) as usize);
         self.scroll_past_end = false;
-        self.scroll_y = clamp_scroll_y(&self.metrics, self.layout.row_count(), wanted);
+        self.vscroll = clamp_scroll(&self.metrics, self.layout.row_count(), wanted);
         cx.notify();
         self.top_row() as isize - before
     }
@@ -62,7 +63,7 @@ impl EditorView {
     /// no limit below, so the scroll range does not stop it. Any other scrolling brings the top
     /// back into the range.
     pub fn move_view_top_line(&mut self, row: isize, cx: &mut Context<Self>) {
-        self.scroll_y = row.max(0) as f32 * self.metrics.line_height;
+        self.vscroll = VScroll::at_row(row.max(0) as usize);
         self.scroll_past_end = true;
         cx.notify();
     }

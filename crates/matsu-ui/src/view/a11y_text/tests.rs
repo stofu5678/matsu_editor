@@ -205,7 +205,7 @@ fn only_the_rows_on_the_screen_are_runs_and_they_follow_the_scroll(cx: &mut Test
         v.a11y_text.borrow().as_ref().unwrap().line_height
     });
     f.view.update(cx, |v, cx| {
-        v.scroll_y = 1000.0 * line_height;
+        v.vscroll = crate::scroll_pos::VScroll::from_px(1000.0 * line_height, line_height);
         cx.notify();
     });
     let scrolled = text_of(&f.view, cx);

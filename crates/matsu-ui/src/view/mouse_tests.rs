@@ -1086,7 +1086,7 @@ fn a_drag_of_text_near_the_bottom_scrolls_the_view(cx: &mut TestAppContext) {
             .advance_clock(std::time::Duration::from_millis(100));
         cx.run_until_parked();
     }
-    let scrolled = f.view.read_with(cx, |v, _| v.scroll_y);
+    let scrolled = f.view.read_with(cx, |v, _| v.scroll_y());
     assert!(scrolled > 0.0, "the view scrolled down");
     // above the view it scrolls back
     let above = point(last.x, px(0.0));
@@ -1096,7 +1096,7 @@ fn a_drag_of_text_near_the_bottom_scrolls_the_view(cx: &mut TestAppContext) {
             .advance_clock(std::time::Duration::from_millis(100));
         cx.run_until_parked();
     }
-    let back = f.view.read_with(cx, |v, _| v.scroll_y);
+    let back = f.view.read_with(cx, |v, _| v.scroll_y());
     assert!(back < scrolled, "{back} < {scrolled}");
     up(cx, above, Modifiers::default());
 }
@@ -1137,14 +1137,14 @@ fn a_drag_of_text_resting_at_the_edge_goes_on_scrolling(cx: &mut TestAppContext)
     let last = point_of(&f, cx, visible - 1, 2);
     drag_to(cx, last, Modifiers::default());
     drag_to(cx, last, Modifiers::default());
-    let first = f.view.read_with(cx, |v, _| v.scroll_y);
+    let first = f.view.read_with(cx, |v, _| v.scroll_y());
     // the pointer does not move: the task scrolls by itself
     for _ in 0..10 {
         cx.executor()
             .advance_clock(std::time::Duration::from_millis(100));
         cx.run_until_parked();
     }
-    let later = f.view.read_with(cx, |v, _| v.scroll_y);
+    let later = f.view.read_with(cx, |v, _| v.scroll_y());
     assert!(
         later >= first + 3.0 * f.view.read_with(cx, |v, _| v.metrics.line_height),
         "{first} -> {later}"
@@ -1155,11 +1155,11 @@ fn a_drag_of_text_resting_at_the_edge_goes_on_scrolling(cx: &mut TestAppContext)
     });
     // the release ends the task: no more scrolling
     up(cx, last, Modifiers::default());
-    let at_release = f.view.read_with(cx, |v, _| v.scroll_y);
+    let at_release = f.view.read_with(cx, |v, _| v.scroll_y());
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(500));
     cx.run_until_parked();
-    assert_eq!(f.view.read_with(cx, |v, _| v.scroll_y), at_release);
+    assert_eq!(f.view.read_with(cx, |v, _| v.scroll_y()), at_release);
     f.view
         .read_with(cx, |v, _| assert!(v.drag_scroll_task.is_none()));
 }
@@ -1376,7 +1376,7 @@ fn the_ime_and_the_screen_reader_follow_the_caret_in_the_gap_of_a_wrapped_row(
         // the caret is drawn at the end of the first row, which the position `(0, 10)` is not
         assert_eq!(v.caret_row(app).row, 0);
         let at = v.point_of(Pos::new(0, 10), app).unwrap();
-        assert_eq!(f32::from(at.y), paint.origin_y - v.scroll_y);
+        assert_eq!(f32::from(at.y), paint.origin_y - v.scroll_y());
         let end = v.x_scale().px(matsu_layout::X::from_raw(10 * 64));
         assert_eq!(f32::from(at.x), paint.origin_x + end - v.scroll_x);
         // what the screen reader is told: the focus is on the first row
@@ -1393,7 +1393,7 @@ fn the_ime_and_the_screen_reader_follow_the_caret_in_the_gap_of_a_wrapped_row(
         .expect("bounds");
     f.view.read_with(cx, |v, _| {
         let paint = v.paint.expect("the window was painted");
-        assert_eq!(f32::from(bounds.origin.y), paint.origin_y - v.scroll_y);
+        assert_eq!(f32::from(bounds.origin.y), paint.origin_y - v.scroll_y());
     });
     // without the mark the caret is at the start of the second row, and so is the window
     down_at(&f, cx, 1, 0, 1, Modifiers::default());
@@ -1404,7 +1404,7 @@ fn the_ime_and_the_screen_reader_follow_the_caret_in_the_gap_of_a_wrapped_row(
         assert_eq!(v.cursor.caret(), Pos::new(0, 10));
         assert_eq!(v.cursor.free_col(), None);
         let at = v.point_of(Pos::new(0, 10), app).unwrap();
-        assert_eq!(f32::from(at.y), paint.origin_y + line_height - v.scroll_y);
+        assert_eq!(f32::from(at.y), paint.origin_y + line_height - v.scroll_y());
         assert_eq!(f32::from(at.x), paint.origin_x - v.scroll_x);
         let snapshot = v.a11y_text.borrow();
         assert_eq!(snapshot.as_ref().unwrap().focus.row, 1);

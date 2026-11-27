@@ -473,7 +473,7 @@ fn a_mouse_drop_while_the_plugin_works_is_not_in_its_undo_step(cx: &mut TestAppC
             let m = v.metrics;
             point(
                 px(paint.origin_x + (col as f32 + 0.1) * m.cell_width),
-                px(paint.origin_y + 0.5 * m.line_height - v.scroll_y),
+                px(paint.origin_y + 0.5 * m.line_height - v.scroll_y()),
             )
         })
     };

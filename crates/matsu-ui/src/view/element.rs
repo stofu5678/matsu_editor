@@ -776,8 +776,8 @@ impl Element for EditorElement {
         // mark, the caret of the end of a line).
         let one = widths.to_x(1);
 
-        let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
-        let y_offset = -(editor.scroll_y - line_height * first_row as f32);
+        let first_row = editor.vscroll.row();
+        let y_offset = -editor.vscroll.offset();
         let top_margin = settings.top_margin() as f32;
         // The horizontal scroll bar takes the bottom of the view (`CreateScrollBar`).
         let hbar_height = if super::hscroll::shown(cx) {
@@ -1439,7 +1439,7 @@ impl Element for EditorElement {
 
         let editor = self.editor.read(cx);
         let scroll_x = editor.scroll_x;
-        let scroll_y = editor.scroll_y;
+        let vscroll = editor.vscroll;
         let dragging = matches!(editor.drag, super::Drag::Thumb { .. });
         // The split boxes: the pane has them when it is in a window that can split
         // (`SplitBoxOnOff`); the horizontal one is on the horizontal bar.
@@ -1465,7 +1465,7 @@ impl Element for EditorElement {
         // While a huge file is scanned the bar covers the whole file, by bytes.
         let bar = editor
             .scan_scrollbar(&metrics, cx)
-            .unwrap_or_else(|| Scrollbar::new(&metrics, p.total_rows, scroll_y));
+            .unwrap_or_else(|| Scrollbar::new(&metrics, p.total_rows, vscroll));
 
         let lh = px(p.line_height);
         let body_top = bounds.top() + px(p.top_margin);
@@ -1489,7 +1489,7 @@ impl Element for EditorElement {
             ruler_px: p.ruler_px,
             right_bar: SCROLLBAR_WIDTH,
             bottom_bar: p.hbar_height,
-            scroll: (scroll_x, scroll_y),
+            scroll: (scroll_x, vscroll.px_f64(p.line_height)),
             scale: window.scale_factor(),
         };
         let paint_back = |window: &mut Window, clip: Bounds<Pixels>| {

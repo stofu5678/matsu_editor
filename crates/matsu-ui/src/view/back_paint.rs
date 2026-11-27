@@ -128,7 +128,7 @@ pub(crate) struct Frame {
     /// The horizontal scroll bar at the bottom (0 when there is none).
     pub bottom_bar: f32,
     /// How far the text is scrolled, in pixels.
-    pub scroll: (f32, f32),
+    pub scroll: (f32, f64),
     /// Device pixels in a GPUI pixel.
     pub scale: f32,
 }
@@ -180,7 +180,10 @@ pub(crate) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Ve
         offset: (i64::from(back.spec.offset.0), i64::from(back.spec.offset.1)),
         repeat: back.spec.repeat,
         scroll: back.spec.scroll,
-        scrolled: (dev(frame.scroll.0), dev(frame.scroll.1)),
+        scrolled: (
+            dev(frame.scroll.0),
+            (frame.scroll.1 * f64::from(frame.scale)).round() as i64,
+        ),
     });
     (tiles, clip)
 }

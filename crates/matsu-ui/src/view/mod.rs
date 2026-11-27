@@ -62,10 +62,11 @@ use matsu_core::cursor::Cursor;
 use matsu_layout::{DocumentLayout, LayoutConfig, RowPos};
 
 use crate::document::{DocumentEvent, SharedDocument};
-use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_show_row};
+use crate::geometry::{Metrics, clamp_scroll, scroll_to_show_row, scroll_x_to_show};
 use crate::keys::chord_of;
 use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
 use crate::macros::MacroState;
+use crate::scroll_pos::VScroll;
 use crate::search::{ISearch, SearchPanel, SearchState};
 use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
@@ -168,7 +169,7 @@ pub(crate) enum Drag {
     /// Dragging the scroll bar thumb.
     Thumb {
         start_y: f32,
-        start_scroll: f32,
+        start: ThumbStart,
     },
     /// Dragging the thumb of the horizontal scroll bar: where the pointer and the view were.
     HThumb {
@@ -216,7 +217,9 @@ pub struct EditorView {
     pub(crate) keymap: KeyMap,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) scroll_x: f32,
-    pub(crate) scroll_y: f32,
+    /// The vertical position: the top row and the pixels of it above the view. Kept as a row and
+    /// not as absolute pixels, which an `f32` cannot hold exactly for 10^7 rows (`crate::scroll_pos`).
+    pub(crate) vscroll: VScroll,
     /// The top row may be past the end of the scroll range (Sakura's `MoveViewTopLine`, see
     /// `paging.rs`); any other scrolling clears this.
     pub(crate) scroll_past_end: bool,
@@ -280,8 +283,6 @@ pub struct EditorView {
     jumps_stash: Option<matsu_core::jump_history::JumpHistory>,
     /// The top of the view in a new document whose layout is made (`view/scan_window.rs`).
     frame_top: Option<scan_window::FrameTop>,
-    /// The thumb that is dragged is the bar of a scan (`view/scan_window.rs`).
-    scan_thumb_drag: bool,
     /// The top of the view for which no window could be cut (a line too long).
     scan_shift_gave_up: Option<u64>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
@@ -345,6 +346,16 @@ pub struct EditorView {
     _subscription: Subscription,
 }
 
+/// What the thumb of the vertical scroll bar was dragged from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ThumbStart {
+    /// The top of the view, when the bar is the one of the rows.
+    Top(VScroll),
+    /// Where the thumb was on the bar of a scan, in pixels from the top of its track
+    /// (`view/scan_window.rs`).
+    ScanBar(f32),
+}
+
 /// Where the top of the view is, by line, as [`EditorView::top_anchor`] finds it.
 struct TopAnchor {
     row: usize,
@@ -384,7 +395,7 @@ impl EditorView {
             keymap: KeyMap::default(),
             focus_handle: cx.focus_handle(),
             scroll_x: 0.0,
-            scroll_y: 0.0,
+            vscroll: VScroll::TOP,
             scroll_past_end: false,
             wheel_remainder: [0.0; 2],
             held_buttons: HeldButtons::default(),
@@ -413,7 +424,6 @@ impl EditorView {
             scan_shift_queued: false,
             jumps_stash: None,
             frame_top: None,
-            scan_thumb_drag: false,
             scan_shift_gave_up: None,
             prefs: ViewPrefs::new(Default::default()),
             back_bitmap: None,
@@ -459,8 +469,15 @@ impl EditorView {
         &self.layout
     }
 
+    /// The vertical position in pixels, for the tests (a small document).
+    #[cfg(test)]
     pub fn scroll_y(&self) -> f32 {
-        self.scroll_y
+        self.vscroll.px(self.metrics.line_height)
+    }
+
+    /// The vertical position.
+    pub fn vscroll(&self) -> VScroll {
+        self.vscroll
     }
 
     pub fn metrics(&self) -> &Metrics {
@@ -885,10 +902,10 @@ impl EditorView {
     /// off. `None` when the view is past the end of the text, or holds the top of a scan window.
     fn top_anchor(&self) -> Option<TopAnchor> {
         let lh = self.metrics.line_height;
-        if self.scroll_past_end || self.frame_top.is_some() || self.scroll_y < 0.0 || lh <= 0.0 {
+        if self.scroll_past_end || self.frame_top.is_some() || lh <= 0.0 {
             return None;
         }
-        let row = (self.scroll_y / lh).floor() as usize;
+        let row = self.vscroll.row();
         if row >= self.layout.row_count() {
             return None;
         }
@@ -897,7 +914,7 @@ impl EditorView {
             row,
             line: at.line,
             row_in_line: at.row_in_line,
-            cut_off: self.scroll_y - row as f32 * lh,
+            cut_off: self.vscroll.offset(),
         })
     }
 
@@ -905,18 +922,16 @@ impl EditorView {
         let in_line = self.layout.rows_in_line(anchor.line).unwrap_or(1).max(1);
         let row = self.layout.first_row_of_line(anchor.line) + anchor.row_in_line.min(in_line - 1);
         if row != anchor.row {
-            self.scroll_y = row as f32 * self.metrics.line_height + anchor.cut_off;
+            self.vscroll = VScroll::new(row, anchor.cut_off, self.metrics.line_height);
         }
     }
 
     // ---- scrolling ----
 
     pub(crate) fn clamp_scroll(&mut self) {
-        self.scroll_y = if self.scroll_past_end {
-            self.scroll_y.max(0.0)
-        } else {
-            clamp_scroll_y(&self.metrics, self.layout.row_count(), self.scroll_y)
-        };
+        if !self.scroll_past_end {
+            self.vscroll = clamp_scroll(&self.metrics, self.layout.row_count(), self.vscroll);
+        }
         self.scroll_x = self.scroll_x.max(0.0);
     }
 
@@ -973,9 +988,9 @@ impl EditorView {
     pub fn ensure_caret_visible(&mut self, cx: &App) {
         let at = self.caret_row(cx);
         let m = self.metrics;
-        let before = self.scroll_y;
-        self.scroll_y = scroll_y_to_show_row(&m, self.scroll_y, at.row);
-        if self.scroll_y != before {
+        let before = self.vscroll;
+        self.vscroll = scroll_to_show_row(&m, self.vscroll, at.row);
+        if self.vscroll != before {
             self.scroll_past_end = false;
         }
         let x = self.x_scale().px(self.caret_x(cx));
@@ -1441,6 +1456,8 @@ impl Render for EditorView {
 mod colors_tests;
 #[cfg(test)]
 mod hscroll_tests;
+#[cfg(test)]
+mod huge_scroll_tests;
 #[cfg(test)]
 mod mouse_tests;
 #[cfg(test)]

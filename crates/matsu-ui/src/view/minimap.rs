@@ -76,9 +76,7 @@ impl EditorView {
     /// The rows the view shows now (`GetViewTopLine()` to `GetBottomLine()`), the part of the text
     /// the minimap marks.
     pub(crate) fn minimap_page(&self) -> Range<usize> {
-        let first = (self.scroll_y / self.metrics.line_height.max(1.0))
-            .floor()
-            .max(0.0) as usize;
+        let first = self.vscroll.row();
         first..first + self.metrics.visible_rows()
     }
 

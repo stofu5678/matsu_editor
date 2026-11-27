@@ -413,7 +413,7 @@ fn double_click_on_row(w: &Win, cx: &mut TestAppContext, row: usize) {
         let m = v.metrics;
         point(
             px(paint.origin_x + 1.1 * m.cell_width),
-            px(paint.origin_y + (row as f32 + 0.5) * m.line_height - v.scroll_y),
+            px(paint.origin_y + (row as f32 + 0.5) * m.line_height - v.scroll_y()),
         )
     });
     for count in 1..=2 {

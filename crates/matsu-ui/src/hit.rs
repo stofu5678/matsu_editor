@@ -10,6 +10,7 @@ use matsu_layout::{DocumentLayout, RowInfo, RowPos, X};
 
 use crate::geometry::{Metrics, XScale, row_at};
 use crate::layout_adapter::RowRead;
+use crate::scroll_pos::VScroll;
 
 /// The position that a click at `x` pixels right of the text origin (scroll already added) and
 /// `y` pixels below the top of the text area puts the caret at.
@@ -21,11 +22,11 @@ pub fn position_at(
     layout: &DocumentLayout,
     doc: &Document,
     m: &Metrics,
-    scroll_y: f32,
+    scroll: VScroll,
     x: f32,
     y: f32,
 ) -> Result<Pos> {
-    let row = row_at(m, scroll_y, y, layout.row_count());
+    let row = row_at(m, scroll, y, layout.row_count());
     position_in_row(layout, doc, m, row, x)
 }
 
@@ -37,11 +38,11 @@ pub fn free_x_at(
     layout: &DocumentLayout,
     doc: &Document,
     m: &Metrics,
-    scroll_y: f32,
+    scroll: VScroll,
     x: f32,
     y: f32,
 ) -> Result<Option<X>> {
-    let row = row_at(m, scroll_y, y, layout.row_count());
+    let row = row_at(m, scroll, y, layout.row_count());
     let scale = XScale::new(m.cell_width, layout.config().width.per_column());
     let at = scale.column_start(x);
     let target = layout.row_to_pos(doc, row, at)?;
@@ -337,7 +338,7 @@ mod tests {
     fn a_click_picks_the_nearer_edge() {
         for per in PER_COLUMN {
             let (d, l, m) = setup("abc\ndef", config(per));
-            let at = |x, y| position_at(&l, &d, &m, 0.0, x, y).unwrap();
+            let at = |x, y| position_at(&l, &d, &m, VScroll::TOP, x, y).unwrap();
             assert_eq!(at(0.0, 5.0), Pos::new(0, 0), "{per}");
             assert_eq!(at(4.9, 5.0), Pos::new(0, 0), "{per}");
             assert_eq!(at(5.0, 5.0), Pos::new(0, 1), "{per}");
@@ -400,7 +401,7 @@ mod tests {
         for per in PER_COLUMN {
             let (d, l, m) = setup("ab\n", config(per));
             assert_eq!(
-                position_at(&l, &d, &m, 0.0, 30.0, 30.0).unwrap(),
+                position_at(&l, &d, &m, VScroll::TOP, 30.0, 30.0).unwrap(),
                 Pos::new(1, 0)
             );
         }
@@ -410,7 +411,7 @@ mod tests {
     fn a_click_right_of_the_text_is_the_edge_of_its_column_for_the_free_cursor() {
         for per in PER_COLUMN {
             let (d, l, m) = setup("ab\ncd", config(per));
-            let at = |x, y| free_x_at(&l, &d, &m, 0.0, x, y).unwrap();
+            let at = |x, y| free_x_at(&l, &d, &m, VScroll::TOP, x, y).unwrap();
             // on the text and at its end (the end is not right of it)
             assert_eq!(at(5.0, 5.0), None, "{per}");
             assert_eq!(at(25.0, 5.0), None, "{per}");

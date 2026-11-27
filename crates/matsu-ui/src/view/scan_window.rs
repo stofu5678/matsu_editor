@@ -23,6 +23,7 @@ use matsu_core::buffer::{Pos, WINDOW_BYTES};
 
 use super::EditorView;
 use crate::geometry::{Metrics, Scrollbar};
+use crate::scroll_pos::VScroll;
 
 /// How close to an edge of the window the view may come before the window moves: a quarter of it.
 const EDGE: u64 = (WINDOW_BYTES / 4) as u64;
@@ -49,12 +50,7 @@ pub(super) struct FrameTop {
     pos: Pos,
     row_offset: f32,
     /// The scroll that was set: a different one is the user's.
-    set: f32,
-}
-
-/// The first row of the view.
-fn first_row(scroll_y: f32, m: &Metrics) -> usize {
-    (scroll_y / m.line_height).floor().max(0.0) as usize
+    set: VScroll,
 }
 
 impl EditorView {
@@ -89,8 +85,7 @@ impl EditorView {
                 .unwrap_or_else(|_| Pos::new(0, 0))
         };
         let inside = |byte: u64| byte >= new_start && byte <= new_end;
-        let m = &self.metrics;
-        let row = first_row(self.scroll_y, m);
+        let row = self.vscroll.row();
         // The start of the row (not of its line): a wrapped line stays on the row it was.
         let line = self.layout.locate_row(row).line;
         let row_start = self
@@ -120,7 +115,7 @@ impl EditorView {
             box_cols,
             top,
             // The offset into the row only means something while the view is on the same line.
-            row_offset: self.scroll_y - row as f32 * m.line_height,
+            row_offset: self.vscroll.offset(),
             caret_lost: kept.is_none(),
         })
     }
@@ -172,13 +167,13 @@ impl EditorView {
             .pos_to_row(doc, moved.top)
             .map_or(0, |at| at.row);
         self.scroll_past_end = false;
-        self.scroll_y = row as f32 * self.metrics.line_height + moved.row_offset;
+        self.vscroll = VScroll::new(row, moved.row_offset, self.metrics.line_height);
         // The layout of the new document is made a part at a time, and the rows of a wrapped
         // line are not known before: the top of the view is put again as it goes on.
         self.frame_top = (!self.layout.is_complete()).then_some(FrameTop {
             pos: moved.top,
             row_offset: moved.row_offset,
-            set: self.scroll_y,
+            set: self.vscroll,
         });
         self.prefs.reveal_caret = false;
     }
@@ -187,7 +182,7 @@ impl EditorView {
     /// the view on the line it was moved to; the user's own scroll ends it.
     /// The scroll was clamped to the new document by the view itself: it is not the user's.
     pub(super) fn rebase_frame_top(&mut self) {
-        let scroll = self.scroll_y;
+        let scroll = self.vscroll;
         if let Some(top) = self.frame_top.as_mut() {
             top.set = scroll;
         }
@@ -197,15 +192,15 @@ impl EditorView {
         let Some(top) = self.frame_top.take() else {
             return;
         };
-        if (self.scroll_y - top.set).abs() > 0.5 {
+        if self.vscroll != top.set {
             return;
         }
         let doc = self.document.read(cx).doc();
         let row = self.layout.pos_to_row(doc, top.pos).map_or(0, |at| at.row);
-        self.scroll_y = row as f32 * self.metrics.line_height + top.row_offset;
+        self.vscroll = VScroll::new(row, top.row_offset, self.metrics.line_height);
         if !self.layout.is_complete() {
             self.frame_top = Some(FrameTop {
-                set: self.scroll_y,
+                set: self.vscroll,
                 ..top
             });
         }
@@ -254,7 +249,7 @@ impl EditorView {
 
     /// The bytes of the file at the top row and at the bottom row of the view.
     pub(crate) fn visible_bytes(&self, m: &Metrics, cx: &App) -> (u64, u64) {
-        let top = first_row(self.scroll_y, m);
+        let top = self.vscroll.row();
         let rows = self.layout.row_count().max(1);
         let bottom = (top + m.visible_rows()).min(rows - 1);
         (self.row_byte(top, cx), self.row_byte(bottom, cx))
@@ -302,7 +297,7 @@ impl EditorView {
             .unwrap_or_else(|_| Pos::new(0, 0));
         let row = self.layout.pos_to_row(doc, pos).map_or(0, |at| at.row);
         self.scroll_past_end = false;
-        self.scroll_y = row as f32 * self.metrics.line_height;
+        self.vscroll = VScroll::at_row(row);
         self.clamp_scroll();
         // The user scrolled: the view does not go back to the caret while the layout is made.
         self.prefs.reveal_caret = false;
@@ -311,7 +306,7 @@ impl EditorView {
         self.frame_top = (!self.layout.is_complete()).then_some(FrameTop {
             pos,
             row_offset: 0.0,
-            set: self.scroll_y,
+            set: self.vscroll,
         });
     }
 

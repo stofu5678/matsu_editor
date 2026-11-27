@@ -201,7 +201,7 @@ impl EditorView {
         };
         Some(point(
             px(paint.origin_x + self.x_scale().px(at.x) - self.scroll_x),
-            px(paint.origin_y + at.row as f32 * self.metrics.line_height - self.scroll_y),
+            px(paint.origin_y + self.vscroll.y_of_row(at.row, self.metrics.line_height)),
         ))
     }
 }

@@ -3,6 +3,8 @@
 
 use matsu_layout::X;
 
+use crate::scroll_pos::VScroll;
+
 /// The width of the vertical scroll bar.
 pub const SCROLLBAR_WIDTH: f32 = 14.0;
 
@@ -154,29 +156,36 @@ pub fn row_height(font_height: f32, line_space: i32) -> f32 {
     (font_height + line_space as f32).max(1.0)
 }
 
-/// The largest vertical scroll offset: the last row ends at the bottom of the view, plus one blank
-/// row (the PoC's rule, so that the last row is never hidden under the edge of the window).
+/// The lowest top of the view: the last row ends at the bottom of the view, plus one blank row (the
+/// PoC's rule, so that the last row is never hidden under the edge of the window).
+pub fn max_scroll(m: &Metrics, total_rows: usize) -> VScroll {
+    VScroll::at_row(total_rows.saturating_sub(m.visible_rows() - 1))
+}
+
+/// [`max_scroll`] in pixels, for the tests of small documents.
+#[cfg(test)]
 pub fn max_scroll_y(m: &Metrics, total_rows: usize) -> f32 {
-    let visible = m.visible_rows() as f32;
-    (m.line_height * total_rows as f32 - m.line_height * (visible - 1.0)).max(0.0)
+    max_scroll(m, total_rows).px(m.line_height)
 }
 
-pub fn clamp_scroll_y(m: &Metrics, total_rows: usize, scroll_y: f32) -> f32 {
-    scroll_y.clamp(0.0, max_scroll_y(m, total_rows))
+/// `scroll` kept between the first row and [`max_scroll`].
+pub fn clamp_scroll(m: &Metrics, total_rows: usize, scroll: VScroll) -> VScroll {
+    let max = max_scroll(m, total_rows);
+    if scroll > max { max } else { scroll }
 }
 
-/// The scroll offset that shows `row` completely, changing `scroll_y` as little as possible.
-pub fn scroll_y_to_show_row(m: &Metrics, scroll_y: f32, row: usize) -> f32 {
-    let top = m.line_height * row as f32;
-    let bottom = top + m.line_height;
-    let visible_height = m.line_height * m.visible_rows() as f32;
-    if top < scroll_y {
-        top
-    } else if bottom > scroll_y + visible_height {
-        bottom - visible_height
-    } else {
-        scroll_y
+/// The top of the view that shows `row` completely, changing `scroll` as little as possible.
+pub fn scroll_to_show_row(m: &Metrics, scroll: VScroll, row: usize) -> VScroll {
+    if row < scroll.row() || (row == scroll.row() && scroll.offset() > 0.0) {
+        // the row starts above the view
+        return VScroll::at_row(row);
     }
+    // The row ends below the view: its end is more than `offset` below the last full row.
+    let visible = m.visible_rows();
+    if row.saturating_add(1) > scroll.row().saturating_add(visible) {
+        return VScroll::at_row((row + 1).saturating_sub(visible));
+    }
+    scroll
 }
 
 /// The horizontal scroll offset that shows the pixels `from..to` (relative to the text origin),
@@ -194,8 +203,8 @@ pub fn scroll_x_to_show(m: &Metrics, scroll_x: f32, from: f32, to: f32) -> f32 {
 }
 
 /// The row at `y` pixels below the top of the text area, clamped to the existing rows.
-pub fn row_at(m: &Metrics, scroll_y: f32, y: f32, total_rows: usize) -> usize {
-    let row = ((y + scroll_y) / m.line_height).floor().max(0.0) as usize;
+pub fn row_at(m: &Metrics, scroll: VScroll, y: f32, total_rows: usize) -> usize {
+    let row = scroll.row_at(y, m.line_height).unwrap_or(0);
     row.min(total_rows.saturating_sub(1))
 }
 
@@ -270,21 +279,24 @@ impl Scrollbar {
         )
     }
 
-    pub fn new(m: &Metrics, total_rows: usize, scroll_y: f32) -> Self {
+    pub fn new(m: &Metrics, total_rows: usize, scroll: VScroll) -> Self {
         let track = Self::track_for(m);
-        let max = max_scroll_y(m, total_rows);
-        let thumb_height = (track * (m.view_height / (max + m.view_height)))
-            .max(24.0)
-            .min(track);
+        // In rows and as `f64`: pixels of a document of 10^8 rows do not fit an `f32`.
+        let max_rows = max_scroll(m, total_rows).row() as f64;
+        let max = max_rows * f64::from(m.line_height);
+        let thumb_height = (f64::from(track)
+            * (f64::from(m.view_height) / (max + f64::from(m.view_height))))
+            as f32;
+        let thumb_height = thumb_height.max(24.0).min(track);
         // The top may be past the range (`EditorView::move_view_top_line`).
-        let ratio = if max > 0.0 {
-            (scroll_y / max).min(1.0)
+        let ratio = if max_rows > 0.0 {
+            (scroll.rows(m.line_height) / max_rows).min(1.0)
         } else {
             0.0
         };
         Self {
             track_height: track,
-            thumb_top: (track - thumb_height) * ratio,
+            thumb_top: (f64::from(track - thumb_height) * ratio) as f32,
             thumb_height,
         }
     }
@@ -313,23 +325,21 @@ impl Scrollbar {
         }
     }
 
-    /// The scroll offset for a thumb dragged by `dy` pixels from where it was at `start_scroll`.
+    /// The top of the view for a thumb dragged by `dy` pixels from where it was at `start`.
     pub fn scroll_for_drag(
         &self,
         m: &Metrics,
         total_rows: usize,
-        start_scroll: f32,
+        start: VScroll,
         dy: f32,
-    ) -> f32 {
+    ) -> VScroll {
         let travel = self.track_height - self.thumb_height;
         if travel <= 0.0 {
-            return start_scroll;
+            return start;
         }
-        clamp_scroll_y(
-            m,
-            total_rows,
-            start_scroll + max_scroll_y(m, total_rows) * (dy / travel),
-        )
+        let max_rows = max_scroll(m, total_rows).row() as f64;
+        let rows = start.rows(m.line_height) + max_rows * (f64::from(dy) / f64::from(travel));
+        clamp_scroll(m, total_rows, VScroll::from_rows(rows, m.line_height))
     }
 }
 
@@ -456,32 +466,45 @@ mod tests {
         assert_eq!(column_at(&spaced, 39.9).0, 3);
         assert_eq!(column_at(&spaced, 40.0).0, 4);
         // rows are 24 pixels high
-        assert_eq!(row_at(&spaced, 0.0, 23.9, 10), 0);
-        assert_eq!(row_at(&spaced, 0.0, 24.0, 10), 1);
+        assert_eq!(row_at(&spaced, VScroll::TOP, 23.9, 10), 0);
+        assert_eq!(row_at(&spaced, VScroll::TOP, 24.0, 10), 1);
         let tight = Metrics {
             line_height: row_height(20.0, -4),
             ..m()
         };
-        assert_eq!(row_at(&tight, 0.0, 15.9, 10), 0);
-        assert_eq!(row_at(&tight, 0.0, 16.0, 10), 1);
+        assert_eq!(row_at(&tight, VScroll::TOP, 15.9, 10), 0);
+        assert_eq!(row_at(&tight, VScroll::TOP, 16.0, 10), 1);
     }
 
     #[test]
     fn the_scroll_stops_one_row_after_the_last() {
         assert_eq!(max_scroll_y(&m(), 100), 20.0 * 96.0);
         assert_eq!(max_scroll_y(&m(), 3), 0.0);
-        assert_eq!(clamp_scroll_y(&m(), 100, 1e9), 20.0 * 96.0);
-        assert_eq!(clamp_scroll_y(&m(), 100, -5.0), 0.0);
+        assert_eq!(
+            clamp_scroll(&m(), 100, VScroll::from_px(1e9, 20.0)),
+            max_scroll(&m(), 100)
+        );
+        assert_eq!(
+            clamp_scroll(&m(), 100, VScroll::from_px(-5.0, 20.0)),
+            VScroll::TOP
+        );
     }
 
     #[test]
     fn showing_a_row_moves_the_scroll_as_little_as_possible() {
         let m = m();
-        assert_eq!(scroll_y_to_show_row(&m, 0.0, 2), 0.0);
-        assert_eq!(scroll_y_to_show_row(&m, 0.0, 5), 20.0); // bottom edge to 120
-        assert_eq!(scroll_y_to_show_row(&m, 200.0, 3), 60.0); // above: row on top
-        assert_eq!(scroll_y_to_show_row(&m, 200.0, 12), 200.0); // rows 10..=14 are in view
-        assert_eq!(scroll_y_to_show_row(&m, 200.0, 15), 220.0);
+        let show = |from: f32, row: usize| {
+            scroll_to_show_row(&m, VScroll::from_px(from, 20.0), row).px(20.0)
+        };
+        assert_eq!(show(0.0, 2), 0.0);
+        assert_eq!(show(0.0, 5), 20.0); // bottom edge to 120
+        assert_eq!(show(200.0, 3), 60.0); // above: row on top
+        assert_eq!(show(200.0, 12), 200.0); // rows 10..=14 are in view
+        assert_eq!(show(200.0, 15), 220.0);
+        // a row cut off at the top is brought to the top, one cut off at the bottom is not in view
+        assert_eq!(show(205.0, 10), 200.0);
+        assert_eq!(show(205.0, 14), 205.0); // its end is 5 pixels above the edge
+        assert_eq!(show(205.0, 15), 220.0);
     }
 
     #[test]
@@ -498,11 +521,11 @@ mod tests {
     #[test]
     fn hit_testing_maps_pixels_to_rows_and_columns() {
         let m = m();
-        assert_eq!(row_at(&m, 0.0, 0.0, 10), 0);
-        assert_eq!(row_at(&m, 0.0, 39.9, 10), 1);
-        assert_eq!(row_at(&m, 30.0, 10.0, 10), 2);
-        assert_eq!(row_at(&m, 0.0, -50.0, 10), 0);
-        assert_eq!(row_at(&m, 0.0, 9999.0, 10), 9);
+        assert_eq!(row_at(&m, VScroll::TOP, 0.0, 10), 0);
+        assert_eq!(row_at(&m, VScroll::TOP, 39.9, 10), 1);
+        assert_eq!(row_at(&m, VScroll::from_px(30.0, 20.0), 10.0, 10), 2);
+        assert_eq!(row_at(&m, VScroll::TOP, -50.0, 10), 0);
+        assert_eq!(row_at(&m, VScroll::TOP, 9999.0, 10), 9);
         assert_eq!(column_at(&m, 25.0), (2, 0.5));
         assert_eq!(column_at(&m, -3.0), (0, 0.0));
     }
@@ -526,18 +549,79 @@ mod tests {
     #[test]
     fn the_thumb_follows_the_scroll() {
         let m = m();
-        let top = Scrollbar::new(&m, 100, 0.0);
+        let top = Scrollbar::new(&m, 100, VScroll::TOP);
         assert_eq!(top.thumb_top, 0.0);
-        let max = max_scroll_y(&m, 100);
+        let max = max_scroll(&m, 100);
         let bottom = Scrollbar::new(&m, 100, max);
         assert!((bottom.thumb_top + bottom.thumb_height - bottom.track_height).abs() < 1e-3);
         assert_eq!(top.thumb_height, 24.0f32.max(top.thumb_height));
         // dragging the thumb all the way down scrolls to the end
-        assert!((top.scroll_for_drag(&m, 100, 0.0, 1e6) - max).abs() < 1e-3);
+        assert_eq!(top.scroll_for_drag(&m, 100, VScroll::TOP, 1e6), max);
         // a document that fits has a thumb as long as the track
-        let fit = Scrollbar::new(&m, 3, 0.0);
+        let fit = Scrollbar::new(&m, 3, VScroll::TOP);
         assert_eq!(fit.thumb_height, fit.track_height);
-        assert_eq!(fit.scroll_for_drag(&m, 3, 0.0, 50.0), 0.0);
+        assert_eq!(fit.scroll_for_drag(&m, 3, VScroll::TOP, 50.0), VScroll::TOP);
+    }
+
+    /// 2x10^8 rows and more: the rows of the position stay exact where the pixels (6x10^9, a step of
+    /// 512 as an `f32`) would not.
+    #[test]
+    fn the_vertical_position_is_exact_for_very_many_rows() {
+        let m = Metrics {
+            line_height: 31.0,
+            view_height: 31.0 * 20.0 + 5.0, // 20 rows and a part
+            ..m()
+        };
+        for total in [200_000_001usize, 1_000_000_001, 5_000_000_000] {
+            let visible = m.visible_rows();
+            assert_eq!(visible, 20);
+            let last = total - 1;
+            // Ctrl+End: the row of the end is the last of the rows in view
+            let end = scroll_to_show_row(&m, VScroll::TOP, last);
+            assert_eq!(end.row(), total - visible, "{total}");
+            assert_eq!(end.y_of_row(last, 31.0), 31.0 * 19.0);
+            assert!(clamp_scroll(&m, total, end) == end);
+            // one row up and one row down are exactly one row
+            assert_eq!(end.shifted_rows(-1).row(), total - visible - 1);
+            assert_eq!(end.shifted_rows(-1).shifted_rows(1), end);
+            assert_eq!(end.shifted_px(-31.0, 31.0).row(), total - visible - 1);
+            assert_eq!(end.shifted_px(-31.0, 31.0).shifted_px(31.0, 31.0), end);
+            // a page (a track click) is the rows of the view less one
+            let before = VScroll::at_row(total / 3);
+            assert_eq!(
+                before.shifted_rows(visible as isize - 1).row(),
+                total / 3 + 19
+            );
+            // the last position stops one row after the end of the text can be shown
+            let max = max_scroll(&m, total);
+            assert_eq!(max.row(), total - (visible - 1));
+            assert_eq!(clamp_scroll(&m, total, VScroll::at_row(total + 100)), max);
+            // the row under a point is relative to the top: the row of the end, and none below
+            assert_eq!(row_at(&m, end, 31.0 * 19.0 + 1.0, total), last);
+            assert_eq!(row_at(&m, end, 31.0 * 25.0, total), last);
+            assert_eq!(row_at(&m, end, 0.0, total), total - visible);
+            // the thumb at the start, at the end, and at the middle
+            let bar = |at: VScroll| Scrollbar::new(&m, total, at);
+            let travel = bar(VScroll::TOP).track_height - bar(VScroll::TOP).thumb_height;
+            assert_eq!(bar(VScroll::TOP).thumb_top, 0.0);
+            assert!((bar(max).thumb_top - travel).abs() < 0.01, "{total}");
+            let middle = VScroll::at_row(max.row() / 2);
+            assert!(
+                (bar(middle).thumb_top - travel / 2.0).abs() < 0.01,
+                "{total}"
+            );
+            // dragging the thumb to the middle of its track shows the rows around the middle
+            let dragged = bar(VScroll::TOP).scroll_for_drag(&m, total, VScroll::TOP, travel / 2.0);
+            assert!(dragged.row().abs_diff(max.row() / 2) <= 1, "{total}");
+            // and to the end of it, the last position
+            assert_eq!(
+                bar(VScroll::TOP).scroll_for_drag(&m, total, VScroll::TOP, travel * 2.0),
+                max
+            );
+            // dragging back from the end
+            let back = bar(max).scroll_for_drag(&m, total, max, -travel);
+            assert!(back.row() <= 1, "{total}");
+        }
     }
 
     #[test]
@@ -582,7 +666,7 @@ mod tests {
     #[test]
     fn the_vertical_bar_has_an_arrow_at_each_end() {
         let m = m();
-        let bar = Scrollbar::new(&m, 100, 0.0);
+        let bar = Scrollbar::new(&m, 100, VScroll::TOP);
         // 100 pixels of bar: 14 for each arrow and 72 of track.
         assert_eq!(Scrollbar::bar_length(&m), 100.0);
         assert_eq!(bar.track_height, 72.0);
@@ -596,7 +680,7 @@ mod tests {
         );
         assert_eq!(bar.part_at(&m, 85.9), BarPart::PageForward);
         assert_eq!(bar.part_at(&m, 86.0), BarPart::LineForward);
-        let at_end = Scrollbar::new(&m, 100, max_scroll_y(&m, 100));
+        let at_end = Scrollbar::new(&m, 100, max_scroll(&m, 100));
         assert_eq!(at_end.part_at(&m, 20.0), BarPart::PageBack);
     }
 
@@ -607,7 +691,10 @@ mod tests {
             ..m()
         };
         assert_eq!(Scrollbar::bar_length(&with_corner), 86.0);
-        assert_eq!(Scrollbar::new(&with_corner, 100, 0.0).track_height, 58.0);
+        assert_eq!(
+            Scrollbar::new(&with_corner, 100, VScroll::TOP).track_height,
+            58.0
+        );
     }
 
     #[test]

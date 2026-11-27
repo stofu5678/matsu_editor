@@ -84,7 +84,7 @@ impl EditorView {
         self.marked = None;
         self.composing = false;
         self.scroll_x = 0.0;
-        self.scroll_y = 0.0;
+        self.vscroll = crate::scroll_pos::VScroll::TOP;
         self.notice = None;
         self.pending_scan_jump = None;
         self.pending_scan_restore = None;
