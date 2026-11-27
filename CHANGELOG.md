@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.29.0](https://github.com/stofu5678/matsu_editor/compare/v0.28.0...v0.29.0) (2026-11-27)
+
+
+### Features
+
+* **encoding:** save in code pages 51932 and 20932 ([#600](https://github.com/stofu5678/matsu_editor/issues/600)) ([898904f](https://github.com/stofu5678/matsu_editor/commit/898904f994ad5c42d6ec422836d2cf4b684830f9))
+* **types:** associate file types with MATSU Editor on Windows ([#603](https://github.com/stofu5678/matsu_editor/issues/603)) ([a7b7cd5](https://github.com/stofu5678/matsu_editor/commit/a7b7cd57fead89b0b6b43cb1d644da3961acc0ff))
+* **windows:** remove the type list's file associations on uninstall ([#605](https://github.com/stofu5678/matsu_editor/issues/605)) ([57ec3cb](https://github.com/stofu5678/matsu_editor/commit/57ec3cb9c0799b9916894200d771131ddccfca45))
+
+
+### Bug Fixes
+
+* **edit:** keep the typed order in a zero-width box over wrapped rows of one line ([#602](https://github.com/stofu5678/matsu_editor/issues/602)) ([6eb7df1](https://github.com/stofu5678/matsu_editor/commit/6eb7df1faa72c07bbbf6a99098cc4c7d904a3303))
+
 ## [0.28.0](https://github.com/stofu5678/matsu_editor/compare/v0.27.3...v0.28.0) (2026-11-26)
 
 
