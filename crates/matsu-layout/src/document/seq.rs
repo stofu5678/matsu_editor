@@ -34,6 +34,18 @@ thread_local! {
     static TREE_WORK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
+// The groups that a splice moved, for the test that an edit does not shift the later groups.
+#[cfg(test)]
+thread_local! {
+    static GROUPS_MOVED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn moved(n: usize) {
+    #[cfg(test)]
+    GROUPS_MOVED.with(|w| w.set(w.get() + n as u64));
+    work(n);
+}
+
 fn work(n: usize) {
     #[cfg(test)]
     TREE_WORK.with(|w| w.set(w.get() + n as u64));
@@ -289,7 +301,7 @@ impl RowSeq {
 
     fn from_blocks(blocks: Vec<Block>) -> Self {
         let mut seq = Self {
-            groups: regroup(blocks),
+            groups: regroup_all(blocks),
             ..Self::default()
         };
         seq.rebuild();
@@ -444,7 +456,10 @@ impl RowSeq {
         let glo = g0.saturating_sub(1);
         let ghi = (g1 + 2).min(self.groups.len());
         let old_groups = self.groups.len();
-        let drained: Vec<Group> = self.groups.drain(glo..ghi).collect();
+        let drained: Vec<Group> = self.groups[glo..ghi]
+            .iter_mut()
+            .map(std::mem::take)
+            .collect();
         let old_sums: Vec<(usize, u64)> = drained.iter().map(|g| (g.lines, g.rows)).collect();
         let mut flat: Vec<Block> = Vec::new();
         let (mut bb0, mut bb1) = (0, 0);
@@ -479,9 +494,18 @@ impl RowSeq {
         }
         let pieces = builder.finish();
         flat.splice(lo.min(hi)..hi, pieces);
-        let fresh = regroup(flat);
+        // The same number of groups when the blocks fit: the groups are replaced in place and the
+        // ones after them do not move.
+        let fresh = regroup(flat, ghi - glo);
         let new_sums: Vec<(usize, u64)> = fresh.iter().map(|g| (g.lines, g.rows)).collect();
-        self.groups.splice(glo..glo, fresh);
+        if fresh.len() == ghi - glo {
+            for (slot, group) in self.groups[glo..ghi].iter_mut().zip(fresh) {
+                *slot = group;
+            }
+        } else {
+            moved(old_groups - ghi);
+            self.groups.splice(glo..ghi, fresh);
+        }
         let (old_lines, old_rows) = old_sums
             .iter()
             .fold((0usize, 0u64), |(l, r), &(gl, gr)| (l + gl, r + gr));
@@ -621,11 +645,22 @@ impl RowSeq {
 }
 
 /// Cuts the blocks into groups of `GROUP` blocks (the last one may have fewer).
-fn regroup(blocks: Vec<Block>) -> Vec<Group> {
-    let mut groups = Vec::with_capacity(blocks.len().div_ceil(GROUP));
-    let mut blocks = blocks.into_iter().peekable();
-    while blocks.peek().is_some() {
-        groups.push(Group::new(blocks.by_ref().take(GROUP).collect()));
+fn regroup_all(blocks: Vec<Block>) -> Vec<Group> {
+    let count = blocks.len().div_ceil(GROUP);
+    regroup(blocks, count)
+}
+
+/// Cuts the blocks into `preferred` groups of about the same size, or into as many more as it
+/// takes to keep each at `2 * GROUP` blocks or fewer, or into as many fewer as there are blocks.
+fn regroup(blocks: Vec<Block>, preferred: usize) -> Vec<Group> {
+    let n = blocks.len();
+    let count = preferred.clamp(n.div_ceil(2 * GROUP), n);
+    let mut groups = Vec::with_capacity(count);
+    let mut blocks = blocks.into_iter();
+    for k in 0..count {
+        // The first `n % count` groups take one block more.
+        let size = n / count + usize::from(k < n % count);
+        groups.push(Group::new(blocks.by_ref().take(size).collect()));
     }
     groups
 }
@@ -921,5 +956,33 @@ mod tests {
             assert_eq!(seq.fen_lines.tree, lines.tree);
             assert_eq!(seq.fen_rows.tree, rows.tree);
         }
+    }
+
+    /// An edit that changes the kind of a block near the top of a large sequence does not move
+    /// the groups after the ones it touches, and costs the same for any size.
+    #[test]
+    fn a_local_recut_moves_no_group_and_costs_the_same_for_any_size() {
+        let mut costs = Vec::new();
+        for lines in [60_000usize, 240_000] {
+            // An exception every 300 lines: one block of ones and one of counts, alternately.
+            let mut model = vec![1u32; lines];
+            for at in (150..lines).step_by(300) {
+                model[at] = 2;
+            }
+            let mut seq = RowSeq::from_counts(&model);
+            assert!(seq.groups.len() > 10);
+            TREE_WORK.with(|w| w.set(0));
+            GROUPS_MOVED.with(|w| w.set(0));
+            for round in 0..50 {
+                // A line near the top wraps and does not wrap again.
+                let new = if round % 2 == 0 { 3 } else { 1 };
+                seq.replace(10, 1, &[new]);
+                model[10] = new;
+            }
+            assert_eq!(GROUPS_MOVED.with(Cell::get), 0, "{lines} lines");
+            costs.push(TREE_WORK.with(Cell::get));
+            check(&seq, &model);
+        }
+        assert!(costs[1] < costs[0] * 2, "{costs:?}");
     }
 }
