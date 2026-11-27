@@ -70,18 +70,31 @@
 
 同じことをマクロの `ChangeType(n)` でできます。`n` は、タイプの一覧での番号に 1 を足した数です。`ChangeType(1)` が「基本」です。0 は、いまのタイプのまま固定します。タイプの数より大きな数では、何も起きません。MATSU Editor は、タイプの名前の文字列（`ChangeType("C/C++")`）も受け付けます。同じ名前のタイプが複数あれば、最初のものです。
 
+## ファイルの関連付け（Windows）
+
+一覧の下に、2 つのチェックボックスがあります。選んだタイプの拡張子（`*` や `?` を含むものは除きます）に、MATSU Editor を関連付けます。拡張子のないタイプでは、灰色です。
+
+- **右クリックメニューに追加**: エクスプローラーの右クリックメニューに「MATSU Editor」を足します。外すと、MATSU Editor が書いたものを消します。
+- **ダブルクリックで開く**: ダブルクリックで MATSU Editor が開くようにします。右クリックメニューに追加しているときだけ、押せます。右クリックメニューに追加すると、これも入ります。
+
+チェックの状態は、タイプを選ぶときにレジストリから読みます。拡張子が複数あるタイプは、すべての拡張子がそうなっているときだけ、チェックが入ります。最初に変えるとき、「他のソフトにも影響するかもしれません」という確認が出ます。
+
+- 書くのは、現在のユーザーの `HKEY_CURRENT_USER\Software\Classes` だけです。管理者権限は要りません。拡張子 `.ext` の既定値を `MatsuEditor_ext` にし、前の値は `MatsuEditorBackup` に取っておきます。メニューの項目は `MatsuEditor_ext\shell\MatsuEditor` です。
+- 外すときに消すのは、MATSU Editor が書いたものだけです。ほかのプログラムのキーには触りません。`.ext` の前の既定値は、`.ext` がまだ MATSU Editor のものであるときだけ戻します。
+- Windows は、利用者が「既定のアプリ」で選んだものを優先します。プログラムからは、これを書き換えられません。ダブルクリックにチェックが入っていても別のアプリが開くときは、その拡張子を一覧の下に出します。Windows の設定の「アプリ」の「既定のアプリ」で、拡張子ごとに MATSU Editor を選んでください。
+
 ## アクセスキー
 
 ボタンの名前の後ろにある `(S)` のような文字は、`Alt` と組み合わせるアクセスキーです。`Alt` を押しながらその文字を押すと、そのボタンが押されます。灰色のボタンの文字は、何もしません。文字は、サクラエディタの「タイプ別設定一覧」と同じです。
 
 ## サクラエディタとの違い
 
-- 「ファイルの関連付け」の 2 つのチェックボックスと、ヘルプのボタンはありません（関連付けは Windows のレジストリへの書き込みです）。
+- 「ファイルの関連付け」の 2 つのチェックボックスは、Windows だけにあります（macOS と Linux では出ません）。
 - ダイアログは、本文の上に描きます（モーダルではありません）。
 - 設定ファイルは、`matsu.ini` です。タイプの並びを変えるときは、変わった番号から後ろの `[Types(N)]` を全部書き直します。サクラエディタが終了時にまとめて書く代わりです。
 
 ## 根拠
 
-- サクラのソース: `sakura_core/cmd/CViewCommander_Settings.cpp` の `Command_TYPE_LIST`、`Command_CHANGETYPE`、`sakura_core/typeprop/CDlgTypeList.cpp`（`SetData`、`DispatchEvent`、`AddType`、`CopyType`、`DelType`、`UpType`、`DownType`、`InitializeType`、`Import`、`Export`）、`sakura_core/typeprop/CImpExpManager.cpp`、`sakura_core/typeprop/CDlgTypeAscertain.cpp`、`sakura_core/doc/CDocType.cpp`
-- MATSU のコード: `crates/matsu-ui/src/ui_commands/settings/type_list.rs`、`changetype.rs`、`crates/matsu-ui/src/doc_types/`（`list.rs`、`list_ops.rs`、`transfer.rs`、`edit.rs`、`mod.rs`）、`crates/matsu-config/src/settings/type_list.rs`
+- サクラのソース: `sakura_core/cmd/CViewCommander_Settings.cpp` の `Command_TYPE_LIST`、`Command_CHANGETYPE`、`sakura_core/typeprop/CDlgTypeList.cpp`（`SetData`、`DispatchEvent`、`AddType`、`CopyType`、`DelType`、`UpType`、`DownType`、`InitializeType`、`Import`、`Export`、`RegistExt`、`UnregistExt`、`CheckExt`、`AlertFileAssociation`）、`sakura_core/typeprop/CImpExpManager.cpp`、`sakura_core/typeprop/CDlgTypeAscertain.cpp`、`sakura_core/doc/CDocType.cpp`
+- MATSU のコード: `crates/matsu-ui/src/ui_commands/settings/type_list.rs`、`changetype.rs`、`crates/matsu-ui/src/doc_types/`（`list.rs`、`list_assoc.rs`、`list_ops.rs`、`transfer.rs`、`edit.rs`、`mod.rs`）、`crates/matsu-config/src/settings/type_list.rs`、`crates/matsu-platform/src/file_association/`
 - 試験: `crates/matsu-ui/src/doc_types/list_tests.rs`、`shared_tests.rs`、`transfer_tests.rs`、`keep_tests.rs`、`crates/matsu-config/src/settings/type_list/tests.rs`

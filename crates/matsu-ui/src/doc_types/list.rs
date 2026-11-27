@@ -14,9 +14,10 @@
 //! third type on, ↓ for every type but 基本 and the last, 削除 for every type but 基本; 追加 and
 //! 複製 while there are less than 60 types (`SetData`).
 //!
+//! The file association (the two check boxes and `AlertFileAssociation`, which write to the
+//! registry of Windows) is in `list_assoc`; only Windows shows it.
+//!
 //! Drawn over the editor view, like the window list: the dialog of Sakura is a Windows dialog.
-//! Not here: the file association (the two check boxes and `AlertFileAssociation`, which write to the
-//! registry of Windows).
 
 use crate::access_keys::{Entry, Found, OnAccessKey as _, pick};
 use crate::dialog_focus::KeepTabInside as _;
@@ -88,6 +89,13 @@ pub(crate) struct TypeList {
     pub(super) scroll: ScrollHandle,
     /// The question of the import (`CDlgTypeAscertain`), while it is open.
     pub(super) ascertain: Option<Ascertain>,
+    /// What the association check boxes showed for a type, by its extension list (`m_bExtRMenu`,
+    /// `m_bExtDblClick`); see `list_assoc` for when it is read again.
+    pub(super) associations:
+        std::collections::HashMap<String, matsu_platform::file_association::TypeState>,
+    /// Whether the warning before the first change of an association was answered with はい
+    /// (`m_bAlertFileAssociation`, negated).
+    pub(super) alerted: bool,
 }
 
 impl TypeList {
@@ -104,6 +112,8 @@ impl TypeList {
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             ascertain: None,
+            associations: std::collections::HashMap::new(),
+            alerted: false,
         }
     }
 
@@ -255,6 +265,7 @@ impl Render for TypeList {
                 ))
             })
             .collect();
+        let association = self.render_association(cx);
         let (has_room, can_up, can_down, can_delete) = (
             self.has_room(),
             self.can_move_up(),
@@ -387,7 +398,8 @@ impl Render for TypeList {
                             .child(rows),
                     )
                     .child(side),
-            );
+            )
+            .children(association);
         div()
             .id("type-list-overlay")
             .absolute()

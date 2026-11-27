@@ -19,6 +19,7 @@ use crate::view::EditorView;
 
 mod edit;
 pub(crate) mod list;
+mod list_assoc;
 mod list_ops;
 mod transfer;
 
