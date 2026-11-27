@@ -68,8 +68,16 @@ struct BoxCols {
 /// The places of the box input with the version of the text they are for. A cache of the
 /// typing, not part of what a cursor is: every two caches are equal, so that the comparison of
 /// cursors (and the snapshots of undo) does not depend on it.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 struct PlacesCache(Option<(u64, Vec<Pos>)>);
+
+/// A copy of a cursor (an undo snapshot) does not carry the places: nobody reads them there
+/// (`restore` drops them), and they can be as many as the rows of a box.
+impl Clone for PlacesCache {
+    fn clone(&self) -> Self {
+        Self(None)
+    }
+}
 
 impl PartialEq for PlacesCache {
     fn eq(&self, _: &Self) -> bool {

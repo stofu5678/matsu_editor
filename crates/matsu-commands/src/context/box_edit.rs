@@ -489,8 +489,11 @@ impl CommandContext<'_> {
             && self.cursor.has_selection()
             && crate::edit_options::get().overwrite_box_delete
         {
-            // the text under the places changes
-            places.clear();
+            // A box of no width deletes nothing: the places stay. Otherwise the text under them
+            // changes.
+            if self.box_bounds()?.is_none_or(|b| b.left != b.right) {
+                places.clear();
+            }
             self.delete_box_keeping_selection()?;
         }
         let Some(rect) = self.box_rect()? else {

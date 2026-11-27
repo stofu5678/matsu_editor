@@ -1401,6 +1401,30 @@ fn places_that_the_text_has_left_behind_are_not_used() {
 }
 
 #[test]
+fn a_box_of_no_width_keeps_its_places_when_overwrite_would_delete_the_box() {
+    // `m_bOverWriteBoxDelete` on: the delete of a box of no width removes nothing, so the places
+    // stay, and the third char goes in two places, not three
+    let options = crate::edit_options::EditOptions {
+        overwrite_box_delete: true,
+        ..crate::edit_options::EditOptions::DEFAULT
+    };
+    crate::edit_options::with_options(options, || {
+        for overwrite in [false, true] {
+            let (text, _) =
+                type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "xyz", overwrite);
+            assert_eq!(text, "axyzbcdxyzefghi", "overwrite={overwrite}");
+        }
+    });
+}
+
+#[test]
+fn a_cloned_cursor_does_not_carry_the_places() {
+    let (_, cursor) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
+    assert!(cursor.clone().take_box_places().is_none());
+    assert_eq!(cursor.clone(), cursor);
+}
+
+#[test]
 fn the_places_are_not_part_of_what_a_cursor_is() {
     let (_, with) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
     let mut without = with.clone();
