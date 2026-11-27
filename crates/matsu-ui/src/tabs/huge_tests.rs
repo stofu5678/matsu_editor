@@ -26,13 +26,23 @@ fn write_big(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
 /// Files of 1 MiB or more are opened by ranges, and the scan takes a while (a window of 64 KiB
 /// every 300 ms), so that the tests can look at the document while it runs.
 fn slow_scan(cx: &mut TestAppContext) {
+    slow_scan_every(cx, Duration::from_millis(300));
+}
+
+/// Like `slow_scan`, with a pause of `step` after every window. The pause is real time (the scan
+/// is on its own thread), so a test that must look at the scan before it ends takes a pause that a
+/// busy machine cannot use up. The scan thread is not joined when its job is dropped and cannot
+/// be woken from its pause, so it may keep the file open for up to `step` after the test ends
+/// (longer if the test panics before the job is dropped): keep `step` small for a test that does
+/// not need a long one.
+pub(super) fn slow_scan_every(cx: &mut TestAppContext, step: Duration) {
     cx.update(|app| {
         app.set_global(FilePrefs {
             huge_file_size_mb: 1,
             huge_scan: ScanOptions {
                 block_size: 64 * 1024,
                 window_blocks: 1,
-                step_delay: Some(Duration::from_millis(300)),
+                step_delay: Some(step),
                 ..ScanOptions::default()
             },
             ..FilePrefs::default()
@@ -78,7 +88,7 @@ pub(super) fn opened(
 }
 
 /// Like `opened`; `before` runs with the path just before the file is opened.
-fn opened_with(
+pub(super) fn opened_with(
     cx: &mut TestAppContext,
     name: &str,
     bytes: &[u8],

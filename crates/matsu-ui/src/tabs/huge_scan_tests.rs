@@ -14,7 +14,8 @@ use matsu_commands::command::Arg;
 use matsu_core::buffer::{Pos, WINDOW_BYTES};
 
 use super::huge_tests::{
-    big_text, caret_line, line_count, notice, opened, scanning, wait_for_scan,
+    big_text, caret_line, line_count, notice, opened, opened_with, scanning, slow_scan_every,
+    wait_for_scan,
 };
 use super::tests::{active_view, run};
 use crate::document::ScanWindowInfo;
@@ -340,10 +341,15 @@ fn another_pane_of_the_document_follows_the_window_to_the_same_place(cx: &mut Te
 fn a_file_cut_short_while_a_window_is_shown_stops_the_scan_and_keeps_the_view(
     cx: &mut TestAppContext,
 ) {
-    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    // The scan waits 2 s after every window (about 20 windows): a busy machine cannot get it to
+    // the end before the file is cut, which is what this test needs it not to have done.
+    let (handle, dir) = opened_with(cx, "big.txt", big_text().as_bytes(), |cx, _| {
+        slow_scan_every(cx, Duration::from_secs(2));
+    });
     let view = active_view(cx, handle);
     run(cx, handle, "F_GOFILEEND");
     assert!(window_of(cx, &view).is_some());
+    assert!(scanning(cx, &view));
     // Another program cuts the file short.
     std::fs::OpenOptions::new()
         .write(true)

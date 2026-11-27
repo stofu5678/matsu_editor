@@ -572,7 +572,7 @@ fn a_node_timer_of_a_handler_finishes_inside_its_own_call() {
     let dir = plugin_dir(&[
         (
             "timer.cjs",
-            "setTimeout(() => Editor.InsText('x'), 100);\nsetTimeout(() => setTimeout(() => Editor.InsText('y'), 30), 30);",
+            "setTimeout(() => Editor.InsText('z'), 100);\nsetTimeout(() => { Editor.InsText('x'); setTimeout(() => Editor.InsText('y'), 30); }, 30);",
         ),
         (
             "late_error.cjs",
@@ -585,9 +585,13 @@ fn a_node_timer_of_a_handler_finishes_inside_its_own_call() {
     let mut world = World::new("");
     let report = world.call(&mut host, "timer.cjs");
     assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
-    // Both timers, also the one that starts another, ran before the call ended: the chain of
-    // 60 ms came first, the timer of 100 ms second.
-    assert_eq!(world.doc.text(), "yx");
+    // Both timers, also the one that starts another, ran before the call ended. Where `z` falls
+    // between them depends on the speed of the machine, but `y` is started by `x`: `x` is first.
+    let text = world.doc.text();
+    let mut letters: Vec<char> = text.chars().collect();
+    letters.sort_unstable();
+    assert_eq!(letters, ['x', 'y', 'z'], "{text}");
+    assert!(text.find('x') < text.find('y'), "{text}");
     // An error in a timer fails that call.
     let report = world.call(&mut host, "late_error.cjs");
     let Outcome::Failed(text) = &report.outcome else {
