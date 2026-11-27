@@ -108,9 +108,10 @@ pub struct Check {
     pub name: String,
     /// What the call of the OS did (`ok` or the error).
     pub action: String,
-    /// What a read of a place that the file's cache did not hold gave afterwards.
+    /// What a read of a place gave afterwards through a source that had loaded nothing of it.
     pub read_uncached: String,
-    /// What a read of a place that the cache held gave afterwards.
+    /// What a read of a place that the cache of another source held gave afterwards (that source
+    /// had read nothing else since the change, so this read could not learn of it from another one).
     pub read_cached: String,
 }
 
@@ -239,7 +240,7 @@ impl Report {
         if !self.checks.is_empty() {
             out.push_str("\n## OS checks\n\n");
             out.push_str(
-                "| check | the call | read of a place not cached | read of a cached place |\n",
+                "| check | the call | read of a place not in the cache (a source of its own) | read of a place in the cache (another source of its own) |\n",
             );
             out.push_str("|---|---|---|---|\n");
             for c in &self.checks {

@@ -30,8 +30,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use matsu_core::buffer::Source;
 use matsu_core::buffer::{Document, Pos};
-use matsu_core::file::{HugeBlocks, OpenOptions, SaveOptions, TextFile, no_progress, open_file};
+use matsu_core::file::{
+    HugeBlocks, OpenOptions, RangedFile, RangedOptions, SaveOptions, TextFile, no_progress,
+    open_file,
+};
 use matsu_core::search::{
     Control, Direction, Matcher, PlainMatcher, PlainOptions, SearchError, SearchJob, find, find_all,
 };
@@ -191,6 +195,64 @@ fn read_screen(doc: &Document, at: At) -> Result<usize, String> {
         bytes += line.map_err(|e| e.to_string())?.text.len();
     }
     Ok(bytes)
+}
+
+/// The bytes of the file that a screen at `at` reads, as `(start, end)`: the rows from the first
+/// one on, or the slice of a very long line. (The bytes after a BOM, which is small next to a
+/// screen; the range is only used to read the same amount from the same place.)
+fn screen_range(doc: &Document, at: At) -> Result<(u64, u64), String> {
+    let count = doc.line_count();
+    if count == 1 && doc.is_long_line(0) {
+        let raw = doc.line_raw_len(0).map_err(|e| e.to_string())?.unwrap_or(0);
+        let from = match at {
+            At::Start => 0,
+            At::Middle => raw / 2,
+            At::End => raw.saturating_sub(SLICE_BYTES),
+        };
+        let start = doc
+            .pos_to_offset(Pos::new(0, from))
+            .map_err(|e| e.to_string())?;
+        return Ok((start as u64, (start + SLICE_BYTES.min(raw - from)) as u64));
+    }
+    let first = match at {
+        At::Start => 0,
+        At::Middle => count / 2,
+        At::End => count.saturating_sub(SCREEN_ROWS),
+    };
+    let last = (first + SCREEN_ROWS).min(count);
+    let start = doc
+        .pos_to_offset(Pos::new(first, 0))
+        .map_err(|e| e.to_string())?;
+    let end = if last < count {
+        doc.pos_to_offset(Pos::new(last, 0))
+            .map_err(|e| e.to_string())?
+    } else {
+        doc.raw_len()
+    };
+    Ok((start as u64, end as u64))
+}
+
+/// Reads `start..end` through a new `RangedFile`, whose cache is empty (checked): the time of a
+/// read that nothing in the cache can answer, and the number of blocks it had to load.
+fn cold_read(
+    path: &Path,
+    options: &OpenOptions,
+    start: u64,
+    end: u64,
+) -> Result<(Duration, u64), String> {
+    let blocks = options.huge_blocks.ok_or("no block size in the options")?;
+    let ranged = RangedOptions {
+        block_size: blocks.block_size,
+        cache_blocks: blocks.cache_blocks,
+    };
+    let file = RangedFile::open_with(path, ranged).map_err(|e| e.to_string())?;
+    if file.cached_bytes() != 0 {
+        return Err("a new file cache was not empty".to_owned());
+    }
+    let end = end.min(file.len());
+    let t = Instant::now();
+    file.read(start.min(end), end).map_err(|e| e.to_string())?;
+    Ok((t.elapsed(), file.cache_stats().misses))
 }
 
 /// How a search ended.
@@ -461,23 +523,24 @@ fn measure_steps(
         mib(file.document.index_heap_bytes()),
     );
 
-    // Jumps. The first read of a place is cold: the file is opened again (a new, empty cache of
-    // the file) and scanned, then the OS cache is dropped where that is possible, and then the
-    // place is read. The second read is warm. Where the OS cache cannot be dropped the number is
-    // cold for the file's cache only, and its name says so.
+    // Jumps. The cold number is the read of the bytes of the screen through a new `RangedFile`
+    // (its cache is empty, which is checked), after the OS cache is dropped where that is possible:
+    // reopening and scanning does not empty the cache, because a read shorter than two blocks goes
+    // through it. The warm number is the screen read through the document, the second time. Where
+    // the OS cache cannot be dropped, the cold number is cold for the file's cache only, and its
+    // name says so.
     let cold_name = if os_cache_dropped {
         "cold"
     } else {
         "cold for the file's cache only, OS cache warm"
     };
     for (name, at) in [("middle", At::Middle), ("end", At::End)] {
-        let fresh = open_scanned(path, &options, args.scan_limit)?;
+        let (start, end) = screen_range(&file.document, at)?;
         sys::drop_os_cache();
+        let (cold, _) = cold_read(path, &options, start, end)?;
+        read_screen(&file.document, at)?;
         let t = Instant::now();
-        read_screen(&fresh.document, at)?;
-        let cold = t.elapsed();
-        let t = Instant::now();
-        read_screen(&fresh.document, at)?;
+        read_screen(&file.document, at)?;
         run.num(&format!("jump to the {name}, {cold_name}"), "ms", ms(cold));
         run.num(&format!("jump to the {name}, warm"), "ms", ms(t.elapsed()));
     }
@@ -909,6 +972,26 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains("huge-measure-"))
             .collect();
         assert!(left.is_empty(), "{left:?}");
+    }
+
+    /// A small file with a block larger than the file: the scan loads it into the cache of the
+    /// document's own file, but the cold read goes through a new one and still has to load it.
+    #[test]
+    fn a_cold_read_loads_blocks_even_when_the_blocks_are_larger_than_the_file() {
+        let dir = Scratch::new("cold");
+        let path = dir.0.join("s.bin");
+        let mut file = File::create(&path).unwrap();
+        write_file(Kind::S, MIB, &mut file).unwrap();
+        drop(file);
+        let args = Args::default();
+        let options = options_for(Kind::S, 1024, &args);
+        let scanned = open_scanned(&path, &options, Duration::from_secs(60)).unwrap();
+        for at in [At::Middle, At::End] {
+            let (start, end) = screen_range(&scanned.document, at).unwrap();
+            assert!(start < end, "{start}..{end}");
+            let (_, misses) = cold_read(&path, &options, start, end).unwrap();
+            assert!(misses >= 1, "the cold read did not load a block");
+        }
     }
 
     #[test]

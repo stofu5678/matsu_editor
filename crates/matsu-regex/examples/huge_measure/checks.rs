@@ -88,12 +88,17 @@ fn one(dir: &Path, name: &str, op: Op, size: u64) -> Check {
         block_size: 64 * 1024,
         cache_blocks: 16,
     };
-    let source = match RangedFile::open_with(&path, options) {
-        Ok(s) => s,
-        Err(e) => return failed(name, format!("cannot open the file: {e}")),
+    // Two sources of their own, so that one read cannot change what the other one sees: the first
+    // read of a source after the change may be the one that finds it (`RangedFile` checks the
+    // file's length and time when it loads a block, and then remembers the change for good).
+    // `cached` has its first piece in its cache and is read only there; `uncached` has loaded
+    // nothing of the place it is read at.
+    let open = || RangedFile::open_with(&path, options);
+    let (cached, uncached) = match (open(), open()) {
+        (Ok(a), Ok(b)) => (a, b),
+        (Err(e), _) | (_, Err(e)) => return failed(name, format!("cannot open the file: {e}")),
     };
-    // The first piece goes into the cache; the last one stays out of it.
-    if let Err(e) = source.read(0, PIECE) {
+    if let Err(e) = cached.read(0, PIECE) {
         return failed(name, format!("cannot read the file: {e}"));
     }
 
@@ -126,8 +131,8 @@ fn one(dir: &Path, name: &str, op: Op, size: u64) -> Check {
     Check {
         name: name.to_owned(),
         action,
-        read_uncached: read_result(&source, len - PIECE, len),
-        read_cached: read_result(&source, 0, PIECE),
+        read_uncached: read_result(&uncached, len - PIECE, len),
+        read_cached: read_result(&cached, 0, PIECE),
     }
 }
 
