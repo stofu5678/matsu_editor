@@ -19,8 +19,14 @@
 //!   it removes the association (`UnregistExt`). Checking and unchecking ダブルクリック is
 //!   `RegistExt(ext, checked)`. A token of the type's extension list with a wildcard is skipped, and
 //!   the check box shows the AND of the extensions.
-//! * Sakura does not set an icon, does not call `SHChangeNotify`, and does nothing about the choice
-//!   of the user (`UserChoice`). Neither does this.
+//! * Turning ダブルクリックで開く off gives `.ext` back to its previous default (or removes the
+//!   value MATSU wrote) instead of leaving it on MATSU's ProgID as Sakura does
+//!   (`keep_only_the_menu_item`).
+//! * Sakura does nothing about the choice of the user (`UserChoice`). Neither does this (it only
+//!   tells the user, see below). Sakura sets no icon and does not call `SHChangeNotify`; MATSU
+//!   does both (the user decided on 2026-11-27): `DefaultIcon` of MATSU's own ProgID, in the form
+//!   the installer uses (`<exe>,0`: `packaging/windows/matsu.iss`, `MATSU.Editor.txt\DefaultIcon`;
+//!   `matsu.exe` carries one icon), and one `SHChangeNotify(SHCNE_ASSOCCHANGED)` after a change.
 //!
 //! What is different (ADR-0018 type B/F, see the PR):
 //!
@@ -106,6 +112,10 @@ impl Ext {
         format!("{}\\{ACTION_NAME}", self.shell_key())
     }
 
+    fn icon_key(&self) -> String {
+        format!("{}\\DefaultIcon", self.prog_id())
+    }
+
     fn command_key(&self) -> String {
         format!("{}\\command", self.action_key())
     }
@@ -145,6 +155,13 @@ pub fn extensions_of(type_exts: &str) -> Vec<Ext> {
 /// (`"\"" + sExePath + "\" \"%1\""`).
 pub fn command_line(exe: &str) -> String {
     format!("\"{exe}\" \"%1\"")
+}
+
+/// The value of `DefaultIcon`: the program and the index of its icon, as the installer writes it
+/// for `MATSU.Editor.txt` (`"{app}\matsu.exe,0"` in `packaging/windows/matsu.iss`). `matsu.exe`
+/// carries one icon (`crates/matsu/matsu.rc`), the program's; there is no separate document icon.
+pub fn icon_value(exe: &str) -> String {
+    format!("{exe},0")
 }
 
 /// Does the choice of the user (`UserChoice`) open MATSU? This is the one place that lists what
@@ -188,6 +205,8 @@ pub trait Registry {
     fn copy_machine_tree(&mut self, from: &str, to: &str) -> io::Result<()>;
     /// The ProgID of the choice of the user for `.ext` (`UserChoice` of `FileExts`), read only.
     fn user_choice(&self, ext: &Ext) -> Option<String>;
+    /// Tells the shell that associations changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)`).
+    fn notify_changed(&mut self);
 }
 
 /// What is registered for one extension (`CheckExt`).
@@ -221,14 +240,17 @@ pub fn check(registry: &impl Registry, ext: &Ext) -> Status {
 }
 
 /// `RegistExt`: associates `ext` with the program `exe` (the path, unquoted). With `make_default`
-/// the item is also the default verb (the double click); without it, the default verb the item
-/// replaced comes back, if MATSU is still the default verb.
+/// the item is also the default verb (the double click) and `.ext` names MATSU's ProgID; without
+/// it only the right-click item stays (see [`keep_only_the_menu_item`]).
 pub fn register(
     registry: &mut impl Registry,
     ext: &Ext,
     exe: &str,
     make_default: bool,
 ) -> io::Result<()> {
+    if !make_default {
+        return keep_only_the_menu_item(registry, ext, exe);
+    }
     let dot = ext.dot_key();
     let prog_id = ext.prog_id();
 
@@ -253,6 +275,8 @@ pub fn register(
 
     registry.set_value(&ext.command_key(), "", &command_line(exe))?;
     registry.set_value(&ext.action_key(), "", ACTION_LABEL)?;
+    // The icon of the files, only in our own ProgID (it replaces the one copied from the machine).
+    registry.set_value(&ext.icon_key(), "", &icon_value(exe))?;
 
     // Explorer takes the verbs of a file from the ProgID of the program the user chose as the
     // default (`UserChoice`), so the item under our ProgID does not show when another program is
@@ -262,18 +286,35 @@ pub fn register(
 
     let shell = ext.shell_key();
     let shell_value = registry.value(&shell, "").unwrap_or_default();
-    if make_default {
-        if shell_value != ACTION_NAME {
-            if !shell_value.is_empty() {
-                registry.set_value(&ext.shell_backup_key(), "", &shell_value)?;
-            }
-            registry.set_value(&shell, "", ACTION_NAME)?;
+    if shell_value != ACTION_NAME {
+        if !shell_value.is_empty() {
+            registry.set_value(&ext.shell_backup_key(), "", &shell_value)?;
         }
-    } else if shell_value == ACTION_NAME {
-        match nonempty(registry.value(&ext.shell_backup_key(), "")) {
-            Some(backup) => registry.set_value(&shell, "", &backup)?,
-            None => registry.delete_value(&shell, "")?,
+        registry.set_value(&shell, "", ACTION_NAME)?;
+    }
+    Ok(())
+}
+
+/// ダブルクリックで開く off, 右クリックメニューに追加 on (ADR-0018 type B).
+///
+/// Sakura (`RegistExt(ext, false)`) only drops its own `shell` default and leaves `.ext` naming its
+/// ProgID. That does not work when there is no other verb to fall back on: Windows then takes the
+/// only verb left in the ProgID, which is MATSU's, and a double click still starts MATSU while the
+/// check box is off. The item under `SystemFileAssociations` does not need `.ext` to name our
+/// ProgID, so here `.ext` gets its previous default back (the backup), or loses MATSU's value when
+/// there was none, while it still names MATSU's ProgID. MATSU's ProgID stays for the next time
+/// the double click is turned on ([`register`] with `make_default`).
+fn keep_only_the_menu_item(registry: &mut impl Registry, ext: &Ext, exe: &str) -> io::Result<()> {
+    let dot = ext.dot_key();
+    registry.set_value(&ext.system_command_key(), "", &command_line(exe))?;
+    registry.set_value(&ext.system_action_key(), "", ACTION_LABEL)?;
+    if registry.value(&dot, "").as_deref() == Some(ext.prog_id().as_str()) {
+        match nonempty(registry.value(&dot, PROGID_BACKUP_NAME)) {
+            Some(previous) => registry.set_value(&dot, "", &previous)?,
+            None => registry.delete_value(&dot, "")?,
         }
+        registry.delete_value(&dot, PROGID_BACKUP_NAME)?;
+        registry.delete_key_if_empty(&dot)?;
     }
     Ok(())
 }
@@ -360,11 +401,26 @@ pub fn apply(
     exe: &str,
     change: Change,
 ) -> io::Result<()> {
-    for ext in extensions_of(type_exts) {
+    let exts = extensions_of(type_exts);
+    let result = apply_each(registry, &exts, exe, change);
+    // Once, also after a failure half way: what was written is already in the registry.
+    if !exts.is_empty() {
+        registry.notify_changed();
+    }
+    result
+}
+
+fn apply_each(
+    registry: &mut impl Registry,
+    exts: &[Ext],
+    exe: &str,
+    change: Change,
+) -> io::Result<()> {
+    for ext in exts {
         match change {
-            Change::Menu(true) => register(registry, &ext, exe, true)?,
-            Change::Menu(false) => unregister(registry, &ext)?,
-            Change::Default(on) => register(registry, &ext, exe, on)?,
+            Change::Menu(true) => register(registry, ext, exe, true)?,
+            Change::Menu(false) => unregister(registry, ext)?,
+            Change::Default(on) => register(registry, ext, exe, on)?,
         }
     }
     Ok(())

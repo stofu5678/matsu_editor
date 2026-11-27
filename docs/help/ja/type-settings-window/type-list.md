@@ -77,11 +77,11 @@
 キーボードでは、`Tab` でチェックボックスに移り、`Space` で押します。
 
 - **右クリックメニューに追加**: エクスプローラーの右クリックメニューに「MATSU Editor」を足します。外すと、MATSU Editor が書いたものを消します。
-- **ダブルクリックで開く**: ダブルクリックで MATSU Editor が開くようにします。右クリックメニューに追加しているときだけ、押せます。右クリックメニューに追加すると、これも入ります。
+- **ダブルクリックで開く**: ダブルクリックで MATSU Editor が開くようにします。外すと、拡張子の既定のプログラムが、MATSU Editor にする前のものに戻ります（右クリックの項目は残ります）。右クリックメニューに追加しているときだけ、押せます。右クリックメニューに追加すると、これも入ります。
 
 チェックの状態は、タイプを選ぶときにレジストリから読みます。拡張子が複数あるタイプは、すべての拡張子がそうなっているときだけ、チェックが入ります。最初に変えるとき、「他のソフトにも影響するかもしれません」という確認が出ます。
 
-- 書くのは、現在のユーザーの `HKEY_CURRENT_USER\Software\Classes` だけです。管理者権限は要りません。拡張子 `.ext` の既定値を `MatsuEditor_ext` にし、前の値は `MatsuEditorBackup` に取っておきます。ダブルクリックの項目は `MatsuEditor_ext\shell\MatsuEditor` です。右クリックメニューの項目は、既定のアプリが別のプログラムでも出るように、`SystemFileAssociations\.ext\shell\MatsuEditor` にも書きます。
+- 書くのは、現在のユーザーの `HKEY_CURRENT_USER\Software\Classes` だけです。管理者権限は要りません。拡張子 `.ext` の既定値を `MatsuEditor_ext` にし、前の値は `MatsuEditorBackup` に取っておきます。ダブルクリックの項目は `MatsuEditor_ext\shell\MatsuEditor` です。右クリックメニューの項目は、既定のアプリが別のプログラムでも出るように、`SystemFileAssociations\.ext\shell\MatsuEditor` にも書きます。ファイルのアイコンは、`MatsuEditor_ext\DefaultIcon` に MATSU Editor のアイコンを書きます。変更のあとは、エクスプローラーに知らせます（`SHChangeNotify`）。
 - 外すときに消すのは、MATSU Editor が書いたものだけです。ほかのプログラムのキーには触りません。`.ext` の前の既定値は、`.ext` がまだ MATSU Editor のものであるときだけ戻します。
 - Windows は、利用者が「既定のアプリ」で選んだものを優先します。プログラムからは、これを書き換えられません。ダブルクリックにチェックが入っていても別のアプリが開くときは、その拡張子を一覧の下に出します。Windows の設定の「アプリ」の「既定のアプリ」で、拡張子ごとに MATSU Editor を選んでください。
 

@@ -15,6 +15,7 @@ use windows_sys::Win32::System::Registry::{
     RegDeleteKeyW, RegDeleteTreeW, RegDeleteValueW, RegOpenKeyExW, RegQueryInfoKeyW,
     RegQueryValueExW, RegSetValueExW,
 };
+use windows_sys::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
 
 use super::{Ext, Registry};
 
@@ -246,6 +247,17 @@ impl Registry for Real {
         check(code)
     }
 
+    fn notify_changed(&mut self) {
+        // The test's own roots are not the shell's; only the real place tells the shell.
+        if self.user_classes != r"Software\Classes" {
+            return;
+        }
+        // SAFETY: `SHCNE_ASSOCCHANGED` takes no items: both pointers are null.
+        unsafe {
+            SHChangeNotify(SHCNE_ASSOCCHANGED as i32, SHCNF_IDLIST, null(), null());
+        }
+    }
+
     fn user_choice(&self, ext: &Ext) -> Option<String> {
         let path = format!("{}\\{}\\UserChoice", self.file_exts, ext.dot_key());
         Key::open(HKEY_CURRENT_USER, &path, KEY_QUERY_VALUE)
@@ -309,6 +321,12 @@ mod tests {
         // The verbs of the machine's ProgID were copied.
         assert!(registry.key_exists(r"MatsuEditor_mtest\shell\open\command"));
         assert!(registry.key_exists(r"SystemFileAssociations\.mtest\shell\MatsuEditor\command"));
+        assert_eq!(
+            registry
+                .value(r"MatsuEditor_mtest\DefaultIcon", "")
+                .as_deref(),
+            Some(r"C:\Program Files\MATSU Editor\matsu.exe,0")
+        );
 
         apply(&mut registry, "mtest", exe, Change::Menu(false)).unwrap();
         assert!(!registry.key_exists(".mtest"));

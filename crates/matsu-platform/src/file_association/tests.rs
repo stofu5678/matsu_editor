@@ -13,6 +13,8 @@ struct Fake {
     user: BTreeMap<String, BTreeMap<String, (String, String)>>,
     machine: BTreeMap<String, BTreeMap<String, (String, String)>>,
     choices: BTreeMap<String, String>,
+    /// How many times the shell was told that associations changed.
+    notified: u32,
     /// A path whose `set_value` fails, to test a failure half way.
     fail_on: Option<String>,
 }
@@ -117,6 +119,10 @@ impl Registry for Fake {
             self.user.entry(path).or_default().extend(values);
         }
         Ok(())
+    }
+
+    fn notify_changed(&mut self) {
+        self.notified += 1;
     }
 
     fn user_choice(&self, ext: &Ext) -> Option<String> {
@@ -359,12 +365,11 @@ fn the_verbs_the_machine_had_are_copied_and_the_old_default_verb_comes_back() {
             .as_deref(),
         Some("open")
     );
-    // Without the double click the default verb is the one it replaced.
+    // Without the double click `.mtest` is not ours any more: the machine's ProgID (and its
+    // `open`) is the default again.
     register(&mut r, &ext("mtest"), EXE, false).unwrap();
-    assert_eq!(
-        r.value(r"MatsuEditor_mtest\shell", "").as_deref(),
-        Some("open")
-    );
+    assert_eq!(r.value(".mtest", ""), None);
+    assert_eq!(r.machine_default(".mtest").as_deref(), Some("othertype"));
     assert_eq!(
         check(&r, &ext("mtest")),
         Status {
@@ -520,4 +525,126 @@ fn only_windows_associates() {
         assert!(current_type_state("txt").is_err());
         assert!(apply_to_system("txt", Change::Menu(true)).is_err());
     }
+}
+
+#[test]
+fn the_icon_is_the_program_in_our_progid_only() {
+    assert_eq!(
+        icon_value(r"C:\Program Files\MATSU Editor\matsu.exe"),
+        r"C:\Program Files\MATSU Editor\matsu.exe,0"
+    );
+    let mut r = Fake::default();
+    // The machine's ProgID has an icon of the other program: our copy gets ours, the machine's stays.
+    r.put_machine(".mtest", "", "othertype");
+    r.put_machine(r"othertype\DefaultIcon", "", "other.exe,3");
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\DefaultIcon", "").as_deref(),
+        Some(r"C:\Program Files\MATSU Editor\matsu.exe,0")
+    );
+    assert_eq!(
+        r.machine[&key(r"othertype\DefaultIcon")][""].1,
+        "other.exe,3"
+    );
+    // Another program's ProgID is never written.
+    r.put_user(".other", "", "otherapp");
+    r.put_user(r"otherapp\DefaultIcon", "", "o.exe,1");
+    unregister(&mut r, &ext("mtest")).unwrap();
+    assert_eq!(
+        r.value(r"otherapp\DefaultIcon", "").as_deref(),
+        Some("o.exe,1")
+    );
+    assert!(!r.key_exists("MatsuEditor_mtest"));
+}
+
+#[test]
+fn the_shell_is_told_once_per_change_and_not_when_nothing_was_asked() {
+    let mut r = Fake::default();
+    apply(&mut r, "c h cpp", EXE, Change::Menu(true)).unwrap();
+    assert_eq!(r.notified, 1);
+    apply(&mut r, "c h cpp", EXE, Change::Default(false)).unwrap();
+    assert_eq!(r.notified, 2);
+    apply(&mut r, "c h cpp", EXE, Change::Menu(false)).unwrap();
+    assert_eq!(r.notified, 3);
+    // Nothing to associate: nothing changed.
+    apply(&mut r, "*.x", EXE, Change::Menu(true)).unwrap();
+    assert_eq!(r.notified, 3);
+    // A failure half way still tells the shell about what was written.
+    r.fail_on = Some(".h".into());
+    assert!(apply(&mut r, "c h", EXE, Change::Menu(true)).is_err());
+    assert_eq!(r.notified, 4);
+}
+
+#[test]
+fn double_click_off_with_nothing_to_fall_back_on_leaves_mtest_without_our_default() {
+    // No previous default and no `open` to copy: only our verb is in our ProgID.
+    let mut r = Fake::default();
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    register(&mut r, &ext("mtest"), EXE, false).unwrap();
+    // `.mtest` does not name our ProgID, so Windows cannot fall back on our only verb.
+    assert_eq!(r.value(".mtest", ""), None);
+    assert!(!r.key_exists(".mtest"));
+    assert_eq!(
+        check(&r, &ext("mtest")),
+        Status {
+            menu: true,
+            default: false
+        }
+    );
+    // The right-click item is still there, under every program.
+    assert_eq!(
+        r.value(
+            r"SystemFileAssociations\.mtest\shell\MatsuEditor\command",
+            ""
+        )
+        .as_deref(),
+        Some(r#""C:\Program Files\MATSU Editor\matsu.exe" "%1""#)
+    );
+}
+
+#[test]
+fn double_click_off_gives_back_the_previous_progid_and_on_takes_it_again() {
+    let mut r = Fake::default();
+    r.put_user(".mtest", "", "othertype");
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("MatsuEditor_mtest"));
+    // on -> off
+    register(&mut r, &ext("mtest"), EXE, false).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("othertype"));
+    assert_eq!(r.value(".mtest", PROGID_BACKUP_NAME), None);
+    assert!(check(&r, &ext("mtest")).menu);
+    assert!(!check(&r, &ext("mtest")).default);
+    // off -> on: MATSU is the default again, and the previous one is kept again.
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("MatsuEditor_mtest"));
+    assert_eq!(
+        r.value(".mtest", PROGID_BACKUP_NAME).as_deref(),
+        Some("othertype")
+    );
+    assert!(check(&r, &ext("mtest")).default);
+    // And removing everything gives the previous one back.
+    unregister(&mut r, &ext("mtest")).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("othertype"));
+}
+
+#[test]
+fn double_click_off_does_not_take_back_an_extension_that_another_program_owns() {
+    let mut r = Fake::default();
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    r.put_user(".mtest", "", "newowner");
+    register(&mut r, &ext("mtest"), EXE, false).unwrap();
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("newowner"));
+}
+
+#[test]
+fn the_check_boxes_report_the_real_state_with_the_double_click_off() {
+    let mut r = Fake::default();
+    apply(&mut r, "c h", EXE, Change::Menu(true)).unwrap();
+    apply(&mut r, "c h", EXE, Change::Default(false)).unwrap();
+    let state = type_state(&r, "c h", "matsu.exe");
+    assert!(state.menu);
+    assert!(!state.default);
+    apply(&mut r, "c h", EXE, Change::Default(true)).unwrap();
+    let state = type_state(&r, "c h", "matsu.exe");
+    assert!(state.menu && state.default);
 }
