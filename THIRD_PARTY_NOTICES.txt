@@ -1938,7 +1938,7 @@ BSD 2-Clause "Simplified" License (BSD-2-Clause)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-mruby-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-mruby-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2008-2016, Wojciech Muła
 All rights reserved.
@@ -2006,7 +2006,7 @@ BSD 2-Clause "Simplified" License (BSD-2-Clause)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-regex 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-regex 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Onigmo (Oniguruma-mod) LICENSE
 ------------------------------
@@ -2098,7 +2098,7 @@ BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 // Copyright (c) 2007-2009 Russ Cox, Google Inc. All rights reserved.
 //
@@ -2408,7 +2408,7 @@ BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright 2014 Paul Sokolovsky.
 // Use of this source code is governed by a BSD-style
@@ -4296,7 +4296,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-mruby-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-mruby-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2010- mruby developers
 
@@ -4432,7 +4432,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2013-2021 Ibrahim Abdelkader <iabdalkader@openmv.io>
  *
@@ -4659,7 +4659,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2014 Fabian Vogt
  * Copyright (c) 2013, 2014 Damien P. George
@@ -4836,7 +4836,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2014-2018 Paul Sokolovsky
  *
@@ -5180,7 +5180,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2015 Josef Gajdusek
  * Copyright (c) 2015 Paul Sokolovsky
@@ -5803,7 +5803,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2016 Damien P. George on behalf of Pycom Ltd
  *
@@ -7519,7 +7519,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2019, Michael Neuling, IBM Corporation.
  *
@@ -7977,7 +7977,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2021 Jim Mussared
  *
@@ -8053,7 +8053,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2021 Yonatan Goldschmidt
  *
@@ -8488,7 +8488,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2024 Andrew Leech
  *
@@ -8617,7 +8617,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2025 Koudai Aono
  * Copyright (c) 2026 Damien P. George
@@ -8645,7 +8645,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2026 Alessandro Gatti
  *
@@ -8672,7 +8672,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) 2026 Angus Gratton
  *
@@ -8864,7 +8864,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 Copyright (c) SatoshiLabs
  *
@@ -10537,9 +10537,9 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
-  * matsu-mruby-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
-  * matsu-regex 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-mruby-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-regex 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 MIT License
 
@@ -11449,7 +11449,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-micropython-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-micropython-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 The MIT License (MIT)
 
@@ -12852,7 +12852,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * matsu-mruby-sys 0.28.0 - https://github.com/stofu5678/matsu_editor
+  * matsu-mruby-sys 0.29.0 - https://github.com/stofu5678/matsu_editor
 
 mruby-set
 
