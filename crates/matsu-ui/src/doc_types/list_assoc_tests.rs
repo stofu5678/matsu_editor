@@ -152,6 +152,32 @@ fn a_type_without_extensions_has_grey_check_boxes_that_do_nothing(cx: &mut TestA
 }
 
 #[gpui::test]
+fn a_check_box_that_turns_grey_does_not_take_the_keys_of_the_dialog(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "");
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let (list, registry) = list_with_fake(cx, 1);
+    registry.borrow_mut().menu = true;
+    list.update(cx, |l, lcx| {
+        l.read_association(lcx);
+        lcx.notify();
+    });
+    cx.run_until_parked();
+    focus_default(&list, cx);
+    // The selection moves to 基本, which has no extensions: both boxes turn grey.
+    select(&list, cx, 0);
+    list.update(cx, |l, lcx| {
+        l.read_association(lcx);
+        lcx.notify();
+    });
+    cx.run_until_parked();
+    // Esc still reaches the dialog and closes it.
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    let view = view_of(cx);
+    assert!(view.read_with(cx, |v, _| v.doc_type.list.is_none()));
+}
+
+#[gpui::test]
 fn the_double_click_is_grey_until_the_menu_item_is_on(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "");
     let cx = &mut VisualTestContext::from_window(handle, cx);

@@ -194,6 +194,10 @@ fn the_choice_of_the_user_is_ours_for_the_progid_or_the_program() {
         &e,
         "matsu.exe"
     ));
+    // The ProgID of the installer (`packaging/windows/matsu.iss`).
+    assert!(user_choice_is_ours("MATSU.Editor.txt", &e, "matsu.exe"));
+    assert!(user_choice_is_ours("matsu.editor.TXT", &e, "matsu.exe"));
+    assert!(!user_choice_is_ours("MATSU.Editor.log", &e, "matsu.exe"));
     assert!(!user_choice_is_ours("txtfile", &e, "matsu.exe"));
     assert!(!user_choice_is_ours("MatsuEditor_log", &e, "matsu.exe"));
     assert!(!user_choice_is_ours(

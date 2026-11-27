@@ -147,12 +147,18 @@ pub fn command_line(exe: &str) -> String {
     format!("\"{exe}\" \"%1\"")
 }
 
-/// Does the choice of the user (`UserChoice`) open MATSU? It does when its ProgID is the one of
-/// MATSU for `ext`, or the one that "Open with" makes for the program itself
-/// (`Applications\matsu.exe`, where `exe_name` is the file name of the running program). Case does
-/// not matter, as in the registry.
+/// Does the choice of the user (`UserChoice`) open MATSU? This is the one place that lists what
+/// counts as MATSU's own ProgID for `ext` (case does not matter, as in the registry):
+///
+/// * `MatsuEditor_<ext>`, the one [`register`] writes;
+/// * `MATSU.Editor.<ext>`, the one the installer registers (`packaging/windows/matsu.iss`, task
+///   `associatetxt`: `MATSU.Editor.txt`); keep this in step with that file;
+/// * `Applications\<exe>`, which "Open with" makes for the program itself (`matsu.iss`, task
+///   `openwith`: `Applications\matsu.exe`), where `exe_name` is the file name of the running
+///   program.
 pub fn user_choice_is_ours(choice: &str, ext: &Ext, exe_name: &str) -> bool {
-    if choice.eq_ignore_ascii_case(&ext.prog_id()) {
+    let installer = format!("MATSU.Editor.{}", ext.as_str());
+    if choice.eq_ignore_ascii_case(&ext.prog_id()) || choice.eq_ignore_ascii_case(&installer) {
         return true;
     }
     choice.split_once('\\').is_some_and(|(head, name)| {

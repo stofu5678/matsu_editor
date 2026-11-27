@@ -15,7 +15,9 @@
 //!
 //! The check boxes have no access keys in Sakura (`IDC_CHECK_EXT_RMENU` and `IDC_CHECK_EXT_DBLCLICK`
 //! in `sakura_core/sakura_rc.rc`, lines 684-685: no `&` in the labels). Here they are tab stops of
-//! the dialog and Space presses the one that has the focus; a grey one is not a tab stop.
+//! the dialog and Space presses the one that has the focus. A grey one keeps its focus handle (a
+//! handle without a drawn node would leave the window's focus nowhere and lose Esc and Enter) and
+//! does nothing for Space.
 
 use std::io;
 
@@ -69,8 +71,38 @@ impl Backend for System {
 }
 
 /// What the check boxes show: the state read for the selected type, or why it could not be read.
+/// Everything is made when it is read, so drawing only borrows it.
 pub(super) struct Shown {
-    state: Result<TypeState, String>,
+    menu: bool,
+    default: bool,
+    /// The type has an extension that can be associated.
+    available: bool,
+    /// What to tell the user under the check boxes: why the state is unknown, or that Windows
+    /// opens another program (`overridden_note`).
+    note: Option<gpui::SharedString>,
+}
+
+impl Shown {
+    fn of(read: io::Result<TypeState>) -> Self {
+        match read {
+            Ok(s) => Self {
+                menu: s.menu,
+                default: s.default,
+                available: s.available,
+                note: if s.default {
+                    overridden_note(&s.overridden).map(Into::into)
+                } else {
+                    None
+                },
+            },
+            Err(e) => Self {
+                menu: false,
+                default: false,
+                available: false,
+                note: Some(format!("{ERROR_READ}{e}").into()),
+            },
+        }
+    }
 }
 
 /// What to tell the user about the extensions where Windows opens another program for the double
@@ -108,9 +140,7 @@ impl TypeList {
     pub(super) fn read_association(&mut self, cx: &App) {
         self.association = if self.backend.supported() {
             let exts = self.selected_exts(cx);
-            Some(Shown {
-                state: self.backend.read(&exts).map_err(|e| e.to_string()),
-            })
+            Some(Shown::of(self.backend.read(&exts)))
         } else {
             None
         };
@@ -175,26 +205,15 @@ impl TypeList {
     /// The check boxes under the list; nothing where this OS has no association.
     pub(super) fn render_association(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let shown = self.association.as_ref()?;
-        let (menu_on, default_on, available, can_default, note) = match &shown.state {
-            Ok(s) => (
-                s.menu,
-                s.default,
-                s.available,
-                s.available && s.menu,
-                if s.default {
-                    overridden_note(&s.overridden)
-                } else {
-                    None
-                },
-            ),
-            Err(e) => (false, false, false, false, Some(format!("{ERROR_READ}{e}"))),
-        };
+        let available = shown.available;
+        let can_default = shown.available && shown.menu;
         let menu = crate::a11y::disabled(
             check_box(
                 "type-list-ext-menu",
                 MENU_LABEL,
-                menu_on,
-                available.then_some(&self.menu_focus),
+                shown.menu,
+                available,
+                &self.menu_focus,
             )
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.change_association(true, window, cx)
@@ -211,8 +230,9 @@ impl TypeList {
             check_box(
                 "type-list-ext-default",
                 DEFAULT_LABEL,
-                default_on,
-                can_default.then_some(&self.default_focus),
+                shown.default,
+                can_default,
+                &self.default_focus,
             )
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.change_association(false, window, cx)
@@ -232,31 +252,29 @@ impl TypeList {
                 .flex_col()
                 .gap_1()
                 .child(div().flex().child(menu).child(default))
-                .children(note.map(|text| {
-                    crate::a11y::text(div().id("type-list-ext-note"), &text)
+                .children(shown.note.as_ref().map(|text| {
+                    crate::a11y::text(div().id("type-list-ext-note"), text)
                         .max_w(px(460.))
                         .text_size(px(12.))
                         .text_color(rgb(0x9a3412))
-                        .child(text)
+                        .child(text.clone())
                 }))
                 .into_any_element(),
         )
     }
 }
 
-/// A check box. `focus` is its focus handle while it can be used (a tab stop), and `None` while
-/// it is grey.
+/// A check box, grey while it is not `enabled`. It always has its focus handle, so that the
+/// window's focus never points at a node that is not drawn when the box turns grey; a grey one
+/// does nothing for a key (`change_association` reads the registry and does not write).
 fn check_box(
     id: &'static str,
     label: &'static str,
     checked: bool,
-    focus: Option<&FocusHandle>,
+    enabled: bool,
+    focus: &FocusHandle,
 ) -> gpui::Stateful<gpui::Div> {
-    let color = if focus.is_some() {
-        super::list::TEXT
-    } else {
-        0x888888
-    };
+    let color = if enabled { super::list::TEXT } else { 0x888888 };
     let element = div()
         .id(id)
         .role(gpui::Role::CheckBox)
@@ -284,9 +302,11 @@ fn check_box(
                 .child(if checked { "✓" } else { "" }),
         )
         .child(label);
-    match focus {
-        Some(focus) => element.track_focus(focus).cursor_pointer(),
-        None => element,
+    let element = element.track_focus(focus);
+    if enabled {
+        element.cursor_pointer()
+    } else {
+        element
     }
 }
 
