@@ -210,14 +210,21 @@ fn the_line_endings_count_in_the_size_of_lines_that_are_sorted_or_merged() {
         // the range is 600 bytes: a limit of 600 refuses it (the limit is "or more"), 601 does not
         for (limit, refused) in [(600, true), (601, false)] {
             let mut model = DocumentModel::new(ranged(&text));
+            let doc = model.doc();
+            assert!(doc.is_ranged());
+            assert_eq!(doc.line_count(), 301);
+            let range = doc.raw_len_between(Pos::new(0, 0), Pos::new(300, 0));
+            assert_eq!(range.unwrap(), 600);
             let mut cursor = Cursor::default();
             cursor.select(Pos::new(0, 0), Pos::new(300, 0));
             let mut layout = PlainLayout::default();
             let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
-            let result = with_copy_limit(limit, || Registry::global().run(id, &mut cx, &[]));
-            assert_eq!(result.is_err(), refused, "{id} with a limit of {limit}");
+            // a refused command is not an error (a macro goes on): it beeps and says so
+            with_copy_limit(limit, || Registry::global().run(id, &mut cx, &[])).unwrap();
+            let message = cx.finish().message_box.unwrap_or_default();
+            let said_so = message.contains("対象の範囲が大きすぎる");
+            assert_eq!(said_so, refused, "{id} with a limit of {limit}: {message}");
             if refused {
-                let message = cx.finish().message_box.unwrap();
                 assert!(message.contains(said), "{message}");
             }
         }
