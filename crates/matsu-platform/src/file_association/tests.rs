@@ -860,3 +860,40 @@ fn a_progid_kept_for_the_choice_of_the_user_has_no_menu_item_only_the_open_verb(
     assert!(!r.key_exists("MatsuEditor_mtest"));
     assert!(!r.key_exists(".mtest"));
 }
+
+#[test]
+fn a_kept_progid_gets_a_clean_open_verb_without_the_launch_mechanisms_it_inherited() {
+    let mut r = Fake::default();
+    // The machine's program opens its files by COM (`DelegateExecute`) and by DDE (`ddeexec`).
+    r.put_machine(".mtest", "", "othertype");
+    r.put_machine(r"othertype\shell", "", "open");
+    r.put_machine(r"othertype\shell\open\command", "", "other.exe %1");
+    r.put_machine(r"othertype\shell\open\command", "DelegateExecute", "{1234}");
+    r.put_machine(r"othertype\shell\open\ddeexec", "", "[open(\"%1\")]");
+    r.put_machine(r"othertype\shell\open\ddeexec\application", "", "OtherApp");
+    apply(&mut r, "mtest", EXE, Change::Menu(true)).unwrap();
+    // They were copied into our ProgID.
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell\open\command", "DelegateExecute")
+            .as_deref(),
+        Some("{1234}")
+    );
+    r.choices
+        .insert(".mtest".into(), "MatsuEditor_mtest".into());
+    apply(&mut r, "mtest", EXE, Change::Menu(false)).unwrap();
+    // Only MATSU's command is left in `open`.
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell\open\command", "")
+            .as_deref(),
+        Some(r#""C:\Program Files\MATSU Editor\matsu.exe" "%1""#)
+    );
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell\open\command", "DelegateExecute"),
+        None
+    );
+    assert!(!r.key_exists(r"MatsuEditor_mtest\shell\open\ddeexec"));
+    assert_eq!(
+        r.value(r"MatsuEditor_mtest\shell", "").as_deref(),
+        Some("open")
+    );
+}

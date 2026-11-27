@@ -375,7 +375,14 @@ pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
         // in the menu. The same command becomes the standard `open` verb, the default one.
         if let Some(command) = registry.value(&format!("{}\\command", ext.action_key()), "") {
             let shell = ext.shell_key();
-            registry.set_value(&format!("{shell}\\open\\command"), "", &command)?;
+            let open = format!("{shell}\\open");
+            // A clean `open`: the one copied from the machine's program may carry
+            // `DelegateExecute` or `ddeexec`, which would start that program's handler instead of
+            // MATSU. The whole subtree goes, then MATSU's command is written. If that write fails
+            // the error is returned and the custom verb (still there, it is deleted below) keeps
+            // the double click working; no temporary name is needed.
+            registry.delete_tree(&open)?;
+            registry.set_value(&format!("{open}\\command"), "", &command)?;
             registry.set_value(&shell, "", "open")?;
         }
         registry.delete_tree(&ext.action_key())?;
