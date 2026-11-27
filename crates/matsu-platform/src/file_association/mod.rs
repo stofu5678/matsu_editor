@@ -2,7 +2,7 @@
 //! boxes of the type list (`F_TYPE_LIST`), 右クリックメニューに追加 and ダブルクリックで開く.
 //!
 //! Sakura: `RegistExt`, `UnregistExt` and `CheckExt` in `sakura_core/typeprop/CDlgTypeList.cpp`
-//! (lines 831-1080), called from `CDlgTypeList::DispatchEvent` (`LBN_SELCHANGE`,
+//! (lines 831-1106), called from `CDlgTypeList::DispatchEvent` (`LBN_SELCHANGE`,
 //! `IDC_CHECK_EXT_RMENU`, `IDC_CHECK_EXT_DBLCLICK`, lines 195-300).
 //!
 //! What Sakura does, and what is the same here:
