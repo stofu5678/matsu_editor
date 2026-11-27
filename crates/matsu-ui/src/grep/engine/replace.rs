@@ -48,6 +48,9 @@
 //!   clipboard) puts the text in for each match, in the line as it was read, with its line break.
 //! * With バックアップ作成 the old file is kept as `name.skrold`; an earlier backup is replaced when the new content is in place.
 //! * With ファイル毎最初のみ検索 only the first hit of a file is shown, but all are replaced.
+//! * A file of the size of a huge file or more is not opened whole: the `stream` module reads it
+//!   line by line and writes the new file as it goes, with the same line code (ADR-0020,
+//!   chapter 5).
 //!
 //! Differences from Sakura: the hits of a file that could not be written are not counted (Sakura
 //! counts them); a character that the encoding of the file
@@ -62,10 +65,12 @@ use std::ops::Range;
 
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::file::{FileError, SaveOptions, TextFile};
-use matsu_core::search::{AppliedEdit, Replacement, apply_replacements_descending};
+use matsu_core::search::{AppliedEdit, Matcher, Replacement, apply_replacements_descending};
 
 use super::{ReplaceInfo, Runner, Stopped, TextShift, WindowSource, next_hit, shown_path};
 use crate::grep::format::{self, Body, FilePaths, LineType, PathInfoState};
+
+mod stream;
 
 /// The suffix of the backup file (`.skrold`).
 pub const BACKUP_SUFFIX: &str = ".skrold";
@@ -106,7 +111,159 @@ impl Region {
     }
 }
 
+/// What `replace_line` found in a line.
+pub(super) enum LineOutcome {
+    /// The line has no hit.
+    NoHit,
+    /// The line has hits, and `replaced` replacements were made in it; `changed` tells whether
+    /// the text is another one now (the new text is in [`LineWork::new_whole`]).
+    Hit { replaced: usize, changed: bool },
+    /// The replacement could not be made; the result says so.
+    Failed,
+}
+
+/// The buffers of `replace_line`, kept from line to line, and what it remembers of the file.
+#[derive(Default)]
+pub(super) struct LineWork<'r> {
+    /// The line with its break, as it was read.
+    whole: String,
+    /// The line with its break, as it is going to be written, after a changed `Hit`.
+    pub(super) new_whole: String,
+    pieces: Vec<(Range<usize>, Cow<'r, str>)>,
+    /// A hit of this file is in the result already (for ファイル毎最初のみ検索).
+    shown_any: bool,
+}
+
+/// What `replace_line` needs of the file and the search, the same for every line.
+pub(super) struct LineEnv<'a, 'r> {
+    pub(super) matcher: &'a dyn Matcher,
+    pub(super) paths: &'a FilePaths<'a>,
+    pub(super) code_name: &'a str,
+    pub(super) replace: &'r ReplaceInfo,
+}
+
+/// A line that was read: its number (from 1), its text and its break.
+#[derive(Clone, Copy)]
+pub(super) struct LineRef<'t> {
+    pub(super) number: u64,
+    pub(super) text: &'t str,
+    pub(super) eol: &'t str,
+}
+
 impl Runner<'_> {
+    /// One line of the loop of `DoGrepReplaceFile`: writes the hits to the result and makes the
+    /// new text of the line (in `work`). The line is handled with its line break, as Sakura reads
+    /// it, so a match can cover the break. `shifts` takes what each match did to the text, with the
+    /// offset of the line in it (for a caret that goes with its text).
+    pub(super) fn replace_line<'r>(
+        &mut self,
+        work: &mut LineWork<'r>,
+        env: &LineEnv<'_, 'r>,
+        state: &mut PathInfoState,
+        line: LineRef<'_>,
+        shifts: Option<(&mut Vec<TextShift>, usize)>,
+    ) -> LineOutcome {
+        let layout = self.info.layout;
+        let shown = shown_path(env.paths, layout);
+        // A regular expression with a replacement is replaced a line at a time (`Replace` with the
+        // `g` option); the rest is replaced match by match.
+        let by_match = self.replacer.is_none();
+        work.whole.clear();
+        work.whole.push_str(line.text);
+        work.whole.push_str(line.eol);
+        let whole = work.whole.as_str();
+        // The hits of the line, in the line as it was. The first is enough where only that
+        // one is shown and replaced.
+        let mut hits = Vec::new();
+        let mut at = 0;
+        while let Some(m) = next_hit(env.matcher, whole, &mut at) {
+            hits.push(m);
+            if !by_match {
+                break;
+            }
+        }
+        if hits.is_empty() {
+            return LineOutcome::NoHit;
+        }
+        // The result: the first hit of the line; every hit with 該当部分, and no more than
+        // the first of the file with ファイル毎最初のみ検索.
+        if !(self.info.file_only && work.shown_any) {
+            let all = layout.line_type == LineType::MatchPart && by_match && !self.info.file_only;
+            let count = if all { hits.len() } else { 1 };
+            for m in &hits[..count] {
+                let column = format::utf16_len(&whole[..m.start]) + 1;
+                let body = if layout.line_type == LineType::Line {
+                    Body::Line(line.text)
+                } else {
+                    Body::Part(&whole[m.start..m.end])
+                };
+                format::push_path_info(&mut self.buffer, &layout, env.paths, env.code_name, state);
+                format::push_result(
+                    &mut self.buffer,
+                    &layout,
+                    shown,
+                    env.code_name,
+                    line.number,
+                    column,
+                    body,
+                );
+            }
+            work.shown_any = true;
+        }
+        // What each match becomes, in the line with its break.
+        work.pieces.clear();
+        match &self.replacer {
+            Some(replacer) => {
+                let pieces = &mut work.pieces;
+                let done = replacer.for_each_replacement(whole, &mut |range, text| {
+                    pieces.push((range, Cow::Owned(text)));
+                });
+                if done.is_err() {
+                    self.buffer
+                        .push_str(&format::file_read_error(env.paths.full));
+                    return LineOutcome::Failed;
+                }
+            }
+            None => {
+                // A match that begins before the end of the last (a whole word search can) is
+                // left alone.
+                let mut end = 0;
+                for m in &hits {
+                    if m.start >= end {
+                        work.pieces
+                            .push((m.start..m.end, Cow::Borrowed(env.replace.text.as_str())));
+                        end = m.end;
+                    }
+                }
+            }
+        }
+        let replaced = work.pieces.len();
+        // The new text of the line with its break, made on the text: a CR and an LF are two
+        // characters of it, whatever the document makes of them.
+        work.new_whole.clear();
+        let mut at = 0;
+        let mut shifts = shifts;
+        for (range, inserted) in &work.pieces {
+            work.new_whole.push_str(&whole[at..range.start]);
+            work.new_whole.push_str(inserted);
+            at = range.end;
+            if let Some((shifts, line_start)) = &mut shifts
+                && whole[range.clone()] != **inserted
+            {
+                shifts.push(TextShift {
+                    at: *line_start + range.start,
+                    old_len: range.len(),
+                    new_len: inserted.len(),
+                });
+            }
+        }
+        work.new_whole.push_str(&whole[at..]);
+        LineOutcome::Hit {
+            replaced,
+            changed: work.new_whole != whole,
+        }
+    }
+
     /// The loop of `DoGrepReplaceFile` over the lines of `doc`: writes the hits to the result and
     /// plans the new text of each line. `None` when nothing is to be replaced, or the text could
     /// not be read (the result says so).
@@ -121,23 +278,21 @@ impl Runner<'_> {
         let Some(matcher) = self.matcher.clone() else {
             return Ok(None);
         };
-        let layout = self.info.layout;
-        let shown = shown_path(paths, layout);
-        // A regular expression with a replacement is replaced a line at a time (`Replace` with the
-        // `g` option); the rest is replaced match by match. Either way the line is handled with
-        // its line break, as Sakura reads it, so a match can cover the break.
-        let by_match = self.replacer.is_none();
+        let env = LineEnv {
+            matcher: matcher.as_ref(),
+            paths,
+            code_name,
+            replace,
+        };
         let mut plan: Vec<Replacement> = Vec::new();
         let mut shifts: Vec<TextShift> = Vec::new();
         let mut region: Option<Region> = None;
-        let mut new_whole = String::new();
+        let mut work = LineWork::default();
         // Where the line begins in the text of the document, in bytes (the text of the lines and
         // their breaks), for `shifts`.
         let mut line_start = 0usize;
-        let mut pieces: Vec<(Range<usize>, Cow<'_, str>)> = Vec::new();
         let mut replaced = 0usize;
         let mut any_hit = false;
-        let mut shown_any = false;
         for index in 0..doc.line_count() {
             if index % CANCEL_CHECK_LINES == 0 {
                 self.check_cancel()?;
@@ -156,95 +311,33 @@ impl Runner<'_> {
                 continue;
             }
             let eol = line.eol.map_or("", matsu_core::model::eol_text);
-            let whole = format!("{}{eol}", line.text);
             let this_start = line_start;
-            line_start += whole.len();
-            // The hits of the line, in the line as it was. The first is enough where only that
-            // one is shown and replaced.
-            let mut hits = Vec::new();
-            let mut at = 0;
-            while let Some(m) = next_hit(matcher.as_ref(), &whole, &mut at) {
-                hits.push(m);
-                if !by_match {
-                    break;
+            line_start += line.text.len() + eol.len();
+            let outcome = self.replace_line(
+                &mut work,
+                &env,
+                state,
+                LineRef {
+                    number: index as u64 + 1,
+                    text: &line.text,
+                    eol,
+                },
+                Some((&mut shifts, this_start)),
+            );
+            let (count, changed) = match outcome {
+                LineOutcome::NoHit => {
+                    plan.extend(region.take().map(Region::into_edit));
+                    continue;
                 }
-            }
-            if hits.is_empty() {
-                plan.extend(region.take().map(Region::into_edit));
-                continue;
-            }
+                LineOutcome::Failed => return Ok(None),
+                LineOutcome::Hit { replaced, changed } => (replaced, changed),
+            };
             any_hit = true;
-            // The result: the first hit of the line; every hit with 該当部分, and no more than
-            // the first of the file with ファイル毎最初のみ検索.
-            if !(self.info.file_only && shown_any) {
-                let all =
-                    layout.line_type == LineType::MatchPart && by_match && !self.info.file_only;
-                let count = if all { hits.len() } else { 1 };
-                for m in &hits[..count] {
-                    let column = format::utf16_len(&whole[..m.start]) + 1;
-                    let body = if layout.line_type == LineType::Line {
-                        Body::Line(&line.text)
-                    } else {
-                        Body::Part(&whole[m.start..m.end])
-                    };
-                    format::push_path_info(&mut self.buffer, &layout, paths, code_name, state);
-                    format::push_result(
-                        &mut self.buffer,
-                        &layout,
-                        shown,
-                        code_name,
-                        index as u64 + 1,
-                        column,
-                        body,
-                    );
-                }
-                shown_any = true;
-            }
-            // What each match becomes, in the line with its break.
-            pieces.clear();
-            match &self.replacer {
-                Some(replacer) => {
-                    let done = replacer.for_each_replacement(&whole, &mut |range, text| {
-                        pieces.push((range, Cow::Owned(text)));
-                    });
-                    if done.is_err() {
-                        self.buffer.push_str(&format::file_read_error(paths.full));
-                        return Ok(None);
-                    }
-                }
-                None => {
-                    // A match that begins before the end of the last (a whole word search can) is
-                    // left alone.
-                    let mut end = 0;
-                    for m in &hits {
-                        if m.start >= end {
-                            pieces.push((m.start..m.end, Cow::Borrowed(replace.text.as_str())));
-                            end = m.end;
-                        }
-                    }
-                }
-            }
-            replaced += pieces.len();
-            // The new text of the line with its break, made on the text: a CR and an LF are two
-            // characters of it, whatever the document makes of them.
-            new_whole.clear();
-            let mut at = 0;
-            for (range, inserted) in &pieces {
-                new_whole.push_str(&whole[at..range.start]);
-                new_whole.push_str(inserted);
-                at = range.end;
-                if whole[range.clone()] != **inserted {
-                    shifts.push(TextShift {
-                        at: this_start + range.start,
-                        old_len: range.len(),
-                        new_len: inserted.len(),
-                    });
-                }
-            }
-            new_whole.push_str(&whole[at..]);
-            if new_whole == whole {
+            replaced += count;
+            if !changed {
                 plan.extend(region.take().map(Region::into_edit));
-            } else if let Some((from, to, middle)) = content_edit(&line.text, eol, &new_whole) {
+            } else if let Some((from, to, middle)) = content_edit(&line.text, eol, &work.new_whole)
+            {
                 // The break of the line stays and no break comes into the text: only what changed
                 // is replaced, so the line keeps what the document has of it (its bookmark, its
                 // marks of a diff and of the function list).
@@ -260,7 +353,7 @@ impl Runner<'_> {
                         run.last = index;
                         run.last_len = line.text.len();
                         run.last_has_eol = !eol.is_empty();
-                        run.text.push_str(&new_whole);
+                        run.text.push_str(&work.new_whole);
                     }
                     _ => {
                         plan.extend(region.take().map(Region::into_edit));
@@ -269,7 +362,7 @@ impl Runner<'_> {
                             last: index,
                             last_len: line.text.len(),
                             last_has_eol: !eol.is_empty(),
-                            text: std::mem::take(&mut new_whole),
+                            text: std::mem::take(&mut work.new_whole),
                         });
                     }
                 }
@@ -314,6 +407,13 @@ impl Runner<'_> {
         let Some(replace) = info.replace.as_ref() else {
             return Ok(());
         };
+        // A huge file is read in order and the new file is written as it goes (ADR-0020,
+        // chapter 5), not opened whole.
+        if let Some(from) = info.huge_file_len
+            && std::fs::metadata(paths.full).is_ok_and(|m| m.len() >= from)
+        {
+            return self.replace_file_stream(paths, state, from, replace);
+        }
         let Some(mut file) = self.open(paths.full)? else {
             return Ok(());
         };
@@ -370,18 +470,14 @@ impl Runner<'_> {
         file: &mut TextFile,
         backup: bool,
     ) -> Result<bool, Stopped> {
-        let old = format!("{path}{BACKUP_SUFFIX}");
-        // The file is copied before it is replaced, to a name of its own: an earlier backup stays
-        // until the new content is in place.
-        let staged = staged_name(&old);
-        if backup {
-            if copy_new(path, &staged).is_err() {
-                self.buffer.push_str(&format::replace_replace_error(&old));
+        let staged = if backup {
+            let Some(staged) = self.stage_backup(path) else {
                 return Ok(false);
-            }
-            self.kept.insert(old.to_lowercase());
-            self.kept.insert(staged.to_lowercase());
-        }
+            };
+            Some(staged)
+        } else {
+            None
+        };
         let options = SaveOptions::keep(file);
         let cancel = self.cancel;
         let saved = file.save_as(path, &options, &mut |_, _| {
@@ -392,22 +488,44 @@ impl Runner<'_> {
             }
         });
         let Err(error) = saved else {
-            if backup {
-                self.keep_backup(&staged, &old);
+            if let Some(staged) = staged {
+                self.keep_backup(&staged.staged, &staged.old);
             }
             return Ok(true);
         };
-        if backup {
+        if let Some(staged) = staged {
             // The old file is as it was: the copy of it is not needed.
-            let _ = std::fs::remove_file(&staged);
+            let _ = std::fs::remove_file(&staged.staged);
         }
+        if matches!(error, FileError::Cancelled) {
+            return Err(Stopped);
+        }
+        self.report_write_error(path, &error);
+        Ok(false)
+    }
+
+    /// Copies the file that is about to be replaced to a name of its own next to its backup (an
+    /// earlier backup stays until the new content is in place). `None` when it cannot be copied;
+    /// the result says so.
+    fn stage_backup(&mut self, path: &str) -> Option<Staged> {
+        let old = format!("{path}{BACKUP_SUFFIX}");
+        let staged = staged_name(&old);
+        if copy_new(path, &staged).is_err() {
+            self.buffer.push_str(&format::replace_replace_error(&old));
+            return None;
+        }
+        self.kept.insert(old.to_lowercase());
+        self.kept.insert(staged.to_lowercase());
+        Some(Staged { old, staged })
+    }
+
+    /// Tells in the result why the new content could not be written (not for a stop).
+    fn report_write_error(&mut self, path: &str, error: &FileError) {
         match error {
-            FileError::Cancelled => return Err(Stopped),
             // Sakura fails at `DeleteFile` of the old file when it cannot be changed.
             FileError::ReadOnly => self.buffer.push_str(&format::replace_delete_error(path)),
             _ => self.buffer.push_str(&format::file_write_error(path)),
         }
-        Ok(false)
     }
 
     /// The copy of the old file takes the place of the earlier backup (`DeleteFile`, then
@@ -422,6 +540,13 @@ impl Runner<'_> {
             self.buffer.push_str(&format::replace_replace_error(staged));
         }
     }
+}
+
+/// The copy of the old file that is made before the file is replaced (`staged`), and the name of
+/// the backup it becomes (`old`).
+struct Staged {
+    old: String,
+    staged: String,
 }
 
 /// A name for the copy of a file that is about to be replaced, next to its backup. Nothing of

@@ -14,7 +14,8 @@
 //! The lines are the lines of [`Document::line`](crate::buffer::Document::line): the text without
 //! its ending, and the ending. The text after the last ending is a line when it is not empty.
 
-use std::io;
+use std::io::{self, Write};
+use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -49,6 +50,9 @@ pub struct LineReader {
     /// line is being dropped, whatever limit the next call has: its start is gone, so the line
     /// can only be reported as too long.
     dropped: u64,
+    /// Where in `buf` the bytes of the line last given out are, with its ending (see
+    /// [`last_raw`](LineReader::last_raw)). Valid until the next call.
+    last: Range<usize>,
 }
 
 /// What [`LineReader::next_line_limited`] gives: a line, or the news that a line is too long to be
@@ -98,7 +102,21 @@ impl LineReader {
             pos: 0,
             peak: 0,
             dropped: 0,
+            last: 0..0,
         }
+    }
+
+    /// The offset in the source of the first byte that was not given out yet: where the next line
+    /// begins (the sum of the bytes of the lines given out, with their endings).
+    pub fn consumed(&self) -> u64 {
+        self.pos - (self.buf.len() - self.start) as u64
+    }
+
+    /// The bytes of the source of the line that the last call gave as [`Limited::Line`], with its
+    /// ending, exactly as they are in the file. They are held until the next call. For a caller
+    /// that copies the lines it does not change.
+    pub fn last_raw(&self) -> &[u8] {
+        &self.buf[self.last.clone()]
     }
 
     /// The number of bytes of the source that have been read from it so far.
@@ -135,7 +153,7 @@ impl LineReader {
     /// rest: the call fails with [`io::ErrorKind::InvalidData`] when it reaches the end of that line,
     /// and the next call gives the next line.
     pub fn next_line_until(&mut self, stop: &mut dyn FnMut() -> bool) -> io::Result<Option<Line>> {
-        match self.next_limited(None, stop)? {
+        match self.next_limited(None, stop, &mut io::sink())? {
             None => Ok(None),
             Some(Limited::Line(line)) => Ok(Some(line)),
             // Only a line that `next_line_limited` has begun to drop gets here: its start is gone,
@@ -161,13 +179,33 @@ impl LineReader {
         max_bytes: usize,
         stop: &mut dyn FnMut() -> bool,
     ) -> io::Result<Option<Limited>> {
-        self.next_limited(Some(max_bytes), stop)
+        self.next_limited(Some(max_bytes), stop, &mut io::sink())
+    }
+
+    /// Like [`next_line_limited`](Self::next_line_limited), but the bytes of a line that is too
+    /// long are written to `spill`, with its ending, as they are dropped (the reader holds no more
+    /// than before). A caller that copies a file can pass such a line through unchanged. The bytes
+    /// of the other lines are not written: [`last_raw`](Self::last_raw) has them. A line that
+    /// begins to be dropped when `spill` fails is lost to the caller: its error is the error of
+    /// the call, and the reader should not be used after that.
+    ///
+    /// # Errors
+    ///
+    /// As [`next_line_until`](Self::next_line_until), and what `spill` fails with.
+    pub fn next_line_spilling(
+        &mut self,
+        max_bytes: usize,
+        stop: &mut dyn FnMut() -> bool,
+        spill: &mut dyn Write,
+    ) -> io::Result<Option<Limited>> {
+        self.next_limited(Some(max_bytes), stop, spill)
     }
 
     fn next_limited(
         &mut self,
         limit: Option<usize>,
         stop: &mut dyn FnMut() -> bool,
+        spill: &mut dyn Write,
     ) -> io::Result<Option<Limited>> {
         loop {
             let at_eof = self.pos >= self.source.len();
@@ -177,12 +215,15 @@ impl LineReader {
                 let eol_len = self.codec.eol_bytes(kind).map_or(1, <[u8]>::len);
                 if at_eof || self.buf.len() - off >= LOOKAHEAD.max(eol_len) {
                     let bytes = self.dropped + (off - self.start) as u64;
+                    let end = (off + eol_len).min(self.buf.len());
                     let next = if self.dropped > 0 || limit.is_some_and(|max| bytes > max as u64) {
+                        spill.write_all(&self.buf[self.start..end])?;
                         Limited::TooLong {
                             bytes,
                             eol: Some(kind),
                         }
                     } else {
+                        self.last = self.start..end;
                         let mut text = String::new();
                         self.codec.decode(&self.buf[self.start..off], &mut text);
                         Limited::Line(Line {
@@ -191,7 +232,7 @@ impl LineReader {
                         })
                     };
                     self.dropped = 0;
-                    self.start = (off + eol_len).min(self.buf.len());
+                    self.start = end;
                     self.scan_from = self.start;
                     return Ok(Some(next));
                 }
@@ -204,8 +245,10 @@ impl LineReader {
                 }
                 let bytes = self.dropped + (self.buf.len() - self.start) as u64;
                 let next = if self.dropped > 0 || limit.is_some_and(|max| bytes > max as u64) {
+                    spill.write_all(&self.buf[self.start..])?;
                     Limited::TooLong { bytes, eol: None }
                 } else {
+                    self.last = self.start..self.buf.len();
                     let mut text = String::new();
                     self.codec.decode(&self.buf[self.start..], &mut text);
                     Limited::Line(Line { text, eol: None })
@@ -229,6 +272,7 @@ impl LineReader {
                 // multibyte one, or the CR of CR LF), which are not part of the line.
                 let known = self.dropped + (self.scan_from - self.start) as u64;
                 if self.dropped > 0 || limit.is_some_and(|max| known > max as u64) {
+                    spill.write_all(&self.buf[self.start..self.scan_from])?;
                     self.dropped += (self.scan_from - self.start) as u64;
                     self.buf.drain(..self.scan_from);
                     self.start = 0;

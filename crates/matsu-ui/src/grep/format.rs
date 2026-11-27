@@ -523,6 +523,16 @@ pub fn line_too_long(path: &str, line: u64, bytes: u64, limit: u64) -> String {
     )
 }
 
+/// A line over the limit in a Grep 置換: it is neither searched nor replaced, and stays as it is
+/// (type C: Sakura has no limit).
+pub fn line_too_long_kept(path: &str, line: u64, bytes: u64, limit: u64) -> String {
+    format!(
+        "{line}行目が長すぎる（{} MB。上限は {} MB）ので検索も置換もせず、そのまま残しました。 [{path}]{EOL}",
+        mib(usize::try_from(bytes).unwrap_or(usize::MAX)),
+        mib(usize::try_from(limit).unwrap_or(usize::MAX))
+    )
+}
+
 /// `STR_GREP_ERR_FILEREAD`: a file that failed while it was read.
 pub fn file_read_error(path: &str) -> String {
     format!("ファイルの読み込み中にエラーが発生しました。[{path}]{EOL}")
