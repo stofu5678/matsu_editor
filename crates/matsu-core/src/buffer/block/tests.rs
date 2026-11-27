@@ -1121,3 +1121,48 @@ fn two_long_lines_that_share_a_block_are_both_found_from_the_anchors() {
             .is_some()
     );
 }
+
+#[test]
+fn places_near_the_start_of_an_edited_long_line_agree_with_the_dense_document() {
+    let long = "日本語abc\t漢字 テキスト".repeat(60);
+    let text = format!("short\n{long}\nafter");
+    for enc in [
+        Encoding::Utf8,
+        Encoding::ShiftJis,
+        Encoding::Utf16Le,
+        Encoding::EucJp,
+    ] {
+        let bytes = encode(enc, &text);
+        let (mut ranged, mut dense) = long_and_dense(&bytes, enc, 16, 100);
+        // edits near the start of the line, so that the rest of it is one piece of the original
+        // that starts a few bytes after the line does
+        for (col, add) in [(3, "XY"), (10, "日"), (0, "z")] {
+            let at = Pos { line: 1, col };
+            ranged.insert(at, add).unwrap();
+            dense.insert(at, add).unwrap();
+        }
+        assert_eq!(
+            ranged.line_len(1).unwrap(),
+            dense.line_len(1).unwrap(),
+            "{enc:?}"
+        );
+        let len = dense.line_len(1).unwrap().unwrap();
+        for col in (0..=len).step_by(7).chain([len]) {
+            let p = Pos { line: 1, col };
+            assert_eq!(
+                ranged.pos_to_offset(p).unwrap(),
+                dense.pos_to_offset(p).unwrap(),
+                "{enc:?} col {col}"
+            );
+            let (a, b) = (
+                ranged.line_slice(1, col, col + 30).unwrap().unwrap(),
+                dense.line_slice(1, col, col + 30).unwrap().unwrap(),
+            );
+            assert_eq!(
+                (a.start_col, a.text),
+                (b.start_col, b.text),
+                "{enc:?} col {col}"
+            );
+        }
+    }
+}

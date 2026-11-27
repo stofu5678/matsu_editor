@@ -461,6 +461,49 @@ impl AddBuf {
     }
 }
 
+/// The shortest range of the original that is counted from a [`Head`], how many bytes of a piece a
+/// head holds, and how many heads are kept.
+const HEAD_FROM: usize = 4096;
+const HEAD_LEN: usize = 128 * 1024;
+const HEADS: usize = 4;
+
+/// The characters of the first `len` bytes of a piece of the original, as `(byte, decoded bytes
+/// before it)`: built once, it answers where a column is and how long a range is near the start of
+/// a piece without reading it again (the original never changes).
+#[derive(Debug)]
+struct Head {
+    start: usize,
+    len: usize,
+    /// The length of the decoded text of the `len` bytes.
+    decoded: usize,
+    /// Offsets up to here are sure: the last char may be cut by the end of what was read.
+    safe: usize,
+    chars: Vec<(u32, u32)>,
+}
+
+impl Head {
+    /// The length of the decoded text before the byte `offset` (a char start).
+    fn decoded_before(&self, offset: usize) -> usize {
+        if offset >= self.len {
+            return self.decoded;
+        }
+        let i = self
+            .chars
+            .partition_point(|&(raw, _)| raw as usize <= offset);
+        i.checked_sub(1).map_or(0, |i| self.chars[i].1 as usize)
+    }
+
+    /// The offset of the char that holds the byte `dec` of the decoded text, or `None` when the
+    /// head has not so much text.
+    fn offset_of_decoded(&self, dec: usize) -> Option<usize> {
+        if dec >= self.decoded {
+            return None;
+        }
+        let i = self.chars.partition_point(|&(_, d)| d as usize <= dec);
+        i.checked_sub(1).map(|i| self.chars[i].0 as usize)
+    }
+}
+
 /// Everything the pieces of a document refer to. Shared (`Arc`) between clones of a document.
 #[derive(Debug)]
 pub(crate) struct Storages {
@@ -471,6 +514,8 @@ pub(crate) struct Storages {
     ext_eol: AtomicBool,
     /// The setting when the original was read: the line endings of the original are those.
     load_ext_eol: bool,
+    /// The tables of the first bytes of the pieces of the original that were asked about last.
+    heads: std::sync::Mutex<Vec<Arc<Head>>>,
 }
 
 impl Storages {
@@ -480,6 +525,7 @@ impl Storages {
             add: RwLock::new(AddBuf::default()),
             ext_eol: AtomicBool::new(ext_eol),
             load_ext_eol: ext_eol,
+            heads: std::sync::Mutex::default(),
         }
     }
 
@@ -616,11 +662,80 @@ impl Storages {
                 if let Some(len) = self.original.index.decoded_len_long(start, end)? {
                     return Ok(len);
                 }
+                if end - start >= HEAD_FROM
+                    && let Some(head) = self.head(start)?
+                    && end - start <= head.safe
+                {
+                    return Ok(head.decoded_before(end - start));
+                }
                 scratch.clear();
                 self.decode_into(store, start, end, scratch)?;
                 Ok(scratch.len())
             }
         }
+    }
+
+    /// Where, in the original bytes `start..end`, `cols` bytes of decoded text from `start` have
+    /// passed (rounded down to a character), when the first bytes of the piece are known
+    /// ([`Head`]): `None` when `cols` is not in them. A document that is read by ranges only.
+    pub fn head_raw_at(&self, start: usize, end: usize, cols: usize) -> Result<Option<usize>> {
+        let Some(head) = self.head(start)? else {
+            return Ok(None);
+        };
+        Ok(head
+            .offset_of_decoded(cols)
+            .filter(|&at| at <= head.safe && start + at <= end)
+            .map(|at| start + at))
+    }
+
+    /// The table of the first bytes of the piece of the original that starts at `start`, made once
+    /// and kept for the next questions about places near the start of the piece: a row of a very
+    /// long line asks where a column is, and what an edit before a row asks for each row it shows,
+    /// from the start of the piece again and again. `None` unless the document is read by ranges.
+    fn head(&self, start: usize) -> Result<Option<Arc<Head>>> {
+        if self.original.index.long_line_bytes().is_none() {
+            return Ok(None);
+        }
+        let mut heads = self
+            .heads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(head) = heads.iter().find(|h| h.start == start) {
+            return Ok(Some(head.clone()));
+        }
+        let total = usize::try_from(self.original.source.len()).unwrap_or(usize::MAX);
+        let len = HEAD_LEN.min(total.saturating_sub(start));
+        let bytes = self.read_original(start, start + len)?;
+        let codec = &self.original.codec;
+        let mut chars = Vec::new();
+        let (mut at, mut decoded) = (0_usize, 0_usize);
+        let mut scratch = String::new();
+        while at < bytes.len() {
+            chars.push((at as u32, decoded as u32));
+            let n = codec.char_len(&bytes, at).clamp(1, bytes.len() - at);
+            scratch.clear();
+            codec.decode(&bytes[at..at + n], &mut scratch);
+            decoded += scratch.len();
+            at += n;
+        }
+        // the last char may be cut by the end of what was read: only what is before it is sure
+        let safe = if len == total - start {
+            len
+        } else {
+            len.saturating_sub(8)
+        };
+        let head = Arc::new(Head {
+            start,
+            len,
+            decoded,
+            safe,
+            chars,
+        });
+        if heads.len() >= HEADS {
+            heads.remove(0);
+        }
+        heads.push(head.clone());
+        Ok(Some(head))
     }
 
     /// From how many bytes a line of the original is long.

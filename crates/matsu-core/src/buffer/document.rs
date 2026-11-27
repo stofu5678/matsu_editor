@@ -577,13 +577,28 @@ impl Document {
                             return Ok(());
                         }
                     }
+                    // The place is the start of the piece (a column that ends where the piece
+                    // before it ended): nothing to read.
+                    if remaining == 0 && s < e {
+                        found = Some(raw);
+                        return Ok(());
+                    }
+                    // A place near the start of the piece is found from the table of its first
+                    // bytes, which is made once.
+                    if let Some(at) = st.head_raw_at(s, e, remaining)? {
+                        found = Some(raw + (at - s));
+                        return Ok(());
+                    }
                     // Read in parts, so that a place near the start of a huge piece does not read
                     // all of it. A part is read a few bytes long, to see a character at its end.
+                    // The first parts are as long as the rest of the column needs (a decoded byte
+                    // is at least about a byte of the original), up to `PART`.
                     const PART: usize = 256 * 1024;
                     let codec = &st.original.codec;
                     let (mut off, mut seen) = (0, 0);
                     while s + off < e {
-                        let take = (e - (s + off)).min(PART);
+                        let want = (remaining - seen).saturating_add(64).clamp(4096, PART);
+                        let take = (e - (s + off)).min(want);
                         let look = (take + 8).min(e - (s + off));
                         let bytes = st.read_original(s + off, s + off + look)?;
                         let mut i = 0;
