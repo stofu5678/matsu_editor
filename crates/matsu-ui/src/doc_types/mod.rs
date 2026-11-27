@@ -184,6 +184,8 @@ mod keep_tests;
 #[cfg(test)]
 mod list_access_key_tests;
 #[cfg(test)]
+mod list_assoc_tests;
+#[cfg(test)]
 mod list_tests;
 #[cfg(test)]
 mod shared_tests;

@@ -49,6 +49,7 @@ impl TypeList {
         let labels = with_user(cx, |user| user.document_types().iter().map(label).collect());
         self.labels = labels;
         self.selected = select.min(self.labels.len().saturating_sub(1));
+        self.read_association(cx);
         self.scroll.scroll_to_item(self.selected);
         cx.notify();
     }

@@ -308,10 +308,12 @@ mod tests {
         );
         // The verbs of the machine's ProgID were copied.
         assert!(registry.key_exists(r"MatsuEditor_mtest\shell\open\command"));
+        assert!(registry.key_exists(r"SystemFileAssociations\.mtest\shell\MatsuEditor\command"));
 
         apply(&mut registry, "mtest", exe, Change::Menu(false)).unwrap();
         assert!(!registry.key_exists(".mtest"));
         assert!(!registry.key_exists("MatsuEditor_mtest"));
+        assert!(!registry.key_exists("SystemFileAssociations"));
         assert!(!type_state(&registry, "mtest", "matsu.exe").menu);
     }
 }

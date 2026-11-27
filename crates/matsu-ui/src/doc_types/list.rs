@@ -89,10 +89,14 @@ pub(crate) struct TypeList {
     pub(super) scroll: ScrollHandle,
     /// The question of the import (`CDlgTypeAscertain`), while it is open.
     pub(super) ascertain: Option<Ascertain>,
-    /// What the association check boxes showed for a type, by its extension list (`m_bExtRMenu`,
-    /// `m_bExtDblClick`); see `list_assoc` for when it is read again.
-    pub(super) associations:
-        std::collections::HashMap<String, matsu_platform::file_association::TypeState>,
+    /// What the association check boxes show for the selected type (`m_bExtRMenu`,
+    /// `m_bExtDblClick`); `None` where this OS has no association. See `list_assoc`.
+    pub(super) association: Option<super::list_assoc::Shown>,
+    /// Where the association is read and written.
+    pub(super) backend: Box<dyn super::list_assoc::Backend>,
+    /// The focus of the two check boxes (tab stops while they are not grey).
+    pub(super) menu_focus: FocusHandle,
+    pub(super) default_focus: FocusHandle,
     /// Whether the warning before the first change of an association was answered with はい
     /// (`m_bAlertFileAssociation`, negated).
     pub(super) alerted: bool,
@@ -105,16 +109,21 @@ impl TypeList {
         current: usize,
         cx: &mut App,
     ) -> Self {
-        Self {
+        let mut list = Self {
             view,
             selected: current.min(labels.len().saturating_sub(1)),
             labels,
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             ascertain: None,
-            associations: std::collections::HashMap::new(),
+            association: None,
+            backend: Box::new(super::list_assoc::System),
+            menu_focus: cx.focus_handle().tab_stop(true),
+            default_focus: cx.focus_handle().tab_stop(true),
             alerted: false,
-        }
+        };
+        list.read_association(cx);
+        list
     }
 
     /// Closes the list and gives the focus back to the editor.
@@ -217,6 +226,7 @@ impl TypeList {
             "end" => self.selected = last,
             _ => return,
         }
+        self.read_association(cx);
         self.scroll.scroll_to_item(self.selected);
         cx.stop_propagation();
         cx.notify();
@@ -256,6 +266,7 @@ impl Render for TypeList {
                 item.child(text.clone()).on_click(cx.listener(
                     move |this, event: &ClickEvent, window, cx| {
                         this.selected = i;
+                        this.read_association(cx);
                         // A double click is 一時適用 (`OnLbnDblclk`).
                         if event.click_count() >= 2 {
                             this.apply(window, cx);

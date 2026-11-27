@@ -24,6 +24,10 @@
 //!
 //! What is different (ADR-0018 type B/F, see the PR):
 //!
+//! * Explorer takes the right-click verbs from the ProgID of the program the user chose as the
+//!   default (`UserChoice`), so Sakura's item under its own ProgID does not show then. The item is
+//!   also written under `SystemFileAssociations\.ext\shell\MatsuEditor` of the current user, which
+//!   shows whatever the default is; 右クリック is that key. Removing deletes it too.
 //! * The names are MATSU's: ProgID `MatsuEditor_ext`, the verb `MatsuEditor`, the label
 //!   `MATSU &Editor`, `MatsuEditorBackup`.
 //! * Removing deletes only what MATSU wrote: the ProgID `MatsuEditor_ext` of that extension (never
@@ -106,6 +110,20 @@ impl Ext {
         format!("{}\\command", self.action_key())
     }
 
+    /// `SystemFileAssociations\.ext\shell`: the verbs for every file with this extension, whatever
+    /// the default program is.
+    fn system_shell_key(&self) -> String {
+        format!("SystemFileAssociations\\{}\\shell", self.dot_key())
+    }
+
+    fn system_action_key(&self) -> String {
+        format!("{}\\{ACTION_NAME}", self.system_shell_key())
+    }
+
+    fn system_command_key(&self) -> String {
+        format!("{}\\command", self.system_action_key())
+    }
+
     fn shell_backup_key(&self) -> String {
         format!("{}\\{SHELL_BACKUP_KEY}", self.action_key())
     }
@@ -179,19 +197,21 @@ fn nonempty(value: Option<String>) -> Option<String> {
     value.filter(|v| !v.is_empty())
 }
 
-/// `CheckExt`: what MATSU has registered for `ext`.
+/// `CheckExt`: what MATSU has registered for `ext`. The menu item is the one under
+/// `SystemFileAssociations` (the one Explorer shows whatever the default program is); the default
+/// verb is the one `CheckExt` reads in the ProgID the extension names now.
 pub fn check(registry: &impl Registry, ext: &Ext) -> Status {
+    let menu = registry.key_exists(&ext.system_action_key());
     let Some(prog_id) = nonempty(registry.value(&ext.dot_key(), "")) else {
-        return Status::default();
+        return Status {
+            menu,
+            default: false,
+        };
     };
     let shell = format!("{prog_id}\\shell");
-    if !registry.key_exists(&format!("{shell}\\{ACTION_NAME}")) {
-        return Status::default();
-    }
-    Status {
-        menu: true,
-        default: registry.value(&shell, "").as_deref() == Some(ACTION_NAME),
-    }
+    let default = registry.key_exists(&format!("{shell}\\{ACTION_NAME}"))
+        && registry.value(&shell, "").as_deref() == Some(ACTION_NAME);
+    Status { menu, default }
 }
 
 /// `RegistExt`: associates `ext` with the program `exe` (the path, unquoted). With `make_default`
@@ -228,6 +248,12 @@ pub fn register(
     registry.set_value(&ext.command_key(), "", &command_line(exe))?;
     registry.set_value(&ext.action_key(), "", ACTION_LABEL)?;
 
+    // Explorer takes the verbs of a file from the ProgID of the program the user chose as the
+    // default (`UserChoice`), so the item under our ProgID does not show when another program is
+    // the default. The same item under `SystemFileAssociations` shows whatever the default is.
+    registry.set_value(&ext.system_command_key(), "", &command_line(exe))?;
+    registry.set_value(&ext.system_action_key(), "", ACTION_LABEL)?;
+
     let shell = ext.shell_key();
     let shell_value = registry.value(&shell, "").unwrap_or_default();
     if make_default {
@@ -246,7 +272,8 @@ pub fn register(
     Ok(())
 }
 
-/// `UnregistExt`: removes what [`register`] wrote for `ext`, and nothing else. `.ext` gets its
+/// `UnregistExt`: removes what [`register`] wrote for `ext` (also the item under
+/// `SystemFileAssociations`), and nothing else. `.ext` gets its
 /// previous default back while it still names MATSU's ProgID; the key `.ext` goes only when it is
 /// empty then.
 pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
@@ -260,6 +287,11 @@ pub fn unregister(registry: &mut impl Registry, ext: &Ext) -> io::Result<()> {
     }
     registry.delete_value(&dot, PROGID_BACKUP_NAME)?;
     registry.delete_tree(&prog_id)?;
+    registry.delete_tree(&ext.system_action_key())?;
+    // The keys above it are removed only when MATSU's item was all they held.
+    registry.delete_key_if_empty(&ext.system_shell_key())?;
+    registry.delete_key_if_empty(&format!("SystemFileAssociations\\{dot}"))?;
+    registry.delete_key_if_empty("SystemFileAssociations")?;
     registry.delete_key_if_empty(&dot)
 }
 
@@ -356,18 +388,23 @@ fn this_program() -> io::Result<(String, String)> {
     Ok((path, name))
 }
 
-/// [`type_state`] of the real registry. Without the registry (not Windows, or the program's path
-/// is unknown) nothing is associated.
-pub fn current_type_state(type_exts: &str) -> TypeState {
+/// [`type_state`] of the real registry. It fails where there is no registry, and when the path of
+/// the running program cannot be found (nothing is then known, which is not "not associated").
+pub fn current_type_state(type_exts: &str) -> io::Result<TypeState> {
     #[cfg(windows)]
     {
-        if let Ok((_, name)) = this_program() {
-            let registry = windows::Real::current_user();
-            return type_state(&registry, type_exts, &name);
-        }
+        let (_, name) = this_program()?;
+        let registry = windows::Real::current_user();
+        Ok(type_state(&registry, type_exts, &name))
     }
-    let _ = type_exts;
-    TypeState::default()
+    #[cfg(not(windows))]
+    {
+        let _ = type_exts;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "file associations are read on Windows only",
+        ))
+    }
 }
 
 /// [`apply`] to the real registry of Windows.

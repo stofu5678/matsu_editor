@@ -231,6 +231,51 @@ fn registering_writes_the_item_and_makes_it_the_default() {
             default: true
         }
     );
+    // The item for every program, whatever the default is.
+    assert_eq!(
+        r.value(r"SystemFileAssociations\.mtest\shell\MatsuEditor", "")
+            .as_deref(),
+        Some("MATSU &Editor")
+    );
+    assert_eq!(
+        r.value(
+            r"SystemFileAssociations\.mtest\shell\MatsuEditor\command",
+            ""
+        )
+        .as_deref(),
+        Some(r#""C:\Program Files\MATSU Editor\matsu.exe" "%1""#)
+    );
+}
+
+#[test]
+fn the_menu_item_stays_when_another_program_took_the_extension() {
+    let mut r = Fake::default();
+    register(&mut r, &ext("mtest"), EXE, true).unwrap();
+    r.put_user(".mtest", "", "newowner");
+    assert_eq!(
+        check(&r, &ext("mtest")),
+        Status {
+            menu: true,
+            default: false
+        }
+    );
+    unregister(&mut r, &ext("mtest")).unwrap();
+    assert!(!r.key_exists("SystemFileAssociations"));
+    assert_eq!(r.value(".mtest", "").as_deref(), Some("newowner"));
+}
+
+#[test]
+fn removing_keeps_what_else_is_under_system_file_associations() {
+    let mut r = Fake::default();
+    r.put_user(
+        r"SystemFileAssociations\.mtest\shell\other\command",
+        "",
+        "o.exe",
+    );
+    register(&mut r, &ext("mtest"), EXE, false).unwrap();
+    unregister(&mut r, &ext("mtest")).unwrap();
+    assert!(r.key_exists(r"SystemFileAssociations\.mtest\shell\other\command"));
+    assert!(!r.key_exists(r"SystemFileAssociations\.mtest\shell\MatsuEditor"));
 }
 
 #[test]
@@ -468,7 +513,7 @@ fn only_windows_associates() {
     assert_eq!(supported(), cfg!(windows));
     #[cfg(not(windows))]
     {
-        assert_eq!(current_type_state("txt"), TypeState::default());
+        assert!(current_type_state("txt").is_err());
         assert!(apply_to_system("txt", Change::Menu(true)).is_err());
     }
 }

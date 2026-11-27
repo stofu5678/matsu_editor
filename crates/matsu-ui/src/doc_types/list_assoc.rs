@@ -7,14 +7,21 @@
 //! only Windows has it. On macOS and Linux the check boxes are not shown (as before): which way
 //! they should work there is the user's decision.
 //!
-//! The state of a type is read from the registry the first time the type is selected and kept for
-//! the dialog (`m_bRegistryChecked`). It is dropped for a type when this dialog changes it (the
-//! state is read again then); a change made by another program while the dialog is open is not
-//! seen until the dialog is opened again.
+//! The state of the selected type is read from the registry when the dialog opens, when the
+//! selection changes and after every write (`LBN_SELCHANGE`), and kept only to draw the check
+//! boxes. A click never trusts it: it reads the registry again and toggles from that, so a type
+//! that shares an extension with another, or another program that changed the registry while the
+//! dialog is open, cannot make the click do the wrong thing.
+//!
+//! The check boxes have no access keys in Sakura (`IDC_CHECK_EXT_RMENU` and `IDC_CHECK_EXT_DBLCLICK`
+//! in `sakura_core/sakura_rc.rc`, lines 684-685: no `&` in the labels). Here they are tab stops of
+//! the dialog and Space presses the one that has the focus; a grey one is not a tab stop.
+
+use std::io;
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px, rgb,
+    AnyElement, App, ClickEvent, Context, FocusHandle, InteractiveElement, IntoElement,
+    KeyDownEvent, ParentElement, StatefulInteractiveElement, Styled, Window, div, px, rgb,
 };
 use matsu_platform::file_association::{self, Change, TypeState};
 
@@ -29,10 +36,42 @@ const ALERT: &str = "Windowsの関連付け設定を変更しようとしてい�
 const ERROR_ASSOCIATE: &str = "関連付けに失敗しました\n";
 /// `STR_DLGTYPELIST_ERR2`: removing the association failed.
 const ERROR_UNASSOCIATE: &str = "関連付け解除に失敗しました\n";
+/// The state could not be read (not in Sakura: it has no such failure).
+const ERROR_READ: &str = "関連付けの状態を読めませんでした\n";
 
 /// The labels of the check boxes (`IDD_TYPELIST`: `sakura_core/sakura_rc.rc`).
 const MENU_LABEL: &str = "右クリックメニューに追加";
 const DEFAULT_LABEL: &str = "ダブルクリックで開く";
+
+/// Where the association is read and written: the registry of Windows, or a fake in the tests.
+pub(super) trait Backend {
+    /// Does this OS have the association at all?
+    fn supported(&self) -> bool;
+    fn read(&self, exts: &str) -> io::Result<TypeState>;
+    fn write(&self, exts: &str, change: Change) -> io::Result<()>;
+}
+
+/// The real thing (`matsu_platform::file_association`).
+pub(super) struct System;
+
+impl Backend for System {
+    fn supported(&self) -> bool {
+        file_association::supported()
+    }
+
+    fn read(&self, exts: &str) -> io::Result<TypeState> {
+        file_association::current_type_state(exts)
+    }
+
+    fn write(&self, exts: &str, change: Change) -> io::Result<()> {
+        file_association::apply_to_system(exts, change)
+    }
+}
+
+/// What the check boxes show: the state read for the selected type, or why it could not be read.
+pub(super) struct Shown {
+    state: Result<TypeState, String>,
+}
 
 /// What to tell the user about the extensions where Windows opens another program for the double
 /// click although MATSU is registered (`UserChoice`, which a program cannot change). `None` when
@@ -64,25 +103,34 @@ impl TypeList {
         })
     }
 
-    /// What the check boxes show for the selected type, read from the registry when the type has
-    /// not been looked at yet. `None` where this OS has no association.
-    fn association(&mut self, cx: &App) -> Option<(String, TypeState)> {
-        if !file_association::supported() {
-            return None;
-        }
-        let exts = self.selected_exts(cx);
-        let state = self
-            .associations
-            .entry(exts.clone())
-            .or_insert_with(|| file_association::current_type_state(&exts))
-            .clone();
-        Some((exts, state))
+    /// Reads what the check boxes show for the selected type. Called when the selection changes,
+    /// not while drawing. A failure is kept as the text to show and is read again next time.
+    pub(super) fn read_association(&mut self, cx: &App) {
+        self.association = if self.backend.supported() {
+            let exts = self.selected_exts(cx);
+            Some(Shown {
+                state: self.backend.read(&exts).map_err(|e| e.to_string()),
+            })
+        } else {
+            None
+        };
     }
 
-    /// The click on a check box. The warning comes first, once for the dialog.
+    /// The click on a check box, or Space on it. The warning comes first, once for the dialog.
     fn change_association(&mut self, menu: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((exts, state)) = self.association(cx) else {
+        if !self.backend.supported() {
             return;
+        }
+        let exts = self.selected_exts(cx);
+        // From the registry as it is now, not from what was drawn.
+        let state = match self.backend.read(&exts) {
+            Ok(state) => state,
+            Err(e) => {
+                self.say(&format!("{ERROR_READ}{e}"), window, cx);
+                self.read_association(cx);
+                cx.notify();
+                return;
+            }
         };
         // ダブルクリック is grey while 右クリック is off (`EnableWindow(hwndDblClick, m_bExtRMenu)`).
         if !state.available || (!menu && !state.menu) {
@@ -112,7 +160,7 @@ impl TypeList {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Err(e) = file_association::apply_to_system(exts, change) {
+        if let Err(e) = self.backend.write(exts, change) {
             let head = if change == Change::Menu(false) {
                 ERROR_UNASSOCIATE
             } else {
@@ -120,78 +168,63 @@ impl TypeList {
             };
             self.say(&format!("{head}{e}"), window, cx);
         }
-        self.associations.remove(exts);
+        self.read_association(cx);
         cx.notify();
     }
 
     /// The check boxes under the list; nothing where this OS has no association.
-    pub(super) fn render_association(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (_, state) = self.association(cx)?;
-        let check_box = |id: &'static str, label: &'static str, checked: bool, enabled: bool| {
-            let color = if enabled { super::list::TEXT } else { 0x888888 };
-            let element = div()
-                .id(id)
-                .role(gpui::Role::CheckBox)
-                .aria_label(label)
-                .aria_toggled(if checked {
-                    gpui::Toggled::True
+    pub(super) fn render_association(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let shown = self.association.as_ref()?;
+        let (menu_on, default_on, available, can_default, note) = match &shown.state {
+            Ok(s) => (
+                s.menu,
+                s.default,
+                s.available,
+                s.available && s.menu,
+                if s.default {
+                    overridden_note(&s.overridden)
                 } else {
-                    gpui::Toggled::False
-                })
-                .flex()
-                .items_center()
-                .gap_2()
-                .mr_4()
-                .text_color(rgb(color))
-                .child(
-                    div()
-                        .w(px(16.))
-                        .h(px(16.))
-                        .border_1()
-                        .border_color(rgb(0x666666))
-                        .bg(rgb(0xffffff))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(if checked { "✓" } else { "" }),
-                )
-                .child(label);
-            if enabled {
-                element.cursor_pointer()
-            } else {
-                element
-            }
+                    None
+                },
+            ),
+            Err(e) => (false, false, false, false, Some(format!("{ERROR_READ}{e}"))),
         };
         let menu = crate::a11y::disabled(
             check_box(
                 "type-list-ext-menu",
                 MENU_LABEL,
-                state.menu,
-                state.available,
+                menu_on,
+                available.then_some(&self.menu_focus),
             )
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.change_association(true, window, cx)
+            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "space" {
+                    this.change_association(true, window, cx);
+                    cx.stop_propagation();
+                }
             })),
-            !state.available,
+            !available,
         );
-        let default_enabled = state.available && state.menu;
         let default = crate::a11y::disabled(
             check_box(
                 "type-list-ext-default",
                 DEFAULT_LABEL,
-                state.default,
-                default_enabled,
+                default_on,
+                can_default.then_some(&self.default_focus),
             )
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.change_association(false, window, cx)
+            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "space" {
+                    this.change_association(false, window, cx);
+                    cx.stop_propagation();
+                }
             })),
-            !default_enabled,
+            !can_default,
         );
-        let note = if state.default {
-            overridden_note(&state.overridden)
-        } else {
-            None
-        };
         Some(
             div()
                 .mt_2()
@@ -208,6 +241,52 @@ impl TypeList {
                 }))
                 .into_any_element(),
         )
+    }
+}
+
+/// A check box. `focus` is its focus handle while it can be used (a tab stop), and `None` while
+/// it is grey.
+fn check_box(
+    id: &'static str,
+    label: &'static str,
+    checked: bool,
+    focus: Option<&FocusHandle>,
+) -> gpui::Stateful<gpui::Div> {
+    let color = if focus.is_some() {
+        super::list::TEXT
+    } else {
+        0x888888
+    };
+    let element = div()
+        .id(id)
+        .role(gpui::Role::CheckBox)
+        .aria_label(label)
+        .aria_toggled(if checked {
+            gpui::Toggled::True
+        } else {
+            gpui::Toggled::False
+        })
+        .flex()
+        .items_center()
+        .gap_2()
+        .mr_4()
+        .text_color(rgb(color))
+        .child(
+            div()
+                .w(px(16.))
+                .h(px(16.))
+                .border_1()
+                .border_color(rgb(0x666666))
+                .bg(rgb(0xffffff))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(if checked { "✓" } else { "" }),
+        )
+        .child(label);
+    match focus {
+        Some(focus) => element.track_focus(focus).cursor_pointer(),
+        None => element,
     }
 }
 
