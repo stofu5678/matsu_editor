@@ -21,6 +21,19 @@
 /// The usual number of lines in a block.
 const BLOCK: usize = 256;
 
+// The steps the trees took, for the test that checks the first layout is not quadratic.
+#[cfg(test)]
+thread_local! {
+    static TREE_WORK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn work(n: usize) {
+    #[cfg(test)]
+    TREE_WORK.with(|w| w.set(w.get() + n as u64));
+    #[cfg(not(test))]
+    let _ = n;
+}
+
 /// A Fenwick tree (binary indexed tree) of `u64` sums over the blocks.
 #[derive(Clone, Debug, Default)]
 struct Fenwick {
@@ -30,6 +43,7 @@ struct Fenwick {
 impl Fenwick {
     fn build(values: impl ExactSizeIterator<Item = u64>) -> Self {
         let n = values.len();
+        work(n);
         let mut tree = vec![0; n + 1];
         for (i, v) in values.enumerate() {
             let k = i + 1;
@@ -47,11 +61,31 @@ impl Fenwick {
         self.tree.len().saturating_sub(1)
     }
 
+    /// Cuts the tree back to its first `n` entries (the entries `1..=n` of the tree only hold
+    /// sums over entries up to themselves, so they stay right).
+    fn truncate(&mut self, n: usize) {
+        if self.tree.len() > n + 1 {
+            self.tree.truncate(n + 1);
+        }
+    }
+
+    /// Appends an entry, O(log n).
+    fn push(&mut self, value: u64) {
+        if self.tree.is_empty() {
+            self.tree.push(0);
+        }
+        let k = self.tree.len();
+        // The entry `k` holds the sum over `(k - lowbit(k), k]`.
+        let below = self.prefix(k - 1) - self.prefix(k - k.isolate_lowest_one());
+        self.tree.push(value + below);
+    }
+
     /// Adds `delta` to the entry `i` (0-based).
     fn add(&mut self, i: usize, delta: i64) {
         let n = self.len();
         let mut k = i + 1;
         while k <= n {
+            work(1);
             self.tree[k] = self.tree[k].wrapping_add_signed(delta);
             k += k.isolate_lowest_one();
         }
@@ -62,6 +96,7 @@ impl Fenwick {
         let mut k = i;
         let mut sum = 0;
         while k > 0 {
+            work(1);
             sum += self.tree[k];
             k -= k.isolate_lowest_one();
         }
@@ -77,6 +112,7 @@ impl Fenwick {
         let mut rest = target;
         let mut step = n.next_power_of_two();
         while step > 0 {
+            work(1);
             let next = pos + step;
             if next <= n && self.tree[next] <= rest {
                 pos = next;
@@ -358,8 +394,27 @@ impl RowSeq {
             builder.feed(block, 0, block.len());
         }
         let pieces = builder.finish();
-        self.blocks.splice(lo.min(hi)..hi, pieces);
-        self.rebuild();
+        let lo = lo.min(hi);
+        if hi == self.blocks.len() {
+            // The change reaches the last block, as when the first layout stores its chunks one
+            // after the other in front of the one run of ones that is left: cut the trees back
+            // to `lo` blocks and append the new ones, O(log n) each, instead of building them
+            // again over every block.
+            self.blocks.truncate(lo);
+            self.fen_lines.truncate(lo);
+            self.fen_rows.truncate(lo);
+            for block in pieces {
+                self.fen_lines.push(block.len() as u64);
+                self.fen_rows.push(block.rows());
+                self.blocks.push(block);
+            }
+            let n = self.blocks.len();
+            self.lines = self.fen_lines.prefix(n) as usize;
+            self.rows = self.fen_rows.prefix(n);
+        } else {
+            self.blocks.splice(lo..hi, pieces);
+            self.rebuild();
+        }
     }
 
     /// The edit inside block `b`, when the block stays valid. Returns whether it was done.
@@ -457,6 +512,8 @@ fn sum(counts: &[u32]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
 
     fn check(seq: &RowSeq, expect: &[u32]) {
@@ -666,5 +723,53 @@ mod tests {
         seq.replace(0, 1_000_000, &[]);
         assert_eq!(seq.len(), 99_000_100);
         assert_eq!(seq.block_count(), 1);
+    }
+
+    /// The tree steps of laying out `lines` lines that all wrap, chunk by chunk from the top as
+    /// `layout_for` does: each chunk of 512 lines is stored over the front of the one run of ones
+    /// that is left.
+    fn first_layout_work(lines: usize) -> u64 {
+        let mut seq = RowSeq::ones(lines);
+        TREE_WORK.with(|w| w.set(0));
+        let mut done = 0;
+        while done < lines {
+            let n = 512.min(lines - done);
+            seq.replace(done, n, &vec![2; n]);
+            done += n;
+        }
+        assert_eq!(seq.total_rows(), 2 * lines as u64);
+        assert_eq!(seq.first_row(lines - 1), 2 * (lines as u64 - 1));
+        assert_eq!(seq.locate_row(2 * lines as u64 - 1), Some((lines - 1, 1)));
+        TREE_WORK.with(Cell::get)
+    }
+
+    /// The first layout of a document that wraps in every line takes work in proportion to the
+    /// lines (times a log), not to their square: four times the lines may take much less than 16
+    /// times the work.
+    #[test]
+    fn the_first_layout_of_a_wrapped_document_is_not_quadratic() {
+        let small = first_layout_work(40_000);
+        let large = first_layout_work(160_000);
+        assert!(
+            large < small * 6,
+            "{small} steps for 40,000 lines, {large} for 160,000"
+        );
+    }
+
+    #[test]
+    fn the_tail_is_cut_and_appended_like_a_rebuild() {
+        // Appending through the tail path gives the same trees as building them from scratch.
+        let mut seq = RowSeq::ones(5000);
+        let mut model = vec![1u32; 5000];
+        for k in 0..40 {
+            let at = k * 100;
+            seq.replace(at, 60, &[2; 60]);
+            model[at..at + 60].fill(2);
+            check(&seq, &model);
+            let lines = Fenwick::build(seq.blocks.iter().map(|b| b.len() as u64));
+            let rows = Fenwick::build(seq.blocks.iter().map(Block::rows));
+            assert_eq!(seq.fen_lines.tree, lines.tree);
+            assert_eq!(seq.fen_rows.tree, rows.tree);
+        }
     }
 }
