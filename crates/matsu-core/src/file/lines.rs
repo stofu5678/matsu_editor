@@ -318,7 +318,7 @@ pub fn open_line_stream(
             "not a regular file",
         )));
     }
-    let ranged = RangedFile::open(path)?;
+    let ranged = RangedFile::open_with(path, options.ranged_options())?;
     let len = ranged.len();
     let Some(from) = options.huge_file_len else {
         return Ok(None);

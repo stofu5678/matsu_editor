@@ -173,3 +173,14 @@ jobs:
           path: huge-measure-report/
           if-no-files-found: warn
           retention-days: 30
+
+      # The program deletes each file when it is measured, but a kill (the time limit of the job, the
+      # out-of-memory killer, a cancel) skips that. The folder is this job's own: take all of it away,
+      # the files `huge-measure-*` and the temporary files of a save.
+      - name: Delete the measurement files
+        if: always() && steps.where.outputs.dir != ''
+        env:
+          DIR: ${{ steps.where.outputs.dir }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then sudo rm -rf "$DIR"; else rm -rf "$DIR"; fi
+          echo "deleted $DIR"

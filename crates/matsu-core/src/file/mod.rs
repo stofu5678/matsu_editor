@@ -111,9 +111,11 @@ pub struct OpenOptions {
     /// The sizes and the pace of the scan of a file opened by ranges.
     /// [`ext_eol`](Self::ext_eol) overrides the one in it.
     pub huge_scan: ScanOptions,
-    /// The block size and the cache of the file opened by ranges. Only the measuring program
-    /// (`matsu-regex`'s `huge_measure` example) and the tests set it; the editor takes the default.
-    pub huge_ranged: RangedOptions,
+    /// One block size for the file's cache and for the scan's index, and the number of blocks the
+    /// cache keeps. `None` (the default, and all the editor uses) leaves the two block sizes at
+    /// their own defaults ([`DEFAULT_BLOCK_SIZE`] and `huge_scan.block_size`). Only the measuring
+    /// program (`matsu-regex`'s `huge_measure` example) and the tests set it, to compare sizes.
+    pub huge_blocks: Option<HugeBlocks>,
     /// When a file over [`huge_file_len`](Self::huge_file_len) is in an encoding that has to be
     /// read whole, fail with [`FileError::WholeReadNeeded`] instead of reading it (so that the
     /// caller can ask first, ADR-0020 9.9). Off by default: the file is read whole.
@@ -131,8 +133,41 @@ impl Default for OpenOptions {
             ext_eol: false,
             huge_file_len: None,
             huge_scan: ScanOptions::default(),
-            huge_ranged: RangedOptions::default(),
+            huge_blocks: None,
             ask_before_whole_read: false,
+        }
+    }
+}
+
+/// A block size for both the cache of a file opened by ranges and the index of its scan
+/// ([`OpenOptions::huge_blocks`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HugeBlocks {
+    /// Bytes per block. Must not be 0.
+    pub block_size: usize,
+    /// Blocks the file's cache keeps. Must not be 0.
+    pub cache_blocks: usize,
+}
+
+impl OpenOptions {
+    /// The options of the [`RangedFile`] of a file opened by ranges.
+    fn ranged_options(&self) -> RangedOptions {
+        self.huge_blocks
+            .map_or_else(RangedOptions::default, |b| RangedOptions {
+                block_size: b.block_size,
+                cache_blocks: b.cache_blocks,
+            })
+    }
+
+    /// The options of the scan of a file opened by ranges: `huge_scan`, with the block size of
+    /// `huge_blocks` when that is set, and [`ext_eol`](Self::ext_eol).
+    fn scan_options(&self) -> ScanOptions {
+        ScanOptions {
+            ext_eol: self.ext_eol,
+            block_size: self
+                .huge_blocks
+                .map_or(self.huge_scan.block_size, |b| b.block_size),
+            ..self.huge_scan
         }
     }
 }
@@ -351,7 +386,7 @@ fn open_ranged(
     options: &OpenOptions,
     progress: Progress<'_>,
 ) -> Result<Option<TextFile>> {
-    let ranged = RangedFile::open_with(path, options.huge_ranged)?;
+    let ranged = RangedFile::open_with(path, options.ranged_options())?;
     let len = ranged.len();
     let head = ranged
         .read(0, len.min(DETECT_SAMPLE_LEN as u64))?
@@ -385,10 +420,7 @@ fn open_ranged(
     if progress(len, len).is_break() {
         return Err(FileError::Cancelled);
     }
-    let scan_options = ScanOptions {
-        ext_eol: options.ext_eol,
-        ..options.huge_scan
-    };
+    let scan_options = options.scan_options();
     let job = ScanJob::spawn(source, Arc::new(EncodingCodec(encoding)), scan_options)
         .map_err(scan_to_file_error)?;
     let waited = std::time::Instant::now();

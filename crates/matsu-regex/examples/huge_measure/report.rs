@@ -201,16 +201,30 @@ impl Report {
                 out.push_str("---:|");
             }
             out.push('\n');
-            // The metrics are the same for every block size, in the same order.
-            for (i, (name, unit, _)) in runs[0].metrics.iter().enumerate() {
+            // A run that stopped early or failed has fewer metrics than a full one: the rows are
+            // the names of all the runs (in the order they first appear), and each cell is looked
+            // up by name.
+            let mut rows: Vec<(&str, &str)> = Vec::new();
+            for r in &runs {
+                for (name, unit, _) in &r.metrics {
+                    if !rows.iter().any(|(n, _)| n == name) {
+                        rows.push((name, unit));
+                    }
+                }
+            }
+            for (name, unit) in rows {
                 let label = if unit.is_empty() {
-                    name.clone()
+                    name.to_owned()
                 } else {
                     format!("{name} ({unit})")
                 };
                 let _ = write!(out, "| {} |", Value::text(label).markdown());
                 for r in &runs {
-                    let cell = r.metrics.get(i).map_or("-".to_owned(), |m| m.2.markdown());
+                    let cell = r
+                        .metrics
+                        .iter()
+                        .find(|m| m.0 == name)
+                        .map_or("-".to_owned(), |m| m.2.markdown());
                     let _ = write!(out, " {cell} |");
                 }
                 out.push('\n');
@@ -395,6 +409,26 @@ mod tests {
             md.contains("| truncate | ok | changed outside | ok |"),
             "{md}"
         );
+    }
+
+    #[test]
+    fn a_run_with_other_metrics_is_matched_by_name() {
+        // The first run stopped early: it lacks "scan" and "save". The second has an extra metric
+        // that the first never reached, and a different order.
+        let mut a = Run::new("S", 1024 * 1024, 64);
+        a.num("open", "ms", 1.0);
+        let mut b = Run::new("S", 1024 * 1024, 256);
+        b.num("scan", "s", 2.0);
+        b.num("open", "ms", 3.0);
+        b.num("save", "s", 4.0);
+        let report = Report {
+            runs: vec![a, b],
+            ..Report::default()
+        };
+        let md = report.markdown();
+        assert!(md.contains("| open (ms) | 1 | 3 |"), "{md}");
+        assert!(md.contains("| scan (s) | - | 2 |"), "{md}");
+        assert!(md.contains("| save (s) | - | 4 |"), "{md}");
     }
 
     #[test]

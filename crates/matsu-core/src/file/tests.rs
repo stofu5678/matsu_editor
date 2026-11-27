@@ -2300,3 +2300,31 @@ fn deleting_everything_and_saving_lets_go_of_the_old_file() {
     file.save(&again, &mut no_progress).unwrap();
     assert_eq!(fs::read(&path).unwrap(), b"new");
 }
+
+#[test]
+fn huge_blocks_set_both_block_sizes_and_the_default_changes_nothing() {
+    let plain = OpenOptions {
+        ext_eol: true,
+        ..OpenOptions::default()
+    };
+    assert_eq!(plain.ranged_options(), RangedOptions::default());
+    let scan = plain.scan_options();
+    assert_eq!(scan.block_size, ScanOptions::default().block_size);
+    assert!(scan.ext_eol);
+
+    let sized = OpenOptions {
+        huge_blocks: Some(HugeBlocks {
+            block_size: 16,
+            cache_blocks: 3,
+        }),
+        ..OpenOptions::default()
+    };
+    assert_eq!(
+        sized.ranged_options(),
+        RangedOptions {
+            block_size: 16,
+            cache_blocks: 3
+        }
+    );
+    assert_eq!(sized.scan_options().block_size, 16);
+}

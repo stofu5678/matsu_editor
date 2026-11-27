@@ -49,16 +49,24 @@ pub fn reset_peak_memory() -> bool {
     cfg!(target_os = "linux") && fs::write("/proc/self/clear_refs", "5").is_ok()
 }
 
-/// Drops the OS's cache of file data, so that a read comes from the disk. Only Linux as root can;
-/// the answer says what happened.
-pub fn drop_os_cache() -> &'static str {
+/// Drops the OS's cache of file data, so that a read comes from the disk. Only Linux as root can.
+/// Returns whether it did.
+pub fn drop_os_cache() -> bool {
     if cfg!(target_os = "linux") {
         // Dirty pages cannot be dropped: write them out first.
         let _ = Command::new("sync").status();
-        match fs::write("/proc/sys/vm/drop_caches", "3") {
-            Ok(()) => "dropped before each run (so a first read comes from the disk)",
-            Err(_) => "not dropped (needs root): reads may come from the OS cache",
-        }
+        fs::write("/proc/sys/vm/drop_caches", "3").is_ok()
+    } else {
+        false
+    }
+}
+
+/// What the report says about the OS cache, from the answer of [`drop_os_cache`].
+pub fn drop_note(dropped: bool) -> &'static str {
+    if dropped {
+        "dropped before each run and before each cold read (so a first read comes from the disk)"
+    } else if cfg!(target_os = "linux") {
+        "not dropped (needs root): reads may come from the OS cache"
     } else {
         "not dropped (no way without extra tools): reads may come from the OS cache"
     }

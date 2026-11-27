@@ -17,7 +17,7 @@
 //! (UTF-16 LE) and E (EUC-JP); L and E are at most 1 GiB, as in ADR-0020.
 //!
 //! The program changes no product behavior: the block size reaches the code through
-//! `OpenOptions::huge_ranged` and `huge_scan`, which only this program and the tests set.
+//! `OpenOptions::huge_blocks`, which only this program and the tests set.
 
 mod checks;
 mod generate;
@@ -30,8 +30,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use matsu_core::buffer::{Document, Pos, ScanOptions};
-use matsu_core::file::{OpenOptions, RangedOptions, SaveOptions, no_progress, open_file};
+use matsu_core::buffer::{Document, Pos};
+use matsu_core::file::{HugeBlocks, OpenOptions, SaveOptions, TextFile, no_progress, open_file};
 use matsu_core::search::{
     Control, Direction, Matcher, PlainMatcher, PlainOptions, SearchError, SearchJob, find, find_all,
 };
@@ -326,9 +326,56 @@ fn mib(bytes: usize) -> f64 {
     bytes as f64 / MIB as f64
 }
 
-/// Measures one file with one block size. A step that fails ends the run with a note; the
+/// The options a file is opened with for one block size: the cache of the file and the index of
+/// the scan have that block size, and the cache is `--cache-mb` in all.
+fn options_for(kind: Kind, block_kib: u64, args: &Args) -> OpenOptions {
+    let block = (block_kib * 1024) as usize;
+    OpenOptions {
+        encoding: Some(kind.encoding()),
+        huge_file_len: Some(1),
+        huge_blocks: Some(HugeBlocks {
+            block_size: block,
+            cache_blocks: ((args.cache_mb * MIB) as usize / block).max(1),
+        }),
+        ..OpenOptions::default()
+    }
+}
+
+/// Opens the file by ranges with a new, empty cache and waits for the scan to end.
+fn open_scanned(path: &Path, options: &OpenOptions, limit: Duration) -> Result<TextFile, String> {
+    let start = Instant::now();
+    let mut file = open_file(path, options).map_err(|e| format!("open: {e}"))?;
+    if !file.is_ranged() {
+        return Err("the file was not opened by ranges".to_owned());
+    }
+    if let Some(job) = file.take_scan() {
+        let mut cancelled = false;
+        while !job.is_finished() {
+            if !cancelled && start.elapsed() > limit {
+                job.cancel();
+                cancelled = true;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        if cancelled {
+            return Err(format!("the scan did not end in {} s", limit.as_secs()));
+        }
+        file.document = job.finish().map_err(|e| format!("scan: {e}"))?;
+    }
+    Ok(file)
+}
+
+fn file_len(path: &Path) -> Result<u64, String> {
+    fs::metadata(path)
+        .map(|m| m.len())
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Measures one file with one block size, without the saves (they change the file, so they come
+/// after every block size, in [`measure_save`]). A step that fails ends the run with a note; the
 /// numbers measured before stay.
-fn measure(path: &Path, kind: Kind, file_bytes: u64, block_kib: u64, args: &Args) -> Run {
+fn measure(path: &Path, kind: Kind, block_kib: u64, args: &Args) -> Run {
+    let file_bytes = file_len(path).unwrap_or(0);
     let mut run = Run::new(kind.letter(), file_bytes, block_kib);
     if let Err(message) = measure_steps(&mut run, path, kind, file_bytes, block_kib, args) {
         run.notes.push(format!("stopped: {message}"));
@@ -344,21 +391,8 @@ fn measure_steps(
     block_kib: u64,
     args: &Args,
 ) -> Result<(), String> {
-    let block = (block_kib * 1024) as usize;
-    let options = OpenOptions {
-        encoding: Some(kind.encoding()),
-        huge_file_len: Some(1),
-        huge_scan: ScanOptions {
-            block_size: block,
-            ..ScanOptions::default()
-        },
-        huge_ranged: RangedOptions {
-            block_size: block,
-            cache_blocks: ((args.cache_mb * MIB) as usize / block).max(1),
-        },
-        ..OpenOptions::default()
-    };
-    sys::drop_os_cache();
+    let options = options_for(kind, block_kib, args);
+    let os_cache_dropped = sys::drop_os_cache();
     if !sys::reset_peak_memory() {
         run.notes.push(
             "the peak of the memory is the peak of the whole process so far (it could not be reset)"
@@ -427,15 +461,24 @@ fn measure_steps(
         mib(file.document.index_heap_bytes()),
     );
 
-    // Jumps: the first read of a place is cold for the file's cache (and for the OS cache when it
-    // was dropped), the second is warm.
+    // Jumps. The first read of a place is cold: the file is opened again (a new, empty cache of
+    // the file) and scanned, then the OS cache is dropped where that is possible, and then the
+    // place is read. The second read is warm. Where the OS cache cannot be dropped the number is
+    // cold for the file's cache only, and its name says so.
+    let cold_name = if os_cache_dropped {
+        "cold"
+    } else {
+        "cold for the file's cache only, OS cache warm"
+    };
     for (name, at) in [("middle", At::Middle), ("end", At::End)] {
+        let fresh = open_scanned(path, &options, args.scan_limit)?;
+        sys::drop_os_cache();
         let t = Instant::now();
-        read_screen(&file.document, at)?;
+        read_screen(&fresh.document, at)?;
         let cold = t.elapsed();
         let t = Instant::now();
-        read_screen(&file.document, at)?;
-        run.num(&format!("jump to the {name}, cold"), "ms", ms(cold));
+        read_screen(&fresh.document, at)?;
+        run.num(&format!("jump to the {name}, {cold_name}"), "ms", ms(cold));
         run.num(&format!("jump to the {name}, warm"), "ms", ms(t.elapsed()));
     }
 
@@ -497,36 +540,57 @@ fn measure_steps(
         );
     }
 
-    if args.save {
-        let keep = SaveOptions::keep(&file);
-        let t = Instant::now();
-        file.save(&keep, &mut no_progress)
-            .map_err(|e| format!("save without changes: {e}"))?;
-        let t = t.elapsed();
-        run.num("save without changes", "s", t.as_secs_f64());
-        run.num(
-            "save without changes, throughput",
-            "MB/s",
-            mb_per_s(file_bytes, t),
-        );
-        file.document
-            .insert(Pos::new(0, 0), "x")
-            .map_err(|e| format!("edit: {e}"))?;
-        let keep = SaveOptions::keep(&file);
-        let t = Instant::now();
-        file.save(&keep, &mut no_progress)
-            .map_err(|e| format!("save after an edit: {e}"))?;
-        let t = t.elapsed();
-        run.num("save after one edit", "s", t.as_secs_f64());
-        run.num(
-            "save after one edit, throughput",
-            "MB/s",
-            mb_per_s(file_bytes, t),
-        );
-    }
     let (rss, peak) = sys::memory_mib();
     run.num("resident at the end", "MiB", rss.unwrap_or(f64::NAN));
     run.num("peak resident of the run", "MiB", peak.unwrap_or(f64::NAN));
+    Ok(())
+}
+
+/// The saves: without changes, and after one edit. They replace the file, so they run after every
+/// block size has been measured on the unchanged file. The file is opened and scanned with the
+/// block size before each save: a save leaves the document reading the file it wrote with the
+/// default block sizes, and the edit must be saved from the sizes being measured.
+fn measure_save(
+    run: &mut Run,
+    path: &Path,
+    kind: Kind,
+    block_kib: u64,
+    args: &Args,
+) -> Result<(), String> {
+    let options = options_for(kind, block_kib, args);
+    sys::drop_os_cache();
+    let mut file = open_scanned(path, &options, args.scan_limit)?;
+    let bytes = file_len(path)?;
+    let keep = SaveOptions::keep(&file);
+    let t = Instant::now();
+    file.save(&keep, &mut no_progress)
+        .map_err(|e| format!("save without changes: {e}"))?;
+    let t = t.elapsed();
+    run.num("save without changes", "s", t.as_secs_f64());
+    run.num(
+        "save without changes, throughput",
+        "MB/s",
+        mb_per_s(bytes, t),
+    );
+    drop(file);
+
+    sys::drop_os_cache();
+    let mut file = open_scanned(path, &options, args.scan_limit)?;
+    let bytes = file_len(path)?;
+    file.document
+        .insert(Pos::new(0, 0), "x")
+        .map_err(|e| format!("edit: {e}"))?;
+    let keep = SaveOptions::keep(&file);
+    let t = Instant::now();
+    file.save(&keep, &mut no_progress)
+        .map_err(|e| format!("save after an edit: {e}"))?;
+    let t = t.elapsed();
+    run.num("save after one edit", "s", t.as_secs_f64());
+    run.num(
+        "save after one edit, throughput",
+        "MB/s",
+        mb_per_s(bytes, t),
+    );
     Ok(())
 }
 
@@ -544,7 +608,7 @@ fn write_reports(report: &Report, out: &Path) -> Result<(), String> {
 
 fn run_all(args: &Args, argument_text: &str) -> Result<Report, String> {
     fs::create_dir_all(&args.dir).map_err(|e| format!("{}: {e}", args.dir.display()))?;
-    let cache = sys::drop_os_cache();
+    let cache = sys::drop_note(sys::drop_os_cache());
     let mut report = Report {
         machine: Machine {
             ..sys::machine(&args.dir, cache)
@@ -591,9 +655,10 @@ fn run_all(args: &Args, argument_text: &str) -> Result<Report, String> {
                 Err(e) => eprintln!("{}: the baseline failed: {e}", kind.letter()),
             }
         }
+        let first_run = report.runs.len();
         for (i, &block_kib) in args.blocks_kib.iter().enumerate() {
             eprintln!("{}: block {block_kib} KiB ...", kind.letter());
-            let mut run = measure(&path, kind, made, block_kib, args);
+            let mut run = measure(&path, kind, block_kib, args);
             if i == 0 {
                 run.notes.push(format!(
                     "the file ({}) was made in {:.1} s ({:.0} MB/s)",
@@ -604,6 +669,21 @@ fn run_all(args: &Args, argument_text: &str) -> Result<Report, String> {
             }
             report.runs.push(run);
             // After every run, so that a job that is cut off leaves what it has.
+            write_reports(&report, &args.out)?;
+        }
+        if args.save {
+            for run in report.runs[first_run..].iter_mut() {
+                eprintln!("{}: saves, block {} KiB ...", kind.letter(), run.block_kib);
+                if let Err(e) = measure_save(run, &path, kind, run.block_kib, args) {
+                    run.notes.push(format!("the saves stopped: {e}"));
+                }
+            }
+            if let Some(run) = report.runs.get_mut(first_run) {
+                run.notes.push(
+                    "the saves ran last, on the same file one block size after the other; each edit adds one byte"
+                        .to_owned(),
+                );
+            }
             write_reports(&report, &args.out)?;
         }
         // The file goes now: the next kind may need the room (the runners have little).
@@ -650,11 +730,22 @@ mod tests {
         list.iter().map(|s| (*s).to_owned()).collect()
     }
 
-    fn scratch(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("matsu-huge-measure-{tag}-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// A folder of the test, removed when dropped, also when the test fails.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("matsu-huge-measure-{tag}-{}", std::process::id()));
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]
@@ -696,66 +787,65 @@ mod tests {
 
     /// Every kind goes through the whole measurement on a small file, with a small block, and every
     /// step gives a number.
+    fn metric(run: &Run, prefix: &str) -> report::Value {
+        run.metrics
+            .iter()
+            .find(|m| m.0.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no {prefix}: {:?}", run.metrics))
+            .2
+            .clone()
+    }
+
+    /// Every kind goes through the whole measurement on a small file, with a small block, and every
+    /// step gives a number.
     #[test]
     fn every_kind_is_measured_end_to_end() {
-        let dir = scratch("measure");
+        let dir = Scratch::new("measure");
         for kind in Kind::ALL {
-            let path = dir.join(format!("{}.bin", kind.letter()));
+            let path = dir.0.join(format!("{}.bin", kind.letter()));
             let mut file = File::create(&path).unwrap();
-            let bytes = write_file(kind, 600 * 1024, &mut file).unwrap();
+            write_file(kind, 600 * 1024, &mut file).unwrap();
             drop(file);
             let args = Args {
-                dir: dir.clone(),
+                dir: dir.0.clone(),
                 search_limit: Duration::from_secs(60),
                 scan_limit: Duration::from_secs(60),
                 ..Args::default()
             };
-            let run = measure(&path, kind, bytes, 64, &args);
+            let mut run = measure(&path, kind, 64, &args);
+            measure_save(&mut run, &path, kind, 64, &args).unwrap();
             assert!(
                 !run.notes.iter().any(|n| n.starts_with("stopped")),
                 "{kind:?}: {:?}",
                 run.notes
             );
-            let value = |name: &str| {
-                run.metrics
-                    .iter()
-                    .find(|m| m.0 == name)
-                    .unwrap_or_else(|| panic!("{kind:?}: no {name}: {:?}", run.metrics))
-                    .2
-                    .clone()
-            };
-            assert!(matches!(value("scan throughput"), report::Value::Num(n) if n > 0.0));
+            assert!(run.file_bytes >= 600 * 1024, "{kind:?}");
+            assert!(matches!(metric(&run, "scan throughput"), report::Value::Num(n) if n > 0.0));
             assert!(matches!(
-                value("jump to the end, cold"),
+                metric(&run, "jump to the end, cold"),
                 report::Value::Num(_)
             ));
             assert!(matches!(
-                value("save after one edit"),
+                metric(&run, "save after one edit"),
                 report::Value::Num(_)
             ));
             if !kind.is_one_line() {
                 // The needle is once in the file; the regex finds it too.
-                assert_eq!(
-                    value("plain (needle) search: whole file, hits"),
-                    report::Value::Num(1.0)
-                );
-                assert_eq!(
-                    value("regex (needle) search: whole file, hits"),
-                    report::Value::Num(1.0)
-                );
-                assert_eq!(
-                    value("plain (needle) search: first hit, hits"),
-                    report::Value::Num(1.0)
-                );
+                for name in [
+                    "plain (needle) search: whole file, hits",
+                    "regex (needle) search: whole file, hits",
+                    "plain (needle) search: first hit, hits",
+                ] {
+                    assert_eq!(metric(&run, name), report::Value::Num(1.0), "{name}");
+                }
             }
         }
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_search_over_the_limit_is_reported_as_stopped() {
-        let dir = scratch("limit");
-        let path = dir.join("t.bin");
+        let dir = Scratch::new("limit");
+        let path = dir.0.join("t.bin");
         let mut file = File::create(&path).unwrap();
         write_file(Kind::T, 2 * MIB, &mut file).unwrap();
         drop(file);
@@ -775,37 +865,64 @@ mod tests {
             Outcome::Done { hits, .. } => panic!("hits: {hits}"),
             Outcome::Failed(e) => panic!("{e}"),
         }
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn the_reports_are_written() {
-        let dir = scratch("reports");
+    fn the_reports_are_written_and_every_block_size_sees_the_same_file() {
+        let dir = Scratch::new("reports");
         let args = Args {
             kinds: vec![Kind::S],
             size_mb: 1,
             blocks_kib: vec![64, 256],
-            dir: dir.clone(),
-            out: dir.join("out"),
+            dir: dir.0.clone(),
+            out: dir.0.join("out"),
             checks_mb: Some(1),
-            save: false,
             ..Args::default()
         };
         let report = run_all(&args, "--test").unwrap();
         assert_eq!(report.runs.len(), 2);
         assert_eq!(report.checks.len(), 4);
-        let md = fs::read_to_string(dir.join("out/report.md")).unwrap();
-        let json = fs::read_to_string(dir.join("out/report.json")).unwrap();
+        // The saves come after every block size: both read runs saw the same unchanged file.
+        let (a, b) = (&report.runs[0], &report.runs[1]);
+        assert_eq!(a.file_bytes, b.file_bytes);
+        assert_eq!(metric(a, "lines"), metric(b, "lines"));
+        for run in &report.runs {
+            assert!(matches!(
+                metric(run, "save after one edit"),
+                report::Value::Num(_)
+            ));
+            assert!(
+                !run.notes.iter().any(|n| n.contains("stopped")),
+                "{:?}",
+                run.notes
+            );
+        }
+        let md = fs::read_to_string(dir.0.join("out/report.md")).unwrap();
+        let json = fs::read_to_string(dir.0.join("out/report.json")).unwrap();
         assert!(md.contains("block 64 KiB") && md.contains("block 256 KiB"));
         assert!(md.contains("## OS checks"));
         assert!(json.contains("\"block_kib\": 256"));
-        // The test file is deleted.
-        let left: Vec<_> = fs::read_dir(&dir)
+        // The test file and the temporary files of the saves are deleted.
+        let left: Vec<_> = fs::read_dir(&dir.0)
             .unwrap()
             .filter_map(Result::ok)
-            .filter(|e| e.file_name().to_string_lossy().starts_with("huge-measure-"))
+            .filter(|e| e.file_name().to_string_lossy().contains("huge-measure-"))
             .collect();
         assert!(left.is_empty(), "{left:?}");
-        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_chosen_block_size_reaches_the_scan_and_the_cache() {
+        let args = Args::default();
+        let options = options_for(Kind::S, 64, &args);
+        assert_eq!(
+            options.huge_blocks,
+            Some(HugeBlocks {
+                block_size: 64 * 1024,
+                cache_blocks: 1024
+            })
+        );
+        let options = options_for(Kind::S, 256, &args);
+        assert_eq!(options.huge_blocks.unwrap().cache_blocks, 256);
     }
 }
