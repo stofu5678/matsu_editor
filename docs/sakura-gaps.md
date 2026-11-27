@@ -104,7 +104,7 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| タイプ一覧のファイルの関連付け（右クリックメニュー・ダブルクリックで開く） | `typeprop/CDlgTypeList.cpp` | 追加・削除・複製・上下・インポート・エクスポート・初期化は入った（`doc_types/`、`matsu-config` の `type_list.rs` `type_file.rs`）。Windows の関連付けは入った（2 つのチェックボックスと最初の確認、`matsu-platform` の `file_association/`、`doc_types/list_assoc.rs`。`HKCU\Software\Classes` だけに書く）。macOS・Linux はチェックボックスを出さない | Windows は決まった（2026-11-25）。macOS・Linux は、型を宣言する方法と、タイプ一覧から既定のアプリにする方法を調べた。ユーザーの判断が要る: どちらにするか | M | なし |
+| タイプ一覧のファイルの関連付け（右クリックメニュー・ダブルクリックで開く） | `typeprop/CDlgTypeList.cpp` | 追加・削除・複製・上下・インポート・エクスポート・初期化は入った（`doc_types/`、`matsu-config` の `type_list.rs` `type_file.rs`）。Windows の関連付けは入った（2 つのチェックボックスと最初の確認、`matsu-platform` の `file_association/`、`doc_types/list_assoc.rs`。`HKCU\Software\Classes` だけに書く）。アンインストールは、その関連付けを取り除く（2026-11-27 に決まった。`--remove-associations`）。macOS・Linux はチェックボックスを出さない | Windows は決まった（2026-11-25）。macOS・Linux は、型を宣言する方法と、タイプ一覧から既定のアプリにする方法を調べた。ユーザーの判断が要る: どちらにするか | M | なし |
 | ヘルプボタン | 各ダイアログ | 入った（`MyWinHelp` のあるダイアログ。ボタンの「ヘルプ(H)」、Alt+H、F1 で `support/help.rs` の `PAGES` の頁を開く）。残り: ファイルのプロパティ（OS のメッセージ箱で、ボタンを足せない）、アウトライン解析のダイアログ（MATSU はドックのペインで、ボタンがない）、コントロールごとのポップアップヘルプ（`WM_HELP`。コントロールの説明の表がなく、F1 はダイアログの頁を開く） | B | － | なし |
 | ダイアログがモーダルでない（GPUI にモーダルの子ウィンドウがない） | － | 自前のダイアログはモーダルではない（#150） | B | L | GPUI |
 | Windows の旧式のファイルダイアログ（`bVistaStyleFileDialog` が 0）、ダイアログの下の欄（文字コード・改行の選択、MRU コンボ） | `CDlgOpenFile_*.cpp` | 新式だけ。保存ダイアログの文字コード・改行は #162 で入った。開くダイアログの「文字コード」「読み取り専用で開く」の欄は未確認 | B/C | M | OS ごとのダイアログ |
