@@ -24,6 +24,12 @@
 //!   the result is the same.
 //! * The text of a row never has its line ending. Sakura removes one char at the end of the
 //!   copied row when it is a line ending delimiter, which for CRLF would leave the CR.
+//! * Typing into a box over several rows of one wrapped line (or the last row of one line and the
+//!   first of the next) goes to places in the text that the box input keeps in the cursor
+//!   (`Cursor::take_box_places`) until the box changes. Sakura takes the box's columns for every
+//!   char, so the first char rewraps the line and the next ones go to other places in the second
+//!   row, in the reverse order (a bug, type A). The rows of the box after the typing are the rows
+//!   of the first and the last place.
 //! * Overwrite mode matters only with the option `m_bOverWriteBoxDelete` (off by default,
 //!   `sakura_core/env/CShareData.cpp`): typing then deletes the box first
 //!   (`delete_box_keeping_selection`).
@@ -291,14 +297,8 @@ impl CommandContext<'_> {
         };
         // The rows of the box are the same rows (by number) after the delete, as Sakura keeps the
         // layout coordinates; where a long line wraps differently now, they start elsewhere.
-        let row_start = |this: &Self, index: usize| -> Result<Pos> {
-            Ok(this
-                .layout
-                .row_start_at(this.doc(), index)?
-                .unwrap_or_else(|| Pos::new(this.doc().line_count().saturating_sub(1), 0)))
-        };
-        let anchor = self.box_corner_pos(row_start(self, anchor_row)?, anchor.x)?;
-        let caret = self.box_corner_pos(row_start(self, caret_row)?, caret.x)?;
+        let anchor = self.box_corner_pos(self.row_start_numbered(anchor_row)?, anchor.x)?;
+        let caret = self.box_corner_pos(self.row_start_numbered(caret_row)?, caret.x)?;
         self.set_box(anchor, caret, lock);
         Ok(())
     }
@@ -447,6 +447,12 @@ impl CommandContext<'_> {
         soft_tab: bool,
     ) -> Result<()> {
         self.refuse_in_view_mode()?;
+        // The places that the last typing left (see `Cursor::take_box_places`); only typing keeps
+        // them, an indent starts from the box.
+        let mut places = self.cursor.take_box_places();
+        if indent.is_some() {
+            places.clear();
+        }
         // `Command_INDENT` (typing, the tab and space indents, `InsText`): with
         // `m_bOverWriteBoxDelete` a box typed over in overwrite mode is deleted first and stays
         // selected.
@@ -454,6 +460,8 @@ impl CommandContext<'_> {
             && self.cursor.has_selection()
             && crate::edit_options::get().overwrite_box_delete
         {
+            // the text under the places changes
+            places.clear();
             self.delete_box_keeping_selection()?;
         }
         let Some(rect) = self.box_rect()? else {
@@ -471,23 +479,45 @@ impl CommandContext<'_> {
             Some(' ') => rect.right - rect.left == self.layout.column_x(),
             _ => false,
         };
-        let (mut plan, mut aligned) = self.plan_box_insertions(&rect, indent, align)?;
+        // Typing into a box over rows of a wrapped line keeps the places in the text: each char
+        // rewraps the line, and the columns of the box would then point elsewhere (Sakura goes
+        // wrong there, and types in the reverse order). The places of the last typing are used
+        // as they are, whatever rows the box covers now.
+        let tracked =
+            indent.is_none() && (!places.is_empty() || self.box_has_wrapped_rows(&rect)?);
+        let (mut plan, mut aligned) = if !places.is_empty() {
+            (self.plan_at_places(&places)?, false)
+        } else {
+            self.plan_box_insertions(&rect, indent, align)?
+        };
         if plan.is_empty() && align {
             (plan, aligned) = self.plan_box_insertions(&rect, indent, false)?;
         }
+        places = plan.iter().map(|ins| ins.at).collect();
+        // the length of what went into each place, to find where it started
+        let mut lengths = vec![0; plan.len()];
         self.cursor.clear_selection();
         // From the bottom up: the rows above do not move.
         // `shift` is how far the text pushed the chars right, the least over the rows (0 if a
         // row was left alone for the alignment); the box moves by it.
         let mut shift = if aligned { Some(X::ZERO) } else { None };
-        for ins in plan.iter().rev() {
+        for i in (0..plan.len()).rev() {
+            let ins = &plan[i];
             let text = if soft_tab {
                 self.soft_tab_at(ins.x)
             } else {
                 text.to_owned()
             };
             let padded = format!("{}{text}", " ".repeat(ins.pad));
-            let edit = self.replace(ins.at, ins.at, &padded)?;
+            let edit = self.replace(places[i], places[i], &padded)?;
+            // The text went in before the places below it in the same line.
+            for later in &mut places[i + 1..] {
+                if later.line == edit.start.line {
+                    later.col += padded.len();
+                }
+            }
+            places[i] = edit.end;
+            lengths[i] = padded.len();
             let end_x = self.layout.display_x(self.doc(), edit.end)?;
             // The text reached the wrap point: the end is on the next row. Sakura then counts
             // the width to the right edge (`GetMaxLineLayout()` minus the start).
@@ -501,11 +531,63 @@ impl CommandContext<'_> {
         let shift = shift.unwrap_or(X::ZERO);
         let max = self.max_box_x();
         let (left, right) = ((rect.left + shift).min(max), (rect.right + shift).min(max));
-        let (top, bottom) = (rect.rows[0], rect.rows[rect.rows.len() - 1]);
+        // A tracked box covers the rows of the first and the last place: where the rows start now.
+        let (top, bottom) =
+            if tracked && let (Some(&first), Some(&last)) = (places.first(), places.last()) {
+                let start = |at: Pos, len: usize| Pos::new(at.line, at.col - len);
+                (
+                    self.layout
+                        .row_start(self.doc(), start(first, lengths[0]))?,
+                    self.layout
+                        .row_start(self.doc(), start(last, lengths[places.len() - 1]))?,
+                )
+            } else {
+                (rect.rows[0], rect.rows[rect.rows.len() - 1])
+            };
         let caret = self.box_corner_pos(top, left)?;
         let anchor = self.box_corner_pos(bottom, right)?;
         self.set_box(anchor, caret, lock);
+        if tracked {
+            self.cursor.set_box_places(places);
+        }
         Ok(())
+    }
+
+    /// Whether the box covers more than one row and one of them belongs to a wrapped line (it
+    /// continues a line, or wraps into the next row).
+    fn box_has_wrapped_rows(&self, rect: &BoxRect) -> Result<bool> {
+        if rect.rows.len() < 2 {
+            return Ok(false);
+        }
+        for &row in &rect.rows {
+            if row.col > 0 || self.row_is_wrapped(row)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// The insertions that go right at the places that the last typing left, without padding.
+    fn plan_at_places(&self, places: &[Pos]) -> Result<Vec<Insertion>> {
+        places
+            .iter()
+            .map(|&at| {
+                Ok(Insertion {
+                    at,
+                    pad: 0,
+                    x: self.layout.display_x(self.doc(), at)?,
+                })
+            })
+            .collect()
+    }
+
+    /// The start of the row with the number `index`, or the end of the document if the document
+    /// has fewer rows now.
+    fn row_start_numbered(&self, index: usize) -> Result<Pos> {
+        Ok(self
+            .layout
+            .row_start_at(self.doc(), index)?
+            .unwrap_or_else(|| Pos::new(self.doc().line_count().saturating_sub(1), 0)))
     }
 
     /// `Command_INDENT` for a box: `F_INDENT_TAB` and `F_INDENT_SPACE`. A box of no width first

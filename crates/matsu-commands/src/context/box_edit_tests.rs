@@ -1263,3 +1263,121 @@ fn a_box_sort_of_many_lines_does_not_walk_the_rows_from_the_start_for_each_line(
     assert!(started.elapsed() < std::time::Duration::from_secs(20));
     assert_eq!(text_of(&e).lines().next(), Some("00999"));
 }
+
+// ---- typing into a box over wrapped rows of one line ----
+
+/// Types `chars` one after the other into a box over the rows of `text`, wrapped after `width`
+/// chars; the corners are `(row, column)` as for [`run_wrapped`]. Returns the text and the cursor.
+fn type_into_wrapped_box(
+    text: &str,
+    width: usize,
+    corners: ((usize, usize), (usize, usize)),
+    chars: &str,
+    overwrite: bool,
+) -> (String, Cursor) {
+    let (anchor, caret) = corners;
+    let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
+    model.set_new_line(Eol::Lf);
+    let mut layout = Wrap(width, false);
+    let rows = layout.rows(model.doc());
+    let corner = |(row, col): (usize, usize)| {
+        layout
+            .pos_at_x(model.doc(), rows[row], X::from_raw(col as u32))
+            .expect("a position")
+    };
+    let mut cursor = Cursor::default();
+    cursor.move_to(corner(anchor), false);
+    cursor.begin_box(anchor.1, false);
+    cursor.move_box_to(corner(caret), caret.1);
+    for c in chars.chars() {
+        let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None)
+            .with_overwrite(overwrite);
+        Registry::global()
+            .run("input_char", &mut cx, &[Arg::Char(c)])
+            .unwrap();
+    }
+    let doc = model.doc();
+    let out = doc
+        .text_between(Pos::new(0, 0), doc.end_pos().unwrap())
+        .unwrap();
+    (out, cursor)
+}
+
+#[test]
+fn typing_into_a_zero_width_box_over_two_wrapped_rows_keeps_the_order() {
+    // The measured case in small: 3 columns a row, "abcdefghi" is "abc" "def" "ghi"; the box is
+    // column 1 of the first two rows. Sakura (and MATSU before) typed the second row's chars in
+    // the reverse order (type A).
+    for overwrite in [false, true] {
+        let (text, cursor) =
+            type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "xy", overwrite);
+        assert_eq!(text, "axybcdxyefghi", "overwrite={overwrite}");
+        // the box moved right by one column for each char
+        assert_eq!(cursor.box_caret_col(), Some(3));
+        assert_eq!(cursor.box_anchor_col(), Some(3));
+        // the next char goes after what was typed, in both places
+        let (text, _) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "xyz", overwrite);
+        assert_eq!(text, "axyzbcdxyzefghi", "overwrite={overwrite}");
+    }
+}
+
+#[test]
+fn typing_into_the_measured_box_gives_the_whole_line_in_order() {
+    // Wrap at 40; the line is "0123456789" x4, "ABCDEFGHIJ" x4, "abcdefghij" x2 (rows 0, 1, 2).
+    // Ctrl+Home, 5 x Right, Shift+F6, Down: a zero-width box at column 5 of rows 0 and 1.
+    let line = format!(
+        "{}{}{}",
+        "0123456789".repeat(4),
+        "ABCDEFGHIJ".repeat(4),
+        "abcdefghij".repeat(2)
+    );
+    // The second place is the text index 45 of the line: 5 columns into "ABCDEFGHIJ".
+    let (head, tail) = line.split_at(45);
+    for overwrite in [false, true] {
+        for typed in ["xy", "xyz"] {
+            let (text, _) = type_into_wrapped_box(&line, 40, ((0, 5), (1, 5)), typed, overwrite);
+            let want = format!("{}{typed}{}{typed}{tail}", &head[..5], &head[5..]);
+            assert_eq!(text, want, "overwrite={overwrite} typed={typed}");
+            assert!(text.starts_with(&format!("01234{typed}56789")), "{text}");
+            assert!(text.contains(&format!("ABCDE{typed}FGHIJ")), "{text}");
+        }
+    }
+}
+
+#[test]
+fn typing_into_a_zero_width_box_over_three_wrapped_rows_keeps_the_order() {
+    let (text, _) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (2, 1)), "xy", false);
+    assert_eq!(text, "axybcdxyefgxyhi");
+    let (text, _) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (2, 1)), "xyz", true);
+    assert_eq!(text, "axyzbcdxyzefgxyzhi");
+}
+
+#[test]
+fn typing_into_a_box_over_the_last_row_of_a_line_and_the_first_of_the_next_keeps_the_order() {
+    // rows "abc" "def" | "xyz" "12": the box is column 1 of "def" and "xyz"
+    for overwrite in [false, true] {
+        let (text, _) =
+            type_into_wrapped_box("abcdef\nxyz12", 3, ((1, 1), (2, 1)), "pq", overwrite);
+        assert_eq!(text, "abcdpqef\nxpqyz12", "overwrite={overwrite}");
+        let (text, _) =
+            type_into_wrapped_box("abcdef\nxyz12", 3, ((1, 1), (2, 1)), "pqr", overwrite);
+        assert_eq!(text, "abcdpqref\nxpqryz12", "overwrite={overwrite}");
+    }
+}
+
+#[test]
+fn typing_into_a_box_over_separate_lines_is_not_changed() {
+    // rows of different lines that do not wrap: the columns of the box, no places kept
+    let (text, mut cursor) = type_into_wrapped_box("abc\ndef", 6, ((0, 1), (1, 1)), "xy", false);
+    assert_eq!(text, "axybc\ndxyef");
+    assert!(cursor.take_box_places().is_empty());
+}
+
+#[test]
+fn a_change_of_the_box_ends_the_places_of_the_box_input() {
+    let (_, mut cursor) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
+    cursor.box_moved();
+    assert!(cursor.take_box_places().is_empty());
+    let (_, mut cursor) = type_into_wrapped_box("abcdefghi", 3, ((0, 1), (1, 1)), "x", false);
+    assert_eq!(cursor.take_box_places().len(), 2);
+}

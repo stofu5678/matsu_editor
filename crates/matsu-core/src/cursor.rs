@@ -89,6 +89,14 @@ pub struct Cursor {
     /// row). `None` exactly when there is no anchor or it carries no mark. It is checked where it
     /// is read, by the same rule as the caret's mark.
     anchor_free_col: Option<usize>,
+    /// The places in the text where the typing into a box of several rows goes next, top to
+    /// bottom, one per row of the box; empty when there are none. The typing into a box that
+    /// spans several rows of one wrapped line must keep them in the text: the first char rewraps
+    /// the line, and the columns of the box then point elsewhere. The box input
+    /// (`CommandContext::insert_into_box`) is the only writer; every change of the box or the
+    /// text under it ends them (`begin_box`, `drop_box`, `box_moved`, `map_positions`,
+    /// `restore`).
+    box_places: Vec<Pos>,
 }
 
 impl Cursor {
@@ -143,6 +151,17 @@ impl Cursor {
         if let Some(cols) = self.box_cols.as_mut() {
             cols.begun = false;
         }
+        self.box_places.clear();
+    }
+
+    /// Takes the places of the box input (see the field `box_places`); empty if there are none.
+    pub fn take_box_places(&mut self) -> Vec<Pos> {
+        std::mem::take(&mut self.box_places)
+    }
+
+    /// Sets the places of the box input. Call it after the box is set: setting the box ends them.
+    pub fn set_box_places(&mut self, places: Vec<Pos>) {
+        self.box_places = places;
     }
 
     /// Whether plain moves extend the selection (Sakura: `m_bSelectingLock`).
@@ -173,6 +192,7 @@ impl Cursor {
         self.anchor = None;
         self.anchor_free_col = None;
         self.free_col = None;
+        self.box_places.clear();
         self.mode = SelectionMode::Rectangular;
         self.box_cols = Some(BoxCols {
             anchor: col,
@@ -332,6 +352,7 @@ impl Cursor {
         }
         self.free_col = None;
         self.anchor_free_col = None;
+        self.box_places.clear();
     }
 
     /// Selects from `anchor` to `caret` (the caret may come first). The anchor has no mark; see
@@ -358,6 +379,7 @@ impl Cursor {
     fn drop_box(&mut self) {
         self.mode = SelectionMode::Normal;
         self.box_cols = None;
+        self.box_places.clear();
     }
 
     /// The places this view jumped from (Sakura: `CEditView::m_cHistory`). It belongs to the
@@ -375,6 +397,7 @@ impl Cursor {
     pub fn restore(&mut self, other: Cursor) {
         let history = std::mem::take(&mut self.jump_history);
         *self = other;
+        self.box_places.clear();
         self.jump_history = history;
     }
 
