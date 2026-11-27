@@ -35,6 +35,10 @@ cpy = "cpy"
 # sur: the macOS name "big_sur" in the Homebrew cask (packaging/homebrew/matsu-editor.rb, depends_on macos).
 sur = "sur"
 
+# regist: the names `RegistExt` and `UnregistExt` of Sakura's file association (CDlgTypeList.cpp), cited in
+# crates/matsu-platform/src/file_association/.
+regist = "regist"
+
 # mak: the extension of makefiles in the table of ctags kinds (CDlgTagJumpList.cpp).
 mak = "mak"
 
