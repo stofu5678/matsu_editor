@@ -71,7 +71,7 @@ pub(super) fn point_of(
         let m = v.metrics;
         point(
             px(paint.origin_x + (col as f32 + 0.1) * m.cell_width),
-            px(paint.origin_y + (row as f32 + 0.5) * m.line_height - v.scroll_y),
+            px(paint.origin_y + (row as f32 + 0.5) * m.line_height - v.scroll_y()),
         )
     })
 }

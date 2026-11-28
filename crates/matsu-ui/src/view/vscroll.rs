@@ -11,8 +11,9 @@
 use gpui::Context;
 
 use super::scroll_repeat::Axis;
-use super::{Drag, EditorView};
-use crate::geometry::{BarPart, Scrollbar, clamp_scroll_y};
+use super::{Drag, EditorView, ThumbStart};
+use crate::geometry::{BarPart, Scrollbar, clamp_scroll};
+use crate::scroll_pos::VScroll;
 
 impl EditorView {
     /// The bar as it is now, and whether it is the bar of a file that is still scanned.
@@ -20,7 +21,7 @@ impl EditorView {
         match self.scan_scrollbar(&self.metrics, cx) {
             Some(bar) => (bar, true),
             None => (
-                Scrollbar::new(&self.metrics, self.layout.row_count(), self.scroll_y),
+                Scrollbar::new(&self.metrics, self.layout.row_count(), self.vscroll),
                 false,
             ),
         }
@@ -44,7 +45,6 @@ impl EditorView {
             return;
         };
         let (bar, scan) = self.v_bar(cx);
-        self.scan_thumb_drag = scan;
         let pos = window_y - paint.vbar_top;
         let part = bar.part_at(&self.metrics, pos);
         if part == BarPart::Thumb {
@@ -52,10 +52,10 @@ impl EditorView {
             self.set_drag(Drag::Thumb {
                 start_y: window_y,
                 // (for the bar of a scan: where the thumb was)
-                start_scroll: if scan {
-                    bar.thumb_top
+                start: if scan {
+                    ThumbStart::ScanBar(bar.thumb_top)
                 } else {
-                    clamp_scroll_y(&self.metrics, rows, self.scroll_y)
+                    ThumbStart::Top(clamp_scroll(&self.metrics, rows, self.vscroll))
                 },
             });
         } else {
@@ -71,23 +71,20 @@ impl EditorView {
         let m = self.metrics;
         let lines = crate::common_settings::scroll_options(cx)
             .repeated_lines
-            .max(1) as f32;
-        let delta = match part {
-            BarPart::LineBack => -lines * m.line_height,
-            BarPart::LineForward => lines * m.line_height,
+            .max(1) as isize;
+        let page = (m.visible_rows() as isize - 1).max(0);
+        // An arrow moves from the row at the top, not from a part of one; the track pages from
+        // where the view is.
+        let from_row = VScroll::at_row(self.vscroll.nearest_row(m.line_height));
+        let to = match part {
+            BarPart::LineBack => from_row.shifted_rows(-lines),
+            BarPart::LineForward => from_row.shifted_rows(lines),
             // Clicking the track pages up or down, as on Windows.
-            BarPart::PageBack => -m.line_height * (m.visible_rows() as f32 - 1.0),
-            BarPart::PageForward => m.line_height * (m.visible_rows() as f32 - 1.0),
+            BarPart::PageBack => self.vscroll.shifted_rows(-page),
+            BarPart::PageForward => self.vscroll.shifted_rows(page),
             BarPart::Thumb => return,
         };
-        // An arrow moves from the row at the top, not from a part of one.
-        let from = match part {
-            BarPart::LineBack | BarPart::LineForward => {
-                (self.scroll_y / m.line_height).round() * m.line_height
-            }
-            _ => self.scroll_y,
-        };
         self.scroll_past_end = false;
-        self.scroll_y = clamp_scroll_y(&m, self.layout.row_count(), from + delta);
+        self.vscroll = clamp_scroll(&m, self.layout.row_count(), to);
     }
 }

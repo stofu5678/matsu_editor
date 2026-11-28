@@ -10,6 +10,7 @@ use matsu_layout::{Widths, Wrap};
 use super::{EditorView, font_widths};
 use crate::geometry::per_column_for;
 use crate::layout_adapter::LAYOUT_BUDGET;
+use crate::scroll_pos::VScroll;
 use crate::settings::UserSettings;
 use crate::settings::view_settings::{
     ViewSettings, WrapMethod, points_to_px, window_wrap_columns, wrap_for,
@@ -596,7 +597,13 @@ impl EditorView {
         // the line spacing of the type.
         let line_space = self.prefs.settings.line_space;
         let line_height = |size: f32| crate::geometry::row_height((size * 1.5).round(), line_space);
-        self.scroll_y *= line_height(self.font_size) / line_height(old);
+        // The top row stays, and so does the share of it that is cut off.
+        let ratio = line_height(self.font_size) / line_height(old);
+        self.vscroll = VScroll::new(
+            self.vscroll.row(),
+            self.vscroll.offset() * ratio,
+            line_height(self.font_size),
+        );
         self.scroll_x *= self.font_size / old;
         // The metrics follow at the next paint, which brings the caret into view if it left.
         cx.notify();

@@ -785,3 +785,66 @@ fn two_panes_with_fonts_of_their_own_each_keep_their_tsv_stops(cx: &mut TestAppC
     count_stops(&pane, cx);
     assert_eq!(ends(&view, cx), [214 + 128, 214 + 128 + 64 + 128]);
 }
+
+/// A smaller row (line spacing, font) after a scroll by part of a row: the pixels cut off the top
+/// row must still be less than one row, or the rows painted from the top row stop short of the
+/// bottom of the view (`scroll_pos`).
+#[gpui::test]
+fn a_smaller_row_keeps_the_top_row_and_the_offset_inside_it(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &"line\n".repeat(200));
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let before = view.read_with(cx, |v, _| v.metrics.line_height);
+    view.update(cx, |v, cx| {
+        // the caret is in view, so that bringing it into view does not move the top
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(45, 0), false)
+        })
+        .unwrap();
+        v.vscroll = crate::scroll_pos::VScroll::new(40, before * 0.75, before);
+        v.prefs.settings.line_space -= (before / 2.0) as i32;
+    });
+    for _ in 0..3 {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+    view.read_with(cx, |v, _| {
+        let lh = v.metrics.line_height;
+        assert!(lh < before, "{lh} for {before}");
+        assert_eq!(v.vscroll.row(), 40);
+        assert!(v.vscroll.offset() < lh, "{} of {lh}", v.vscroll.offset());
+        // the rows from the top row fill the view to the bottom
+        let rows = v.layout.row_count() - v.vscroll.row();
+        assert!(rows as f32 * lh - v.vscroll.offset() >= v.metrics.view_height);
+    });
+}
+
+/// The row height changes while the top of a window on a huge file is held (`frame_top`): the offset
+/// the paint makes again is the view's own change, not the user's scroll, so the hold stays.
+#[gpui::test]
+fn a_smaller_row_keeps_the_held_top_of_a_scan_window(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &"line\n".repeat(200));
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let before = view.read_with(cx, |v, _| v.metrics.line_height);
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(45, 0), false)
+        })
+        .unwrap();
+        v.vscroll = crate::scroll_pos::VScroll::new(40, before * 0.75, before);
+        v.frame_top = Some(super::scan_window::FrameTop {
+            pos: matsu_core::buffer::Pos::new(40, 0),
+            row_offset: before * 0.75,
+            set: v.vscroll,
+        });
+        // (in the same update: a frame in between would end the hold, the layout being complete)
+        v.metrics.line_height = before / 2.0;
+        v.renormalize_vscroll();
+        let top = v.frame_top.as_ref().expect("the hold is kept");
+        assert_eq!(top.set, v.vscroll);
+        assert_ne!(v.vscroll.offset(), before * 0.75);
+    });
+}

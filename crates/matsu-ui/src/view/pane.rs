@@ -15,6 +15,7 @@ use crate::app::Workspace;
 use crate::document::SharedDocument;
 use crate::geometry::Metrics;
 use crate::macros::MacroState;
+use crate::scroll_pos::VScroll;
 use crate::search::SearchState;
 
 /// The caret, the selection and the scroll position of a view (`CopyViewStatus`).
@@ -23,7 +24,7 @@ pub(crate) struct ViewStatus {
     cursor: Cursor,
     /// The left column and the top row, not pixels: panes can have different font sizes.
     left_col: f32,
-    top_row: f32,
+    top_row: f64,
     scroll_past_end: bool,
 }
 
@@ -86,7 +87,7 @@ impl EditorView {
         ViewStatus {
             cursor: self.cursor.clone(),
             left_col: self.scroll_x / self.metrics.cell_width,
-            top_row: self.scroll_y / self.metrics.line_height,
+            top_row: self.vscroll.rows(self.metrics.line_height),
             scroll_past_end: self.scroll_past_end,
         }
     }
@@ -95,7 +96,7 @@ impl EditorView {
     pub(crate) fn apply_view_status(&mut self, status: ViewStatus) {
         self.cursor = status.cursor;
         self.scroll_x = status.left_col * self.metrics.cell_width;
-        self.scroll_y = status.top_row * self.metrics.line_height;
+        self.vscroll = VScroll::from_rows(status.top_row, self.metrics.line_height);
         self.scroll_past_end = status.scroll_past_end;
         self.marked = None;
         self.set_drag(super::Drag::None);
@@ -103,17 +104,17 @@ impl EditorView {
     }
 
     /// The scroll position, for keeping panes in step.
-    pub(crate) fn scroll(&self) -> (f32, f32) {
-        (self.scroll_x, self.scroll_y)
+    pub(crate) fn scroll(&self) -> (f32, VScroll) {
+        (self.scroll_x, self.vscroll)
     }
 
     /// Moves the view to a scroll position that another pane has (synchronized scrolling).
-    pub(crate) fn set_scroll(&mut self, x: Option<f32>, y: Option<(f32, bool)>) {
+    pub(crate) fn set_scroll(&mut self, x: Option<f32>, y: Option<(VScroll, bool)>) {
         if let Some(x) = x {
             self.scroll_x = x;
         }
         if let Some((y, past_end)) = y {
-            self.scroll_y = y;
+            self.vscroll = y;
             self.scroll_past_end = past_end;
         }
         self.clamp_scroll();

@@ -520,8 +520,7 @@ fn dragging_the_thumb_starts_from_where_it_is_drawn(cx: &mut TestAppContext) {
     // The top is past the scroll range now; the thumb is drawn at the bottom of the track.
     let (x, y, limit) = view.read_with(cx, |v, _| {
         let paint = v.paint.expect("the window has been painted");
-        let bar =
-            crate::geometry::Scrollbar::new(v.metrics(), v.layout().row_count(), v.scroll_y());
+        let bar = crate::geometry::Scrollbar::new(v.metrics(), v.layout().row_count(), v.vscroll());
         (
             paint.scrollbar_left + 1.0,
             paint.vbar_top + crate::geometry::VSCROLL_ARROW + bar.thumb_top + 1.0,
@@ -538,7 +537,10 @@ fn dragging_the_thumb_starts_from_where_it_is_drawn(cx: &mut TestAppContext) {
     let v = view.clone();
     cx.update(|window, cx| v.update(cx, |v, cx| v.on_mouse_down(&event, window, cx)));
     let start = view.read_with(cx, |v, _| match v.drag {
-        super::Drag::Thumb { start_scroll, .. } => start_scroll,
+        super::Drag::Thumb {
+            start: super::ThumbStart::Top(top),
+            ..
+        } => top.px(view.read_with(cx, |v, _| v.metrics().line_height)),
         other => panic!("not dragging the thumb: {other:?}"),
     });
     assert_eq!(start, limit);
@@ -1047,15 +1049,15 @@ fn the_top_stays_on_its_line_while_lines_above_it_are_laid_out(cx: &mut TestAppC
         // Nothing is laid out: every line counts one row, and the top is at line 500.
         v.layout = matsu_layout::DocumentLayout::new(doc, cfg).unwrap();
         let lh = v.metrics.line_height;
-        v.scroll_y = 500.0 * lh + 3.0;
+        v.vscroll = crate::scroll_pos::VScroll::from_px(500.0 * lh + 3.0, lh);
         let anchor = v.top_anchor().unwrap();
         assert_eq!((anchor.line, anchor.row_in_line), (500, 0));
         v.layout.layout_chunk(doc, 300).unwrap();
         assert!(v.layout.first_row_of_line(500) > 500, "lines above wrapped");
         v.restore_top_anchor(&anchor);
-        let top = (v.scroll_y / lh).floor() as usize;
+        let top = v.vscroll.row();
         let at = v.layout.locate_row(top);
         assert_eq!((at.line, at.row_in_line), (500, 0));
-        assert!((v.scroll_y - top as f32 * lh - 3.0).abs() < 0.01);
+        assert!((v.vscroll.offset() - 3.0).abs() < 0.01);
     });
 }

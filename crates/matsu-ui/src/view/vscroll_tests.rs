@@ -21,7 +21,7 @@ fn wide_text() -> String {
 }
 
 fn scroll_y(f: &Fixture, cx: &mut VisualTestContext) -> f32 {
-    f.view.read_with(cx, |v, _| v.scroll_y)
+    f.view.read_with(cx, |v, _| v.scroll_y())
 }
 
 fn line_height(f: &Fixture, cx: &mut VisualTestContext) -> f32 {
@@ -82,7 +82,9 @@ fn the_down_arrow_stops_at_the_end(cx: &mut TestAppContext) {
     let limit = f
         .view
         .read_with(cx, |v, _| max_scroll_y(&v.metrics, v.layout.row_count()));
-    f.view.update(cx, |v, _| v.scroll_y = limit - 1.0);
+    f.view.update(cx, |v, _| {
+        v.vscroll = crate::scroll_pos::VScroll::from_px(limit - 1.0, v.metrics.line_height)
+    });
     let (x, down) = on_vbar(&f, cx, -VSCROLL_ARROW / 2.0);
     press(cx, x, down);
     release(cx, x, down);
@@ -97,7 +99,7 @@ fn the_thumb_and_the_track_sit_between_the_arrows(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, &long_text());
     settle(cx);
     let (track, bar_len) = f.view.read_with(cx, |v, _| {
-        let bar = Scrollbar::new(&v.metrics, v.layout.row_count(), v.scroll_y);
+        let bar = Scrollbar::new(&v.metrics, v.layout.row_count(), v.vscroll);
         (bar.track_height, v.paint.unwrap().vbar_len)
     });
     assert_eq!(bar_len - 2.0 * VSCROLL_ARROW, track);
@@ -174,7 +176,7 @@ fn a_held_track_pages_until_the_thumb_comes_under_the_pointer(cx: &mut TestAppCo
     });
     // A point on the track a third of the way from the thumb to the end.
     let (track, thumb) = f.view.read_with(cx, |v, _| {
-        let bar = Scrollbar::new(&v.metrics, v.layout.row_count(), v.scroll_y);
+        let bar = Scrollbar::new(&v.metrics, v.layout.row_count(), v.vscroll);
         (bar.track_height, bar.thumb_height)
     });
     let (x, y) = on_vbar(&f, cx, VSCROLL_ARROW + thumb + (track - thumb) / 3.0);

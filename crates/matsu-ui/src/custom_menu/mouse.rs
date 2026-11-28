@@ -46,15 +46,18 @@ impl EditorView {
         };
         let x = f32::from(p.x) - paint.origin_x + self.scroll_x;
         let y = f32::from(p.y) - paint.origin_y;
-        let row = ((y + self.scroll_y) / self.metrics.line_height).floor();
-        if row < 0.0 || row as usize >= self.layout.row_count() {
+        let Some(row) = self
+            .vscroll
+            .row_at(y, self.metrics.line_height)
+            .filter(|&row| row < self.layout.row_count())
+        else {
             return false;
-        }
+        };
         cell_is_selected(
             &self.layout,
             self.document.read(cx).doc(),
             &self.cursor,
-            row as usize,
+            row,
             self.x_scale().x_at(x),
         )
     }

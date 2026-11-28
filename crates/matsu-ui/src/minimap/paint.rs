@@ -249,7 +249,7 @@ fn back_frame(bounds: Bounds<Pixels>, top_row: usize, row_height: f32, scale: f3
         ruler_px: 0.0,
         right_bar: SCROLLBAR_WIDTH,
         bottom_bar: 0.0,
-        scroll: (0.0, top_row as f32 * row_height),
+        scroll: (0.0, top_row as f64 * f64::from(row_height)),
         scale,
     }
 }

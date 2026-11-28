@@ -395,7 +395,7 @@ fn point_of(
         let m = v.metrics;
         gpui::point(
             gpui::px(paint.origin_x + (col as f32 + 0.1) * m.cell_width),
-            gpui::px(paint.origin_y + (row as f32 + 0.5) * m.line_height - v.scroll_y),
+            gpui::px(paint.origin_y + (row as f32 + 0.5) * m.line_height - v.scroll_y()),
         )
     })
 }

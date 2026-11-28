@@ -21,6 +21,8 @@
 
 use std::time::Duration;
 
+use crate::scroll_pos::VScroll;
+
 use gpui::{Context, CursorStyle, Modifiers};
 
 use super::{Drag, EditorView};
@@ -70,7 +72,7 @@ pub(crate) struct CursorKey {
     pointer: gpui::Point<gpui::Pixels>,
     modifiers: Modifiers,
     drag: Drag,
-    scroll: (f32, f32),
+    scroll: (f32, VScroll),
     version: u64,
     /// The caret, the selection and the columns of a box: a small `Copy` summary of the cursor.
     cursor: CursorSummary,
@@ -135,8 +137,10 @@ impl EditorView {
         }
         // Below the last row the hit test clamps to the last row, but there is no text there
         // (as in `point_is_selected`).
-        let row = ((y - paint.origin_y + self.scroll_y) / self.metrics.line_height).floor();
-        if row < 0.0 || row as usize >= self.layout.row_count() {
+        let row = self
+            .vscroll
+            .row_at(y - paint.origin_y, self.metrics.line_height);
+        if row.is_none_or(|row| row >= self.layout.row_count()) {
             return CursorStyle::IBeam;
         }
         if self
@@ -162,7 +166,7 @@ impl EditorView {
             pointer: p,
             modifiers: m,
             drag: self.drag,
-            scroll: (self.scroll_x, self.scroll_y),
+            scroll: (self.scroll_x, self.vscroll),
             version: self.document.read(cx).version(),
             cursor: CursorSummary {
                 caret: self.cursor.caret(),
@@ -258,7 +262,7 @@ impl EditorView {
             width,
             self.metrics.cell_width,
         );
-        let can_up = rows < 0 && self.scroll_y > 0.0;
+        let can_up = rows < 0 && !self.vscroll.is_top();
         let can_down = rows > 0 && self.can_scroll_down();
         let can_left = cols < 0 && self.scroll_x > 0.0;
         let can_right = cols > 0;
@@ -275,9 +279,9 @@ impl EditorView {
         } else {
             0.0
         };
-        let (before_x, before_y) = (self.scroll_x, self.scroll_y);
+        let before = (self.scroll_x, self.vscroll);
         self.scroll_by(dx, dy);
-        let moved = (self.scroll_x, self.scroll_y) != (before_x, before_y);
+        let moved = (self.scroll_x, self.vscroll) != before;
         if moved {
             cx.notify();
         }
@@ -292,11 +296,8 @@ impl EditorView {
     /// There are rows below the last one on the view.
     fn can_scroll_down(&self) -> bool {
         let rows = self.layout.row_count();
-        crate::geometry::clamp_scroll_y(
-            &self.metrics,
-            rows,
-            self.scroll_y + self.metrics.line_height,
-        ) > self.scroll_y
+        crate::geometry::clamp_scroll(&self.metrics, rows, self.vscroll.shifted_rows(1))
+            > self.vscroll
     }
 
     /// Esc during a drag of the selected text (or a press in it that may become one): the drag

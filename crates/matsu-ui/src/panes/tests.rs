@@ -9,6 +9,7 @@ use matsu_core::model::DocumentModel;
 
 use crate::app::Workspace;
 use crate::document::SharedDocument;
+use crate::scroll_pos::VScroll;
 use crate::view::{EditorView, RunFunction};
 
 const F_SPLIT_V: u16 = 31310;
@@ -341,10 +342,17 @@ fn the_search_pattern_follows_the_active_pane(cx: &mut TestAppContext) {
 fn scrolling_one_pane_scrolls_the_pane_beside_it(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, &long_text());
     f.run(cx, F_SPLIT_VH);
-    let scroll =
-        |cx: &mut VisualTestContext, i: usize| f.pane(cx, i).read_with(cx, |v, _| v.scroll());
+    let scroll = |cx: &mut VisualTestContext, i: usize| {
+        f.pane(cx, i).read_with(cx, |v, _| {
+            let (x, y) = v.scroll();
+            (x, y.px(v.metrics().line_height))
+        })
+    };
     f.pane(cx, 0).update(cx, |v, cx| {
-        v.set_scroll(Some(40.0), Some((200.0, false)));
+        v.set_scroll(
+            Some(40.0),
+            Some((VScroll::from_px(200.0, v.metrics().line_height), false)),
+        );
         cx.notify();
     });
     cx.run_until_parked();
@@ -362,7 +370,10 @@ fn rows_of_panes_scroll_vertically_on_their_own(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, &long_text());
     f.run(cx, F_SPLIT_V);
     f.pane(cx, 0).update(cx, |v, cx| {
-        v.set_scroll(None, Some((100.0, false)));
+        v.set_scroll(
+            None,
+            Some((VScroll::from_px(100.0, v.metrics().line_height), false)),
+        );
         cx.notify();
     });
     cx.run_until_parked();
@@ -463,7 +474,13 @@ fn synchronized_scrolling_keeps_the_top_row_when_the_font_sizes_differ(cx: &mut 
     let (small, large) = (line_height(cx, 0), line_height(cx, 1));
     assert!(large > small);
     f.pane(cx, 0).update(cx, |v, cx| {
-        v.set_scroll(None, Some((small * 10.0, false)));
+        v.set_scroll(
+            None,
+            Some((
+                VScroll::from_px(small * 10.0, v.metrics().line_height),
+                false,
+            )),
+        );
         cx.notify();
     });
     cx.run_until_parked();
@@ -500,7 +517,13 @@ fn unsplitting_keeps_the_top_row_of_a_pane_with_another_font_size(cx: &mut TestA
     f.run(cx, 31122);
     let large = f.pane(cx, 1).read_with(cx, |v, _| v.metrics().line_height);
     f.pane(cx, 1).update(cx, |v, cx| {
-        v.set_scroll(None, Some((large * 10.0, false)));
+        v.set_scroll(
+            None,
+            Some((
+                VScroll::from_px(large * 10.0, v.metrics().line_height),
+                false,
+            )),
+        );
         cx.notify();
     });
     f.run(cx, F_SPLIT_H);

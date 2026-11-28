@@ -28,6 +28,7 @@ use gpui::{
 };
 
 use crate::app::Workspace;
+use crate::scroll_pos::VScroll;
 use crate::view::EditorView;
 use plan::{Active, Grid, Plan, do_split, request};
 
@@ -61,7 +62,7 @@ pub(crate) struct PaneSet {
     /// What each pane's subscriptions are (focus, changes); dropped with the pane.
     subscriptions: [Vec<Subscription>; 4],
     /// The scroll position each pane had when we last looked, to see who scrolled.
-    scrolled: [(f32, f32); 4],
+    scrolled: [(f32, VScroll); 4],
 }
 
 impl PaneSet {
@@ -75,7 +76,7 @@ impl PaneSet {
             area: Rc::new(Cell::new(Bounds::default())),
             dragging: None,
             subscriptions: Default::default(),
-            scrolled: [(0.0, 0.0); 4],
+            scrolled: [(0.0, VScroll::TOP); 4],
         }
     }
 
@@ -91,7 +92,7 @@ impl PaneSet {
             area: Rc::new(Cell::new(Bounds::default())),
             dragging: None,
             subscriptions: Default::default(),
-            scrolled: [(0.0, 0.0); 4],
+            scrolled: [(0.0, VScroll::TOP); 4],
         }
     }
 
@@ -276,7 +277,7 @@ impl Workspace {
             let m = view.metrics();
             // pane 0 loses what pane 2 will take: the part of the area below the bar
             let shown = ((m.view_height - (height - bar)) / m.line_height).floor();
-            let top = (view.scroll_y() / m.line_height).round().max(0.0) as usize;
+            let top = view.vscroll().nearest_row(m.line_height);
             (top, shown.max(1.0) as usize)
         };
         second.update(cx, |view, cx| {
@@ -291,9 +292,7 @@ impl Workspace {
             return 0;
         };
         let view = pane.read(cx);
-        let top = (view.scroll_y() / view.metrics().line_height)
-            .round()
-            .max(0.0) as usize;
+        let top = view.vscroll().nearest_row(view.metrics().line_height);
         if top < view.caret_row(cx).row { 2 } else { 0 }
     }
 
@@ -434,7 +433,7 @@ impl Workspace {
         // Panes can have other font sizes (the zoom is per pane): the top row and the left
         // column are what is kept in step, not the pixels.
         let metrics = *pane.read(cx).metrics();
-        let top_row = y / metrics.line_height;
+        let top_row = y.rows(metrics.line_height);
         let left_col = x / metrics.cell_width;
         let (last_x, last_y) = self.panes().scrolled[index];
         self.panes_mut().scrolled[index] = (x, y);
@@ -452,7 +451,7 @@ impl Workspace {
         &mut self,
         partner: usize,
         left_col: Option<f32>,
-        top_row: Option<(f32, bool)>,
+        top_row: Option<(f64, bool)>,
         cx: &mut Context<Self>,
     ) {
         if !self.panes().grid.shows(partner) {
@@ -466,7 +465,7 @@ impl Workspace {
             let m = *view.metrics();
             view.set_scroll(
                 left_col.map(|col| col * m.cell_width),
-                top_row.map(|(row, past_end)| (row * m.line_height, past_end)),
+                top_row.map(|(rows, past_end)| (VScroll::from_rows(rows, m.line_height), past_end)),
             );
             cx.notify();
             view.scroll()

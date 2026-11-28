@@ -90,6 +90,7 @@ mod profile_manager;
 mod radio_group;
 mod reconvert;
 mod saved_state;
+pub mod scroll_pos;
 pub mod search;
 pub mod segments;
 pub mod settings;
