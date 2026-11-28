@@ -796,7 +796,12 @@ fn a_smaller_row_keeps_the_top_row_and_the_offset_inside_it(cx: &mut TestAppCont
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
     let before = view.read_with(cx, |v, _| v.metrics.line_height);
-    view.update(cx, |v, _| {
+    view.update(cx, |v, cx| {
+        // the caret is in view, so that bringing it into view does not move the top
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(45, 0), false)
+        })
+        .unwrap();
         v.vscroll = crate::scroll_pos::VScroll::new(40, before * 0.75, before);
         v.prefs.settings.line_space -= (before / 2.0) as i32;
     });
