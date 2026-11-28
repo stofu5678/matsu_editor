@@ -2328,3 +2328,87 @@ fn huge_blocks_set_both_block_sizes_and_the_default_changes_nothing() {
     );
     assert_eq!(sized.scan_options().block_size, 16);
 }
+
+#[test]
+fn a_stream_write_replaces_the_target_only_when_it_is_committed() {
+    use std::io::Write;
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"old");
+    let mut out = StreamWrite::create(&path, 10, None).unwrap();
+    out.write_all(b"new ").unwrap();
+    out.write_all(b"content").unwrap();
+    assert_eq!(out.written(), 11);
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        b"old",
+        "nothing changes before the commit"
+    );
+    assert_eq!(out.commit(&mut || false).unwrap(), 11);
+    assert_eq!(fs::read(&path).unwrap(), b"new content");
+    assert_eq!(dir.names(), ["a.txt"], "the temporary file is gone");
+}
+
+#[test]
+fn a_stream_write_that_is_dropped_leaves_the_target_and_no_file() {
+    use std::io::Write;
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"old");
+    let mut out = StreamWrite::create(&path, 10, None).unwrap();
+    out.write_all(b"half").unwrap();
+    drop(out);
+    assert_eq!(fs::read(&path).unwrap(), b"old");
+    assert_eq!(dir.names(), ["a.txt"]);
+}
+
+#[test]
+fn a_stream_write_is_refused_for_a_read_only_target_and_for_a_full_disk() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"old");
+    fn little(_: &Path) -> std::io::Result<u64> {
+        Ok(1024)
+    }
+    let error =
+        StreamWrite::create(&path, 10 * 1024 * 1024, Some(FreeSpaceProbe(little))).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            FileError::NoSpace {
+                available: 1024,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    let mut permissions = fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&path, permissions.clone()).unwrap();
+    let error = StreamWrite::create(&path, 10, None).unwrap_err();
+    assert!(matches!(error, FileError::ReadOnly), "{error:?}");
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    fs::set_permissions(&path, permissions).unwrap();
+    assert_eq!(dir.names(), ["a.txt"]);
+}
+
+#[test]
+fn a_stop_that_comes_during_the_commit_of_a_stream_write_keeps_the_target() {
+    use std::io::Write;
+    // the stop is asked after the flush, after the permissions and before the rename: it comes at
+    // each of them in turn
+    for asked_at in 1..=2 {
+        let dir = TempDir::new();
+        let path = dir.write("a.txt", b"old");
+        let mut out = StreamWrite::create(&path, 10, None).unwrap();
+        out.write_all(b"new").unwrap();
+        let mut asked = 0;
+        let error = out
+            .commit(&mut || {
+                asked += 1;
+                asked == asked_at
+            })
+            .unwrap_err();
+        assert!(matches!(error, FileError::Cancelled), "{error:?}");
+        assert_eq!(fs::read(&path).unwrap(), b"old", "asked {asked_at}");
+        assert_eq!(dir.names(), ["a.txt"], "no temporary file");
+    }
+}

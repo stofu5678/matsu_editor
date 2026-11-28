@@ -29,7 +29,7 @@ use crate::encoding::Encoding;
 
 /// Extra room asked for on top of every estimate: the BOM, the buffers and what a file system keeps
 /// for itself.
-const MARGIN: u64 = 1024 * 1024;
+pub(super) const MARGIN: u64 = 1024 * 1024;
 
 /// Extra room asked for when the bytes are converted, where the size of the result is a guess.
 const CONVERT_MARGIN: u64 = 16 * 1024 * 1024;
@@ -105,8 +105,12 @@ pub(super) fn estimate(doc: &Document, copies_original: bool, options: &SaveOpti
 
 /// Refuses with [`FileError::NoSpace`] when the folder `dir` has less free space than `needed`.
 /// A probe that is not there or fails passes: the check is a courtesy, not a gate.
-pub(super) fn ensure(dir: &Path, needed: u64, options: &SaveOptions) -> Result<()> {
-    let Some(probe) = options.free_space.or_else(default_probe) else {
+pub(super) fn ensure_with(
+    dir: &Path,
+    needed: u64,
+    free_space: Option<FreeSpaceProbe>,
+) -> Result<()> {
+    let Some(probe) = free_space.or_else(default_probe) else {
         return Ok(());
     };
     match (probe.0)(dir) {

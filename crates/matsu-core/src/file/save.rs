@@ -694,6 +694,7 @@ fn slices(text: &str) -> impl Iterator<Item = &str> {
 }
 
 /// Counts the bytes that pass through.
+#[derive(Debug)]
 struct Counting<W> {
     inner: W,
     written: u64,
@@ -720,6 +721,7 @@ impl<W: Write> Write for Counting<W> {
 }
 
 /// A temporary file that is removed when dropped, unless it was renamed away.
+#[derive(Debug)]
 struct TempFile {
     path: PathBuf,
     keep: bool,
@@ -925,10 +927,10 @@ fn write_file(
         .unwrap_or_else(|| Path::new("."));
     // Before anything is created: a disk that cannot hold the new file is refused at once, not
     // after the time it takes to write most of it.
-    space::ensure(
+    space::ensure_with(
         dir,
         space::estimate(doc, copies_original(source, options), options),
-        options,
+        options.free_space,
     )?;
     let permissions = existing.as_ref().map(fs::Metadata::permissions);
     let (file, mut temp) = create_temp(dir, permissions.as_ref())?;
@@ -1052,6 +1054,117 @@ pub fn write_bytes(path: &Path, bytes: &[u8], preserve: Preserve) -> Result<()> 
     temp.keep = true;
     sync_dir(dir);
     Ok(())
+}
+
+/// A file that is written a piece at a time, and replaces its target only when it is
+/// [committed](StreamWrite::commit): for a caller that makes the new content of a file it reads in
+/// order (Grep 置換 of a huge file, ADR-0020, chapter 5), where there is no document to save.
+///
+/// It is the write of [`TextFile::save_as`] without the document: the target is checked (a
+/// regular file that is not read-only; a symbolic link is followed), the free space of the folder
+/// is checked against what the caller says it needs, the bytes go to a new temporary file in the
+/// folder, and the commit flushes it, copies the permissions of the old file and renames it over
+/// the target. Dropping it, or a failed commit, removes the temporary file and leaves the target
+/// as it was.
+#[derive(Debug)]
+pub struct StreamWrite {
+    real: PathBuf,
+    existing: Option<fs::Metadata>,
+    out: Counting<BufWriter<File>>,
+    temp: TempFile,
+}
+
+impl StreamWrite {
+    /// Begins the new content of the file at `path`. `needed` is the most bytes it will take, for
+    /// the check of the free space, with `free_space` or the probe of the process, as in a save.
+    ///
+    /// # Errors
+    ///
+    /// [`FileError::ReadOnly`] for a read-only target, [`FileError::NoSpace`] when `needed` does
+    /// not fit, and an I/O error when the target is not a regular file or the temporary file
+    /// cannot be made.
+    pub fn create(path: &Path, needed: u64, free_space: Option<FreeSpaceProbe>) -> Result<Self> {
+        let real = resolve_target(path)?;
+        let existing = fs::metadata(&real).ok();
+        if let Some(meta) = &existing {
+            if !meta.is_file() {
+                return Err(FileError::Io(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "the target is not a regular file",
+                )));
+            }
+            if meta.permissions().readonly() {
+                return Err(FileError::ReadOnly);
+            }
+        }
+        let dir = real
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        space::ensure_with(dir, needed.saturating_add(space::MARGIN), free_space)?;
+        let permissions = existing.as_ref().map(fs::Metadata::permissions);
+        let (file, temp) = create_temp(dir, permissions.as_ref())?;
+        Ok(Self {
+            real,
+            existing,
+            out: Counting {
+                inner: BufWriter::with_capacity(READ_CHUNK, file),
+                written: 0,
+                scan: None,
+            },
+            temp,
+        })
+    }
+
+    /// The bytes written so far.
+    pub fn written(&self) -> u64 {
+        self.out.written
+    }
+
+    /// Puts the new file in the place of the target. Returns the bytes it has. `stop` is asked
+    /// after the flush to the disk, after the copy of the permissions and right before the
+    /// rename, as the save of a document does: when it says so the target is as it was
+    /// ([`FileError::Cancelled`]).
+    ///
+    /// # Errors
+    ///
+    /// When a write, the flush or the rename fails, or `stop` says so; the target is as it was.
+    pub fn commit(mut self, stop: &mut dyn FnMut() -> bool) -> Result<u64> {
+        self.out.flush()?;
+        let written = self.out.written;
+        let file = self
+            .out
+            .inner
+            .into_inner()
+            .map_err(io::IntoInnerError::into_error)?;
+        super::sync_file(&file)?;
+        drop(file);
+        if stop() {
+            return Err(FileError::Cancelled);
+        }
+        if let Some(meta) = &self.existing {
+            fs::set_permissions(&self.temp.path, meta.permissions())?;
+        }
+        if stop() {
+            return Err(FileError::Cancelled);
+        }
+        fs::rename(&self.temp.path, &self.real)?;
+        self.temp.keep = true;
+        if let Some(dir) = self.real.parent() {
+            sync_dir(dir);
+        }
+        Ok(written)
+    }
+}
+
+impl Write for StreamWrite {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.out.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
+    }
 }
 
 /// Gives `new` the owner and group of the old file. What the OS refuses is skipped: only root may

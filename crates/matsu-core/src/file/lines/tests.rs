@@ -605,3 +605,98 @@ fn a_line_that_is_being_dropped_is_never_given_as_its_suffix_by_the_read_without
         }
     }
 }
+
+/// The bytes of the lines that `next_line_spilling` gives, put together as a copy of the file
+/// would have them: the raw bytes of a line, or what was spilled of a line that is too long.
+fn copy_through(bytes: &[u8], enc: Encoding, chunk: usize, max: usize) -> (Vec<u8>, Vec<bool>) {
+    let mut r = reader(Counting::new(bytes), enc, false, chunk);
+    let mut copy = Vec::new();
+    let mut too_long = Vec::new();
+    loop {
+        assert_eq!(r.consumed() as usize, copy.len(), "chunk {chunk}");
+        match r.next_line_spilling(max, &mut || false, &mut copy).unwrap() {
+            None => break,
+            Some(Limited::Line(_)) => {
+                copy.extend_from_slice(r.last_raw());
+                too_long.push(false);
+            }
+            Some(Limited::TooLong { .. }) => too_long.push(true),
+        }
+    }
+    (copy, too_long)
+}
+
+#[test]
+fn the_raw_bytes_of_the_lines_and_the_spilled_ones_make_the_file_again() {
+    let long = "x".repeat(300);
+    for enc in [Encoding::Utf8, Encoding::ShiftJis, Encoding::Utf16Le] {
+        for text in [
+            format!("a\r\n{long}\r\nb\nc\r"),
+            format!("{long}\r\nend"),
+            format!("a\r\n{long}"),
+            format!("{long}\r\n\r\n{long}\n"),
+            String::new(),
+        ] {
+            let bytes = encode(enc, &text);
+            for chunk in [4, 8, 28, 64, 1024] {
+                let (copy, too_long) = copy_through(&bytes, enc, chunk, 100);
+                assert_eq!(copy, bytes, "{enc:?}, chunk {chunk}, {text:?}");
+                let long_lines = text.split(['\r', '\n']).filter(|l| l.len() > 100).count();
+                assert_eq!(
+                    too_long.iter().filter(|&&t| t).count(),
+                    long_lines,
+                    "{enc:?}, chunk {chunk}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_failing_spill_is_the_error_of_the_call() {
+    struct Full;
+    impl io::Write for Full {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let bytes = "x".repeat(500);
+    let mut r = reader(Counting::new(bytes.as_bytes()), Encoding::Utf8, false, 64);
+    let error = r
+        .next_line_spilling(100, &mut || false, &mut Full)
+        .unwrap_err();
+    assert_eq!(error.to_string(), "disk full");
+}
+
+#[test]
+fn the_raw_bytes_of_the_last_call_are_empty_when_it_gave_no_line() {
+    let bytes = format!("short\r\n{}\r\nnext", "x".repeat(300));
+    let mut r = reader(Counting::new(bytes.as_bytes()), Encoding::Utf8, false, 16);
+    let mut sink = Vec::new();
+    let first = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    assert!(matches!(first, Some(Limited::Line(_))));
+    assert_eq!(r.last_raw(), b"short\r\n");
+    let second = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    assert!(matches!(second, Some(Limited::TooLong { .. })));
+    assert_eq!(r.last_raw(), b"", "not the bytes of the line before");
+    let third = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    assert!(matches!(third, Some(Limited::Line(_))));
+    assert_eq!(r.last_raw(), b"next");
+    assert!(
+        r.next_line_spilling(100, &mut || false, &mut sink)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(r.last_raw(), b"", "nor after the end");
+    // nor after an error that is a stop
+    let mut r = reader(Counting::new(bytes.as_bytes()), Encoding::Utf8, false, 4);
+    let _ = r.next_line_spilling(100, &mut || false, &mut sink).unwrap();
+    let error = r
+        .next_line_spilling(100, &mut || true, &mut sink)
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert_eq!(r.last_raw(), b"");
+}

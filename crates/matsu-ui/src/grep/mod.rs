@@ -47,6 +47,8 @@ mod history_tests;
 #[cfg(test)]
 mod huge_tests;
 #[cfg(test)]
+mod replace_stream_tests;
+#[cfg(test)]
 mod replace_tests;
 #[cfg(test)]
 mod this_text_tests;
