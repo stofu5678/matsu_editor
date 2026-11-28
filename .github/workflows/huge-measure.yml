@@ -11,9 +11,14 @@ name: huge-measure
 # The program is the example `huge_measure` of matsu-regex (crates/matsu-regex/examples/huge_measure/). How to run it
 # and how to read its report: docs/measurements/huge-files.md.
 #
-# The kinds are split over five jobs per system, so that each job makes and measures about one 10 GB file (a job
-# is meant to end within about 20 minutes, ADR-0018 type E; the limit below is 35 minutes, for a slow disk). A
-# kind that is not in the `kinds` input is left out of its job. Each file is deleted when it is measured.
+# The kinds are split over five jobs per system, so that each job makes and measures about one 10 GB file. The job
+# runs only by hand, never on a push or a pull request, so it does not count against the 20 minutes of ADR-0018 type
+# E: the first run (2026-11-29) needed more than 35 minutes for the 10 GB saves on Windows (about 280 s each), so the
+# limit is 120 minutes. A kind that is not in the `kinds` input is left out of its job. Each file is deleted when it
+# is measured.
+#
+# Linux runs on ubuntu-24.04, as ci.yml does: on ubuntu-26.04 (the ubuntu-latest image since November 2026) GCC 15
+# stops the build of Onigmo (matsu-regex) with -Wincompatible-pointer-types errors.
 #
 # Only people with write access to the repository can start a manual run, and it runs the files of the branch they
 # name. The workflow takes no secrets.
@@ -56,11 +61,11 @@ jobs:
   measure:
     name: measure (${{ matrix.os }}, ${{ matrix.group }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.windows_arm && '["ubuntu-latest","windows-latest","windows-11-arm"]' || '["ubuntu-latest","windows-latest"]') }}
+        os: ${{ fromJSON(inputs.windows_arm && '["ubuntu-24.04","windows-latest","windows-11-arm"]' || '["ubuntu-24.04","windows-latest"]') }}
         group: ["s,l", "c,e", "t", "j", "w"]
     defaults:
       run:
