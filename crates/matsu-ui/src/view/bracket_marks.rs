@@ -88,8 +88,9 @@ fn marks_checked(
 ) -> Option<Vec<Mark>> {
     // Finding the bracket reads the whole line: not one that is too long for that. The length in
     // the file tells it without reading the line when it is far over: a char of the file is at
-    // least half a byte of text (UTF-16), so twice the limit is over the limit as text too.
-    if doc.line_raw_len(caret.line).ok()?? > 2 * MAX_LINE_BYTES
+    // least a quarter of a byte of text (an ASCII char of UTF-32 takes 4 bytes), so four times the
+    // limit is over the limit as text too.
+    if doc.line_raw_len(caret.line).ok()?? > 4 * MAX_LINE_BYTES
         || doc.line_len(caret.line).ok()?? > MAX_LINE_BYTES
     {
         return None;
@@ -280,6 +281,30 @@ mod tests {
         let text = format!("({})", "x".repeat(MAX_LINE_BYTES + 10));
         let (doc, layout) = setup(&text, LayoutConfig::default());
         assert!(marks(&doc, &layout, Pos::new(0, 0), screen(5)).is_empty());
+    }
+
+    #[test]
+    fn a_utf32_line_under_the_limit_as_text_still_has_its_marks() {
+        use matsu_core::buffer::{EncodingCodec, MemorySource};
+        use matsu_core::encoding::Encoding;
+        // 40,002 chars: 160 KB in the file, under the limit (64 KiB) as text
+        let text = format!("(){}", "x".repeat(40_000));
+        let bytes: Vec<u8> = text
+            .chars()
+            .flat_map(|c| (c as u32).to_le_bytes())
+            .collect();
+        let doc = Document::new(
+            MemorySource::new(bytes),
+            std::sync::Arc::new(EncodingCodec(Encoding::Utf32Le)),
+        )
+        .unwrap();
+        assert!(doc.line_raw_len(0).unwrap().unwrap() > 2 * MAX_LINE_BYTES);
+        let config = LayoutConfig {
+            width: Widths::grid_scaled(WidthRule::default(), PER_COLUMN),
+            ..LayoutConfig::default()
+        };
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        assert_eq!(marks(&doc, &layout, Pos::new(0, 0), screen(5)).len(), 2);
     }
 
     // ---- a proportional font (ADR-0034, stage 5) ----
