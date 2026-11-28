@@ -785,3 +785,32 @@ fn two_panes_with_fonts_of_their_own_each_keep_their_tsv_stops(cx: &mut TestAppC
     count_stops(&pane, cx);
     assert_eq!(ends(&view, cx), [214 + 128, 214 + 128 + 64 + 128]);
 }
+
+/// A smaller row (line spacing, font) after a scroll by part of a row: the pixels cut off the top
+/// row must still be less than one row, or the rows painted from the top row stop short of the
+/// bottom of the view (`scroll_pos`).
+#[gpui::test]
+fn a_smaller_row_keeps_the_top_row_and_the_offset_inside_it(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &"line\n".repeat(200));
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let before = view.read_with(cx, |v, _| v.metrics.line_height);
+    view.update(cx, |v, _| {
+        v.vscroll = crate::scroll_pos::VScroll::new(40, before * 0.75, before);
+        v.prefs.settings.line_space -= (before / 2.0) as i32;
+    });
+    for _ in 0..3 {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+    view.read_with(cx, |v, _| {
+        let lh = v.metrics.line_height;
+        assert!(lh < before, "{lh} for {before}");
+        assert_eq!(v.vscroll.row(), 40);
+        assert!(v.vscroll.offset() < lh, "{} of {lh}", v.vscroll.offset());
+        // the rows from the top row fill the view to the bottom
+        let rows = v.layout.row_count() - v.vscroll.row();
+        assert!(rows as f32 * lh - v.vscroll.offset() >= v.metrics.view_height);
+    });
+}

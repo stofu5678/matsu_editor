@@ -136,6 +136,18 @@ impl VScroll {
         self.row as f64 * f64::from(line_height) + f64::from(self.offset)
     }
 
+    /// The same top row with the offset kept below `line_height`: for when the height of a row
+    /// changed (a font, a line spacing) and the offset, in pixels, may now be more than a row. The
+    /// top row stays; an offset that does not fit in the new row is dropped (the row starts at the
+    /// top of the view).
+    pub fn renormalized(self, line_height: f32) -> Self {
+        if self.offset < height(line_height) {
+            self
+        } else {
+            Self::at_row(self.row)
+        }
+    }
+
     /// The same offset into another row.
     pub fn with_row(self, row: usize, line_height: f32) -> Self {
         Self::new(row, self.offset, line_height)
@@ -201,6 +213,13 @@ mod tests {
         assert_eq!(VScroll::new(3, 20.0, LH).row(), 4);
         assert_eq!(VScroll::from_px(70.0, LH), VScroll::new(3, 10.0, LH));
         assert_eq!(VScroll::from_px(-70.0, LH), VScroll::TOP);
+    }
+
+    #[test]
+    fn a_smaller_row_height_moves_a_long_offset_to_the_rows_it_covers() {
+        let at = VScroll::new(7, 15.0, 20.0);
+        assert_eq!(at.renormalized(10.0), VScroll::at_row(7));
+        assert_eq!(at.renormalized(20.0), at);
     }
 
     #[test]

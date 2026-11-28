@@ -776,8 +776,10 @@ impl Element for EditorElement {
         // mark, the caret of the end of a line).
         let one = widths.to_x(1);
 
-        let first_row = editor.vscroll.row();
-        let y_offset = -editor.vscroll.offset();
+        // The row height of this frame may differ from the one the offset was kept for.
+        let vscroll = editor.vscroll.renormalized(line_height);
+        let first_row = vscroll.row();
+        let y_offset = -vscroll.offset();
         let top_margin = settings.top_margin() as f32;
         // The horizontal scroll bar takes the bottom of the view (`CreateScrollBar`).
         let hbar_height = if super::hscroll::shown(cx) {
@@ -2036,6 +2038,9 @@ impl Element for EditorElement {
             let mut redraw = false;
             let measured_before = editor.metrics;
             editor.metrics = metrics;
+            // The offset into the top row is in pixels: a new row height can leave it more than a
+            // row, so it is made again for the new height (the row stays the top row).
+            editor.vscroll = editor.vscroll.renormalized(metrics.line_height);
             if measured_before.line_height != metrics.line_height
                 || measured_before.cell_width != metrics.cell_width
             {
