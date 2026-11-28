@@ -170,3 +170,63 @@ fn the_message_says_the_size_and_the_limit_in_megabytes() {
     let cut = crate::clipboard::too_big_message(MAX_COPY_BYTES, true);
     assert!(cut.contains("切り取りできません"), "{cut}");
 }
+
+/// A document read by ranges over `text`.
+fn ranged(text: &str) -> matsu_core::buffer::Document {
+    use matsu_core::buffer::{Document, EncodingCodec, MemorySource, ScanOptions, scan_blocks};
+    use matsu_core::encoding::Encoding;
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+
+    let index = scan_blocks(
+        Arc::new(MemorySource::new(text.as_bytes().to_vec())),
+        Arc::new(EncodingCodec(Encoding::Utf8)),
+        ScanOptions {
+            block_size: 64,
+            long_line: 1000,
+            ..ScanOptions::default()
+        },
+        |_| ControlFlow::Continue(()),
+    )
+    .unwrap();
+    Document::from_block_index(index).unwrap()
+}
+
+#[test]
+fn the_line_endings_count_in_the_size_of_lines_that_are_sorted_or_merged() {
+    use crate::context::CommandContext;
+    use crate::layout::PlainLayout;
+    use crate::registry::Registry;
+    use matsu_core::cursor::Cursor;
+    use matsu_core::model::DocumentModel;
+
+    // 300 empty CRLF lines: no text at all, 600 bytes of line endings
+    let text = "\r\n".repeat(300) + "end";
+    for (id, said) in [
+        ("sort_asc", "並べ替え"),
+        ("sort_desc", "並べ替え"),
+        ("merge", "マージ"),
+    ] {
+        // the range is 600 bytes: a limit of 600 refuses it (the limit is "or more"), 601 does not
+        for (limit, refused) in [(600, true), (601, false)] {
+            let mut model = DocumentModel::new(ranged(&text));
+            let doc = model.doc();
+            assert!(doc.is_ranged());
+            assert_eq!(doc.line_count(), 301);
+            let range = doc.raw_len_between(Pos::new(0, 0), Pos::new(300, 0));
+            assert_eq!(range.unwrap(), 600);
+            let mut cursor = Cursor::default();
+            cursor.select(Pos::new(0, 0), Pos::new(300, 0));
+            let mut layout = PlainLayout::default();
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
+            // a refused command is not an error (a macro goes on): it beeps and says so
+            with_copy_limit(limit, || Registry::global().run(id, &mut cx, &[])).unwrap();
+            let message = cx.finish().message_box.unwrap_or_default();
+            let said_so = message.contains("対象の範囲が大きすぎる");
+            assert_eq!(said_so, refused, "{id} with a limit of {limit}: {message}");
+            if refused {
+                assert!(message.contains(said), "{message}");
+            }
+        }
+    }
+}

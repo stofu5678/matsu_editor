@@ -186,13 +186,14 @@ impl CommandContext<'_> {
         let (rows, limit) = self.rows_of_selection(from, to)?;
         let (mut shifts, lines_before) = (Shifts::new(), self.doc().line_count());
         for row in rows.iter().rev().filter(|row| row.col == 0) {
-            let Some(line) = self.doc().line(row.line)? else {
+            // Only the start of the line is looked at (a very long line is not decoded).
+            let Some((start, _)) = self.doc().rest_of_line(row.line, 0, tab_width + 4)? else {
                 continue;
             };
-            let count = if line.text.starts_with(unit) {
+            let count = if start.starts_with(unit) {
                 1
             } else if unit == '\t' {
-                line.text
+                start
                     .chars()
                     .take(tab_width)
                     .take_while(|&c| c == ' ')

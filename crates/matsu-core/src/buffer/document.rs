@@ -85,6 +85,10 @@ impl Default for Document {
     }
 }
 
+/// The bytes of a very long line that a caller reads at a time when it walks the line in parts
+/// ([`Document::line_all_chars`], [`Document::line_slice`]).
+pub const LINE_PART: usize = 64 * 1024;
+
 thread_local! {
     static LARGEST_DECODE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
@@ -280,6 +284,34 @@ impl Document {
         Ok(self
             .line(i)?
             .map(|l| (l.text.get(col..).unwrap_or("").to_owned(), l.eol)))
+    }
+
+    /// Whether every char of the text of line `i` is one that `keep` accepts (`None` if there is
+    /// no such line). A very long line is read in parts of [`LINE_PART`] bytes, and the reading
+    /// stops at the first char that is not accepted, so that a long line of white space is read
+    /// to its end and any other long line only as far as its first char to refuse.
+    pub fn line_all_chars(&self, i: usize, keep: impl Fn(char) -> bool) -> Result<Option<bool>> {
+        if !self.is_long_line(i) {
+            return Ok(self.line(i)?.map(|l| l.text.chars().all(keep)));
+        }
+        let Some(len) = self.line_len(i)? else {
+            return Ok(None);
+        };
+        let mut col = 0;
+        while col < len {
+            let Some(part) = self.line_slice(i, col, col.saturating_add(LINE_PART))? else {
+                return Ok(None);
+            };
+            if !part.text.chars().all(&keep) {
+                return Ok(Some(false));
+            }
+            let next = part.start_col + part.text.len();
+            if next <= col {
+                break;
+            }
+            col = next;
+        }
+        Ok(Some(true))
     }
 
     /// The line ending of line `i`: `None` for the last line when it has none (and when there is
@@ -545,13 +577,22 @@ impl Document {
                             return Ok(());
                         }
                     }
+                    // The place is the start of the piece (a column that ends where the piece
+                    // before it ended): nothing to read.
+                    if remaining == 0 && s < e {
+                        found = Some(raw);
+                        return Ok(());
+                    }
                     // Read in parts, so that a place near the start of a huge piece does not read
                     // all of it. A part is read a few bytes long, to see a character at its end.
+                    // The first parts are as long as the rest of the column needs (a decoded byte
+                    // is at least about a byte of the original), up to `PART`.
                     const PART: usize = 256 * 1024;
                     let codec = &st.original.codec;
                     let (mut off, mut seen) = (0, 0);
                     while s + off < e {
-                        let take = (e - (s + off)).min(PART);
+                        let want = (remaining - seen).saturating_add(64).clamp(4096, PART);
+                        let take = (e - (s + off)).min(want);
                         let look = (take + 8).min(e - (s + off));
                         let bytes = st.read_original(s + off, s + off + look)?;
                         let mut i = 0;

@@ -116,17 +116,115 @@ pub struct Pair {
     pub other: Pos,
 }
 
+/// How many bytes on each side of the caret [`start_of`] reads of a very long line.
+const NEAR: usize = 8;
+
+/// The bytes of a very long line that the search reads at a time.
+const PART: usize = matsu_core::buffer::LINE_PART;
+
+/// Walks the chars of line `line_no` from byte `start` on, calling `f` with each char and its byte
+/// column until it returns `Some`. A very long line is read in parts, not decoded as a whole.
+/// `None` if there is no such line.
+fn walk_forward<T>(
+    doc: &Document,
+    line_no: usize,
+    start: usize,
+    mut f: impl FnMut(usize, char) -> Option<T>,
+) -> Result<Option<Option<T>>> {
+    if !doc.is_long_line(line_no) {
+        let Some(line) = doc.line(line_no)? else {
+            return Ok(None);
+        };
+        let found = line
+            .text
+            .get(start..)
+            .unwrap_or_default()
+            .char_indices()
+            .find_map(|(i, c)| f(start + i, c));
+        return Ok(Some(found));
+    }
+    let len = doc.line_len(line_no)?.unwrap_or(0);
+    let mut col = start;
+    while col < len {
+        let Some(part) = doc.line_slice(line_no, col, col.saturating_add(PART))? else {
+            break;
+        };
+        if let Some(found) = part
+            .text
+            .char_indices()
+            .find_map(|(i, c)| f(part.start_col + i, c))
+        {
+            return Ok(Some(Some(found)));
+        }
+        let next = part.start_col + part.text.len();
+        if next <= col {
+            break;
+        }
+        col = next;
+    }
+    Ok(Some(None))
+}
+
+/// Like [`walk_forward`], backward: the chars of line `line_no` before byte `end`, the last
+/// first.
+fn walk_backward<T>(
+    doc: &Document,
+    line_no: usize,
+    end: Option<usize>,
+    mut f: impl FnMut(usize, char) -> Option<T>,
+) -> Result<Option<Option<T>>> {
+    if !doc.is_long_line(line_no) {
+        let Some(line) = doc.line(line_no)? else {
+            return Ok(None);
+        };
+        let end = end.unwrap_or(line.text.len());
+        let found = line.text[..end]
+            .char_indices()
+            .rev()
+            .find_map(|(i, c)| f(i, c));
+        return Ok(Some(found));
+    }
+    let mut end = end.unwrap_or(doc.line_len(line_no)?.unwrap_or(0));
+    while end > 0 {
+        let Some(part) = doc.line_slice(line_no, end.saturating_sub(PART), end)? else {
+            break;
+        };
+        if let Some(found) = part
+            .text
+            .char_indices()
+            .rev()
+            .find_map(|(i, c)| f(part.start_col + i, c))
+        {
+            return Ok(Some(Some(found)));
+        }
+        if part.start_col >= end {
+            break;
+        }
+        end = part.start_col;
+    }
+    Ok(Some(None))
+}
+
 /// The bracket that `SearchBracket` starts from: the char at `caret` if it is a bracket, else the
 /// char right before the caret if that is one.
 pub fn start_of(doc: &Document, caret: Pos) -> Result<Option<Start>> {
-    let Some(line) = doc.line(caret.line)? else {
-        return Ok(None);
+    // Only the chars next to the caret matter: a very long line is read around the caret, as the
+    // chars before and after it are at most 4 bytes each.
+    let (text, base) = if doc.is_long_line(caret.line) {
+        let from = caret.col.saturating_sub(NEAR);
+        match doc.line_slice(caret.line, from, caret.col.saturating_add(NEAR))? {
+            Some(slice) => (slice.text, slice.start_col),
+            None => return Ok(None),
+        }
+    } else {
+        match doc.line(caret.line)? {
+            Some(line) => (line.text, 0),
+            None => return Ok(None),
+        }
     };
-    let at = line.text.get(caret.col..).and_then(|s| s.chars().next());
-    let before = line
-        .text
-        .get(..caret.col)
-        .and_then(|s| s.chars().next_back());
+    let col = caret.col - base;
+    let at = text.get(col..).and_then(|s| s.chars().next());
+    let before = text.get(..col).and_then(|s| s.chars().next_back());
     Ok(match (at, before) {
         (Some(ch), _) if pair_of(ch).is_some() => Some(Start {
             pos: caret,
@@ -186,19 +284,22 @@ fn search_forward(
         if reach.is_some_and(|r| n > r.forward) || !readable(doc, line_no, reach)? {
             break;
         }
-        let Some(line) = doc.line(line_no)? else {
-            break;
-        };
         let start = if line_no == from.line { from.col } else { 0 };
-        for (i, c) in line.text.get(start..).unwrap_or_default().char_indices() {
+        let found = walk_forward(doc, line_no, start, |col, c| {
             if c == open {
                 level += 1;
             } else if c == close {
                 level = level.saturating_sub(1);
                 if level == 0 {
-                    return Ok(Some(Pos::new(line_no, start + i)));
+                    return Some(Pos::new(line_no, col));
                 }
             }
+            None
+        })?;
+        match found {
+            None => break,
+            Some(Some(pos)) => return Ok(Some(pos)),
+            Some(None) => {}
         }
     }
     Ok(None)
@@ -217,23 +318,20 @@ fn search_backward(
         if reach.is_some_and(|r| n > r.backward) || !readable(doc, line_no, reach)? {
             break;
         }
-        let Some(line) = doc.line(line_no)? else {
-            continue;
-        };
-        let end = if line_no == from.line {
-            from.col
-        } else {
-            line.text.len()
-        };
-        for (i, c) in line.text[..end].char_indices().rev() {
+        let end = (line_no == from.line).then_some(from.col);
+        let found = walk_backward(doc, line_no, end, |col, c| {
             if c == close {
                 level += 1;
             } else if c == open {
                 level -= 1;
                 if level == 0 {
-                    return Ok(Some(Pos::new(line_no, i)));
+                    return Some(Pos::new(line_no, col));
                 }
             }
+            None
+        })?;
+        if let Some(Some(pos)) = found {
+            return Ok(Some(pos));
         }
     }
     Ok(None)
@@ -353,6 +451,71 @@ mod tests {
         );
         assert_eq!(found("(a))", (0, 0), None).unwrap().other, Pos::new(0, 2));
         assert_eq!(found("((a))", (0, 1), None).unwrap().other, Pos::new(0, 3));
+    }
+
+    /// The same text as a document read by ranges, in which the lines from 10 000 bytes are long.
+    fn ranged(text: &str) -> Document {
+        use matsu_core::buffer::{EncodingCodec, MemorySource, ScanOptions, scan_blocks};
+        use matsu_core::encoding::Encoding;
+        use std::ops::ControlFlow;
+        use std::sync::Arc;
+
+        let index = scan_blocks(
+            Arc::new(MemorySource::new(text.as_bytes().to_vec())),
+            Arc::new(EncodingCodec(Encoding::Utf8)),
+            ScanOptions {
+                block_size: 4096,
+                long_line: 10_000,
+                ..ScanOptions::default()
+            },
+            |_| ControlFlow::Continue(()),
+        )
+        .unwrap();
+        Document::from_block_index(index).unwrap()
+    }
+
+    #[test]
+    fn a_very_long_line_is_searched_in_parts_with_the_same_result() {
+        use matsu_core::buffer::{LINE_PART, largest_decode, reset_largest_decode};
+
+        // brackets more than two parts apart, with wide chars between, on one line and across
+        let text = format!(
+            "{}(\u{65e5}{}[{})\u{65e5}{}]{}\n{}\n)",
+            "x".repeat(70_000),
+            "\u{65e5}".repeat(30_000),
+            "(".repeat(2),
+            "\u{65e5}".repeat(30_000),
+            ")".repeat(2),
+            "y".repeat(500),
+        );
+        let (dense, ranged) = (doc(&text), ranged(&text));
+        assert!(ranged.is_long_line(0));
+        let carets = [
+            0,
+            70_000,
+            70_001,
+            70_004,
+            70_004 + 90_000,
+            text.find(')').unwrap(),
+            text.find(')').unwrap() + 1,
+            text.find(']').unwrap() + 1,
+            text.find(']').unwrap(),
+        ];
+        for col in carets {
+            let caret = Pos::new(0, col);
+            reset_largest_decode();
+            let got = search(&ranged, caret, None).unwrap();
+            let largest = largest_decode();
+            assert_eq!(got, search(&dense, caret, None).unwrap(), "col {col}");
+            assert!(
+                largest <= 2 * LINE_PART,
+                "col {col}: decoded {largest} at once"
+            );
+        }
+        // the pair of the first bracket is far away, in the same long line
+        let pair = search(&ranged, Pos::new(0, 70_000), None).unwrap().unwrap();
+        assert_eq!(pair.other.line, 0);
+        assert!(pair.other.col > 2 * LINE_PART);
     }
 
     #[test]

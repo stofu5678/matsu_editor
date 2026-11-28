@@ -13,7 +13,9 @@ use matsu_core::buffer::{Eol, Pos};
 use matsu_core::model::eol_text;
 
 use super::CommandContext;
-use crate::clipboard::{ClipData, ClipKind, copy_limit, too_big_message};
+use crate::clipboard::{
+    ClipData, ClipKind, copy_limit, too_big_message, too_big_to_work_on_message,
+};
 use crate::command::{CommandError, Result};
 
 /// `bEnableNoSelectCopy`: copy and cut without a selection take the row. Default on.
@@ -168,6 +170,33 @@ impl CommandContext<'_> {
         self.beep();
         self.changes.message_box = Some(too_big_message(bytes, cut));
         Err(CommandError::Refused("a selection that is too big to copy"))
+    }
+
+    /// Refuses work (`what`, as in [`too_big_to_work_on_message`]) that has to read `bytes` bytes of
+    /// the document as one text, when `bytes` reaches the limit of a copy ([`copy_limit`],
+    /// ADR-0020): beeps, says so in a message box and fails with [`CommandError::Refused`], so that
+    /// nothing is read or changed. Only a document that is read by ranges is refused: the others
+    /// are small enough to be held whole.
+    pub(crate) fn refuse_big_work(&mut self, bytes: usize, what: &str) -> Result<()> {
+        if !self.doc().is_ranged() || bytes < copy_limit() {
+            return Ok(());
+        }
+        self.beep();
+        self.changes.message_box = Some(too_big_to_work_on_message(bytes, what));
+        Err(CommandError::Refused("a range that is too big to work on"))
+    }
+
+    /// [`refuse_big_work`](Self::refuse_big_work) for the lines `first..end`: their bytes are
+    /// counted from the line index with their line endings, without reading the text.
+    pub(crate) fn refuse_big_lines(&mut self, first: usize, end: usize, what: &str) -> Result<()> {
+        if !self.doc().is_ranged() {
+            return Ok(());
+        }
+        // the whole range, the line endings too (a line of only a line ending is bytes as well)
+        let bytes = self
+            .doc()
+            .raw_len_between(Pos::new(first, 0), Pos::new(end, 0))?;
+        self.refuse_big_work(bytes, what)
     }
 
     /// The text of the row that has the caret, with its line ending, or `None` if there is no row

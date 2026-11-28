@@ -35,7 +35,7 @@ impl CommandContext<'_> {
             return Ok(None);
         };
         let mut end = to.line;
-        if to.col > 0 && self.doc().line(to.line)?.is_some_and(|l| l.eol.is_some()) {
+        if to.col > 0 && self.doc().line_eol(to.line)?.is_some() {
             end += 1;
         }
         Ok((end > from.line).then_some((from.line, end)))
@@ -97,6 +97,7 @@ impl CommandContext<'_> {
         let Some((first, end)) = self.selected_whole_lines()? else {
             return Ok(());
         };
+        self.refuse_big_lines(first, end, "並べ替え")?;
         let caret_at_start = self.caret().line == first;
         let mut keyed: Vec<(Vec<u16>, String)> = self
             .lines_with_eol(first, end)?
@@ -147,6 +148,7 @@ impl CommandContext<'_> {
         if end <= first {
             return Ok(());
         }
+        self.refuse_big_lines(first, end, "並べ替え")?;
         self.refuse_in_view_mode()?;
         let new_line = eol_text(self.new_line());
         // Sakura restores the screen rows of the corners (`sRangeA`). The lines before the first
@@ -270,6 +272,7 @@ impl CommandContext<'_> {
         let Some((first, end)) = self.selected_whole_lines()? else {
             return Ok(());
         };
+        self.refuse_big_lines(first, end, "マージ")?;
         let caret_at_start = self.caret().line == first;
         let lines_before = self.doc().line_count();
         let mut merged: Vec<String> = Vec::new();
@@ -318,20 +321,29 @@ impl CommandContext<'_> {
                 )
             }
         };
+        // The text is read only from `from` to `to`: not the lines as wholes, which can be
+        // very long.
+        self.refuse_big_work(self.doc().raw_len_between(from, to)?, "トリム")?;
         let mut trimmed = String::new();
         for line_no in from.line..=to.line {
             // no line: the empty line after a final line ending
-            let (text, eol) = self
-                .doc()
-                .line(line_no)?
-                .map_or_else(Default::default, |line| (line.text, line.eol));
+            let len = self.doc().line_len(line_no)?;
+            let eol = self.doc().line_eol(line_no)?;
             let start = if line_no == from.line { from.col } else { 0 };
             let stop = if line_no == to.line {
                 to.col
             } else {
-                text.len()
+                len.unwrap_or(0)
             };
-            let piece = text.get(start..stop).unwrap_or_default();
+            let piece = match len {
+                Some(len) if start <= stop && stop <= len => self
+                    .doc()
+                    .line_slice(line_no, start, stop)?
+                    .map(|slice| slice.text)
+                    .unwrap_or_default(),
+                _ => String::new(),
+            };
+            let piece = piece.as_str();
             trimmed.push_str(if left {
                 piece.trim_start_matches(is_blank)
             } else {

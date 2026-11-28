@@ -59,6 +59,8 @@ impl CommandContext<'_> {
         if self.cursor.is_box() {
             return self.convert_box(convert);
         }
+        // Before any text is read: a selection of a huge file is a range, the string is not.
+        self.refuse_big_work(self.doc().raw_len_between(from, to)?, "変換")?;
         let old = self.doc().text_between(from, to)?;
         let tab_width = self.tab_width();
         let start_col = self.whole_columns(self.layout.display_x(self.doc(), from)?);
