@@ -618,6 +618,9 @@ impl Storages {
                 }
                 scratch.clear();
                 self.decode_into(store, start, end, scratch)?;
+                // The bytes that were read and decoded only to count them (the answer of the
+                // index, for a very long line, costs nothing).
+                crate::measure::add("core.decode_for_len", scratch.len());
                 Ok(scratch.len())
             }
         }

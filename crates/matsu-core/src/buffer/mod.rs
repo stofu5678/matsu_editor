@@ -20,6 +20,7 @@ mod block;
 mod codec;
 mod document;
 mod error;
+mod long_lines;
 mod position;
 mod storage;
 mod tree;

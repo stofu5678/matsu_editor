@@ -139,7 +139,23 @@ impl EditorView {
             let row_runs = if rules.colors_nothing() {
                 Vec::new()
             } else {
-                if line_colors.as_ref().map(|l| l.0) != Some(row.line)
+                if super::colors::is_colored_by_row(doc, row.line) {
+                    // A line of 1 MiB or more: the rows of it on the screen are scanned as one text.
+                    if line_colors.as_ref().map(|l| l.0) != Some(row.line) {
+                        let same = rows[row_index..]
+                            .iter()
+                            .take_while(|r| r.line == row.line)
+                            .count();
+                        line_colors = Some((
+                            row.line,
+                            super::colors::colored_rows(
+                                rules,
+                                &rows[row_index..row_index + same],
+                                || self.color_states.state_at(doc, rules, row.line).0,
+                            ),
+                        ));
+                    }
+                } else if line_colors.as_ref().map(|l| l.0) != Some(row.line)
                     && let Ok(Some(ll)) = layout.line_layout(doc, row.line)
                 {
                     let state = match carried.take() {

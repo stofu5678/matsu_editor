@@ -1467,6 +1467,8 @@ mod colors_tests;
 mod hscroll_tests;
 #[cfg(test)]
 mod huge_scroll_tests;
+#[cfg(all(test, feature = "measure"))]
+mod long_line_bounds;
 #[cfg(test)]
 mod long_line_measure;
 #[cfg(test)]

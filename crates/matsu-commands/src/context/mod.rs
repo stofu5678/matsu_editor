@@ -602,7 +602,10 @@ impl<'a> CommandContext<'a> {
                 None
             };
         let lf_after = self.doc().line_eol(b.line)? == Some(Eol::Lf)
-            && self.doc().line_len(b.line)? == Some(b.col);
+            && self
+                .doc()
+                .rest_of_line(b.line, b.col, 4)?
+                .is_some_and(|(rest, _)| rest.is_empty());
         // They are joined by the new text if it starts with an LF or ends with a CR, and by each
         // other if nothing is put between them.
         Ok(Joined {

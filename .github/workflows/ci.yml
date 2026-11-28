@@ -297,6 +297,12 @@ jobs:
         run: cargo test --workspace --locked
         env:
           MATSU_REQUIRE_INTERPRETERS: ${{ matrix.require_interpreters }}
+      # What a key reads inside a very long line is bounded (#614). The counters it reads exist only with the
+      # `measure` feature, which no workspace build turns on, so the tests run here once, on one system (they
+      # count bytes, not time, and the count is the same everywhere).
+      - name: Bounds of what a key reads in a very long line
+        if: needs.changes.outputs.code == 'true' && matrix.name == 'linux-x64'
+        run: cargo test -p matsu-ui --features measure --lib --locked long_line_bounds
       # freetype-sys bundles FreeType (FTL, not covered by THIRD_PARTY_NOTICES.txt) when the system
       # has none. The Linux builds must link the system's.
       - name: Check that FreeType was not bundled

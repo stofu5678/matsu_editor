@@ -25,7 +25,7 @@ use matsu_coloring::{
 };
 use matsu_commands::context::Changes;
 use matsu_commands::input_options::{LineStart, LineStartColors};
-use matsu_layout::LineLayout;
+use matsu_layout::{LineLayout, RowInfo};
 
 use super::EditorView;
 
@@ -104,6 +104,42 @@ pub(super) fn raw_len_of(doc: &matsu_core::buffer::Document, line: usize) -> Opt
     } else {
         None
     }
+}
+
+/// Whether the colors of `line` are made row by row, from the text of the row that is shown: a
+/// line of 1 MiB or more of a document that is read whole (`Document::is_long_line`). Its rows
+/// are cut at fixed places, and only the rows on the screen are read, so the line is not scanned
+/// from its start (#614). A document read by ranges has no colors in such a line instead
+/// ([`LineColorRequest::raw_len`]).
+pub(super) fn is_colored_by_row(doc: &matsu_core::buffer::Document, line: usize) -> bool {
+    !doc.is_ranged() && doc.is_long_line(line)
+}
+
+/// The runs of the colors of the rows of one long line that are on the screen (see
+/// [`is_colored_by_row`]), with the columns of the line. `rows` are consecutive rows of the same
+/// line, in order. Their texts are scanned as one text, from the state the line starts in
+/// (`line_start`), so that what goes on over a row edge (a line comment, a block comment, a
+/// string) is what the scanner has there, not the state meant for the next line. The first row
+/// on the screen starts in the state of the line start, so a comment that began before the
+/// screen is not seen.
+pub(super) fn colored_rows(
+    rules: &ColorRules,
+    rows: &[RowInfo],
+    line_start: impl FnOnce() -> ColorState,
+) -> Arc<Vec<ColorRun>> {
+    let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+        return Arc::default();
+    };
+    let mut text = String::with_capacity(rows.iter().map(|r| r.text().len()).sum());
+    for row in rows {
+        text.push_str(row.text());
+    }
+    let mut runs = line_runs(rules, &text, last.eol, &line_start(), text.len());
+    for run in &mut runs {
+        run.start += first.start.col;
+        run.end += first.start.col;
+    }
+    Arc::new(runs)
 }
 
 /// The colors of a line for the painting.
