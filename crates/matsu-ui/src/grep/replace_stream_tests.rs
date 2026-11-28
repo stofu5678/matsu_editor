@@ -584,3 +584,29 @@ fn a_stop_while_the_start_of_the_file_or_the_backup_is_copied_ends_the_replace_a
         }
     }
 }
+
+#[test]
+fn the_probe_of_whole_reads_finds_a_read_under_any_spelling_of_the_folder() {
+    // A Windows `TEMP` can be an 8.3 short path while the search is given the long one: the
+    // probe compares real paths, so that "no file was read whole" cannot be true by a mismatch.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("data.txt"), b"abc\r\n").unwrap();
+    let job = Job::new("abc", "d");
+    let info = job.info(&dir, None);
+    let mut sink = Collect {
+        text: String::new(),
+        stop_at: None,
+    };
+    run(&info, &AtomicBool::new(false), &mut sink).unwrap();
+    let spellings = [
+        dir.path().to_path_buf(),
+        dir.path().join("."),
+        std::path::PathBuf::from(&info.folder),
+    ];
+    for spelling in spellings {
+        let found = stream_probe::whole_reads_in(&spelling);
+        assert_eq!(found.len(), 1, "{spelling:?}: {found:?}");
+        assert_eq!(found[0].1, 5);
+    }
+    assert!(stream_probe::whole_reads_in(&dir.path().join("other")).is_empty());
+}

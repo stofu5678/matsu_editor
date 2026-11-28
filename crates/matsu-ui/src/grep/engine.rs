@@ -414,26 +414,32 @@ pub(super) mod stream_probe {
         static SEEN: Cell<Seen> = const { Cell::new(Seen { files: 0, peak: 0, bytes: 0 }) };
     }
 
-    /// The files that were read whole, by every thread (the search of the app runs on another one).
-    static WHOLE: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+    /// The files that were read whole, by every thread (the search of the app runs on another
+    /// one). The paths are the real ones (`canonicalize`): a folder has more than one spelling
+    /// (a Windows `TEMP` can be an 8.3 short path, and the search is given the long one), so
+    /// text compared as it is would never match.
+    static WHOLE: std::sync::Mutex<Vec<(std::path::PathBuf, u64)>> =
+        std::sync::Mutex::new(Vec::new());
 
     pub fn whole_read(path: &str) {
         let len = std::fs::metadata(path).map_or(0, |m| m.len());
+        let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
         WHOLE
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .push((path.to_owned(), len));
+            .push((real, len));
     }
 
-    /// The files of `dir` that were read whole, and their sizes.
+    /// The files of `dir` that were read whole, and their sizes. `dir` may be spelled in any
+    /// way that names the folder.
     pub fn whole_reads_in(dir: &std::path::Path) -> Vec<(String, u64)> {
-        let dir = dir.to_string_lossy().into_owned();
+        let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         WHOLE
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter(|(p, _)| p.starts_with(&dir))
-            .cloned()
+            .map(|(p, len)| (p.to_string_lossy().into_owned(), *len))
             .collect()
     }
 
