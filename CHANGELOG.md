@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.29.1](https://github.com/stofu5678/matsu_editor/compare/v0.29.0...v0.29.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **huge:** stop decoding a whole long line for the IME and the line commands ([#609](https://github.com/stofu5678/matsu_editor/issues/609)) ([be7b4ca](https://github.com/stofu5678/matsu_editor/commit/be7b4cacd27f2edcff45d1654aa05de490b1e04e))
+* **view:** keep an exact vertical position in documents with very many rows ([#613](https://github.com/stofu5678/matsu_editor/issues/613)) ([32aec2a](https://github.com/stofu5678/matsu_editor/commit/32aec2ab25262f854fb6e979a04f8e9721d3e428))
+
+
+### Performance Improvements
+
+* **grep:** replace in huge files without reading them whole ([#611](https://github.com/stofu5678/matsu_editor/issues/611)) ([0f3db10](https://github.com/stofu5678/matsu_editor/commit/0f3db10691c44a8e31cffdbeec0f1d39c364890a))
+* **layout:** keep no row count per line for huge files ([#608](https://github.com/stofu5678/matsu_editor/issues/608)) ([54b18df](https://github.com/stofu5678/matsu_editor/commit/54b18df43a2f0ba562ae2f46d2817cbc7f377a35))
+
 ## [0.29.0](https://github.com/stofu5678/matsu_editor/compare/v0.28.0...v0.29.0) (2026-11-27)
 
 
