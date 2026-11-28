@@ -98,7 +98,7 @@ gh run download <run id>
 | `search_limit_secs` | `30` | 検索の上限 |
 | `windows_arm` | `false` | `windows-11-arm` でも動かす（空き容量が分からないので、足りなければジョブが止まる） |
 
-`ubuntu-latest` と `windows-latest` の 2 つで、種類を 5 つのジョブ（`s,l` / `c,e` / `t` / `j` / `w`）に分ける。1 つのジョブが、10GB 級のファイルを 1 つ作って測る形にして、20 分ほどに収めるため。ジョブの上限は 35 分（遅いディスクのため）。Linux は一時ディスク（`/mnt`）に、Windows は `C:` にファイルを作る。空きが足りないときは、測る前にジョブが止まる。Linux は root で動かして、各回の前にキャッシュを捨てる。ジョブごとに、`huge-measure-<番号>-<OS>` の名前で、`report.md` と `report.json` を artifact にする（`report.md` はジョブの要約にも出る）。
+`ubuntu-24.04` と `windows-latest` の 2 つで、種類を 5 つのジョブ（`s,l` / `c,e` / `t` / `j` / `w`）に分ける。1 つのジョブが、10GB 級のファイルを 1 つ作って測る。ジョブの上限は 120 分。手で動かしたときだけ動き、push と PR では動かないので、20 分の決まり（ADR-0018 の型 E）には数えない。最初の実行（2026-11-29）では、Windows で 10GB の保存が 1 回約 280 秒かかり、35 分では終わらなかった。Linux は、ci.yml と同じ `ubuntu-24.04` で動かす（`ubuntu-latest` の Ubuntu 26.04 の GCC 15 では、Onigmo の組み立てが `-Wincompatible-pointer-types` のエラーで止まる）。Linux は一時ディスク（`/mnt`）に、Windows は `C:` にファイルを作る。空きが足りないときは、測る前にジョブが止まる。Linux は root で動かして、各回の前にキャッシュを捨てる。ジョブごとに、`huge-measure-<番号>-<OS>` の名前で、`report.md` と `report.json` を artifact にする（`report.md` はジョブの要約にも出る）。
 
 ## レポートの読み方
 
