@@ -107,7 +107,7 @@ pub(super) fn raw_len_of(doc: &matsu_core::buffer::Document, line: usize) -> Opt
 }
 
 /// Whether the colors of `line` are made row by row, from the text of the row that is shown: a
-/// line of 1 MiB or more of a document that is read whole ([`Document::is_long_line`]). Its rows
+/// line of 1 MiB or more of a document that is read whole (`Document::is_long_line`). Its rows
 /// are cut at fixed places, and only the rows on the screen are read, so the line is not scanned
 /// from its start (#614). A document read by ranges has no colors in such a line instead
 /// ([`LineColorRequest::raw_len`]).
