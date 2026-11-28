@@ -25,7 +25,7 @@ use matsu_coloring::{
 };
 use matsu_commands::context::Changes;
 use matsu_commands::input_options::{LineStart, LineStartColors};
-use matsu_layout::LineLayout;
+use matsu_layout::{LineLayout, RowInfo};
 
 use super::EditorView;
 
@@ -104,6 +104,51 @@ pub(super) fn raw_len_of(doc: &matsu_core::buffer::Document, line: usize) -> Opt
     } else {
         None
     }
+}
+
+/// Whether the colors of `line` are made row by row, from the text of the row that is shown: a
+/// line of 1 MiB or more of a document that is read whole ([`Document::is_long_line`]). Its rows
+/// are cut at fixed places, and only the rows on the screen are read, so the line is not scanned
+/// from its start (#614). A document read by ranges has no colors in such a line instead
+/// ([`LineColorRequest::raw_len`]).
+pub(super) fn is_colored_by_row(doc: &matsu_core::buffer::Document, line: usize) -> bool {
+    !doc.is_ranged() && doc.is_long_line(line)
+}
+
+/// Where the scan of the rows of a long line ended last: the state it left, to start the next row
+/// of the same line in. The first row on the screen starts in the state the line starts in, so a
+/// comment or a string that began before the screen is not seen.
+pub(super) struct RowCarry {
+    line: usize,
+    /// The column where the last scanned row ended.
+    col: usize,
+    state: ColorState,
+}
+
+/// The runs of the colors of one row of a long line (see [`is_colored_by_row`]), with the columns
+/// of the line. `line_start` makes the state the line starts in, which the first row asks for.
+pub(super) fn colored_row(
+    rules: &ColorRules,
+    row: &RowInfo,
+    carry: &mut Option<RowCarry>,
+    line_start: impl FnOnce() -> ColorState,
+) -> Arc<Vec<ColorRun>> {
+    let state = match carry.take() {
+        Some(c) if c.line == row.line && c.col == row.start.col => c.state,
+        _ => line_start(),
+    };
+    let text = row.text();
+    let mut runs = line_runs(rules, text, row.eol, &state, text.len());
+    for run in &mut runs {
+        run.start += row.start.col;
+        run.end += row.start.col;
+    }
+    *carry = Some(RowCarry {
+        line: row.line,
+        col: row.end.col,
+        state: line_end_state(rules, text, row.eol, &state),
+    });
+    Arc::new(runs)
 }
 
 /// The colors of a line for the painting.

@@ -28,7 +28,7 @@ use matsu_core::measure::{self, Entry};
 use super::EditorView;
 use crate::document::SharedDocument;
 
-const MIB: usize = 1024 * 1024;
+pub(super) const MIB: usize = 1024 * 1024;
 
 fn status_kib(key: &str) -> u64 {
     std::fs::read_to_string("/proc/self/status")
@@ -54,7 +54,7 @@ fn peak_mib() -> f64 {
 }
 
 /// A document of three parts: a short line, one line of `len` bytes of ASCII, short lines.
-fn text_bytes(len: usize) -> Vec<u8> {
+pub(super) fn text_bytes(len: usize) -> Vec<u8> {
     let unit = b"0123456789abcdef";
     let mut bytes = Vec::with_capacity(len + 64);
     bytes.extend_from_slice(b"first line\n");
@@ -103,14 +103,14 @@ fn mib(bytes: u64) -> f64 {
     bytes as f64 / MIB as f64
 }
 
-fn paint(cx: &mut VisualTestContext) {
+pub(super) fn paint(cx: &mut VisualTestContext) {
     cx.update(|window, cx| {
         window.refresh();
         window.draw(cx).clear(cx);
     });
 }
 
-fn put_caret(view: &Entity<EditorView>, cx: &mut VisualTestContext, pos: Pos) {
+pub(super) fn put_caret(view: &Entity<EditorView>, cx: &mut VisualTestContext, pos: Pos) {
     view.update(cx, |v, cx| {
         v.run_with(cx, |c| c.move_caret(pos, false)).unwrap();
     });

@@ -86,8 +86,12 @@ fn marks_checked(
     caret: Pos,
     screen: Screen,
 ) -> Option<Vec<Mark>> {
-    // Finding the bracket reads the whole line: not one that is too long for that.
-    if doc.line_len(caret.line).ok()?? > MAX_LINE_BYTES {
+    // Finding the bracket reads the whole line: not one that is too long for that. The length in
+    // the file tells it without reading the line when it is far over: a char of the file is at
+    // least half a byte of text (UTF-16), so twice the limit is over the limit as text too.
+    if doc.line_raw_len(caret.line).ok()?? > 2 * MAX_LINE_BYTES
+        || doc.line_len(caret.line).ok()?? > MAX_LINE_BYTES
+    {
         return None;
     }
     let start = start_of(doc, caret).ok()??;

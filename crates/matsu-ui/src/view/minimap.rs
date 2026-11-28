@@ -121,6 +121,7 @@ impl EditorView {
         let version = shared.version();
         let mut line_colors: Option<(usize, std::sync::Arc<Vec<matsu_coloring::ColorRun>>)> = None;
         let mut carried: Option<(usize, ColorState)> = None;
+        let mut row_carry = None;
         let mut out = Vec::with_capacity(rows.len());
         for (row_index, row) in rows.iter().enumerate() {
             let row_found = found.next().unwrap_or_default();
@@ -139,7 +140,14 @@ impl EditorView {
             let row_runs = if rules.colors_nothing() {
                 Vec::new()
             } else {
-                if line_colors.as_ref().map(|l| l.0) != Some(row.line)
+                if super::colors::is_colored_by_row(doc, row.line) {
+                    line_colors = Some((
+                        row.line,
+                        super::colors::colored_row(rules, row, &mut row_carry, || {
+                            self.color_states.state_at(doc, rules, row.line).0
+                        }),
+                    ));
+                } else if line_colors.as_ref().map(|l| l.0) != Some(row.line)
                     && let Ok(Some(ll)) = layout.line_layout(doc, row.line)
                 {
                     let state = match carried.take() {

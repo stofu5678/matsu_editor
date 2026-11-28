@@ -1015,6 +1015,135 @@ mod long_lines {
         assert_eq!(joined, doc.line(1).unwrap().unwrap().text);
     }
 
+    /// The same text as a document read whole (a normal document).
+    fn whole(text: &str) -> Document {
+        Document::new(
+            MemorySource::new(text.as_bytes().to_vec()),
+            Arc::new(EncodingCodec(Encoding::Utf8)),
+        )
+        .unwrap()
+    }
+
+    /// A line of 1.2 MB with characters of one, two and three bytes and tabs, between two others.
+    fn over_one_mebibyte() -> String {
+        let mut line = String::new();
+        let mut i = 0;
+        while line.len() < 1_200_000 {
+            line.push_str(["abc", "é", "日本語", "\t", "x"][i % 5]);
+            i += 1;
+        }
+        format!("first\n{line}\nlast")
+    }
+
+    #[test]
+    fn a_line_of_a_normal_document_over_one_mebibyte_is_laid_out_as_in_a_ranged_one() {
+        let text = over_one_mebibyte();
+        let (ranged, _) = ranged(&text, 4096, 1 << 20);
+        let whole = whole(&text);
+        assert!(whole.is_long_line(1) && ranged.is_long_line(1));
+        let cfg = LayoutConfig::default();
+        let a = DocumentLayout::laid_out(&whole, cfg.clone()).unwrap();
+        let b = DocumentLayout::laid_out(&ranged, cfg).unwrap();
+        assert_eq!(a.row_count(), b.row_count());
+        assert_eq!(a.rows_in_line(1), b.rows_in_line(1));
+        // 4096 bytes a row, whatever the wrap setting says (10,240 columns by default)
+        let line_len = whole.line_len(1).unwrap().unwrap();
+        assert_eq!(a.rows_in_line(1), Some(line_len.div_ceil(LONG_ROW_BYTES)));
+        let n = a.row_count();
+        let (ra, rb) = (
+            a.rows(&whole, 0, n).unwrap(),
+            b.rows(&ranged, 0, n).unwrap(),
+        );
+        assert_eq!(ra.len(), rb.len());
+        for (x, y) in ra.iter().zip(&rb) {
+            assert_eq!((x.line, x.row_in_line), (y.line, y.row_in_line));
+            assert_eq!((x.start, x.end), (y.start, y.end));
+            assert_eq!((x.start_x, x.end_x), (y.start_x, y.end_x));
+            assert_eq!((x.wrapped, x.eol), (y.wrapped, y.eol));
+            assert_eq!(x.text(), y.text());
+        }
+        // the positions: a place maps to the same row and x, and back
+        let text = whole.line(1).unwrap().unwrap().text;
+        for col in (0..line_len).step_by(9973).chain([line_len]) {
+            let col = (0..=col).rev().find(|&c| text.is_char_boundary(c)).unwrap();
+            let pos = Pos::new(1, col);
+            let (p, q) = (
+                a.pos_to_row(&whole, pos).unwrap(),
+                b.pos_to_row(&ranged, pos).unwrap(),
+            );
+            assert_eq!(p, q, "col {col}");
+            assert_eq!(a.row_to_pos(&whole, p.row, p.x).unwrap().pos, pos);
+        }
+    }
+
+    /// An edit inside a very long line of a normal document costs about a row: the line is not
+    /// laid out again, and the source is read only for the rows that are asked for.
+    #[test]
+    fn an_edit_in_a_very_long_line_of_a_normal_document_reads_about_a_row() {
+        let text = over_one_mebibyte();
+        let read = Arc::new(AtomicU64::new(0));
+        let mut doc = Document::new(
+            Counting {
+                inner: MemorySource::new(text.as_bytes().to_vec()),
+                read: read.clone(),
+            },
+            Arc::new(EncodingCodec(Encoding::Utf8)),
+        )
+        .unwrap();
+        let mut layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        // what a view does before a key: the first screen and the place of the caret
+        layout.rows(&doc, 0, 40).unwrap();
+        layout.pos_to_row(&doc, Pos::new(1, 6)).unwrap();
+        read.store(0, Ordering::Relaxed);
+        let edit = doc.insert(Pos::new(1, 6), "x").unwrap();
+        layout.edited(&doc, &edit).unwrap();
+        layout.rows(&doc, 0, 40).unwrap();
+        layout.pos_to_row(&doc, Pos::new(1, 7)).unwrap();
+        layout.row_to_pos(&doc, 3, x(5)).unwrap();
+        let used = read.load(Ordering::Relaxed);
+        assert!(used < 256 * 1024, "{used} bytes were read");
+    }
+
+    #[test]
+    fn a_line_one_byte_under_one_mebibyte_keeps_the_layout_of_a_normal_line() {
+        let line = "x".repeat((1 << 20) - 1);
+        let doc = whole(&format!("a\n{line}\nb"));
+        assert!(!doc.is_long_line(1));
+        let layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        // wrapped at 10,240 columns, not cut every 4096 bytes
+        let columns = LayoutConfig::default().max_columns() as usize;
+        assert_eq!(columns, 10_240);
+        assert_eq!(layout.rows_in_line(1), Some(line.len().div_ceil(columns)));
+        let rows = layout.rows(&doc, 1, 2).unwrap();
+        assert_eq!(rows[0].text().len(), columns);
+    }
+
+    #[test]
+    fn an_edit_in_a_very_long_line_of_a_normal_document_keeps_the_rows_right() {
+        let text = over_one_mebibyte();
+        let mut doc = whole(&text);
+        let mut layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        let before = layout.rows_in_line(1).unwrap();
+        let edit = doc
+            .insert(Pos::new(1, 20_000), &"Z".repeat(10_000))
+            .unwrap();
+        layout.edited(&doc, &edit).unwrap();
+        let line_len = doc.line_len(1).unwrap().unwrap();
+        assert_eq!(
+            layout.rows_in_line(1),
+            Some(line_len.div_ceil(LONG_ROW_BYTES))
+        );
+        assert!(layout.rows_in_line(1).unwrap() > before);
+        let rows = layout.rows(&doc, 0, 100).unwrap();
+        let joined: String = rows
+            .iter()
+            .filter(|r| r.line == 1)
+            .map(|r| r.text())
+            .collect();
+        let line = doc.line(1).unwrap().unwrap().text;
+        assert!(line.starts_with(&joined));
+    }
+
     /// The row table of a ranged document holds no bytes per line (ADR-0020, chapter 6, plan B):
     /// 300,000 lines took 1.2 MB before; now the table is one run of lines, and a line that wraps
     /// adds a few entries. (`seq.rs` checks 10^8 lines.)

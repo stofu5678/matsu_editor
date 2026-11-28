@@ -288,6 +288,12 @@ fn scan_line(
             Ok(Some(_)) => {}
         }
     }
+    // A line of 1 MiB or more of a document that is read whole is not scanned either: the colors of
+    // its rows come from the rows on the screen, so a comment that is opened in it does not go on
+    // in the lines after it (#614).
+    if !doc.is_ranged() && doc.is_long_line(line) {
+        return Some(state.clone());
+    }
     let l = doc.line(line).ok().flatten()?;
     Some(line_end_state(rules, &l.text, l.eol, state))
 }

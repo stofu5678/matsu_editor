@@ -7,6 +7,7 @@ use std::sync::Arc;
 use super::block::BlockIndex;
 use super::codec::{Codec, EncodingCodec, Eol};
 use super::error::{BufferError, Result};
+use super::long_lines::FullIndex;
 use super::position::{Pos, col_from_utf16, col_to_utf16};
 use super::storage::{EolIndex, LineIndex, MemorySource, Original, Source, Storages};
 use super::tree::{self, Store, Tree};
@@ -196,12 +197,10 @@ impl Document {
             // added text (it will be encoded again when saved).
             let mut text = String::new();
             codec.decode(&source.read(0, len)?, &mut text);
-            let mut doc = Self::build(
-                MemorySource::new(Vec::new()),
-                Arc::new(EncodingCodec(Encoding::Utf8)),
-                LineIndex::default(),
-                ext_eol,
-            );
+            let empty: Arc<dyn Source> = Arc::new(MemorySource::new(Vec::new()));
+            let utf8: Arc<dyn Codec> = Arc::new(EncodingCodec(Encoding::Utf8));
+            let index = FullIndex::new(LineIndex::default(), empty.clone(), utf8.clone());
+            let mut doc = Self::build(empty, utf8, index, ext_eol);
             let (s, e) = doc.st.append_add(&text)?;
             if e > s {
                 let piece = doc.st.piece(Store::Add, s, e)?;
@@ -215,6 +214,9 @@ impl Document {
         index.scan(&*codec, &bytes, 0, ext_eol)?;
         index.shrink_to_fit();
         drop(bytes);
+        // The index also answers for the places inside very long lines (#614).
+        let source: Arc<dyn Source> = Arc::new(source);
+        let index = FullIndex::new(index, source.clone(), codec.clone());
         let mut doc = Self::build(source, codec, index, ext_eol);
         if len > 0 {
             let piece = doc.st.piece(Store::Original, 0, len as usize)?;
@@ -332,6 +334,10 @@ impl Document {
         let Some(limit) = self.st.long_line_bytes() else {
             return false;
         };
+        // A line is part of the text: a document with less text has no such line.
+        if self.total() < limit {
+            return false;
+        }
         self.line_raw_len(i)
             .ok()
             .flatten()
