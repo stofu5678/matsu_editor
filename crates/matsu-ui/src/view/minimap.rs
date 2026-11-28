@@ -121,7 +121,6 @@ impl EditorView {
         let version = shared.version();
         let mut line_colors: Option<(usize, std::sync::Arc<Vec<matsu_coloring::ColorRun>>)> = None;
         let mut carried: Option<(usize, ColorState)> = None;
-        let mut row_carry = None;
         let mut out = Vec::with_capacity(rows.len());
         for (row_index, row) in rows.iter().enumerate() {
             let row_found = found.next().unwrap_or_default();
@@ -141,12 +140,21 @@ impl EditorView {
                 Vec::new()
             } else {
                 if super::colors::is_colored_by_row(doc, row.line) {
-                    line_colors = Some((
-                        row.line,
-                        super::colors::colored_row(rules, row, &mut row_carry, || {
-                            self.color_states.state_at(doc, rules, row.line).0
-                        }),
-                    ));
+                    // A line of 1 MiB or more: the rows of it on the screen are scanned as one text.
+                    if line_colors.as_ref().map(|l| l.0) != Some(row.line) {
+                        let same = rows[row_index..]
+                            .iter()
+                            .take_while(|r| r.line == row.line)
+                            .count();
+                        line_colors = Some((
+                            row.line,
+                            super::colors::colored_rows(
+                                rules,
+                                &rows[row_index..row_index + same],
+                                || self.color_states.state_at(doc, rules, row.line).0,
+                            ),
+                        ));
+                    }
                 } else if line_colors.as_ref().map(|l| l.0) != Some(row.line)
                     && let Ok(Some(ll)) = layout.line_layout(doc, row.line)
                 {

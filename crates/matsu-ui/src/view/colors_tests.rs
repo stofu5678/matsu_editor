@@ -264,93 +264,114 @@ fn the_cpp_smart_indent_knows_a_comment_that_goes_on_from_the_lines_before(
     assert_eq!(line_text(&view, cx, 3), "\t");
 }
 
-/// The runs of the first `n` rows of line 0 of the view, each scanned from its own text
-/// (`colored_row`), in the order of the screen: the state goes from a row to the next. `first` is
-/// the first row that is on the screen: the rows before it are not scanned.
-fn row_runs_from(
+/// The runs of the colors of `n` rows of line 0 from row `first`, as the view makes them
+/// (`colored_rows`): the rows are scanned as one text, in the columns of the line.
+fn group_runs(
     view: &Entity<EditorView>,
     cx: &mut VisualTestContext,
     first: usize,
     n: usize,
-) -> Vec<Vec<matsu_coloring::ColorRun>> {
+) -> Vec<matsu_coloring::ColorRun> {
     view.read_with(cx, |v, cx| {
         let doc = v.document.read(cx).doc();
         let rules = &v.prefs.settings.coloring;
         let rows = v.layout.rows(doc, first, n).unwrap();
-        let mut carry = None;
-        rows.iter()
-            .map(|row| {
-                assert_eq!(row.line, 0);
-                assert!(super::colors::is_colored_by_row(doc, row.line));
-                let runs = super::colors::colored_row(rules, row, &mut carry, || {
-                    v.color_states.state_at(doc, rules, row.line).0
-                });
-                // the columns are those of the line
-                assert!(runs.iter().all(|r| r.start >= row.start.col));
-                runs.to_vec()
-            })
-            .collect()
+        assert!(
+            rows.iter()
+                .all(|r| r.line == 0 && super::colors::is_colored_by_row(doc, 0))
+        );
+        let runs =
+            super::colors::colored_rows(rules, &rows, || v.color_states.state_at(doc, rules, 0).0);
+        assert!(runs.iter().all(|r| r.start >= rows[0].start.col));
+        runs.to_vec()
     })
+}
+
+/// The `(start, end)` of the runs of `kind`.
+fn spans_of(
+    runs: &[matsu_coloring::ColorRun],
+    kind: matsu_coloring::ColorKind,
+) -> Vec<(usize, usize)> {
+    runs.iter()
+        .filter(|r| r.kind == kind)
+        .map(|r| (r.start, r.end))
+        .collect()
+}
+
+/// 1.2 MB of code after `head`, so that the line is a very long one.
+fn long_c_line(head: &str) -> String {
+    format!("{head}{}", "int a; ".repeat(170_000))
 }
 
 #[gpui::test]
 fn a_comment_on_the_screen_in_a_very_long_line_is_colored(cx: &mut TestAppContext) {
     use matsu_coloring::ColorKind;
 
-    // 1.2 MB in the line, which is over the limit of 1 MiB; a comment at column 98.
-    let line = format!(
-        "{}/* c */{}",
-        "int a; ".repeat(14),
-        "int a; ".repeat(170_000)
-    );
+    let line = long_c_line(&format!("{}/* c */", "int a; ".repeat(14)));
     assert!(line.len() > 1 << 20);
     let (view, cx) = setup(cx, &format!("{line}\nint b;\n"), "a.c");
     cx.run_until_parked();
-    let rows = row_runs_from(&view, cx, 0, 1);
-    let comments: Vec<_> = rows[0]
-        .iter()
-        .filter(|r| r.kind == ColorKind::Comment)
-        .map(|r| (r.start, r.end))
-        .collect();
-    assert_eq!(comments, vec![(98, 105)]);
+    let runs = group_runs(&view, cx, 0, 1);
+    assert_eq!(spans_of(&runs, ColorKind::Comment), vec![(98, 105)]);
     // the rest of the row has keywords, as a short line has
-    assert!(
-        rows[0]
-            .iter()
-            .any(|r| matches!(r.kind, ColorKind::Keyword(_)))
-    );
+    assert!(runs.iter().any(|r| matches!(r.kind, ColorKind::Keyword(_))));
 }
 
 #[gpui::test]
 fn a_comment_goes_on_over_the_rows_of_the_screen_but_not_from_before_it(cx: &mut TestAppContext) {
     use matsu_coloring::ColorKind;
 
-    // A comment from column 98 to column 10,000: rows 0 to 2 (of 4096 bytes) hold it.
-    let line = format!(
-        "{}/*{}*/ {}",
-        "int a; ".repeat(14),
-        "z".repeat(10_000 - 100),
-        "int a; ".repeat(170_000)
-    );
-    let (view, cx) = setup(cx, &format!("{line}\nint b;\n"), "a.c");
+    // A block comment from column 98 to column 10,002: rows 0 to 2 (of 4096 bytes) hold it.
+    let head = format!("{}/*{}*/ ", "int a; ".repeat(14), "z".repeat(10_000 - 100));
+    let (view, cx) = setup(cx, &format!("{}\nint b;\n", long_c_line(&head)), "a.c");
     cx.run_until_parked();
-    let comment_of = |runs: &[matsu_coloring::ColorRun]| -> Vec<(usize, usize)> {
-        runs.iter()
-            .filter(|r| r.kind == ColorKind::Comment)
-            .map(|r| (r.start, r.end))
-            .collect()
-    };
-    // The screen starts at the top of the line: the comment is on every row it covers.
-    let top = row_runs_from(&view, cx, 0, 3);
-    assert_eq!(comment_of(&top[0]), vec![(98, 4096)]);
-    assert_eq!(comment_of(&top[1]), vec![(4096, 8192)]);
-    assert_eq!(comment_of(&top[2]), vec![(8192, 10_002)]);
+    let top = group_runs(&view, cx, 0, 3);
+    assert_eq!(spans_of(&top, ColorKind::Comment), vec![(98, 10_002)]);
     // The screen starts at row 1: the state at the start of the line is all that is known, so the
-    // comment that began before the screen is not seen there, until its end (`*/`), which is
-    // text. This is the difference that the user chose (2026-11-29, E).
-    let below = row_runs_from(&view, cx, 1, 2);
-    assert!(comment_of(&below[0]).is_empty());
-    assert!(comment_of(&below[1]).is_empty());
+    // comment that began before the screen is not seen. This is the difference that the user
+    // chose (2026-11-29, E).
+    let below = group_runs(&view, cx, 1, 2);
+    assert!(spans_of(&below, ColorKind::Comment).is_empty());
+}
+
+#[gpui::test]
+fn a_line_comment_goes_on_over_three_rows(cx: &mut TestAppContext) {
+    use matsu_coloring::ColorKind;
+
+    // The `//` comment runs to the end of the line: the state meant for the next line is Normal,
+    // which must not be what the next row starts in.
+    let head = format!("{}// {}", "int a; ".repeat(14), "z".repeat(10_000));
+    let (view, cx) = setup(cx, &format!("{}\nint b;\n", long_c_line(&head)), "a.c");
+    cx.run_until_parked();
+    let runs = group_runs(&view, cx, 0, 3);
+    // from column 98 to the end of the third row (12,288)
+    assert_eq!(spans_of(&runs, ColorKind::Comment), vec![(98, 12_288)]);
+}
+
+#[gpui::test]
+fn a_block_comment_that_ends_exactly_at_a_row_edge_does_not_color_the_next_row(
+    cx: &mut TestAppContext,
+) {
+    use matsu_coloring::ColorKind;
+
+    // `*/` ends at column 4096, the edge of the first row.
+    let head = format!("/*{}*/", "z".repeat(4096 - 4));
+    assert_eq!(head.len(), 4096);
+    let (view, cx) = setup(cx, &format!("{}\nint b;\n", long_c_line(&head)), "a.c");
+    cx.run_until_parked();
+    let runs = group_runs(&view, cx, 0, 2);
+    assert_eq!(spans_of(&runs, ColorKind::Comment), vec![(0, 4096)]);
+}
+
+#[gpui::test]
+fn a_string_that_crosses_a_row_edge_is_colored_on_both_rows(cx: &mut TestAppContext) {
+    use matsu_coloring::ColorKind;
+
+    let head = format!("\"{}\" ", "z".repeat(5000));
+    let (view, cx) = setup(cx, &format!("{}\nint b;\n", long_c_line(&head)), "a.c");
+    cx.run_until_parked();
+    let runs = group_runs(&view, cx, 0, 2);
+    assert_eq!(spans_of(&runs, ColorKind::DoubleQuote), vec![(0, 5002)]);
 }
 
 #[gpui::test]

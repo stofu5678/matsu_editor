@@ -115,39 +115,30 @@ pub(super) fn is_colored_by_row(doc: &matsu_core::buffer::Document, line: usize)
     !doc.is_ranged() && doc.is_long_line(line)
 }
 
-/// Where the scan of the rows of a long line ended last: the state it left, to start the next row
-/// of the same line in. The first row on the screen starts in the state the line starts in, so a
-/// comment or a string that began before the screen is not seen.
-pub(super) struct RowCarry {
-    line: usize,
-    /// The column where the last scanned row ended.
-    col: usize,
-    state: ColorState,
-}
-
-/// The runs of the colors of one row of a long line (see [`is_colored_by_row`]), with the columns
-/// of the line. `line_start` makes the state the line starts in, which the first row asks for.
-pub(super) fn colored_row(
+/// The runs of the colors of the rows of one long line that are on the screen (see
+/// [`is_colored_by_row`]), with the columns of the line. `rows` are consecutive rows of the same
+/// line, in order. Their texts are scanned as one text, from the state the line starts in
+/// (`line_start`), so that what goes on over a row edge (a line comment, a block comment, a
+/// string) is what the scanner has there, not the state meant for the next line. The first row
+/// on the screen starts in the state of the line start, so a comment that began before the
+/// screen is not seen.
+pub(super) fn colored_rows(
     rules: &ColorRules,
-    row: &RowInfo,
-    carry: &mut Option<RowCarry>,
+    rows: &[RowInfo],
     line_start: impl FnOnce() -> ColorState,
 ) -> Arc<Vec<ColorRun>> {
-    let state = match carry.take() {
-        Some(c) if c.line == row.line && c.col == row.start.col => c.state,
-        _ => line_start(),
+    let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+        return Arc::default();
     };
-    let text = row.text();
-    let mut runs = line_runs(rules, text, row.eol, &state, text.len());
-    for run in &mut runs {
-        run.start += row.start.col;
-        run.end += row.start.col;
+    let mut text = String::with_capacity(rows.iter().map(|r| r.text().len()).sum());
+    for row in rows {
+        text.push_str(row.text());
     }
-    *carry = Some(RowCarry {
-        line: row.line,
-        col: row.end.col,
-        state: line_end_state(rules, text, row.eol, &state),
-    });
+    let mut runs = line_runs(rules, &text, last.eol, &line_start(), text.len());
+    for run in &mut runs {
+        run.start += first.start.col;
+        run.end += first.start.col;
+    }
     Arc::new(runs)
 }
 

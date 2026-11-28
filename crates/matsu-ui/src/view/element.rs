@@ -868,7 +868,6 @@ impl Element for EditorElement {
         let mut line_colors: Option<(usize, std::sync::Arc<Vec<matsu_coloring::ColorRun>>)> = None;
         let version = editor.document.read(cx).version();
         let mut carried: Option<(usize, ColorState)> = None;
-        let mut row_carry = None;
         for (row_index, row) in rows.iter().enumerate() {
             let (start_x, end_x) = (row.start_x, row.end_x);
             // The scroll range is in columns: all of the row has to be reachable.
@@ -930,13 +929,21 @@ impl Element for EditorElement {
                 Vec::new()
             } else {
                 if super::colors::is_colored_by_row(doc, row.line) {
-                    // A line of 1 MiB or more: each row is scanned from its own text.
-                    line_colors = Some((
-                        row.line,
-                        super::colors::colored_row(rules, row, &mut row_carry, || {
-                            editor.color_states.state_at(doc, rules, row.line).0
-                        }),
-                    ));
+                    // A line of 1 MiB or more: the rows of it on the screen are scanned as one text.
+                    if line_colors.as_ref().map(|l| l.0) != Some(row.line) {
+                        let same = rows[row_index..]
+                            .iter()
+                            .take_while(|r| r.line == row.line)
+                            .count();
+                        line_colors = Some((
+                            row.line,
+                            super::colors::colored_rows(
+                                rules,
+                                &rows[row_index..row_index + same],
+                                || editor.color_states.state_at(doc, rules, row.line).0,
+                            ),
+                        ));
+                    }
                 } else if line_colors.as_ref().map(|l| l.0) != Some(row.line)
                     && let Ok(Some(ll)) = layout.line_layout(doc, row.line)
                 {

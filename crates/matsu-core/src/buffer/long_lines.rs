@@ -55,6 +55,13 @@ pub(crate) struct FullIndex {
     codec: Arc<dyn Codec>,
     /// The long lines of the file, found at the first question about one. `None` when reading the
     /// file failed: the callers then decode the bytes, which is slow and right.
+    ///
+    /// A `OnceLock` because the index is shared behind `Arc<Storages>` (the versions that undo
+    /// keeps, threads that read a clone), so no `&mut` can reach it. The first question builds the
+    /// markers inside `get_or_init`; a thread that asks meanwhile waits, once, and then reads
+    /// the same markers. The first question usually comes from the first layout of the document
+    /// (the row count of the long line), on the thread that makes the view, and costs one pass over
+    /// the long lines (about 0.1 s for 200 MiB of UTF-8); it is not warmed elsewhere.
     long: OnceLock<Option<Vec<LongLine>>>,
 }
 
@@ -206,7 +213,15 @@ impl EolIndex for FullIndex {
     }
 
     fn heap_bytes(&self) -> usize {
-        EolIndex::heap_bytes(&self.lines)
+        // The markers count once they are built (a part of 64 KiB takes one `Mark`).
+        let markers: usize = self.long.get().and_then(Option::as_ref).map_or(0, |lines| {
+            lines.capacity() * std::mem::size_of::<LongLine>()
+                + lines
+                    .iter()
+                    .map(|l| l.marks.capacity() * std::mem::size_of::<Mark>())
+                    .sum::<usize>()
+        });
+        EolIndex::heap_bytes(&self.lines) + markers
     }
 
     fn long_line_bytes(&self) -> Option<usize> {
@@ -421,6 +436,18 @@ mod tests {
         assert_eq!(slice.start_col, 900_000);
         assert!(line[900_000..].starts_with(&slice.text) && !slice.text.is_empty());
         assert_eq!(doc.line_len(1).unwrap(), Some(line.len()));
+    }
+
+    #[test]
+    fn the_markers_are_counted_in_the_heap_bytes_once_they_are_built() {
+        let bytes = format!("a\n{}\nb", mixed(1_300_000)).into_bytes();
+        let mut lines = LineIndex::default();
+        lines.scan(Encoding::Utf8.codec(), &bytes, 0, true).unwrap();
+        let source = Arc::new(MemorySource::new(bytes));
+        let index = FullIndex::new(lines, source, Arc::new(EncodingCodec(Encoding::Utf8)));
+        let before = index.heap_bytes();
+        assert!(index.line_of(3, 20_000).is_some());
+        assert!(index.heap_bytes() > before);
     }
 
     /// The source is read in parts: a line of 3 MB makes no read of the size of the line.
