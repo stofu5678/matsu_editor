@@ -819,3 +819,32 @@ fn a_smaller_row_keeps_the_top_row_and_the_offset_inside_it(cx: &mut TestAppCont
         assert!(rows as f32 * lh - v.vscroll.offset() >= v.metrics.view_height);
     });
 }
+
+/// The row height changes while the top of a window on a huge file is held (`frame_top`): the offset
+/// the paint makes again is the view's own change, not the user's scroll, so the hold stays.
+#[gpui::test]
+fn a_smaller_row_keeps_the_held_top_of_a_scan_window(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &"line\n".repeat(200));
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let before = view.read_with(cx, |v, _| v.metrics.line_height);
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(45, 0), false)
+        })
+        .unwrap();
+        v.vscroll = crate::scroll_pos::VScroll::new(40, before * 0.75, before);
+        v.frame_top = Some(super::scan_window::FrameTop {
+            pos: matsu_core::buffer::Pos::new(40, 0),
+            row_offset: before * 0.75,
+            set: v.vscroll,
+        });
+        // (in the same update: a frame in between would end the hold, the layout being complete)
+        v.metrics.line_height = before / 2.0;
+        v.renormalize_vscroll();
+        let top = v.frame_top.as_ref().expect("the hold is kept");
+        assert_eq!(top.set, v.vscroll);
+        assert_ne!(v.vscroll.offset(), before * 0.75);
+    });
+}

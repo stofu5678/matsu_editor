@@ -35,6 +35,7 @@ use crate::geometry::{
     VSCROLL_ARROW, XScale, column_width, row_height,
 };
 use crate::hit::selected_x;
+use crate::scroll_pos::VScroll;
 use crate::search::highlight::{highlight_ranges, slot_of};
 use crate::settings::view_settings::{TabMark, rgb_of};
 use crate::settings::{Colors, DiffColor, Marks};
@@ -421,6 +422,9 @@ pub(super) struct Prepaint {
     line_height: f32,
     gutter_width: f32,
     y_offset: f32,
+    /// The vertical position of this frame, made for this frame's row height: prepaint and paint
+    /// both use it, so that the bar and the background image agree with the rows.
+    vscroll: VScroll,
     widest: u32,
     total_rows: usize,
     /// The height of the horizontal scroll bar at the bottom: 0 when the view has none.
@@ -1414,6 +1418,7 @@ impl Element for EditorElement {
             line_height,
             gutter_width,
             y_offset,
+            vscroll,
             widest,
             total_rows: layout.row_count(),
             hbar_height,
@@ -1441,7 +1446,7 @@ impl Element for EditorElement {
 
         let editor = self.editor.read(cx);
         let scroll_x = editor.scroll_x;
-        let vscroll = editor.vscroll;
+        let vscroll = p.vscroll;
         let dragging = matches!(editor.drag, super::Drag::Thumb { .. });
         // The split boxes: the pane has them when it is in a window that can split
         // (`SplitBoxOnOff`); the horizontal one is on the horizontal bar.
@@ -2040,7 +2045,7 @@ impl Element for EditorElement {
             editor.metrics = metrics;
             // The offset into the top row is in pixels: a new row height can leave it more than a
             // row, so it is made again for the new height (the row stays the top row).
-            editor.vscroll = editor.vscroll.renormalized(metrics.line_height);
+            editor.renormalize_vscroll();
             if measured_before.line_height != metrics.line_height
                 || measured_before.cell_width != metrics.cell_width
             {

@@ -47,10 +47,10 @@ pub(super) struct FrameMove {
 
 /// Where the top of the view was put in a new document whose layout is not complete yet.
 pub(super) struct FrameTop {
-    pos: Pos,
-    row_offset: f32,
+    pub(super) pos: Pos,
+    pub(super) row_offset: f32,
     /// The scroll that was set: a different one is the user's.
-    set: VScroll,
+    pub(super) set: VScroll,
 }
 
 impl EditorView {
@@ -185,6 +185,17 @@ impl EditorView {
         let scroll = self.vscroll;
         if let Some(top) = self.frame_top.as_mut() {
             top.set = scroll;
+        }
+    }
+
+    /// Makes the offset into the top row fit the row height that was measured (it was kept for
+    /// another one). The view changed the scroll by itself: a held top of a scan window is not
+    /// ended by it, as it is not by a clamp.
+    pub(super) fn renormalize_vscroll(&mut self) {
+        let renormalized = self.vscroll.renormalized(self.metrics.line_height);
+        if renormalized != self.vscroll {
+            self.vscroll = renormalized;
+            self.rebase_frame_top();
         }
     }
 
