@@ -360,6 +360,7 @@ impl DocumentLayout {
     }
 
     fn lay_out_lines(&self, doc: &Document, first: usize, n: usize) -> Result<Vec<u32>> {
+        let _measure = matsu_core::measure::span("layout.lay_out_lines");
         let mut counts = Vec::with_capacity(n);
         let mut scratch = Vec::new();
         for i in first..first + n {
@@ -445,7 +446,9 @@ impl DocumentLayout {
     /// because the index does not lay a line out unless it can have more than one row. A line
     /// of more than 16 KiB (and a very long one) is not laid out: it counts as
     /// a quarter of its bytes in columns, the least it can have.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn widest_x(&self, doc: &Document, first: usize, budget: Duration) -> Result<(X, usize)> {
+        let _measure = matsu_core::measure::span_at("layout.widest_x");
         let start = Instant::now();
         let total = doc.line_count();
         let mut widest = X::ZERO;
@@ -487,7 +490,9 @@ impl DocumentLayout {
     /// Updates the index after `doc.replace(..)` (or `insert`, `delete`) returned `edit`. The
     /// document must be the one that the edit made, and no other edit may have happened since the
     /// last update.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn edited(&mut self, doc: &Document, edit: &Edit) -> Result<()> {
+        let _measure = matsu_core::measure::span_at("layout.edited");
         let old_lines = self.seq.len();
         let new_lines = doc.line_count();
         // The touched lines, one more on each side: a line ending that joins or splits can change
@@ -608,7 +613,9 @@ impl DocumentLayout {
     ///
     /// For a very long line (ADR-0020, 9.10) this is its first row only ([`LineLayout::base`]);
     /// the others are made by [`DocumentLayout::rows`] and the position functions.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn line_layout(&self, doc: &Document, line: usize) -> Result<Option<Arc<LineLayout>>> {
+        let _measure = matsu_core::measure::span_at("layout.line_layout");
         if let Some(hit) = self.cache().get((line, 0)) {
             return Ok(Some(hit));
         }
@@ -621,6 +628,9 @@ impl DocumentLayout {
         let mut rows = Vec::new();
         let has_eol = l.eol.is_some();
         layout_line(&l.text, has_eol, &self.cfg, &mut rows);
+        // The row cache did not have the line: the bytes of its text are the cost of the miss.
+        matsu_core::measure::add("layout.cache_miss", l.text.len());
+        matsu_core::measure::add("layout.rows_made", rows.len());
         let layout = Arc::new(LineLayout {
             text: l.text,
             base: 0,
@@ -748,7 +758,9 @@ impl DocumentLayout {
     }
 
     /// Up to `count` rows from `first_row` (cut at the last row), for painting.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn rows(&self, doc: &Document, first_row: usize, count: usize) -> Result<Vec<RowInfo>> {
+        let _measure = matsu_core::measure::span_at("layout.rows");
         let first_row = first_row.min(self.row_count() - 1);
         let r = self.locate_row(first_row);
         let (mut line, mut k, mut row) = (r.line, r.row_in_line, first_row);
@@ -799,7 +811,9 @@ impl DocumentLayout {
 
     /// Where `pos` (clamped into the document) is on the screen. The end of a wrapped row is the
     /// start of the next one, as in Sakura (`offset_to_position`).
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn pos_to_row(&self, doc: &Document, pos: Pos) -> Result<RowPos> {
+        let _measure = matsu_core::measure::span_at("layout.pos_to_row");
         let pos = doc.clamp_pos(pos)?;
         if pos.line >= self.seq.len() {
             return Ok(RowPos {
@@ -846,7 +860,9 @@ impl DocumentLayout {
     /// position inside a wide character or a tab is the left edge of it; one past the end of
     /// the row is the end of the row, with the rest in [`RowTarget::extra_x`]
     /// (`position_to_offset`).
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn row_to_pos(&self, doc: &Document, row: usize, x: X) -> Result<RowTarget> {
+        let _measure = matsu_core::measure::span_at("layout.row_to_pos");
         let row = row.min(self.row_count() - 1);
         let r = self.locate_row(row);
         let eof = RowTarget {

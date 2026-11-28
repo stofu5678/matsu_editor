@@ -131,6 +131,7 @@ impl EditorView {
             next_known,
             raw_len,
         } = request;
+        let _measure = matsu_core::measure::span("ui.colored_line");
         // No colors for a line of a very long line (and so no scan of it).
         if raw_len.is_some_and(|n| n >= matsu_coloring::SKIP_LINE_BYTES) {
             return ColoredLine {
@@ -201,6 +202,7 @@ impl EditorView {
         version: u64,
         cx: &mut Context<Self>,
     ) {
+        let _measure = matsu_core::measure::span("ui.colors_after_edit");
         let rules = self.prefs.settings.coloring.clone();
         let doc = self.document.read(cx).doc();
         if self.color_version + 1 != version {

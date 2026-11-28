@@ -11,6 +11,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Counters for docs/measurements/long-line-normal.md (src/measure.rs). No build of the workspace turns it on.
+[features]
+measure = []
+
 [dependencies]
 encoding_rs = "0.8"
 similar = { version = "3", default-features = false, features = ["std"] }
