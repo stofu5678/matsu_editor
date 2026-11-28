@@ -698,6 +698,7 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Prepaint {
+        let _measure = matsu_core::measure::span("ui.prepaint");
         let editor = self.editor.read(cx);
         let doc = editor.document.read(cx).doc();
         let layout = &editor.layout;
@@ -839,9 +840,12 @@ impl Element for EditorElement {
             .matcher()
             .filter(|_| search.mark() && shown_found > 0)
         {
-            Some(matcher) => highlight_ranges(layout, doc, &rows, &**matcher, &|text| {
-                slot_of(words.and_then(|w| w.word_slot(text)), shown_found)
-            }),
+            Some(matcher) => {
+                let _measure = matsu_core::measure::span("ui.search_highlight");
+                highlight_ranges(layout, doc, &rows, &**matcher, &|text| {
+                    slot_of(words.and_then(|w| w.word_slot(text)), shown_found)
+                })
+            }
             None => Vec::new(),
         }
         .into_iter();

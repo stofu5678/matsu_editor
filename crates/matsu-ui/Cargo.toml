@@ -11,6 +11,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Turns the counters of matsu-core on for the measuring test (src/view/long_line_measure.rs).
+[features]
+measure = ["matsu-core/measure", "matsu-layout/measure"]
+
 [dependencies]
 matsu-core = { path = "../matsu-core" }
 matsu-layout = { path = "../matsu-layout" }

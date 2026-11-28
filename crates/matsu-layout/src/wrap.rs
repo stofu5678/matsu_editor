@@ -92,6 +92,8 @@ fn is_word_byte(b: u8) -> bool {
 ///
 /// It allocates nothing but the growth of `rows`.
 pub fn layout_line(text: &str, has_eol: bool, cfg: &LayoutConfig, rows: &mut Vec<Row>) {
+    let mut measure = matsu_core::measure::span("layout.layout_line");
+    measure.bytes(text.len());
     rows.clear();
     let len = text.len();
     let max = cfg.max_x();

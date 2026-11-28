@@ -216,6 +216,7 @@ impl DocumentModel {
     }
 
     fn replace_inner(&mut self, from: Pos, to: Pos, text: &str, keep_lines: bool) -> Result<Edit> {
+        let _measure = crate::measure::span("core.model.replace_inner");
         let (from, to) = (self.doc.clamp_pos(from)?, self.doc.clamp_pos(to)?);
         if from == to && text.is_empty() {
             return Ok(Edit {

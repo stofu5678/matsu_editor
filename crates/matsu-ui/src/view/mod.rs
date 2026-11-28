@@ -1322,10 +1322,19 @@ impl Render for EditorView {
         if !self.step_tsv_stops(hscroll::WIDTH_BUDGET, cx) {
             window.request_animation_frame();
         }
-        self.advance_layout(window, cx);
+        {
+            let _measure = matsu_core::measure::span("ui.advance_layout");
+            self.advance_layout(window, cx);
+        }
         self.hold_frame_top(cx);
-        self.advance_text_width(window, cx);
-        self.advance_colors(window, cx);
+        {
+            let _measure = matsu_core::measure::span("ui.advance_text_width");
+            self.advance_text_width(window, cx);
+        }
+        {
+            let _measure = matsu_core::measure::span("ui.advance_colors");
+            self.advance_colors(window, cx);
+        }
         self.settle_caret(cx);
         let focused = self.focus_handle.is_focused(window);
         self.queue_scan_window_shift(focused, cx);
@@ -1458,6 +1467,8 @@ mod colors_tests;
 mod hscroll_tests;
 #[cfg(test)]
 mod huge_scroll_tests;
+#[cfg(test)]
+mod long_line_measure;
 #[cfg(test)]
 mod mouse_tests;
 #[cfg(test)]

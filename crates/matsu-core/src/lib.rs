@@ -13,6 +13,8 @@ pub mod exec;
 pub mod file;
 pub mod indent_style;
 pub mod jump_history;
+#[doc(hidden)]
+pub mod measure;
 pub mod model;
 pub mod modified;
 pub mod oneliner;

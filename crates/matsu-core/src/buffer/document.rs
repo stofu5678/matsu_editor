@@ -269,12 +269,14 @@ impl Document {
     /// line (see [`Document::is_long_line`]) the text is cut after about `max_bytes` bytes, so that
     /// a caller that looks at the characters near the caret does not decode the line. `None` if
     /// there is no such line. `col` should be at a character.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn rest_of_line(
         &self,
         i: usize,
         col: usize,
         max_bytes: usize,
     ) -> Result<Option<(String, Option<Eol>)>> {
+        let _measure = crate::measure::span_at("core.rest_of_line");
         if self.is_long_line(i) {
             let Some(slice) = self.line_slice(i, col, col.saturating_add(max_bytes))? else {
                 return Ok(None);
@@ -339,12 +341,14 @@ impl Document {
     /// The decoded text of line `i` from column `from_col` to column `to_col` (bytes of the
     /// decoded text, as in [`Pos`]), each cut back to the start of a character, or the end of the
     /// line. For a very long line this reads only that part. `None` if there is no such line.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn line_slice(
         &self,
         i: usize,
         from_col: usize,
         to_col: usize,
     ) -> Result<Option<LineSlice>> {
+        let _measure = crate::measure::span_at("core.line_slice");
         if i >= self.try_line_count()? {
             return Ok(None);
         }
@@ -539,6 +543,7 @@ impl Document {
     /// Walks the text `start..end` (document offsets) for `col` decoded bytes and returns the
     /// document offset there, rounded down to a character boundary.
     fn raw_for_col(&self, start: usize, end: usize, col: usize) -> Result<usize> {
+        let mut measure = crate::measure::span("core.raw_for_col");
         let mut remaining = col;
         let mut found = None;
         let mut scratch = String::new();
@@ -601,12 +606,14 @@ impl Document {
                             scratch.clear();
                             codec.decode(&bytes[i..i + n], &mut scratch);
                             if seen + scratch.len() > remaining {
+                                measure.bytes(i);
                                 found = Some(raw + off + i);
                                 return Ok(());
                             }
                             seen += scratch.len();
                             i += n;
                         }
+                        measure.bytes(i);
                         off += i;
                     }
                     remaining -= seen;
@@ -619,28 +626,34 @@ impl Document {
 
     /// The length of the decoded text of the document bytes `start..end`.
     fn decoded_len(&self, start: usize, end: usize) -> Result<usize> {
+        let mut measure = crate::measure::span("core.decoded_len");
         let mut total = 0;
         let mut scratch = String::new();
         tree::visit(&self.root, start, end, &mut |p, s, e, _| -> Result<()> {
             total += self.st.decoded_len(p.store, s, e, &mut scratch)?;
             Ok(())
         })?;
+        measure.bytes(total);
         Ok(total)
     }
 
     fn decode_range(&self, start: usize, end: usize) -> Result<String> {
+        let mut measure = crate::measure::span("core.decode_range");
         LARGEST_DECODE.with(|n| n.set(n.get().max(end.saturating_sub(start))));
         let mut out = String::new();
         tree::visit(&self.root, start, end, &mut |p, s, e, _| -> Result<()> {
             self.st.decode_into(p.store, s, e, &mut out)
         })?;
+        measure.bytes(out.len());
         Ok(out)
     }
 
     // ---- reading ----
 
     /// Line `i` (0-based), or `None` if there is no such line.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn line(&self, i: usize) -> Result<Option<Line>> {
+        let _measure = crate::measure::span_at("core.line");
         if i >= self.try_line_count()? {
             return Ok(None);
         }
@@ -685,7 +698,9 @@ impl Document {
     }
 
     /// The length in bytes of the text of line `i` (the largest `col` there), or `None`.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn line_len(&self, i: usize) -> Result<Option<usize>> {
+        let _measure = crate::measure::span_at("core.line_len");
         if i >= self.try_line_count()? {
             return Ok(None);
         }
@@ -705,7 +720,9 @@ impl Document {
 
     /// The text between two positions, with the line endings as they are in the document.
     /// The positions may be given in either order and are clamped.
+    #[cfg_attr(feature = "measure", track_caller)]
     pub fn text_between(&self, a: Pos, b: Pos) -> Result<String> {
+        let _measure = crate::measure::span_at("core.text_between");
         let (a, b) = (self.pos_to_raw(a)?, self.pos_to_raw(b)?);
         self.decode_range(a.min(b), a.max(b))
     }
@@ -783,6 +800,7 @@ impl Document {
 
     /// Replaces the text between two positions with `text`.
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
+        let _measure = crate::measure::span("core.replace");
         if self.read_only {
             return Err(BufferError::ReadOnly);
         }
@@ -798,8 +816,12 @@ impl Document {
         } else {
             Some(self.st.append_add(text)?)
         };
-        let (left, rest) = tree::split(&self.root, a, &self.st)?;
-        let (_, right) = tree::split(&rest, b - a, &self.st)?;
+        let (left, right) = {
+            let _measure = crate::measure::span("core.replace.split");
+            let (left, rest) = tree::split(&self.root, a, &self.st)?;
+            let (_, right) = tree::split(&rest, b - a, &self.st)?;
+            (left, right)
+        };
         let root = match added {
             None => tree::concat(left, right),
             Some((s, e)) => Some(match tree::last_piece(&left) {
@@ -825,6 +847,7 @@ impl Document {
             read_only: false,
             ranged: self.ranged,
         };
+        let _positions = crate::measure::span("core.replace.positions");
         let start = next.raw_to_pos(a)?;
         let end = if text.is_empty() {
             start
